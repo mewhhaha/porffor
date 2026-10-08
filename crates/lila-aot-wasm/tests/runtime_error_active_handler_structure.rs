@@ -72,7 +72,7 @@ fn strict_array_index_failure_and_internal_catch_remain_the_consumer_contract() 
         "pub(crate) fn emit_array_inherited_index_set_state(",
     );
     assert!(array_write.contains(
-        "self.emit_object_write_set_failure_else(\"Cannot assign to array index\", function)?;"
+        "self.emit_object_write_set_failure_else(\n            RuntimeErrorMessage::CANNOT_ASSIGN_TO_ARRAY_INDEX,\n            function,\n        )?;"
     ));
 
     assert!(FIXTURE_SOURCE.contains("function catchesStrictArrayIndexWriteInOwnBody(target)"));
@@ -134,7 +134,7 @@ fn strict_array_index_failure_and_internal_catch_remain_the_consumer_contract() 
         .find("self.emit_throw_runtime_error_to_active_handler(")
         .expect("the failed Set must route through the active handler");
     let message = put_value
-        .find("\"Cannot assign to property\",")
+        .find("RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY,")
         .expect("the failed Set publishes the message the fixture checks");
     assert!(failed_set < throw && throw < message);
     assert!(nested_finally.contains("caught.message === \"Cannot assign to property\""));

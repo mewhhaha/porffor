@@ -1,57 +1,13 @@
-# Reflect optional-argument presence
+# Reflect optional arguments use presence
 
-Status: implemented and focused structure-verified 2026-09-01 as a bounded
-T11 argument-presence correction.
+Source authored 2026-10-04 in the atomic T05 draft.
 
-## Scope
+The closed ReflectReceiverOperation selects receivers: omission copies the target; explicit Undefined retains that receiver. Construct validates its target first, then defaults only an omitted newTarget. An explicit Undefined newTarget fails IsConstructor before CreateListFromArrayLike reads length. Apply validates IsCallable before that list operation. The shared argument-list owner preserves ordered Gets, whole thrown values and element reference identity.
 
-The builtin ABI argument count is the sole authority for distinguishing an
-omitted argument from a present argument whose value is `undefined`. The
-shared emitter computes `argc > index`; the existing builtin argument loader
-delegates to it, and `Reflect.construct`, `Reflect.get` and `Reflect.set` are
-the three optional-argument consumers.
+The new aot_gc_reflect_entries controls cover target/newTarget admission before list reads and omitted versus explicit receivers. Existing semantic controls remain mandatory.
 
-`Reflect.construct` defaults `newTarget` to `target` only when argument index 2
-is absent. A present `undefined` continues to `IsConstructor` and throws.
-`Reflect.get` defaults receiver index 2, and `Reflect.set` defaults receiver
-index 3, only when the corresponding index is absent. An explicitly supplied
-`undefined` is preserved as the receiver.
-
-## Observable order
-
-`Reflect.get` and `Reflect.set` first validate the target, then complete
-`ToPropertyKey`, and only then apply their absence-based receiver default. The
-default cannot replace an explicitly supplied value. `Reflect.construct`
-loads the optional argument, validates `target`, applies the absence default,
-and then validates `newTarget`.
-
-## Focused evidence
-
-`wasm_reflect_optional_argument_presence.js` observes omitted and explicit
-`undefined` receivers through Proxy get and set traps, distinguishes ordinary
-Set mutation behavior, and proves that explicit `undefined` rejects before a
-construct trap while omission passes the exact Proxy as `newTarget`.
-
-`reflect_optional_argument_presence_structure` pins the one ABI authority,
-three consumers, property-key/default order, active CLI fixture, module guard,
-this contract and the T11 ledger entry.
-
-The write-phase marker `Verification pending` is retained here only as the
-historical status superseded by the measured checkpoint below.
-
-## Focused verification
-
-The contract's focused command set is:
-
-```sh
-cargo fmt --all -- --check
-git diff --check
-cargo test -p lila-aot-wasm --test reflect_optional_argument_presence_structure -- --test-threads=1
-cargo test -p lila-cli --test cli object::run_wasm_backend_distinguishes_omitted_reflect_optional_arguments -- --exact --test-threads=1
-./scripts/check-module-boundaries.sh
-```
-
-The structure target passes `5/5`. The exact CLI command in this block and
-`cargo check -p lila-aot-wasm` have no individually attributed result here;
-T11 owns the collective seven-CLI and shared-gate results. No broad compile,
-Test262 or published conformance result is claimed.
+The obsolete scalar source spelling guards are retired. All controls are unrun
+for this source; Rust types, Wasm validation, runtime and conformance proofs are
+null. Complete the all-task source batch before executable verification. Later
+checks require a confirmed 4096 MiB aggregate kernel cgroup cap, zero swap,
+grouped OOM termination, one CPU and serial workers.

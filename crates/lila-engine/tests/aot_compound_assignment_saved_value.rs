@@ -127,6 +127,40 @@ function checkConst(){
   return received===sentinel;
 }
 if(!checkConst())throw 'const write must follow coercion';
+// A compound assignment reads its Reference before the RHS. Plain assignment
+// has no such GetValue and therefore performs the RHS before its TDZ PutValue.
+let tdzRhsCalls=0,tdzErrors=0;
+function tdzRhs(){tdzRhsCalls++;return 2;}
+function tdzError(error){if(!(error instanceof ReferenceError))throw error;tdzErrors++;}
+try{value += tdzRhs();let value;}catch(error){tdzError(error);}
+try{value -= tdzRhs();const value=1;}catch(error){tdzError(error);}
+try{value *= tdzRhs();let value;}catch(error){tdzError(error);}
+try{value /= tdzRhs();const value=1;}catch(error){tdzError(error);}
+try{value %= tdzRhs();let value;}catch(error){tdzError(error);}
+try{value **= tdzRhs();const value=1;}catch(error){tdzError(error);}
+function capturedTdz(){
+  const mutate=()=>{value += tdzRhs();};
+  mutate();
+  let value;
+}
+try{capturedTdz();}catch(error){tdzError(error);}
+if(tdzErrors!==7 || tdzRhsCalls!==0)throw 'compound TDZ precedes RHS';
+try{value=tdzRhs();let value;}catch(error){tdzError(error);}
+if(tdzErrors!==8 || tdzRhsCalls!==1)throw 'plain assignment RHS precedes TDZ';
+
+// An initialized captured const still evaluates RHS and both coercions before
+// its immutable PutValue fails. The old value is acquired before that RHS.
+function initializedCapturedConst(){
+  'use strict';
+  let trace='';
+  const value={valueOf(){trace+='left;';return 8;}};
+  const mutate=()=>{value -= (trace+='rhs;', {valueOf(){trace+='right;';return 2;}});};
+  let caught;
+  try{mutate();}catch(error){caught=error;}
+  if(!(caught instanceof TypeError) || trace!=='rhs;left;right;')throw 'const operand order';
+}
+initializedCapturedConst();
+
 print(true);
 "#,
     );

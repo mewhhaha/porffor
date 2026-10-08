@@ -1,5 +1,13 @@
 # Map collection weak-key admission
 
+Current source — 2026-10-03: actual weak operations follow the
+[unavailable facility boundary](weak-unavailable-runtime-boundary.md). Active
+strong-retaining weak producers are retired. Installed intrinsic publication
+and earlier JavaScript validation remain observable; passive layout/edge rows
+are inventory only. Producer, valid-instance and verification descriptions
+below retain their earlier source scope and do not verify the current batch.
+Real weak reachability and semantic GC remain open; current controls are unexecuted.
+
 Status: implemented and focused-verified, 2026-08-27.
 
 ## Scope

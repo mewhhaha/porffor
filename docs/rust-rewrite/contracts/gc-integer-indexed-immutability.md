@@ -1,0 +1,13 @@
+# GC integer-indexed immutable properties
+
+Status: source-only atomic T05 successor, 2026-10-05. No compilation, runtime, tests, source guards or conformance refresh has run.
+
+The three actual typed-only property methods live in `objects/define_property/typed_array.rs`; the shared Set and descriptor dispatchers consume them. Central owns the exact parent extraction and the separate sparse Array changes. The Elements owner provides the sole closed immutable-buffer Boolean fact, also consumed by native throwing write admission. No second backing or descriptor authority is added.
+
+The [immutable ArrayBuffer proposal](https://tc39.es/proposal-immutable-arraybuffer/#sec-integer-indexed-exotic-objects-set-p-v-receiver) requires canonical-numeric-key Set to return false before receiver equality, index validity or value conversion when the backing is immutable. This includes negative zero, noninteger, NaN and out-of-range canonical keys. Source strictness and public Set owners translate the Boolean result. Noncanonical String and Symbol properties keep ordinary behavior. Mutable same-receiver writes still convert before testing current index validity; distinct invalid receivers succeed without definition or conversion.
+
+GetOwnProperty publishes valid immutable elements as enumerable, nonwritable and nonconfigurable complete descriptors. DefineOwnProperty rejects invalid indices first; a valid immutable element then consumes the existing stored-descriptor compatibility kernel. SameValue compares the original uncoerced incoming value, preserving NaN and signed zero. No numeric cast or write occurs. The mutable descriptor and late post-conversion element-write paths remain unchanged.
+
+Native Object/Reflect publication, inherited ordinary Set, integrity checks and Proxy invariants all consume that same completed descriptor. Four finite paired strict/sloppy Engine cohorts cover no-hook Set rejection, all twelve element kinds, compatible/incompatible descriptors, integrity prior effects, Proxy traps, foreign original throws and both defining-Realm native errors after public globals are poisoned. Map/Filter/Slice constructed species targets consume write admission before minimum checks and result loops, including empty results. The sole moved private validator serves these real consumers. Dead Subarray source/arguments APIs and their unused backing metadata retire; the complete NativeBinaryData Subarray read owner is byte-identical. The existing Map/Filter/Slice enum now directly owns its message policy rather than a duplicate private classifier.
+
+The exact current native Object GPD predecessor is retained as a join witness, not modified. All controls are authored and unrun; whole GC readiness remains false.

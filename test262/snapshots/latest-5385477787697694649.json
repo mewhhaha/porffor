@@ -30,12 +30,12 @@
     {
       "test_id": "strict-script:built-ins/Array/prototype/entries/resizable-buffer-shrink-mid-iteration.js",
       "path": "built-ins/Array/prototype/entries/resizable-buffer-shrink-mid-iteration.js",
-      "duration_ms": 15820
+      "duration_ms": 4409
     },
     {
       "test_id": "sloppy-script:built-ins/Array/prototype/entries/resizable-buffer-shrink-mid-iteration.js",
       "path": "built-ins/Array/prototype/entries/resizable-buffer-shrink-mid-iteration.js",
-      "duration_ms": 14516
+      "duration_ms": 4396
     }
   ],
   "timeout_test_ids": [],

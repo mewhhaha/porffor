@@ -1,11 +1,6 @@
-//! The shared observable loop for Array map/filter/every/some.
-//!
-//! These are generic Array methods, not TypedArray methods. ToObject and one
-//! LengthOfArrayLike precede callback validation; live HasProperty/Get own
-//! integer-indexed exotic checks. The closed kind controls only result policy.
-
+//! The observable Array map/filter/every/some loop. The length is captured
+//! once; each subsequent HasProperty and Get uses the live receiver.
 use super::*;
-
 #[derive(Clone, Copy)]
 pub(super) enum ArrayCallbackIterationKind {
     Map,
@@ -13,294 +8,154 @@ pub(super) enum ArrayCallbackIterationKind {
     Every,
     Some,
 }
-
 impl ArrayCallbackIterationKind {
-    const fn callback_error(self) -> &'static str {
+    const fn callback_error(self) -> RuntimeErrorMessage {
         match self {
-            Self::Map => "Array.prototype.map mapper is not callable",
-            Self::Filter => "Array.prototype.filter callback is not callable",
-            Self::Every => "Array.prototype.every callback is not callable",
-            Self::Some => "Array.prototype.some callback is not callable",
+            Self::Map => RuntimeErrorMessage::ARRAY_PROTOTYPE_MAP_MAPPER_IS_NOT_CALLABLE,
+            Self::Filter => RuntimeErrorMessage::ARRAY_PROTOTYPE_FILTER_CALLBACK_IS_NOT_CALLABLE,
+            Self::Every => RuntimeErrorMessage::ARRAY_PROTOTYPE_EVERY_CALLBACK_IS_NOT_CALLABLE,
+            Self::Some => RuntimeErrorMessage::ARRAY_PROTOTYPE_SOME_CALLBACK_IS_NOT_CALLABLE,
         }
     }
 }
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn compile_array_callback_iteration(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
         kind: ArrayCallbackIterationKind,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self
-            .this_payload_local
-            .ok_or_else(|| EmitError::unsupported("missing Array callback iteration receiver"))?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported("missing Array callback iteration receiver tag")
-        })?;
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-        let this_arg_payload_local = self.reserve_temp_local();
-        let this_arg_tag_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let length_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let number_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
-        let element_payload_local = self.reserve_temp_local();
-        let element_tag_local = self.reserve_temp_local();
-        let callback_result_payload_local = self.reserve_temp_local();
-        let callback_result_tag_local = self.reserve_temp_local();
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-        let target_index_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-
-        // The captured bound must survive callback validation, species effects,
-        // and every callback. Do not substitute private Array/TypedArray extent.
-        self.emit_array_like_length_snapshot(
-            receiver_payload_local,
-            receiver_tag_local,
-            key_local,
-            length_local,
-            length_tag_local,
-            function,
-        )?;
-        self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
-        self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            kind.callback_error(),
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_builtin_arg_to_locals(1, this_arg_payload_local, this_arg_tag_local, function);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        // This is a compiler-time choice: quantifiers emit no species operation
-        // or result allocation. Map preserves holes/length; filter packs values.
-        match kind {
-            ArrayCallbackIterationKind::Map => self.emit_array_species_create(
-                receiver_payload_local,
-                receiver_tag_local,
-                length_local,
-                target_payload_local,
-                target_tag_local,
-                function,
-            )?,
-            ArrayCallbackIterationKind::Filter => self.emit_array_species_create(
-                receiver_payload_local,
-                receiver_tag_local,
-                target_index_local,
-                target_payload_local,
-                target_tag_local,
-                function,
-            )?,
-            ArrayCallbackIterationKind::Every | ArrayCallbackIterationKind::Some => {}
-        }
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(number_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_index_to_flat_map_key_local(
-            index_local,
-            index_payload_local,
-            key_local,
-            function,
-        )?;
-        self.emit_object_has_property_i32(
-            receiver_payload_local,
-            receiver_tag_local,
-            key_local,
-            present_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(present_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_typed_array_or_object_index_read_from_locals(
-            receiver_payload_local,
-            receiver_tag_local,
-            index_local,
-            element_payload_local,
-            element_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            element_payload_local,
-            element_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[
-                (element_payload_local, element_tag_local),
-                (index_payload_local, number_tag_local),
-                (receiver_payload_local, receiver_tag_local),
-            ],
-            argc_local,
-            argv_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            callback_payload_local,
-            callback_tag_local,
-            this_arg_payload_local,
-            this_arg_tag_local,
-            argc_local,
-            argv_local,
-            callback_result_payload_local,
-            callback_result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            callback_result_payload_local,
-            callback_result_tag_local,
-            function,
-        )?;
+        let s = self.runtime_schema();
+        let receiver = s.reserve_value_local(f);
+        let callback = s.reserve_value_local(f);
+        let this_arg = s.reserve_value_local(f);
+        let element = s.reserve_value_local(f);
+        let index_value = s.reserve_value_local(f);
+        let target = s.reserve_value_local(f);
+        let answer = s.reserve_value_local(f);
+        let pending = s.reserve_completion(f);
+        let length = s.reserve_i64_local(f);
+        let index = s.reserve_i64_local(f);
+        let target_index = s.reserve_i64_local(f);
+        let present = s.reserve_i32_local(f);
+        let selected = s.reserve_i32_local(f);
+        self.compile_this_to_locals(&receiver, f)?;
+        self.emit_array_like_length_snapshot(&receiver, length, &pending, f)?;
+        self.emit_builtin_arg_to_value(0, &callback, f);
+        self.emit_is_callable_i32(&callback, f)?;
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_throw_current_function_realm_type_error(kind.callback_error(), &pending, f)?;
+        self.emit_array_native_propagate(&pending, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_builtin_arg_to_value(1, &this_arg, f);
+        f.instruction(&Instruction::I64Const(0));
+        target_index.store(f);
         match kind {
             ArrayCallbackIterationKind::Map => {
-                self.emit_index_to_flat_map_key_local(
-                    index_local,
-                    index_payload_local,
-                    key_local,
-                    function,
-                )?;
-                self.emit_array_target_create_data_property_or_throw(
-                    target_payload_local,
-                    target_tag_local,
-                    key_local,
-                    callback_result_payload_local,
-                    callback_result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion_if_throw(function);
+                self.emit_array_species_create(&receiver, length, &target, f)?
             }
             ArrayCallbackIterationKind::Filter => {
-                self.compile_truthy_tagged_i32(
-                    callback_result_tag_local,
-                    callback_result_payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_index_to_flat_map_key_local(
-                    target_index_local,
-                    index_payload_local,
-                    key_local,
-                    function,
-                )?;
-                // Filter keeps the value read before Call, not a second Get
-                // after a callback that may have changed/deleted the property.
-                self.emit_array_target_create_data_property_or_throw(
-                    target_payload_local,
-                    target_tag_local,
-                    key_local,
-                    element_payload_local,
-                    element_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(target_index_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(target_index_local));
-                function.instruction(&Instruction::End);
+                self.emit_array_species_create(&receiver, target_index, &target, f)?
             }
-            ArrayCallbackIterationKind::Every => {
-                self.compile_truthy_tagged_i32(
-                    callback_result_tag_local,
-                    callback_result_payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
+            ArrayCallbackIterationKind::Every | ArrayCallbackIterationKind::Some => {}
+        }
+        f.instruction(&Instruction::I64Const(0));
+        index.store(f);
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        let exhausted = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(exhausted, f);
+        self.emit_array_native_has_index(&receiver, index, present, f)?;
+        present.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_typed_array_or_object_index_read_from_locals(&receiver, index, &pending, f)?;
+        self.emit_array_native_propagate(&pending, f);
+        element.copy_from(pending.value(), f);
+        self.emit_array_native_number(index, &index_value, f);
+        let argv = self.emit_pre_evaluated_arg_vector(&[&element, &index_value, &receiver], f);
+        self.emit_function_or_proxy_call_with_argv(&callback, &this_arg, &argv, &pending, f)?;
+        argv.clear(f);
+        self.emit_array_native_propagate(&pending, f);
+        match kind {
+            ArrayCallbackIterationKind::Map => {
+                let key = self.emit_array_native_index_key(index, f)?;
+                element.copy_from(pending.value(), f);
+                self.emit_create_data_property_or_throw(&target, &key, &element, &pending, f)?;
+                key.clear(f);
+                self.emit_array_native_propagate(&pending, f);
             }
-            ArrayCallbackIterationKind::Some => {
-                self.compile_truthy_tagged_i32(
-                    callback_result_tag_local,
-                    callback_result_payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
+            ArrayCallbackIterationKind::Filter => {
+                self.compile_truthy_tagged_i32(pending.value(), f)?;
+                self.open_frame(ControlFrameKind::If, f);
+                let key = self.emit_array_native_index_key(target_index, f)?;
+                self.emit_create_data_property_or_throw(&target, &key, &element, &pending, f)?;
+                key.clear(f);
+                self.emit_array_native_propagate(&pending, f);
+                target_index.load(f);
+                f.instruction(&Instruction::I64Const(1));
+                f.instruction(&Instruction::I64Add);
+                target_index.store(f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+            }
+            ArrayCallbackIterationKind::Every | ArrayCallbackIterationKind::Some => {
+                self.compile_truthy_tagged_i32(pending.value(), f)?;
+                selected.store(f);
+                selected.load(f);
+                if matches!(kind, ArrayCallbackIterationKind::Every) {
+                    f.instruction(&Instruction::I32Eqz);
+                }
+                self.open_frame(ControlFrameKind::If, f);
+                answer.set_boolean(selected, f);
+                self.completion().set_normal(&answer, f);
+                self.emit_branch_to_target(exit, f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
             }
         }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        index.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        index.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
         match kind {
             ArrayCallbackIterationKind::Map | ArrayCallbackIterationKind::Filter => {
-                function.instruction(&Instruction::LocalGet(target_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(target_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.completion().set_normal(&target, f)
             }
             ArrayCallbackIterationKind::Every => {
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                answer.set_scalar(crate::gc_types::ScalarValue::Boolean(true), f);
+                self.completion().set_normal(&answer, f);
             }
             ArrayCallbackIterationKind::Some => {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                answer.set_scalar(crate::gc_types::ScalarValue::Boolean(false), f);
+                self.completion().set_normal(&answer, f);
             }
         }
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(target_index_local);
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
-        self.release_temp_local(callback_result_tag_local);
-        self.release_temp_local(callback_result_payload_local);
-        self.release_temp_local(element_tag_local);
-        self.release_temp_local(element_payload_local);
-        self.release_temp_local(present_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(number_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(length_tag_local);
-        self.release_temp_local(length_local);
-        self.release_temp_local(this_arg_tag_local);
-        self.release_temp_local(this_arg_payload_local);
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(callback_payload_local);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        s.release_i32_local(selected, f);
+        s.release_i32_local(present, f);
+        s.release_i64_local(target_index, f);
+        s.release_i64_local(index, f);
+        s.release_i64_local(length, f);
+        pending.clear(f);
+        answer.clear(f);
+        target.clear(f);
+        index_value.clear(f);
+        element.clear(f);
+        this_arg.clear(f);
+        callback.clear(f);
+        receiver.clear(f);
         Ok(())
     }
 }

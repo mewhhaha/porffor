@@ -1,9 +1,13 @@
 use std::collections::BTreeSet;
 
+#[path = "common/statement_awaits.rs"]
+mod statement_awaits;
+
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, AsyncResumeModeIr, ExprIr, FunctionIr, FunctionProtocolIr, KindSet,
-    OrdinaryPropertyAssignmentIr, PropertyKeyIr, StatementIr, Strictness, TypedExpr,
+    lower, AsyncResumeModeIr, EnvironmentIdentifierOperationIr, ExprIr, FunctionIr,
+    FunctionProtocolIr, IdentifierReferenceCaptureAccess, KindSet, OrdinaryPropertyAssignmentIr,
+    PropertyKeyIr, StatementIr, Strictness, TypedExpr,
 };
 
 fn lower_assignment(source: &str) -> FunctionIr {
@@ -24,6 +28,9 @@ fn flatten<'a>(statements: &'a [StatementIr], result: &mut Vec<&'a StatementIr>)
         match statement {
             StatementIr::LexicalBlock(statements) => flatten(statements, result),
             StatementIr::Block(block) => flatten(&block.statements, result),
+            StatementIr::EmptyStatementCompletion(item) => {
+                flatten(std::slice::from_ref(item.statement()), result)
+            }
             _ => result.push(statement),
         }
     }
@@ -34,6 +41,45 @@ fn identifier(value: &TypedExpr) -> &str {
         panic!("retained operand must read its activation binding: {value:?}");
     };
     name
+}
+
+// Retained operands can cross more than one private cell. Trace only earlier
+// definitions, stopping at the original read or the actual await result.
+fn operand_origin<'a>(statements: &[&'a StatementIr], mut name: &'a str) -> (usize, &'a TypedExpr) {
+    let mut before = statements.len();
+    let mut origin = None;
+    loop {
+        let definition =
+            statements[..before]
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(index, statement)| match statement {
+                    StatementIr::Lexical {
+                        name: binding,
+                        init,
+                        ..
+                    } if binding == name => Some((index, init, false)),
+                    StatementIr::AsyncAwait {
+                        value,
+                        resume_mode: AsyncResumeModeIr::AssignIdentifier(binding),
+                        ..
+                    } if binding == name => Some((index, value, true)),
+                    _ => None,
+                });
+        let Some((index, value, resumed)) = definition else {
+            return origin.expect("operand must have an earlier retained definition");
+        };
+        origin = Some((index, value));
+        if resumed {
+            return (index, value);
+        }
+        let ExprIr::Identifier(previous) = &value.expr else {
+            return (index, value);
+        };
+        name = previous;
+        before = index;
+    }
 }
 
 fn assignment<'a>(statements: &[&'a StatementIr]) -> &'a OrdinaryPropertyAssignmentIr {
@@ -87,19 +133,13 @@ fn awaited_rhs_keeps_raw_reference_operands_in_distinct_activation_slots() {
             .position(|statement| matches!(statement, StatementIr::AsyncAwait { .. }))
             .expect("the RHS must suspend");
         for (name, original) in names[..2].iter().zip(["target", "key"]) {
-            let position = statements
-                .iter()
-                .position(|statement| {
-                    matches!(statement,
-                    StatementIr::Lexical { name: binding, init, .. }
-                        if binding.as_str() == *name && identifier(init) == original)
-                })
-                .expect("base and raw key must be captured before the RHS");
+            let (position, value) = operand_origin(&statements, name);
+            assert_eq!(identifier(value), original);
             assert!(position < await_position);
         }
-        assert!(matches!(statements[await_position],
-            StatementIr::AsyncAwait { resume_mode: AsyncResumeModeIr::AssignIdentifier(name), .. }
-                if name == names[2]));
+        let (rhs_position, rhs) = operand_origin(&statements, names[2]);
+        assert_eq!(rhs_position, await_position);
+        assert_eq!(identifier(rhs), "rhs");
     }
 }
 
@@ -129,34 +169,32 @@ fn awaited_key_and_rhs_have_ordered_distinct_resume_boundaries() {
     assert_eq!(positions.len(), 2);
     assert_eq!((positions[0].1, positions[0].2), (0, 1));
     assert_eq!((positions[1].1, positions[1].2), (1, 2));
-    let retained_position = |operand: &TypedExpr| {
-        statements
-            .iter()
-            .position(|statement| {
-                matches!(statement,
-                StatementIr::Lexical { name, .. } if name == identifier(operand))
-            })
-            .expect("retained operand initialization")
-    };
-    assert!(retained_position(assignment.base_and_receiver()) < positions[0].0);
-    assert!(retained_position(key) > positions[0].0);
-    assert!(retained_position(key) < positions[1].0);
+    let (base_position, base) =
+        operand_origin(&statements, identifier(assignment.base_and_receiver()));
+    assert_eq!(identifier(base), "target");
+    assert!(base_position < positions[0].0);
+    let (key_position, key_source) = operand_origin(&statements, identifier(key));
+    assert_eq!(key_position, positions[0].0);
+    assert_eq!(identifier(key_source), "key");
+    let (rhs_position, rhs_source) = operand_origin(&statements, identifier(assignment.rhs()));
+    assert_eq!(rhs_position, positions[1].0);
+    assert_eq!(identifier(rhs_source), "rhs");
 }
 
 #[test]
-fn conditional_property_assignment_awaits_are_refused_before_prefix_hoisting() {
-    for expression in [
-        "target.value = flag && await rhs",
-        "flag && (target.value = await rhs)",
-        "consume(flag ? (target.value = await rhs) : 0)",
+fn compound_property_assignment_awaits_retain_complete_selected_continuations() {
+    for (expression, awaits) in [
+        ("target.value = (missing &&= await rhs)", 1),
+        ("target[await 0] &&= (target.value = await rhs)", 2),
+        (
+            "consume(flag ? (target.value = (missing ||= await rhs)) : 0)",
+            1,
+        ),
     ] {
         let source =
             format!("async function assign(target, flag, rhs, consume) {{ {expression}; }}");
-        let unit = parse(&source, ParseOptions::script()).expect("conditional fixture parses");
-        let program = lower(&unit);
-        assert!(!program.is_wasm_supported(), "{source}");
-        assert!(format!("{:?}", program.diagnostics)
-            .contains("conditionally reached or mixed suspension in async property assignment"));
+        let function = lower_assignment(&source);
+        statement_awaits::assert_count(&function, awaits);
     }
     let function = lower_assignment(
         "async function assign(target, rhs) { null?.method(target.value = await rhs); }",
@@ -169,13 +207,51 @@ fn conditional_property_assignment_awaits_are_refused_before_prefix_hoisting() {
 }
 
 #[test]
-fn direct_identifier_await_assignment_keeps_its_existing_resume_mode() {
+fn direct_identifier_await_assignment_puts_the_original_write_only_reference_after_resume() {
     let function = lower_assignment("async function assign(target, rhs) { target = await rhs; }");
     let mut statements = Vec::new();
     flatten(&function.body.statements, &mut statements);
-    assert!(matches!(statements.as_slice(),
-        [StatementIr::AsyncAwait { resume_mode: AsyncResumeModeIr::AssignIdentifier(name), .. }]
-            if name == "target"));
+    let (capture_position, capture) = statements
+        .iter()
+        .enumerate()
+        .find_map(|(position, statement)| {
+            let StatementIr::Expression(TypedExpr {
+                expr: ExprIr::EnvironmentIdentifier(identifier),
+                ..
+            }) = statement
+            else {
+                return None;
+            };
+            let EnvironmentIdentifierOperationIr::CaptureAssignmentReference { capture } =
+                &identifier.operation
+            else {
+                return None;
+            };
+            assert_eq!(identifier.name, "target");
+            Some((position, capture))
+        })
+        .expect("locate the original Reference before evaluating the RHS");
+    assert_eq!(
+        capture.access(),
+        IdentifierReferenceCaptureAccess::WriteOnly
+    );
+    let (await_position, resumed) = statements
+        .iter()
+        .enumerate()
+        .find_map(|(position, statement)| match statement {
+            StatementIr::AsyncAwait {
+                resume_mode: AsyncResumeModeIr::AssignIdentifier(name),
+                ..
+            } => Some((position, name)),
+            _ => None,
+        })
+        .expect("RHS suspension");
+    let put_position = statements.iter().position(|statement| {
+        matches!(statement, StatementIr::Expression(TypedExpr { expr: ExprIr::EnvironmentIdentifier(identifier), .. })
+            if matches!(&identifier.operation, EnvironmentIdentifierOperationIr::PutCapturedReference { reference, value }
+                if reference == capture.reference() && matches!(&value.expr, ExprIr::Identifier(name) if name == resumed)))
+    }).expect("PutValue consumes the same captured Reference and resumed value");
+    assert!(capture_position < await_position && await_position < put_position);
 }
 
 #[test]

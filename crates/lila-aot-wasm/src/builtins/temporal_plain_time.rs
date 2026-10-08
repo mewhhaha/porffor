@@ -9,8 +9,11 @@
 //! and `emit_temporal_plain_time_from_nanoseconds` are the two functions to
 //! read first.
 
+use crate::gc_types::*;
+
 use super::super::*;
 use super::temporal_options::{TemporalOverflow, TemporalTimeUnit, TemporalUnit};
+use crate::intrinsics::temporal::{TemporalIntrinsicFamily, TemporalPrototypeSource};
 
 impl TemporalTimeUnit {
     const fn plain_time_field_index(self) -> usize {
@@ -21,17 +24,6 @@ impl TemporalTimeUnit {
             Self::Millisecond => 3,
             Self::Microsecond => 4,
             Self::Nanosecond => 5,
-        }
-    }
-
-    const fn plain_time_record_offset(self) -> u64 {
-        match self {
-            Self::Hour => HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET,
-            Self::Minute => HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET,
-            Self::Second => HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET,
-            Self::Millisecond => HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET,
-            Self::Microsecond => HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET,
-            Self::Nanosecond => HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET,
         }
     }
 
@@ -65,102 +57,86 @@ pub(crate) const NANOSECONDS_PER_TEMPORAL_DAY: i64 = match TemporalUnit::Day.nan
 };
 
 impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn reserve_temporal_plain_time_field_locals(&mut self) -> [u32; 6] {
-        let mut locals = [0_u32; 6];
-        for slot in locals.iter_mut() {
-            *slot = self.reserve_temp_local();
-        }
-        locals
+    pub(crate) fn reserve_temporal_plain_time_field_locals(
+        &self,
+        function: &mut Function,
+    ) -> [I64Local; 6] {
+        std::array::from_fn(|_| self.runtime_schema().reserve_i64_local(function))
     }
 
-    pub(crate) fn release_temporal_plain_time_field_locals(&mut self, locals: [u32; 6]) {
-        for local in locals.iter().rev() {
-            self.release_temp_local(*local);
+    pub(crate) fn release_temporal_plain_time_field_locals(
+        &self,
+        fields: [I64Local; 6],
+        function: &mut Function,
+    ) {
+        for field in fields.into_iter().rev() {
+            self.runtime_schema().release_i64_local(field, function);
         }
     }
 
     pub(crate) fn emit_alloc_temporal_plain_time(
         &mut self,
-        field_locals: &[u32; 6],
-        prototype_payload_local: Option<u32>,
+        fields: &[I64Local; 6],
+        prototype: TemporalPrototypeSource<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_payload_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let prototype_local = match prototype_payload_local {
-            Some(local) => local,
-            None => {
-                let local = self.reserve_temp_local();
-                function.instruction(&Instruction::GlobalGet(
-                    TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX,
-                ));
-                function.instruction(&Instruction::LocalSet(local));
-                local
-            }
-        };
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_payload_local));
-        self.emit_heap_alloc_const(HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        for unit in TemporalTimeUnit::ALL {
-            self.store_i64_local_at_offset(
-                record_local,
-                unit.plain_time_record_offset(),
-                field_locals[unit.plain_time_field_index()],
+        let schema = self.runtime_schema();
+        let scalars: [I32Local; 6] = std::array::from_fn(|index| {
+            let local = schema.reserve_i32_local(function);
+            fields[index].load(function);
+            function.instruction(&Instruction::I32WrapI64);
+            local.store(function);
+            local
+        });
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_temporal_object_header(
+                TemporalIntrinsicFamily::PlainTime,
+                prototype,
                 function,
-            );
-        }
-        self.store_i64_const_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME,
+            )?,
             function,
         );
-        self.store_i64_local_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
+        let record = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<TemporalPlainTimeObject>().construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::i32_local(scalars[0]),
+                    GcOperand::i32_local(scalars[1]),
+                    GcOperand::i32_local(scalars[2]),
+                    GcOperand::i32_local(scalars[3]),
+                    GcOperand::i32_local(scalars[4]),
+                    GcOperand::i32_local(scalars[5]),
+                ),
+                function,
+            ),
             function,
         );
-        function.instruction(&Instruction::LocalGet(object_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        if prototype_payload_local.is_none() {
-            self.release_temp_local(prototype_local);
+        self.completion()
+            .value()
+            .set_reference(&record, schema, function);
+        self.completion()
+            .set_normal(self.completion().value(), function);
+        record.clear(function);
+        header.clear(function);
+        for scalar in scalars.into_iter().rev() {
+            schema.release_i32_local(scalar, function);
         }
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_payload_local);
         Ok(())
     }
 
     /// Leaves an `i32` on the stack: 1 when the value carries
     /// `[[InitializedTemporalTime]]`.
     pub(crate) fn emit_temporal_plain_time_brand_check_i32(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        brand_local: u32,
+        &self,
+        input: &ValueLocals,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(brand_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME as i64,
+        input.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            self.runtime_schema()
+                .reference_type::<TemporalPlainTimeObject>(GcNullability::NonNullable)
+                .heap_type,
         ));
-        function.instruction(&Instruction::I64Eq);
     }
 
     /// The `[[InitializedTemporalTime]]` brand check on `this`, leaving the six
@@ -168,89 +144,69 @@ impl<'a> FunctionBuilder<'a> {
     /// the fields as live afterwards.
     pub(crate) fn emit_temporal_plain_time_fields_from_receiver(
         &mut self,
-        field_locals: &[u32; 6],
+        fields: &[I64Local; 6],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        self.emit_temporal_plain_time_brand_check_i32(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainTime receiver does not have [[InitializedTemporalTime]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.emit_temporal_plain_time_load_record(record_local, field_locals, function);
-
-        for local in [
-            record_local,
-            receiver_brand_local,
-            receiver_tag_local,
-            receiver_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        let record =
+            self.emit_temporal_record_from_receiver::<TemporalPlainTimeObject>(function)?;
+        self.emit_temporal_plain_time_load_record(&record, fields, function);
+        record.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_plain_time_load_record(
-        &mut self,
-        record_local: u32,
-        field_locals: &[u32; 6],
+        &self,
+        record: &GcLocal<TemporalPlainTimeObject>,
+        fields: &[I64Local; 6],
         function: &mut Function,
     ) {
-        for unit in TemporalTimeUnit::ALL {
-            self.load_i64_to_local_from_offset(
-                record_local,
-                unit.plain_time_record_offset(),
-                field_locals[unit.plain_time_field_index()],
-                function,
-            );
+        let schema = self.runtime_schema();
+        let value = schema.reserve_i32_local(function);
+        for (field, output) in [
+            TemporalPlainTimeObjectSchema::HOUR,
+            TemporalPlainTimeObjectSchema::MINUTE,
+            TemporalPlainTimeObjectSchema::SECOND,
+            TemporalPlainTimeObjectSchema::MILLISECOND,
+            TemporalPlainTimeObjectSchema::MICROSECOND,
+            TemporalPlainTimeObjectSchema::NANOSECOND,
+        ]
+        .into_iter()
+        .zip(fields)
+        {
+            schema
+                .struct_type::<TemporalPlainTimeObject>()
+                .field(field)
+                .read(record, schema, function)
+                .store(value, function);
+            value.load(function);
+            function.instruction(&Instruction::I64ExtendI32S);
+            output.store(function);
         }
+        schema.release_i32_local(value, function);
     }
 
     /// `RejectTime`: every field must already be in range.
     pub(crate) fn emit_temporal_reject_time(
         &mut self,
-        field_locals: &[u32; 6],
+        field_locals: &[I64Local; 6],
         function: &mut Function,
     ) -> Result<(), EmitError> {
         for unit in TemporalTimeUnit::ALL {
             let field_local = field_locals[unit.plain_time_field_index()];
-            function.instruction(&Instruction::LocalGet(field_local));
+            (field_local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::LocalGet(field_local));
+            (field_local).load(function);
             function.instruction(&Instruction::I64Const(unit.plain_time_field_maximum()));
             function.instruction(&Instruction::I64GtS);
             function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.PlainTime field is out of range",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::TEMPORAL_PLAINTIME_FIELD_IS_OUT_OF_RANGE,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
         Ok(())
@@ -259,33 +215,36 @@ impl<'a> FunctionBuilder<'a> {
     /// `RegulateTime`: clamp under `constrain`, throw under `reject`.
     pub(crate) fn emit_temporal_regulate_time(
         &mut self,
-        field_locals: &[u32; 6],
-        overflow_local: u32,
+        field_locals: &[I64Local; 6],
+        overflow_local: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(overflow_local));
+        (overflow_local).load(function);
         function.instruction(&Instruction::I64Const(TemporalOverflow::Reject.code()));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_temporal_reject_time(field_locals, function)?;
         function.instruction(&Instruction::Else);
         for unit in TemporalTimeUnit::ALL {
             let field_local = field_locals[unit.plain_time_field_index()];
-            function.instruction(&Instruction::LocalGet(field_local));
+            (field_local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(field_local));
+            (field_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(field_local));
+            (field_local).load(function);
             function.instruction(&Instruction::I64Const(unit.plain_time_field_maximum()));
             function.instruction(&Instruction::I64GtS);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(unit.plain_time_field_maximum()));
-            function.instruction(&Instruction::LocalSet(field_local));
+            (field_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -294,19 +253,19 @@ impl<'a> FunctionBuilder<'a> {
     /// stays under `86400 x 10^9` and never comes near the `i64` ceiling.
     pub(crate) fn emit_temporal_plain_time_total_nanoseconds(
         &mut self,
-        field_locals: &[u32; 6],
-        output_local: u32,
+        field_locals: &[I64Local; 6],
+        output_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
         for unit in TemporalTimeUnit::ALL {
             let field_local = field_locals[unit.plain_time_field_index()];
-            function.instruction(&Instruction::LocalGet(field_local));
+            (field_local).load(function);
             function.instruction(&Instruction::I64Const(unit.nanoseconds()));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
         }
-        function.instruction(&Instruction::LocalSet(output_local));
+        (output_local).store(function);
     }
 
     /// `BalanceTime` on a nanosecond-of-day scalar that may have run off either
@@ -314,26 +273,27 @@ impl<'a> FunctionBuilder<'a> {
     /// date to carry into.
     pub(crate) fn emit_temporal_plain_time_from_nanoseconds(
         &mut self,
-        nanoseconds_local: u32,
-        field_locals: &[u32; 6],
+        nanoseconds_local: I64Local,
+        field_locals: &[I64Local; 6],
         function: &mut Function,
     ) {
-        let remaining_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(nanoseconds_local));
+        let remaining_local = self.runtime_schema().reserve_i64_local(function);
+        (nanoseconds_local).load(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
         function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(remaining_local));
+        (remaining_local).store(function);
         // `I64RemS` truncates toward zero, so a negative input leaves a
         // negative remainder; one day restores the floor semantics wrapping
         // needs.
-        function.instruction(&Instruction::LocalGet(remaining_local));
+        (remaining_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(remaining_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (remaining_local).load(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(remaining_local));
+        (remaining_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         for (index, divisor) in [
             (5_usize, 1_000_i64),
@@ -342,55 +302,57 @@ impl<'a> FunctionBuilder<'a> {
             (2, 60),
             (1, 60),
         ] {
-            function.instruction(&Instruction::LocalGet(remaining_local));
+            (remaining_local).load(function);
             function.instruction(&Instruction::I64Const(divisor));
             function.instruction(&Instruction::I64RemS);
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
-            function.instruction(&Instruction::LocalGet(remaining_local));
+            (field_locals[index]).store(function);
+            (remaining_local).load(function);
             function.instruction(&Instruction::I64Const(divisor));
             function.instruction(&Instruction::I64DivS);
-            function.instruction(&Instruction::LocalSet(remaining_local));
+            (remaining_local).store(function);
         }
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::LocalSet(field_locals[0]));
-        self.release_temp_local(remaining_local);
+        (remaining_local).load(function);
+        (field_locals[0]).store(function);
+        self.runtime_schema()
+            .release_i64_local(remaining_local, function);
     }
 
     /// Round a signed nanosecond count to a whole number of `quantum_local`
     /// nanoseconds, reusing the Duration rounding-mode decision table.
     pub(crate) fn emit_temporal_plain_time_round_nanoseconds(
         &mut self,
-        nanoseconds_local: u32,
-        quantum_local: u32,
-        mode_local: u32,
+        nanoseconds_local: I64Local,
+        quantum_local: I64Local,
+        mode_local: I64Local,
         function: &mut Function,
     ) {
-        let sign_local = self.reserve_temp_local();
-        let magnitude_local = self.reserve_temp_local();
-        let quotient_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
+        let sign_local = self.runtime_schema().reserve_i64_local(function);
+        let magnitude_local = self.runtime_schema().reserve_i64_local(function);
+        let quotient_local = self.runtime_schema().reserve_i64_local(function);
+        let remainder_local = self.runtime_schema().reserve_i64_local(function);
 
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_local));
+        (sign_local).store(function);
+        (nanoseconds_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(sign_local));
+        (sign_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(nanoseconds_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
+        (nanoseconds_local).load(function);
+        (sign_local).load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(magnitude_local));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::LocalGet(quantum_local));
+        (magnitude_local).store(function);
+        (magnitude_local).load(function);
+        (quantum_local).load(function);
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::LocalGet(quantum_local));
+        (quotient_local).store(function);
+        (magnitude_local).load(function);
+        (quantum_local).load(function);
         function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(remainder_local));
+        (remainder_local).store(function);
         self.emit_temporal_duration_round_up_i32(
             remainder_local,
             quantum_local,
@@ -400,20 +362,20 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(quotient_local));
+        (quotient_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(quotient_local));
+        (quotient_local).load(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(quantum_local));
+        (quantum_local).load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(sign_local));
+        (sign_local).load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(nanoseconds_local));
+        (nanoseconds_local).store(function);
 
         for local in [remainder_local, quotient_local, magnitude_local, sign_local] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
     }
 
@@ -425,77 +387,42 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-        let field_locals = self.reserve_temporal_plain_time_field_locals();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
+        self.emit_temporal_require_construct_call(
+            RuntimeErrorMessage::TEMPORAL_PLAINTIME_CONSTRUCTOR_REQUIRES_NEW,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainTime constructor requires new",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        for index in 0..6_usize {
-            self.emit_builtin_arg_to_locals(
-                index,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(argument_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(function);
+        let fields = self.reserve_temporal_plain_time_field_locals(function);
+        for (index, field) in fields.into_iter().enumerate() {
+            self.emit_builtin_arg_to_value(index, &input, function);
+            input.tag().load(function);
+            function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+            function.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
+            field.store(function);
             function.instruction(&Instruction::Else);
             self.emit_temporal_to_integer_with_truncation(
-                argument_payload_local,
-                argument_tag_local,
-                field_locals[index],
-                "Temporal.PlainTime field must be an integer",
+                &input,
+                field,
+                RuntimeErrorMessage::TEMPORAL_PLAINTIME_FIELD_MUST_BE_AN_INTEGER,
                 function,
             )?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        self.emit_temporal_reject_time(&field_locals, function)?;
-        self.emit_error_new_target_prototype_to_local(
-            TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX,
-            None,
-            prototype_payload_local,
-            function,
-        )?;
+        self.emit_temporal_reject_time(&fields, function)?;
+        let prototype =
+            self.emit_temporal_constructor_prototype(TemporalIntrinsicFamily::PlainTime, function)?;
         self.emit_alloc_temporal_plain_time(
-            &field_locals,
-            Some(prototype_payload_local),
+            &fields,
+            TemporalPrototypeSource::Constructor(&prototype),
             function,
         )?;
-
-        self.release_temporal_plain_time_field_locals(field_locals);
-        for local in [
-            new_target_tag_local,
-            new_target_payload_local,
-            prototype_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        prototype.release(function);
+        input.clear(function);
+        self.release_temporal_plain_time_field_locals(fields, function);
         Ok(())
     }
 
@@ -506,17 +433,13 @@ impl<'a> FunctionBuilder<'a> {
         unit: TemporalTimeUnit,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let field_locals = self.reserve_temporal_plain_time_field_locals();
-        self.emit_temporal_plain_time_fields_from_receiver(&field_locals, function)?;
-        function.instruction(&Instruction::LocalGet(
-            field_locals[unit.plain_time_field_index()],
-        ));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temporal_plain_time_field_locals(field_locals);
+        let fields = self.reserve_temporal_plain_time_field_locals(function);
+        let output = self.runtime_schema().reserve_value_local(function);
+        self.emit_temporal_plain_time_fields_from_receiver(&fields, function)?;
+        self.emit_temporal_integer_number(fields[unit.plain_time_field_index()], &output, function);
+        self.completion().set_normal(&output, function);
+        output.clear(function);
+        self.release_temporal_plain_time_field_locals(fields, function);
         Ok(())
     }
 
@@ -527,13 +450,6 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainTime does not support implicit conversion; use compare() or equals()",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        Ok(())
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::TypeError, RuntimeErrorMessage::TEMPORAL_PLAINTIME_DOES_NOT_SUPPORT_IMPLICIT_CONVERSION_USE_COMPARE_OR_EQUALS, function)
     }
 }

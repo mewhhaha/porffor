@@ -3,7 +3,7 @@
 The name provider uses CLDR 47.0.0 at commit
 `2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`. Every upstream file URL, byte
 length and SHA-256 is recorded in `manifest.json`; the Unicode license is
-retained in `LICENSE`. The supported DateTimeFormat locale inventory is `en`
+retained in `LICENSE`. The standalone time-zone-name locale inventory is `en`
 and `en-US`, with field inheritance through `root` → `en` → `en_US`. The host
 accepts these bases and the formatter's resolved `ca`, `hc` and `nu` Unicode
 keys. Other name locales return `UnsupportedNameLocale`.
@@ -15,7 +15,7 @@ never read. Its source provenance and license are retained beside it. Accepted
 identifiers, country-preserving primary identity, offsets, DST variants and
 transition-window proofs belong to the independent IANA2026a provider.
 
-The generated tables contain 600 CLDR aliases, 446 canonical zones, 190
+The admitted native JSON contains 600 CLDR aliases, 446 canonical zones, 190
 referenced metazones, and 669 half-open UTC metazone periods. An absent start
 or end is unbounded. Gaps stay gaps. Metadata selection uses the input's exact
 UTC second and cannot confuse repeated wall times or clamp to ICU convenience
@@ -45,18 +45,31 @@ the complete ±23:59 fixed-offset domain. Returned digits are Latin skeletons;
 the AOT formatter substitutes its selected numbering system once. Named UTC
 keeps its direct UTC names, while fixed zero uses GMT offset names.
 
-Regenerate and verify without network access:
+`TimeZoneNamesDataImage` owns the complete native rows and retains the selected
+`NamedTimeZoneDataImage` foundation. Its `ResolveTimeZone` consumer selects the
+actual IANA transition before rendering from the admitted CLDR names. The image
+checks the exact pinned JSON, selected profile and actual IANA owner;
+independently decoded owners with identical digests cannot substitute at
+provider publication. The historical Rust tables and `generated-report.json`
+remain byte-identical data evidence and no longer supply runtime formatting.
+
+Refresh the native source carrier and verify without network access, using the
+existing process-tree memory and CPU cap:
 
 ```sh
-python3 scripts/generate-intl-time-zone-names.py --report crates/lila-intl/data/zone-names-cldr-47/generated-report.json
-python3 scripts/generate-intl-time-zone-names.py --check --report crates/lila-intl/data/zone-names-cldr-47/generated-report.json
-python3 -m unittest discover -s scripts/tests -p test_generate_intl_time_zone_names.py
-cargo test --locked -p lila-intl --lib time_zone_names
+python3 scripts/limited_verification.py -- python3 scripts/generate-intl-time-zone-names.py --native-image
+python3 scripts/limited_verification.py -- python3 scripts/generate-intl-time-zone-names.py --native-image --check
+python3 scripts/limited_verification.py -- python3 -m unittest discover -s scripts/tests -p test_generate_intl_time_zone_names.py
+python3 scripts/limited_verification.py -- cargo test --locked -p lila-intl --lib time_zone_names
 ```
 
 The generator rejects mismatched source hashes, unsupported pattern changes,
 overlapping periods, missing golden/reverse mappings, unresolved locale aliases
-and inconsistent country arrays. `generated-report.json` records normalized
-row and output hashes and sizes. The provider digest covers the source manifest,
-normalized rows, the generator and `selector.json`; the outer Intl provider
-includes this digest together with its locale and IANA data identities.
+and inconsistent country arrays. `native-profile-manifest.json` records the
+complete normalized-row identity, pinned payload hash and size, source manifest
+and current producer. Its normalized rows and primary inputs agree with the
+retained historical report. Runtime image digests bind the actual framed bytes;
+the IANA source recipe also captures the real names/image consumer and native
+payload alongside transition and country owners. Source metadata refresh must
+not rewrite the historical Rust tables or their report. Compilation and runtime
+controls remain part of the later complete-batch verification ladder.

@@ -1,7 +1,9 @@
 use super::*;
 
-fn profiles() -> &'static NumberProfiles {
-    embedded_number_profiles().unwrap()
+fn profiles() -> &'static std::sync::Arc<NumberProfiles> {
+    crate::number_image::embedded_number_profiles_data_image_ref()
+        .unwrap()
+        .profiles_arc_ref()
 }
 fn locale_request() -> NumberLocaleRequest {
     NumberLocaleRequest {

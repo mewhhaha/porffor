@@ -1,5 +1,9 @@
-use super::super::*;
+//! Symbol identities and the Agent registry are strong GC records.
 
+use super::super::*;
+use crate::gc_types::*;
+
+#[derive(Clone, Copy)]
 enum SymbolBuiltin {
     Constructor,
     For,
@@ -10,172 +14,86 @@ enum SymbolBuiltin {
     PrototypeToPrimitive,
 }
 
+#[derive(Clone, Copy)]
 enum SymbolReceiverOperation {
     Description,
     ToString,
     ValueOf,
     ToPrimitive,
 }
-
 impl SymbolReceiverOperation {
-    const fn receiver_error_message(self) -> &'static str {
+    const fn receiver_error_message(self) -> RuntimeErrorMessage {
         match self {
-            Self::Description => "Symbol.prototype.description requires that 'this' be a Symbol",
-            Self::ToString => "Symbol.prototype.toString requires that 'this' be a Symbol",
-            Self::ValueOf => "Symbol.prototype.valueOf requires that 'this' be a Symbol",
-            Self::ToPrimitive => {
-                "Symbol.prototype[Symbol.toPrimitive] requires that 'this' be a Symbol"
-            }
-        }
+        Self::Description => RuntimeErrorMessage::SYMBOL_PROTOTYPE_DESCRIPTION_REQUIRES_THAT_THIS_BE_A_SYMBOL,
+        Self::ToString => RuntimeErrorMessage::SYMBOL_PROTOTYPE_TOSTRING_REQUIRES_THAT_THIS_BE_A_SYMBOL,
+        Self::ValueOf => RuntimeErrorMessage::SYMBOL_PROTOTYPE_VALUEOF_REQUIRES_THAT_THIS_BE_A_SYMBOL,
+        Self::ToPrimitive => RuntimeErrorMessage::SYMBOL_PROTOTYPE_SYMBOL_TOPRIMITIVE_REQUIRES_THAT_THIS_BE_A_SYMBOL,
+    }
     }
 }
 
-impl<'a> FunctionBuilder<'a> {
-    /// thisSymbolValue(value): resolves the receiver of a `Symbol.prototype`
-    /// method to the underlying Symbol payload, accepting both Symbol
-    /// primitives and Symbol wrapper objects ([[SymbolData]] boxed
-    /// objects); throws a TypeError (and returns the current completion)
-    /// for anything else.
-    fn emit_this_symbol_value_to_local(
+impl FunctionBuilder<'_> {
+    /// thisSymbolValue accepts a primitive or the actual PrimitiveBox brand;
+    /// a Proxy or a different primitive box never impersonates [[SymbolData]].
+    fn emit_this_symbol_value(
         &mut self,
-        receiver_payload_local: u32,
-        receiver_tag_local: u32,
-        symbol_local: u32,
+        receiver: &ValueLocals,
         operation: SymbolReceiverOperation,
+        result: &CompletionLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let error_message = operation.receiver_error_message();
-        let boxed_kind_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(receiver_payload_local));
-        function.instruction(&Instruction::LocalSet(symbol_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            boxed_kind_local,
+    ) -> Result<GcLocal<SymbolValue, Nullable>, EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        value.copy_from(receiver, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<PrimitiveBox>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let boxed = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<PrimitiveBox>(schema, function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(boxed_kind_local));
-        function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_SYMBOL as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            symbol_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrimitiveBox>()
+                .field(PrimitiveBoxSchema::PRIMITIVE)
+                .read(&boxed, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &value, schema, function);
+        stored.clear(function);
+        boxed.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let symbol = schema
+            .reserve_gc_local::<SymbolValue, Nullable>(function)
+            .initialize_null(schema, function);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Symbol as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        symbol.replace(
+            value
+                .cast_reference::<SymbolValue>(schema, function)
+                .nullable(),
             function,
         );
         function.instruction(&Instruction::Else);
         self.emit_throw_current_function_realm_type_error(
-            error_message,
-            self.result_local,
-            self.result_tag_local,
+            operation.receiver_error_message(),
+            result,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(boxed_kind_local);
-        Ok(())
-    }
-
-    /// Reads a Symbol payload's `[[Description]]`: heap `Symbol(desc)`
-    /// records (small handle, high 32 bits zero) store it in the record;
-    /// well-known/registered symbols carry an interned string payload whose
-    /// description is that string itself.
-    pub(crate) fn emit_symbol_description_to_locals(
-        &mut self,
-        symbol_local: u32,
-        desc_payload_local: u32,
-        desc_tag_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(symbol_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            symbol_local,
-            HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
-            desc_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            symbol_local,
-            HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
-            desc_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(symbol_local));
-        function.instruction(&Instruction::LocalSet(desc_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(desc_tag_local));
-        function.instruction(&Instruction::End);
-    }
-
-    /// SymbolDescriptiveString(sym): builds `"Symbol(" + desc + ")"`, where
-    /// `desc` is the empty string when `[[Description]]` is undefined.
-    pub(super) fn emit_symbol_descriptive_string_to_local(
-        &mut self,
-        symbol_local: u32,
-        result_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let desc_payload_local = self.reserve_temp_local();
-        let desc_tag_local = self.reserve_temp_local();
-        self.emit_symbol_description_to_locals(
-            symbol_local,
-            desc_payload_local,
-            desc_tag_local,
-            function,
-        );
-        let desc_string_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(desc_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(desc_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(desc_string_local));
-
-        let prefix_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol(")));
-        function.instruction(&Instruction::LocalSet(prefix_local));
-        self.emit_concat_string_payloads_local(prefix_local, desc_string_local, function)?;
-        function.instruction(&Instruction::LocalSet(prefix_local));
-        let suffix_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(")")));
-        function.instruction(&Instruction::LocalSet(suffix_local));
-        self.emit_concat_string_payloads_local(prefix_local, suffix_local, function)?;
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-
-        self.release_temp_local(suffix_local);
-        self.release_temp_local(prefix_local);
-        self.release_temp_local(desc_string_local);
-        self.release_temp_local(desc_tag_local);
-        self.release_temp_local(desc_payload_local);
-        Ok(())
+        value.clear(function);
+        Ok(symbol)
     }
 
     pub(super) fn emit_symbol_constructor_builtin(
@@ -184,42 +102,36 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.emit_symbol(SymbolBuiltin::Constructor, function)
     }
-
     pub(super) fn emit_symbol_for_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_symbol(SymbolBuiltin::For, function)
     }
-
     pub(super) fn emit_symbol_key_for_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_symbol(SymbolBuiltin::KeyFor, function)
     }
-
     pub(super) fn emit_symbol_prototype_description_getter_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_symbol(SymbolBuiltin::PrototypeDescriptionGetter, function)
     }
-
     pub(super) fn emit_symbol_prototype_to_string_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_symbol(SymbolBuiltin::PrototypeToString, function)
     }
-
     pub(super) fn emit_symbol_prototype_value_of_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_symbol(SymbolBuiltin::PrototypeValueOf, function)
     }
-
     pub(super) fn emit_symbol_prototype_to_primitive_builtin(
         &mut self,
         function: &mut Function,
@@ -232,312 +144,358 @@ impl<'a> FunctionBuilder<'a> {
         builtin: SymbolBuiltin,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        result.initialize(function);
         match builtin {
             SymbolBuiltin::Constructor => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let handle_local = self.reserve_temp_local();
-
-                // `Symbol` throws a TypeError when invoked via `new`.
-                function.instruction(&Instruction::LocalGet(self.new_target_tag_local().unwrap()));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                let new_target = schema.reserve_value_local(function);
+                new_target.copy_from(
+                    self.body_entry_locals()
+                        .expect("Symbol builtin owns an entry")
+                        .new_target(),
+                    function,
+                );
+                new_target.tag().load(function);
+                function.instruction(&Instruction::I32Const(
+                    WasmRuntimeValueTag::Undefined as i32,
+                ));
+                function.instruction(&Instruction::I32Ne);
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_throw_current_function_realm_type_error(
-                    "Symbol is not a constructor",
-                    self.result_local,
-                    self.result_tag_local,
+                    RuntimeErrorMessage::SYMBOL_IS_NOT_A_CONSTRUCTOR,
+                    &result,
                     function,
                 )?;
                 function.instruction(&Instruction::Else);
-                self.emit_heap_alloc_const(HEAP_SYMBOL_RECORD_SIZE, function)?;
-                function.instruction(&Instruction::LocalSet(handle_local));
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.store_i64_const_at_offset(
-                    handle_local,
-                    HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
-                    ValueKind::Undefined.tag() as u64,
+                let argument = schema.reserve_value_local(function);
+                self.emit_builtin_arg_to_value(0, &argument, function);
+                let description = schema
+                    .reserve_gc_local::<StringValue, Nullable>(function)
+                    .initialize_null(schema, function);
+                argument.tag().load(function);
+                function.instruction(&Instruction::I32Const(
+                    WasmRuntimeValueTag::Undefined as i32,
+                ));
+                function.instruction(&Instruction::I32Ne);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_value_to_string_payload(&argument, &result, function)?;
+                result.kind().load(function);
+                function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                description.replace(
+                    result
+                        .value()
+                        .cast_reference::<StringValue>(schema, function)
+                        .nullable(),
                     function,
                 );
-                function.instruction(&Instruction::Else);
-                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
-                function.instruction(&Instruction::LocalSet(arg_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(arg_tag_local));
-                self.store_i64_local_at_offset(
-                    handle_local,
-                    HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
-                    arg_tag_local,
-                    function,
-                );
-                self.store_i64_local_at_offset(
-                    handle_local,
-                    HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
-                    arg_payload_local,
-                    function,
-                );
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(handle_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-
-                self.release_temp_local(handle_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                result.kind().load(function);
+                function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                let symbol = schema.reserve_gc_local(function).initialize(
+                    schema.struct_type::<SymbolValue>().construct(
+                        (
+                            GcOperand::reference(&description, schema),
+                            GcOperand::null(schema),
+                            GcOperand::i64(0),
+                        ),
+                        function,
+                    ),
+                    function,
+                );
+                result.initialize(function);
+                result.value().set_reference(&symbol, schema, function);
+                symbol.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                description.clear(function);
+                argument.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                new_target.clear(function);
             }
             SymbolBuiltin::For => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let key_local = self.reserve_temp_local();
-                let reg_payload_local = self.reserve_temp_local();
-                let reg_tag_local = self.reserve_temp_local();
-                let found_payload_local = self.reserve_temp_local();
-                let found_tag_local = self.reserve_temp_local();
-                let handle_local = self.reserve_temp_local();
-
-                // key = ? ToString(description). Throws for symbol arguments and
-                // propagates abrupt completions from user `toString`/`valueOf`.
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
-                function.instruction(&Instruction::LocalSet(key_local));
-
-                function.instruction(&Instruction::GlobalGet(SYMBOL_REGISTRY_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(reg_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(reg_tag_local));
-                self.emit_object_read(
-                    reg_payload_local,
-                    reg_tag_local,
-                    reg_payload_local,
-                    reg_tag_local,
-                    key_local,
-                    found_payload_local,
-                    found_tag_local,
-                    function,
-                )?;
-
-                function.instruction(&Instruction::LocalGet(found_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(found_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                // Create a new registered symbol whose [[Description]] and
-                // registry key are both the requested string.
-                self.emit_heap_alloc_const(HEAP_SYMBOL_RECORD_SIZE, function)?;
-                function.instruction(&Instruction::LocalSet(handle_local));
-                self.store_i64_const_at_offset(
-                    handle_local,
-                    HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
-                    ValueKind::String.tag() as u64,
+                let argument = schema.reserve_value_local(function);
+                self.emit_builtin_arg_to_value(0, &argument, function);
+                self.emit_value_to_string_payload(&argument, &result, function)?;
+                result.kind().load(function);
+                function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                let key = schema.reserve_gc_local(function).initialize(
+                    result
+                        .value()
+                        .cast_reference::<StringValue>(schema, function),
                     function,
                 );
-                self.store_i64_local_at_offset(
-                    handle_local,
-                    HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
-                    key_local,
+                let registry = schema.load_symbol_registry(function);
+                let index = schema.reserve_i32_local(function);
+                let length = schema.reserve_i32_local(function);
+                schema
+                    .array_type::<RegisteredSymbolTable>()
+                    .length(&registry, schema, function);
+                length.store(function);
+                function.instruction(&Instruction::I32Const(0));
+                index.store(function);
+                let found = schema
+                    .reserve_gc_local::<SymbolValue, Nullable>(function)
+                    .initialize_null(schema, function);
+                self.open_frame(ControlFrameKind::Block, function);
+                let search = self.open_frame(ControlFrameKind::Loop, function);
+                index.load(function);
+                length.load(function);
+                function.instruction(&Instruction::I32GeU);
+                found.load(schema, function).is_null(function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::BrIf(1));
+                let candidate = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .array_type::<RegisteredSymbolTable>()
+                        .read(&registry, index, schema, function)
+                        .reference(),
                     function,
                 );
-                self.store_i64_local_at_offset(
-                    handle_local,
-                    HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET,
-                    key_local,
+                let candidate_key = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<SymbolValue>()
+                        .field(SymbolValueSchema::REGISTRY_KEY)
+                        .read(&candidate, schema, function)
+                        .reference()
+                        .require_non_null(function),
                     function,
                 );
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(found_tag_local));
-                self.emit_object_write(
-                    reg_payload_local,
-                    reg_tag_local,
-                    key_local,
-                    handle_local,
-                    found_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(handle_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_string_payload_equality_i32(&key, &candidate_key, function);
+                self.open_frame(ControlFrameKind::If, function);
+                found.replace(candidate.load(schema, function).nullable(), function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-
-                self.release_temp_local(handle_local);
-                self.release_temp_local(found_tag_local);
-                self.release_temp_local(found_payload_local);
-                self.release_temp_local(reg_tag_local);
-                self.release_temp_local(reg_payload_local);
-                self.release_temp_local(key_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                candidate_key.clear(function);
+                candidate.clear(function);
+                index.load(function);
+                function.instruction(&Instruction::I32Const(1));
+                function.instruction(&Instruction::I32Add);
+                index.store(function);
+                self.emit_branch_to_target(search, function);
+                self.pop_control(ControlFrameKind::Loop);
+                function.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+                found.load(schema, function).is_null(function);
+                self.open_frame(ControlFrameKind::If, function);
+                let symbol = schema.reserve_gc_local(function).initialize(
+                    schema.struct_type::<SymbolValue>().construct(
+                        (
+                            GcOperand::nullable_reference(&key, schema),
+                            GcOperand::nullable_reference(&key, schema),
+                            GcOperand::i64(0),
+                        ),
+                        function,
+                    ),
+                    function,
+                );
+                length.load(function);
+                function.instruction(&Instruction::I32Const(-1));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                function.instruction(&Instruction::Unreachable);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                let expanded_length = schema.reserve_i32_local(function);
+                length.load(function);
+                function.instruction(&Instruction::I32Const(1));
+                function.instruction(&Instruction::I32Add);
+                expanded_length.store(function);
+                let expanded = schema.reserve_gc_local(function).initialize(
+                    schema.array_type::<RegisteredSymbolTable>().filled(
+                        GcOperand::reference(&symbol, schema),
+                        expanded_length,
+                        function,
+                    ),
+                    function,
+                );
+                function.instruction(&Instruction::I32Const(0));
+                index.store(function);
+                self.open_frame(ControlFrameKind::Block, function);
+                let copy = self.open_frame(ControlFrameKind::Loop, function);
+                index.load(function);
+                length.load(function);
+                function.instruction(&Instruction::I32GeU);
+                function.instruction(&Instruction::BrIf(1));
+                let retained = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .array_type::<RegisteredSymbolTable>()
+                        .read(&registry, index, schema, function)
+                        .reference(),
+                    function,
+                );
+                schema.array_type::<RegisteredSymbolTable>().write(
+                    &expanded,
+                    index,
+                    GcOperand::reference(&retained, schema),
+                    schema,
+                    function,
+                );
+                retained.clear(function);
+                index.load(function);
+                function.instruction(&Instruction::I32Const(1));
+                function.instruction(&Instruction::I32Add);
+                index.store(function);
+                self.emit_branch_to_target(copy, function);
+                self.pop_control(ControlFrameKind::Loop);
+                function.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+                schema.replace_symbol_registry(&expanded, function);
+                found.replace(symbol.load(schema, function).nullable(), function);
+                expanded.clear(function);
+                schema.release_i32_local(expanded_length, function);
+                symbol.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                let symbol = schema.reserve_gc_local(function).initialize(
+                    found.load(schema, function).require_non_null(function),
+                    function,
+                );
+                result.initialize(function);
+                result.value().set_reference(&symbol, schema, function);
+                symbol.clear(function);
+                found.clear(function);
+                schema.release_i32_local(length, function);
+                schema.release_i32_local(index, function);
+                registry.clear(function);
+                key.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                argument.clear(function);
             }
             SymbolBuiltin::KeyFor => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let key_local = self.reserve_temp_local();
-
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                let argument = schema.reserve_value_local(function);
+                self.emit_builtin_arg_to_value(0, &argument, function);
+                argument.tag().load(function);
+                function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Symbol as i32));
+                function.instruction(&Instruction::I32Ne);
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_throw_current_function_realm_type_error(
-                    "Symbol.keyFor argument must be a symbol",
-                    self.result_local,
-                    self.result_tag_local,
+                    RuntimeErrorMessage::SYMBOL_KEYFOR_ARGUMENT_MUST_BE_A_SYMBOL,
+                    &result,
                     function,
                 )?;
                 function.instruction(&Instruction::Else);
-                // Only heap `Symbol()` records (small handle, high 32 bits zero)
-                // carry a registry key. Well-known symbols are interned string
-                // payloads (non-zero high bits) and are never registered.
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(key_local));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::I64Const(32));
-                function.instruction(&Instruction::I64ShrU);
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    arg_payload_local,
-                    HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET,
-                    key_local,
+                let symbol = schema.reserve_gc_local(function).initialize(
+                    argument.cast_reference::<SymbolValue>(schema, function),
                     function,
                 );
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(key_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(key_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-
-                self.release_temp_local(key_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
-            SymbolBuiltin::PrototypeDescriptionGetter => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype.description receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype.description receiver",
-                    )
-                })?;
-                let symbol_local = self.reserve_temp_local();
-                self.emit_this_symbol_value_to_local(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    symbol_local,
-                    SymbolReceiverOperation::Description,
-                    function,
-                )?;
-                self.emit_symbol_description_to_locals(
-                    symbol_local,
-                    self.result_local,
-                    self.result_tag_local,
+                let key = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<SymbolValue>()
+                        .field(SymbolValueSchema::REGISTRY_KEY)
+                        .read(&symbol, schema, function)
+                        .reference(),
                     function,
                 );
-                self.release_temp_local(symbol_local);
+                key.load(schema, function).is_null(function);
+                function.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, function);
+                let string = schema.reserve_gc_local(function).initialize(
+                    key.load(schema, function).require_non_null(function),
+                    function,
+                );
+                result.value().set_reference(&string, schema, function);
+                string.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                key.clear(function);
+                symbol.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                argument.clear(function);
             }
-            SymbolBuiltin::PrototypeToString => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype.toString receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype.toString receiver",
-                    )
-                })?;
-                let symbol_local = self.reserve_temp_local();
-                self.emit_this_symbol_value_to_local(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    symbol_local,
-                    SymbolReceiverOperation::ToString,
+            SymbolBuiltin::PrototypeDescriptionGetter
+            | SymbolBuiltin::PrototypeToString
+            | SymbolBuiltin::PrototypeValueOf
+            | SymbolBuiltin::PrototypeToPrimitive => {
+                let operation = match builtin {
+                    SymbolBuiltin::PrototypeDescriptionGetter => {
+                        SymbolReceiverOperation::Description
+                    }
+                    SymbolBuiltin::PrototypeToString => SymbolReceiverOperation::ToString,
+                    SymbolBuiltin::PrototypeValueOf => SymbolReceiverOperation::ValueOf,
+                    SymbolBuiltin::PrototypeToPrimitive => SymbolReceiverOperation::ToPrimitive,
+                    SymbolBuiltin::Constructor | SymbolBuiltin::For | SymbolBuiltin::KeyFor => {
+                        unreachable!()
+                    }
+                };
+                let receiver = schema.reserve_value_local(function);
+                receiver.copy_from(
+                    self.body_entry_locals()
+                        .expect("Symbol method owns an entry")
+                        .this_value(),
                     function,
-                )?;
-                self.emit_symbol_descriptive_string_to_local(
-                    symbol_local,
-                    self.result_local,
+                );
+                let resolved =
+                    self.emit_this_symbol_value(&receiver, operation, &result, function)?;
+                result.kind().load(function);
+                function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                let symbol = schema.reserve_gc_local(function).initialize(
+                    resolved.load(schema, function).require_non_null(function),
                     function,
-                )?;
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-                self.release_temp_local(symbol_local);
-            }
-            SymbolBuiltin::PrototypeValueOf => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype.valueOf receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype.valueOf receiver",
-                    )
-                })?;
-                let symbol_local = self.reserve_temp_local();
-                self.emit_this_symbol_value_to_local(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    symbol_local,
-                    SymbolReceiverOperation::ValueOf,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(symbol_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(symbol_local);
-            }
-            SymbolBuiltin::PrototypeToPrimitive => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype[Symbol.toPrimitive] receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Symbol.prototype[Symbol.toPrimitive] receiver",
-                    )
-                })?;
-                let symbol_local = self.reserve_temp_local();
-                self.emit_this_symbol_value_to_local(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    symbol_local,
-                    SymbolReceiverOperation::ToPrimitive,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(symbol_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(symbol_local);
+                );
+                match operation {
+                    SymbolReceiverOperation::Description => {
+                        let description = schema.reserve_gc_local(function).initialize(
+                            schema
+                                .struct_type::<SymbolValue>()
+                                .field(SymbolValueSchema::DESCRIPTION)
+                                .read(&symbol, schema, function)
+                                .reference(),
+                            function,
+                        );
+                        description.load(schema, function).is_null(function);
+                        function.instruction(&Instruction::I32Eqz);
+                        self.open_frame(ControlFrameKind::If, function);
+                        let string = schema.reserve_gc_local(function).initialize(
+                            description
+                                .load(schema, function)
+                                .require_non_null(function),
+                            function,
+                        );
+                        result.value().set_reference(&string, schema, function);
+                        string.clear(function);
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                        description.clear(function);
+                    }
+                    SymbolReceiverOperation::ToString => {
+                        let string = schema.reserve_gc_local(function).initialize(
+                            self.emit_symbol_descriptive_string(&symbol, function)?,
+                            function,
+                        );
+                        result.value().set_reference(&string, schema, function);
+                        string.clear(function);
+                    }
+                    SymbolReceiverOperation::ValueOf | SymbolReceiverOperation::ToPrimitive => {
+                        result.value().set_reference(&symbol, schema, function)
+                    }
+                }
+                symbol.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                resolved.clear(function);
+                receiver.clear(function);
             }
         }
+        self.completion().copy_from(&result, function);
+        result.clear(function);
         Ok(())
     }
 }

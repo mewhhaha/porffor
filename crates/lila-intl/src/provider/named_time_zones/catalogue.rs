@@ -2,21 +2,19 @@ use sha2::{Digest, Sha256};
 
 use crate::{InvalidTimeZoneData, NamedTimeZoneIdentity};
 
-const CATALOGUE: &str = include_str!("../../../data/iana-tzdb-2026a/catalogue.tsv");
-
 pub(super) struct CatalogueRow {
     pub(super) identity: NamedTimeZoneIdentity,
     pub(super) tzif_digest: [u8; 32],
 }
 
-pub(super) fn read() -> Result<Vec<CatalogueRow>, InvalidTimeZoneData> {
-    let actual: [u8; 32] = Sha256::digest(CATALOGUE.as_bytes()).into();
+pub(super) fn read(source: &str) -> Result<Vec<CatalogueRow>, InvalidTimeZoneData> {
+    let actual: [u8; 32] = Sha256::digest(source.as_bytes()).into();
     if actual != super::identity::CATALOGUE_SHA256 {
         return Err(InvalidTimeZoneData(
             "pinned named catalogue digest mismatch",
         ));
     }
-    parse(CATALOGUE)
+    parse(source)
 }
 
 fn parse(source: &str) -> Result<Vec<CatalogueRow>, InvalidTimeZoneData> {

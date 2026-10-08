@@ -1,583 +1,506 @@
-//! `Temporal.Instant` exact epoch creation, comparison and time arithmetic.
-//!
-//! Temporal proposal 8.2.4 `compare`, 8.2.2 `fromEpochMilliseconds`, 8.2.3
-//! `fromEpochNanoseconds`, 8.3.11 `toJSON` and 8.3.12 `valueOf`. Every one of
-//! them is a thin composition of machinery `Temporal.Instant.from`,
-//! `prototype.equals` and `prototype.toString` already exercise, so the record
-//! layout, the range check and the allocation all live in
-//! `builtins/temporal.rs` and are reused unchanged from here.
-//!
-//! Creation is guarded by the [`UnvalidatedEpochNanoseconds`] ->
-//! [`EpochNanoseconds`] pair. The first is a named-field `(payload, tag)` local
-//! pair, so the two same-typed locals cannot be swapped in silence at a call
-//! site; the second is that pair after `IsValidEpochNanoseconds` accepted it.
-//! `EpochNanoseconds`'s field is private to this module and its only
-//! constructor is [`FunctionBuilder::emit_temporal_instant_validated_epoch`],
-//! so an allocation path in this file cannot skip the range check — the type it
-//! needs simply cannot be produced any other way.
-
+//! Temporal.Instant uses the completed GC epoch proof for every allocation.
+//! Observable conversion stays ordered in the executing native Realm.
 use super::super::*;
-use crate::intrinsics::temporal::TemporalIntrinsicFamily;
+use super::temporal::TemporalEpochNanoseconds;
+use super::temporal::TemporalTimeZoneStringGoal;
+use super::temporal_zone_provider::TemporalZonedAllocationInput;
+use crate::gc_types::*;
+use crate::intrinsics::temporal::{TemporalIntrinsicFamily, TemporalPrototypeSource};
 use crate::operations::BigIntNumberPolicy;
 
 mod methods;
 mod round;
 pub(super) use methods::{InstantArithmetic, InstantDifference};
 
-/// `Temporal.Instant.fromEpochMilliseconds` step 2 rejects a non-integral
-/// Number through `NumberToBigInt`, which is a **RangeError**, not the
-/// TypeError the surrounding coercions raise. `fromEpochMilliseconds/
-/// non-integer.js` pins `undefined`, `±Infinity`, `NaN`, `1.3` and `-0.5`.
-///
-/// Interned unconditionally in the `data.rs` string pool: `StringPool::payload`
-/// panics for a message that is not there, so a missing row is a compiler
-/// panic for every program that roots `Temporal.Instant`, not a wrong answer.
-const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str =
-    "Temporal.Instant.fromEpochMilliseconds requires an integral Number";
-
-/// `Temporal.Instant.prototype.valueOf` exists only to make implicit numeric
-/// conversion throw; `valueOf/basic.js` asserts that `instant < instant` is a
-/// TypeError, which only holds once this property shadows the ordinary
-/// `OrdinaryToPrimitive` fallthrough to `toString`.
-///
-/// Interned unconditionally in the `data.rs` string pool, for the same reason
-/// as the message above.
-const TEMPORAL_INSTANT_VALUE_OF_MESSAGE: &str =
-    "Temporal.Instant does not support implicit conversion; use compare() or equals()";
-
-/// A `(payload, tag)` local pair holding epoch nanoseconds that nothing has
-/// range-checked yet.
-///
-/// Named fields rather than two positional `u32` parameters. The two locals are
-/// the same type and both spelled `..._local`, so a positional pair let a call
-/// site swap them in silence — and a swapped tag is not a loud failure: it makes
-/// `emit_temporal_instant_validate_range` miss its `tag == HEAP_BIGINT_VALUE_TAG`
-/// test, take the else branch, and skip validation altogether, quietly accepting
-/// an out-of-range epoch. Spelled at a struct literal, the swap has to be
-/// written down.
-#[derive(Clone, Copy)]
-pub(crate) struct UnvalidatedEpochNanoseconds {
-    pub(crate) payload_local: u32,
-    pub(crate) tag_local: u32,
-}
-
-/// The same pair, after `emit_temporal_instant_validate_range` has accepted it.
-///
-/// The wrapped field is module-private and the only constructor is
-/// [`FunctionBuilder::emit_temporal_instant_validated_epoch`], so an allocation
-/// path in this file cannot skip the range check — the type it needs simply
-/// cannot be produced any other way. `IsValidEpochNanoseconds` is therefore
-/// checked exactly once per allocation site, and "I forgot to range-check"
-/// stops being expressible rather than being left for a test to notice.
-struct EpochNanoseconds(UnvalidatedEpochNanoseconds);
-
-impl<'a> FunctionBuilder<'a> {
-    /// The only way to build an [`EpochNanoseconds`].
-    ///
-    /// `emit_temporal_instant_validate_range` returns normally when the value is
-    /// in range and emits a throwing early return when it is not, so the token
-    /// this hands back is only observed on the in-range path.
-    fn emit_temporal_instant_validated_epoch(
+impl FunctionBuilder<'_> {
+    pub(in crate::builtins) fn emit_temporal_instant_record_from_receiver(
         &mut self,
-        epoch: UnvalidatedEpochNanoseconds,
-        function: &mut Function,
-    ) -> Result<EpochNanoseconds, EmitError> {
-        self.emit_temporal_instant_validate_range(epoch.payload_local, epoch.tag_local, function)?;
-        Ok(EpochNanoseconds(epoch))
+        f: &mut Function,
+    ) -> Result<GcLocal<TemporalInstantObject>, EmitError> {
+        self.emit_temporal_record_from_receiver::<TemporalInstantObject>(f)
     }
 
-    /// `CreateTemporalInstant(epochNanoseconds)` with the *intrinsic*
-    /// `%Temporal.Instant.prototype%`.
-    ///
-    /// Both `fromEpochMilliseconds` and `fromEpochNanoseconds` are plain
-    /// functions, not constructors: `subclassing-ignored.js` requires that the
-    /// receiver is never consulted, so this deliberately does not go through
-    /// `emit_error_new_target_prototype_to_local` the way the
-    /// `Temporal.Instant` constructor does.
-    fn emit_alloc_validated_temporal_instant(
+    /// ToTemporalInstant has two internal-slot paths. Only the remaining path
+    /// performs String-hint ToPrimitive and requires its result to be String.
+    pub(in crate::builtins) fn emit_temporal_to_instant_epoch(
         &mut self,
-        epoch: EpochNanoseconds,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let EpochNanoseconds(UnvalidatedEpochNanoseconds {
-            payload_local,
-            tag_local,
-        }) = epoch;
-        let prototype_payload_local = self.reserve_temp_local();
-        self.emit_load_current_builtin_temporal_prototype(
-            TemporalIntrinsicFamily::Instant,
-            prototype_payload_local,
-            function,
+        input: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<TemporalEpochNanoseconds, EmitError> {
+        let schema = self.runtime_schema();
+        let selected = schema.reserve_value_local(f);
+        selected.set_undefined(f);
+        input.reference().load(f);
+        f.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<TemporalInstantObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, f);
+        let instant = schema
+            .reserve_gc_local(f)
+            .initialize(input.cast_reference::<TemporalInstantObject>(schema, f), f);
+        let epoch = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalInstantObject>()
+                .field(TemporalInstantObjectSchema::EPOCH_NANOSECONDS)
+                .read(&instant, schema, f)
+                .reference(),
+            f,
         );
+        selected.set_reference(&epoch, schema, f);
+        epoch.clear(f);
+        instant.clear(f);
+        f.instruction(&Instruction::Else);
+        input.reference().load(f);
+        f.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<TemporalZonedDateTimeObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, f);
+        let zoned = schema.reserve_gc_local(f).initialize(
+            input.cast_reference::<TemporalZonedDateTimeObject>(schema, f),
+            f,
+        );
+        let epoch = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalZonedDateTimeObject>()
+                .field(TemporalZonedDateTimeObjectSchema::EPOCH_NANOSECONDS)
+                .read(&zoned, schema, f)
+                .reference(),
+            f,
+        );
+        selected.set_reference(&epoch, schema, f);
+        epoch.clear(f);
+        zoned.clear(f);
+        f.instruction(&Instruction::Else);
+        let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
+            ToPrimitiveHint::String,
+            input,
+            f,
+        )?;
+        let text_value = schema.reserve_value_local(f);
+        self.emit_current_function_realm_primitive_to_tagged_locals(primitive, &text_value, f);
+        text_value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        f.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_INSTANT_FROM_REQUIRES_A_STRING_OR_TEMPORAL_INSTANT,
+            f,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let text = schema
+            .reserve_gc_local(f)
+            .initialize(text_value.cast_reference::<StringValue>(schema, f), f);
+        let epoch = self.emit_temporal_parse_instant_string(&text, f)?;
+        selected.set_reference(&epoch, schema, f);
+        epoch.clear(f);
+        text.clear(f);
+        text_value.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let value = schema
+            .reserve_gc_local(f)
+            .initialize(selected.cast_reference::<BigIntValue>(schema, f), f);
+        let epoch = self.emit_temporal_instant_validated_epoch(&value, f)?;
+        value.clear(f);
+        selected.clear(f);
+        Ok(epoch)
+    }
+
+    pub(in crate::builtins) fn emit_temporal_instant_epoch_from_record(
+        &mut self,
+        record: &GcLocal<TemporalInstantObject>,
+        f: &mut Function,
+    ) -> Result<TemporalEpochNanoseconds, EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalInstantObject>()
+                .field(TemporalInstantObjectSchema::EPOCH_NANOSECONDS)
+                .read(record, schema, f)
+                .reference(),
+            f,
+        );
+        let epoch = self.emit_temporal_instant_validated_epoch(&value, f)?;
+        value.clear(f);
+        Ok(epoch)
+    }
+
+    pub(crate) fn emit_temporal_instant_from(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        let input = self.runtime_schema().reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let epoch = self.emit_temporal_to_instant_epoch(&input, f)?;
+        self.emit_alloc_temporal_instant(&epoch, TemporalPrototypeSource::Intrinsic, f)?;
+        epoch.clear(self, f);
+        input.clear(f);
+        Ok(())
+    }
+
+    pub(crate) fn emit_temporal_instant_constructor(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.body_entry_locals()
+            .ok_or_else(|| EmitError::unsupported("Temporal.Instant constructor entry absent"))?
+            .new_target()
+            .tag()
+            .load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_INSTANT_CONSTRUCTOR_REQUIRES_NEW,
+            f,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let input = self.runtime_schema().reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let epoch = self.emit_temporal_epoch_from_value(&input, f)?;
+        let prototype =
+            self.emit_temporal_constructor_prototype(TemporalIntrinsicFamily::Instant, f)?;
         self.emit_alloc_temporal_instant(
-            payload_local,
-            tag_local,
-            prototype_payload_local,
-            function,
+            &epoch,
+            TemporalPrototypeSource::Constructor(&prototype),
+            f,
         )?;
-        self.release_temp_local(prototype_payload_local);
+        prototype.release(f);
+        epoch.clear(self, f);
+        input.clear(f);
         Ok(())
     }
 
-    /// `ℤ(epochMilliseconds) × 10^6`, in whichever BigInt representation fits.
-    ///
-    /// The product needs up to 128 bits, so it is built from two 32-bit limbs
-    /// of the magnitude: the inline `i64` form is only usable when the high
-    /// limb is zero and the low limb fits a signed `i64`, and everything else
-    /// becomes a two-limb heap BigInt with an explicit sign word.
-    ///
-    /// `milliseconds_local` is a signed `i64`. Shared by
-    /// `Date.prototype.toTemporalInstant` and
-    /// `Temporal.Instant.fromEpochMilliseconds`, which differ only in how they
-    /// obtain it — the widening itself is identical, and duplicating it once
-    /// already produced two copies that could drift apart on the sign path.
-    pub(crate) fn emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
+    pub(in crate::builtins) fn emit_temporal_epoch_from_value(
         &mut self,
-        milliseconds_local: u32,
-        destination: UnvalidatedEpochNanoseconds,
-        function: &mut Function,
-    ) -> Result<UnvalidatedEpochNanoseconds, EmitError> {
-        // Handed back so a caller chains `produce -> validate` on one value
-        // instead of naming the same two locals again at the validator.
-        let UnvalidatedEpochNanoseconds {
-            payload_local: nanoseconds_payload_local,
-            tag_local: nanoseconds_tag_local,
-        } = destination;
-        let magnitude_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let low_word_local = self.reserve_temp_local();
-        let low_product_local = self.reserve_temp_local();
-        let high_product_local = self.reserve_temp_local();
-        let low_limb_local = self.reserve_temp_local();
-        let high_limb_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(magnitude_local));
-
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Const(u32::MAX as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(low_word_local));
-        function.instruction(&Instruction::LocalGet(low_word_local));
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(low_product_local));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(high_product_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high_limb_local));
-
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
-        function.instruction(&Instruction::Else);
-        let record_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        self.emit_heap_alloc_const(16, function)?;
-        function.instruction(&Instruction::LocalSet(limbs_local));
-        self.store_i64_local_at_offset(limbs_local, 0, low_limb_local, function);
-        self.store_i64_local_at_offset(limbs_local, 8, high_limb_local, function);
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(limb_count_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(low_word_local));
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            low_word_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_CAP_OFFSET,
-            limb_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(record_local);
-        function.instruction(&Instruction::End);
-
-        for local in [
-            high_limb_local,
-            low_limb_local,
-            high_product_local,
-            low_product_local,
-            low_word_local,
-            negative_local,
-            magnitude_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(destination)
+        input: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<TemporalEpochNanoseconds, EmitError> {
+        let schema = self.runtime_schema();
+        let pending = schema.reserve_completion(f);
+        self.emit_value_to_bigint_locals(input, BigIntNumberPolicy::RejectNumber, &pending, f)?;
+        self.completion().copy_from(&pending, f);
+        self.emit_propagate_current_throw_if_needed(f);
+        let value = schema
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<BigIntValue>(schema, f), f);
+        let epoch = self.emit_temporal_instant_validated_epoch(&value, f)?;
+        value.clear(f);
+        pending.clear(f);
+        Ok(epoch)
     }
 
-    /// Temporal proposal 8.2.4 `Temporal.Instant.compare`.
-    ///
-    /// ```text
-    /// 1. Set one to ? ToTemporalInstant(one).
-    /// 2. Set two to ? ToTemporalInstant(two).
-    /// 3. Return 𝔽(CompareEpochNanoseconds(one.[[EpochNanoseconds]],
-    ///                                     two.[[EpochNanoseconds]])).
-    /// ```
-    ///
-    /// `Temporal.Instant.from` *is* `ToTemporalInstant`, including the
-    /// `[[InitializedTemporalZonedDateTime]]` fast path
-    /// `compare/argument-zoneddatetime.js` exercises, so both arguments are
-    /// routed through it exactly the way `prototype.equals` routes its single
-    /// argument. The two calls stay strictly ordered: `compare/
-    /// argument-string-with-offset-not-valid-epoch-nanoseconds.js` throws a
-    /// `Test262Error` from the second argument's `toString` and requires the
-    /// first argument's RangeError to win.
-    ///
-    /// The three-way result is folded from two relational comparisons rather
-    /// than a fresh sentinel, so the `-1`/`0`/`1` domain has one definition —
-    /// the same shape `emit_temporal_plain_date_compare` ends with.
-    pub(crate) fn emit_temporal_instant_compare(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let instant_payload_local = self.reserve_temp_local();
-        let instant_tag_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let left_epoch_payload_local = self.reserve_temp_local();
-        let left_epoch_tag_local = self.reserve_temp_local();
-        let right_epoch_payload_local = self.reserve_temp_local();
-        let right_epoch_tag_local = self.reserve_temp_local();
-        let comparison_local = self.reserve_temp_local();
-
-        let instant_from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantFrom.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Temporal.Instant.from`",
-                )
-            })?;
-
-        for (index, epoch_payload_local, epoch_tag_local) in [
-            (0, left_epoch_payload_local, left_epoch_tag_local),
-            (1, right_epoch_payload_local, right_epoch_tag_local),
-        ] {
-            self.emit_builtin_arg_to_locals(
-                index,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            );
-            self.emit_direct_js_call(
-                &instant_from_meta,
-                None,
-                &[(argument_payload_local, argument_tag_local)],
-                instant_payload_local,
-                instant_tag_local,
-                function,
-            )?;
-            self.load_i64_to_local_from_offset(
-                instant_payload_local,
-                HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                record_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                epoch_payload_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-                epoch_tag_local,
-                function,
-            );
-        }
-
-        // One call into `bigint_arithmetic_helper`, not two. The helper's own
-        // answer is already the `-1`/`0`/`1` this returns; asking
-        // `emit_bigint_relational_i32` for `<` and then for `>` would pay for
-        // it twice and give the three-way domain two producers.
-        self.emit_bigint_compare_i64(
-            left_epoch_payload_local,
-            left_epoch_tag_local,
-            right_epoch_payload_local,
-            right_epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(comparison_local));
-
-        function.instruction(&Instruction::LocalGet(comparison_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            comparison_local,
-            right_epoch_tag_local,
-            right_epoch_payload_local,
-            left_epoch_tag_local,
-            left_epoch_payload_local,
-            record_local,
-            instant_tag_local,
-            instant_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    /// Temporal proposal 8.2.3 `Temporal.Instant.fromEpochNanoseconds`.
-    ///
-    /// ```text
-    /// 1. Set epochNanoseconds to ? ToBigInt(epochNanoseconds).
-    /// 2. If IsValidEpochNanoseconds(epochNanoseconds) is false, throw RangeError.
-    /// 3. Return ! CreateTemporalInstant(epochNanoseconds).
-    /// ```
-    ///
-    /// This is the `Temporal.Instant` constructor minus the `new.target` block:
-    /// `ToBigInt` (not `ToNumber`) is why `fromEpochNanoseconds(42)` and
-    /// `fromEpochNanoseconds(null)` are TypeErrors while `(-limit - 1n)` is a
-    /// RangeError.
     pub(crate) fn emit_temporal_instant_from_epoch_nanoseconds(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_value_to_bigint_locals(
-            argument_tag_local,
-            argument_payload_local,
-            BigIntNumberPolicy::RejectNumber,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        let epoch = self.emit_temporal_instant_validated_epoch(
-            UnvalidatedEpochNanoseconds {
-                payload_local: nanoseconds_payload_local,
-                tag_local: nanoseconds_tag_local,
-            },
-            function,
-        )?;
-        self.emit_alloc_validated_temporal_instant(epoch, function)?;
-
-        for local in [
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        let input = self.runtime_schema().reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let epoch = self.emit_temporal_epoch_from_value(&input, f)?;
+        self.emit_alloc_temporal_instant(&epoch, TemporalPrototypeSource::Intrinsic, f)?;
+        epoch.clear(self, f);
+        input.clear(f);
         Ok(())
     }
 
-    /// Temporal proposal 8.2.2 `Temporal.Instant.fromEpochMilliseconds`.
-    ///
-    /// ```text
-    /// 1. Set epochMilliseconds to ? ToNumber(epochMilliseconds).
-    /// 2. Set epochMilliseconds to ? NumberToBigInt(epochMilliseconds).
-    /// 3. Let epochNanoseconds be epochMilliseconds × ℤ(10**6).
-    /// 4. If IsValidEpochNanoseconds(epochNanoseconds) is false, throw RangeError.
-    /// 5. Return ! CreateTemporalInstant(epochNanoseconds).
-    /// ```
-    ///
-    /// Step 1 is why `fromEpochMilliseconds(42n)` and `fromEpochMilliseconds(
-    /// Symbol())` are TypeErrors; step 2 is why `undefined`, `±Infinity`,
-    /// `NaN`, `1.3` and `-0.5` are RangeErrors rather than TypeErrors.
-    ///
-    /// Step 4 is not re-derived here: `I64TruncSatF64S` saturates a magnitude
-    /// beyond `i64` to `i64::MAX`, whose product with `10^6` is still far above
-    /// the epoch-nanosecond limit, so the shared range check rejects it for the
-    /// same reason it rejects `limit + 1`.
+    /// Two 32-bit partial products form the exact 128-bit magnitude. There is
+    /// one canonical GC BigInt publication even when the result fits i64.
+    pub(in crate::builtins) fn emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
+        &mut self,
+        milliseconds: I64Local,
+        f: &mut Function,
+    ) -> GcLocal<BigIntValue> {
+        let schema = self.runtime_schema();
+        let negative = schema.reserve_i32_local(f);
+        let magnitude = schema.reserve_i64_local(f);
+        let low_product = schema.reserve_i64_local(f);
+        let high_product = schema.reserve_i64_local(f);
+        let low = schema.reserve_i64_local(f);
+        let high = schema.reserve_i64_local(f);
+        let index = schema.reserve_i32_local(f);
+        milliseconds.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::I64LtS);
+        negative.store(f);
+        negative.load(f);
+        f.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        f.instruction(&Instruction::I64Const(0));
+        milliseconds.load(f);
+        f.instruction(&Instruction::I64Sub);
+        f.instruction(&Instruction::Else);
+        milliseconds.load(f);
+        f.instruction(&Instruction::End);
+        magnitude.store(f);
+        magnitude.load(f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        f.instruction(&Instruction::I64And);
+        f.instruction(&Instruction::I64Const(1_000_000));
+        f.instruction(&Instruction::I64Mul);
+        low_product.store(f);
+        magnitude.load(f);
+        f.instruction(&Instruction::I64Const(32));
+        f.instruction(&Instruction::I64ShrU);
+        f.instruction(&Instruction::I64Const(1_000_000));
+        f.instruction(&Instruction::I64Mul);
+        high_product.store(f);
+        low_product.load(f);
+        high_product.load(f);
+        f.instruction(&Instruction::I64Const(32));
+        f.instruction(&Instruction::I64Shl);
+        f.instruction(&Instruction::I64Add);
+        low.store(f);
+        high_product.load(f);
+        f.instruction(&Instruction::I64Const(32));
+        f.instruction(&Instruction::I64ShrU);
+        low.load(f);
+        low_product.load(f);
+        f.instruction(&Instruction::I64LtU);
+        f.instruction(&Instruction::I64ExtendI32U);
+        f.instruction(&Instruction::I64Add);
+        high.store(f);
+        f.instruction(&Instruction::I32Const(2));
+        index.store(f);
+        let slot = schema.reserve_gc_local(f);
+        let construction = BigIntConstruction::allocate(schema, slot, index, f);
+        f.instruction(&Instruction::I32Const(0));
+        index.store(f);
+        construction.write(index, low, schema, f);
+        f.instruction(&Instruction::I32Const(1));
+        index.store(f);
+        construction.write(index, high, schema, f);
+        let result = schema
+            .reserve_gc_local(f)
+            .initialize(construction.publish(negative, schema, f), f);
+        schema.release_i32_local(index, f);
+        for local in [high, low, high_product, low_product, magnitude] {
+            schema.release_i64_local(local, f);
+        }
+        schema.release_i32_local(negative, f);
+        result
+    }
+
     pub(crate) fn emit_temporal_instant_from_epoch_milliseconds(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_value_to_number_payload(argument_tag_local, argument_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(argument_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-
-        // `NumberToBigInt` step 1: reject anything that is not an integral
-        // Number. `v != trunc(v)` covers NaN (which is unequal to itself) and
-        // every fractional value including `-0.5`; `trunc` is the identity on
-        // the infinities, so they need the separate magnitude test. `-0` is
-        // integral and converts to `0n`, so it must survive both tests.
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::MAX)));
-        function.instruction(&Instruction::F64Gt);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-        let widened = self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
-            milliseconds_local,
-            UnvalidatedEpochNanoseconds {
-                payload_local: nanoseconds_payload_local,
-                tag_local: nanoseconds_tag_local,
-            },
-            function,
-        )?;
-        let epoch = self.emit_temporal_instant_validated_epoch(widened, function)?;
-        self.emit_alloc_validated_temporal_instant(epoch, function)?;
-
-        for local in [
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            milliseconds_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(f);
+        let pending = schema.reserve_completion(f);
+        let milliseconds = schema.reserve_i64_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_value_to_number_payload(&input, &pending, f)?;
+        self.completion().copy_from(&pending, f);
+        self.emit_propagate_current_throw_if_needed(f);
+        for _ in 0..2 {
+            pending.value().scalar().load(f);
+            f.instruction(&Instruction::F64ReinterpretI64);
         }
+        f.instruction(&Instruction::F64Trunc);
+        f.instruction(&Instruction::F64Ne);
+        pending.value().scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::F64Abs);
+        f.instruction(&Instruction::F64Const(f64::MAX.into()));
+        f.instruction(&Instruction::F64Gt);
+        f.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::TEMPORAL_INSTANT_FROMEPOCHMILLISECONDS_REQUIRES_AN_INTEGRAL_NUMBER,
+            f,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        pending.value().scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::I64TruncSatF64S);
+        milliseconds.store(f);
+        let value = self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(milliseconds, f);
+        let epoch = self.emit_temporal_instant_validated_epoch(&value, f)?;
+        self.emit_alloc_temporal_instant(&epoch, TemporalPrototypeSource::Intrinsic, f)?;
+        epoch.clear(self, f);
+        value.clear(f);
+        schema.release_i64_local(milliseconds, f);
+        pending.clear(f);
+        input.clear(f);
+        Ok(())
+    }
+
+    pub(crate) fn emit_temporal_instant_compare(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let left = self.emit_temporal_to_instant_epoch(&input, f)?;
+        self.emit_builtin_arg_to_value(1, &input, f);
+        let right = self.emit_temporal_to_instant_epoch(&input, f)?;
+        let comparison = schema.reserve_i32_local(f);
+        let bits = schema.reserve_i64_local(f);
+        self.emit_bigint_compare(left.value(), right.value(), comparison, f);
+        comparison.load(f);
+        f.instruction(&Instruction::F64ConvertI32S);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        bits.store(f);
+        self.completion().value().set_number(bits, f);
+        self.completion().set_normal(self.completion().value(), f);
+        schema.release_i64_local(bits, f);
+        schema.release_i32_local(comparison, f);
+        right.clear(self, f);
+        left.clear(self, f);
+        input.clear(f);
+        Ok(())
+    }
+
+    pub(crate) fn emit_temporal_instant_equals(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let receiver = self.emit_temporal_instant_record_from_receiver(f)?;
+        let value = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalInstantObject>()
+                .field(TemporalInstantObjectSchema::EPOCH_NANOSECONDS)
+                .read(&receiver, schema, f)
+                .reference(),
+            f,
+        );
+        let input = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let other = self.emit_temporal_to_instant_epoch(&input, f)?;
+        let comparison = schema.reserve_i32_local(f);
+        self.emit_bigint_compare(&value, other.value(), comparison, f);
+        comparison.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        comparison.store(f);
+        self.completion().value().set_boolean(comparison, f);
+        self.completion().set_normal(self.completion().value(), f);
+        schema.release_i32_local(comparison, f);
+        other.clear(self, f);
+        input.clear(f);
+        value.clear(f);
+        receiver.clear(f);
+        Ok(())
+    }
+
+    pub(crate) fn emit_temporal_instant_epoch_nanoseconds(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let receiver = self.emit_temporal_instant_record_from_receiver(f)?;
+        let epoch = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalInstantObject>()
+                .field(TemporalInstantObjectSchema::EPOCH_NANOSECONDS)
+                .read(&receiver, schema, f)
+                .reference(),
+            f,
+        );
+        self.completion().value().set_reference(&epoch, schema, f);
+        self.completion().set_normal(self.completion().value(), f);
+        epoch.clear(f);
+        receiver.clear(f);
+        Ok(())
+    }
+
+    pub(crate) fn emit_temporal_instant_epoch_milliseconds(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let receiver = self.emit_temporal_instant_record_from_receiver(f)?;
+        let value = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalInstantObject>()
+                .field(TemporalInstantObjectSchema::EPOCH_NANOSECONDS)
+                .read(&receiver, schema, f)
+                .reference(),
+            f,
+        );
+        let epoch = self.emit_temporal_instant_validated_epoch(&value, f)?;
+        let bits = schema.reserve_i64_local(f);
+        epoch.floor_seconds().load(f);
+        f.instruction(&Instruction::I64Const(1000));
+        f.instruction(&Instruction::I64Mul);
+        epoch.nanosecond().load(f);
+        f.instruction(&Instruction::I64Const(1_000_000));
+        f.instruction(&Instruction::I64DivU);
+        f.instruction(&Instruction::I64Add);
+        f.instruction(&Instruction::F64ConvertI64S);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        bits.store(f);
+        self.completion().value().set_number(bits, f);
+        self.completion().set_normal(self.completion().value(), f);
+        schema.release_i64_local(bits, f);
+        epoch.clear(self, f);
+        value.clear(f);
+        receiver.clear(f);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_instant_to_locale_string(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
-        self.release_temp_local(record_local);
         self.emit_intl_dtf_temporal_to_locale_string(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_INSTANT,
-            function,
+            super::intl_datetimeformat::DtfTemporalKind::Instant,
+            f,
         )
     }
-
-    /// Temporal proposal 8.3.12 `Temporal.Instant.prototype.valueOf`.
-    ///
-    /// An unconditional TypeError, before any brand check: step 1 of the
-    /// specification is `throw a TypeError exception`, and `valueOf/branding.js`
-    /// calls it on `undefined`, `null`, `true`, `""`, a Symbol, `1`, `{}`, the
-    /// constructor and the prototype, expecting a TypeError from every one.
     pub(crate) fn emit_temporal_instant_value_of(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_throw_current_function_realm_type_error(
-            TEMPORAL_INSTANT_VALUE_OF_MESSAGE,
-            self.result_local,
-            self.result_tag_local,
-            function,
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_INSTANT_DOES_NOT_SUPPORT_IMPLICIT_CONVERSION_USE_COMPARE_OR_EQUALS,f)
+    }
+
+    pub(crate) fn emit_temporal_instant_to_zoned_date_time_iso(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_branded_instant_receiver(f)?;
+        let input = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        input.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_INSTANT_PROTOTYPE_TOZONEDDATETIMEISO_REQUIRES_A_TIME_ZONE,
+            f,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let zone = self.emit_temporal_zoned_date_time_time_zone(
+            &input,
+            TemporalTimeZoneStringGoal::Object,
+            f,
+        )?;
+        let instant = self.emit_temporal_normalized_instant_from_instant_record(&record, f)?;
+        let calendar = self.emit_temporal_iso_calendar_slot(f)?;
+        self.emit_alloc_temporal_zoned_date_time(
+            TemporalZonedAllocationInput::new(&instant, &zone, &calendar),
+            TemporalPrototypeSource::Intrinsic,
+            f,
+        )?;
+        calendar.release(self, f);
+        instant.release(self, f);
+        zone.release(self, f);
+        input.clear(f);
+        record.release(f);
         Ok(())
     }
 }

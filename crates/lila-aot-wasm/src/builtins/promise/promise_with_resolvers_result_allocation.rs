@@ -1,83 +1,70 @@
 use super::*;
 
-#[must_use = "Promise.withResolvers result allocation context must be consumed"]
+#[must_use = "Promise.withResolvers prototype is consumed by allocation"]
 pub(super) struct PromiseWithResolversResultAllocationContext {
-    prototype_local: u32,
+    prototype: ValueLocals,
 }
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn emit_current_function_promise_with_resolvers_result_allocation_context(
         &mut self,
         function: &mut Function,
     ) -> PromiseWithResolversResultAllocationContext {
-        let prototype_local = self.reserve_temp_local();
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
             function,
         );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
-        PromiseWithResolversResultAllocationContext { prototype_local }
+        realm.clear(function);
+        PromiseWithResolversResultAllocationContext { prototype }
     }
-
-    pub(super) fn emit_install_promise_with_resolvers_result_prototype(
+    pub(super) fn emit_alloc_promise_with_resolvers_result(
         &mut self,
-        result_object_local: u32,
         context: PromiseWithResolversResultAllocationContext,
+        capability: &GcLocal<PromiseCapability>,
         function: &mut Function,
-    ) {
-        self.store_i64_local_at_offset(
-            result_object_local,
-            HEAP_PROTOTYPE_OFFSET,
-            context.prototype_local,
+    ) -> Result<GcLocal<OrdinaryObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let object = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&context.prototype), function)?,
             function,
         );
-        self.store_i64_const_at_offset(
-            result_object_local,
-            HEAP_OBJECT_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Object.tag() as u64,
-            function,
-        );
-        self.release_temp_local(context.prototype_local);
+        let value = schema.reserve_value_local(function);
+        for (name, field) in [
+            ("promise", PromiseCapabilitySchema::PROMISE),
+            ("resolve", PromiseCapabilitySchema::RESOLVE),
+            ("reject", PromiseCapabilitySchema::REJECT),
+        ] {
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<PromiseCapability>()
+                    .field(field)
+                    .read(capability, schema, function)
+                    .reference(),
+                function,
+            );
+            schema
+                .struct_type::<StoredValue>()
+                .read_into(&stored, &value, schema, function);
+            let string = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
+            let key = PropertyKeyLocals::from_string(schema, &string, function);
+            self.emit_object_append_data_property_with_flags(
+                &object, &key, &value, true, true, true, function,
+            )?;
+            key.clear(function);
+            string.clear(function);
+            stored.clear(function);
+        }
+        value.clear(function);
+        context.prototype.clear(function);
+        Ok(object)
     }
 }

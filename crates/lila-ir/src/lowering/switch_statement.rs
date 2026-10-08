@@ -2,6 +2,36 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_switch(&mut self, switch: &AstSwitch) -> (StatementIr, ValueKind) {
+        if self.async_generator_entry_state().is_some() {
+            return self.lower_async_generator_switch(switch);
+        }
+        if crate::async_generator_source::switch_has_direct_resources(switch) {
+            if self.plain_async_entry_state().is_some() {
+                return self
+                    .lower_complete_resource_switch(switch, ResumableRegionProtocolIr::Async);
+            }
+            if self.plain_generator_entry_state().is_some() {
+                return self
+                    .lower_complete_resource_switch(switch, ResumableRegionProtocolIr::Generator);
+            }
+        }
+        self.lower_switch_legacy(switch)
+    }
+
+    fn lower_switch_legacy(&mut self, switch: &AstSwitch) -> (StatementIr, ValueKind) {
+        if self.plain_async_entry_state().is_some() {
+            return self.lower_async_function_switch(switch);
+        }
+        if self.plain_generator_entry_state().is_some()
+            && matches!(
+                self.generator_value_branch_admission(),
+                GeneratorValueBranchAdmission::OrdinaryOutsideLoops
+            )
+            && (contains(switch, ContainsSymbol::YieldExpression)
+                || contains_ordinary_generator_phase_owner(switch))
+        {
+            return self.lower_ordinary_generator_switch(switch);
+        }
         let discriminant = self.lower_expression(switch.val());
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
@@ -72,19 +102,23 @@ impl<'a> ScriptLowerer<'a> {
         self.var_bindings = merged_vars;
         self.global_properties = merged_globals;
 
-        (
-            StatementIr::Switch {
-                discriminant,
-                lexical_environment: self.lower_materialized_lexical_environment(
-                    self.analysis
-                        .switch_environment_ids
-                        .get(&(switch as *const AstSwitch as usize))
-                        .copied(),
-                ),
-                lexical_declarations,
-                cases,
-            },
-            result_kind.unwrap_or(ValueKind::Undefined),
-        )
+        let statement = StatementIr::Switch {
+            discriminant,
+            lexical_environment: self.lower_materialized_lexical_environment(
+                self.analysis
+                    .switch_environment_ids
+                    .get(&(switch as *const AstSwitch as usize))
+                    .copied(),
+            ),
+            lexical_declarations,
+            cases,
+        };
+        // Case selection and switch breaks have no continuation-state owner.
+        // A child's exit cannot represent a break that bypasses that child.
+        if crate::ir::statement_contains_async_while_condition(&statement) {
+            self.unsupported("awaited while condition inside a switch case");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        (statement, result_kind.unwrap_or(ValueKind::Undefined))
     }
 }

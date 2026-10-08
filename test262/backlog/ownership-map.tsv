@@ -34,6 +34,7 @@ built-ins/WeakRef	T21	semantic
 built-ins/WeakSet	T21	semantic
 built-ins	T24	semantic
 harness	T03	infrastructure
+intl402/Temporal	T22	semantic
 intl402	T23	intl402
 language/arguments	T08	semantic
 language/async	T14	semantic

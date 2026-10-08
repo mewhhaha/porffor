@@ -1,36 +1,84 @@
-//! Typed schema vocabulary for the Wasm-GC object model.
-//!
-//! This module owns the typed schema and the final raw Wasm-GC encoding
-//! boundary. Registration borrows the central module sections, while function
-//! emission receives only opaque lifecycle operations. T05's object-model
-//! cutover must be atomic: until that cutover, JavaScript objects remain on the
-//! existing linear-memory path. These types let the emitter describe the
-//! replacement without representing a GC reference as an integer or confusing
-//! a linear-memory address with one.
-
-#![allow(
-    dead_code,
-    reason = "T05 schema precedes its atomic semantic-object cutover"
-)]
+//! The consumed layout, value, callable and module-global authority for the
+//! single Wasm-GC backend. Every function receives the same sealed RuntimeSchema;
+//! semantic references remain typed references throughout construction and calls.
+//! Private linear memory is limited to numeric wire and transient byte storage.
 
 use core::marker::PhantomData;
 
 use wasm_encoder::{
-    BlockType, ConstExpr, Encode, FieldType, GlobalSection, GlobalType, HeapType, Instruction,
-    RefType, Section, StorageType, TypeSection, ValType,
+    BlockType, ConstExpr, Encode, GlobalSection, GlobalType, HeapType, Instruction, RefType,
+    Section, StorageType, TypeSection, ValType,
 };
 
 use crate::Function;
 
+mod layouts;
+pub(crate) use layouts::*;
+
+mod value;
+pub(crate) use value::*;
+mod host;
+pub use host::*;
+mod snapshot;
+pub(crate) use host::{DeclaredGcHostImport, GcHostImports};
+pub use snapshot::*;
+
 mod sealed {
     pub trait Sealed {}
+    pub trait Struct {}
+    pub trait Array {}
+    pub trait WritableArray {}
+}
+
+/// Nullability is part of the actual signature/field contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GcNullability {
+    Nullable,
+    NonNullable,
+}
+impl GcNullability {
+    pub(crate) const fn is_nullable(self) -> bool {
+        matches!(self, Self::Nullable)
+    }
+}
+
+/// Constructor-only invocation phase before any source continuation state.
+pub(crate) const INITIALIZING_RESUME_POINT: i32 = -1;
+
+/// Actual function operands. Concrete layout references resolve only after the
+/// complete callable/layout index domain has been assigned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AbiType {
+    I32,
+    I64,
+    F64,
+    EqRef,
+    ExternRef(GcNullability),
+    Gc(GcLayout, GcNullability),
+}
+impl AbiType {
+    pub(crate) fn resolve(self, layouts: &GcLayoutRegistry) -> ValType {
+        match self {
+            Self::I32 => ValType::I32,
+            Self::I64 => ValType::I64,
+            Self::F64 => ValType::F64,
+            Self::EqRef => ValType::Ref(RefType::EQREF),
+            Self::ExternRef(nullable) => ValType::Ref(RefType {
+                nullable: nullable.is_nullable(),
+                heap_type: RefType::EXTERNREF.heap_type,
+            }),
+            Self::Gc(layout, nullable) => ValType::Ref(layouts.reference(layout, nullable)),
+        }
+    }
 }
 
 /// Marker implemented only by layouts in the central Wasm-GC schema.
 ///
 /// Keeping this sealed makes the schema the exhaustive source of heap types;
 /// an emitter submodule cannot silently invent an unregistered layout.
-pub(crate) trait GcHeapType: sealed::Sealed + Copy + 'static {}
+pub(crate) trait GcHeapType: sealed::Sealed + Copy + 'static {
+    const LAYOUT: GcLayout;
+}
 
 /// A type-section index that can name only `T`'s declared Wasm-GC type.
 ///
@@ -154,7 +202,8 @@ impl<T: GcHeapType> sealed::Sealed for GcRef<T> {}
 /// reference to `T`.
 ///
 /// The nullable state is the lifecycle boundary: the global is null before
-/// main establishes the root and after every shared main exit clears it. This
+/// the actual producer establishes the root. Its typed consumer owns replacement
+/// and clearing; exported diagnostics remain rooted until the host has decoded them. This
 /// type names the global slot only; it cannot contain a reference value, a
 /// linear-memory address, or the index of a scalar global.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -175,6 +224,19 @@ impl<T: GcHeapType> GcRootGlobal<T> {
     const fn raw(self) -> u32 {
         self.raw
     }
+    fn declare(layouts: &GcLayoutRegistry, globals: &mut GlobalLedger) -> Self {
+        let root = Self::new(globals.len());
+        let reference = layouts.reference(T::LAYOUT, GcNullability::Nullable);
+        globals.global(
+            GlobalType {
+                val_type: ValType::Ref(reference),
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::ref_null(reference.heap_type),
+        );
+        root
+    }
 }
 
 impl<T: GcHeapType> Clone for GcRootGlobal<T> {
@@ -185,85 +247,18 @@ impl<T: GcHeapType> Clone for GcRootGlobal<T> {
 
 impl<T: GcHeapType> Copy for GcRootGlobal<T> {}
 
-/// A memory32 byte address owned by a particular GC layout.
-///
-/// The owner parameter prevents side-storage addresses for two layouts from
-/// being exchanged. It does not make the address a JavaScript object identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub(crate) struct LinearAddr<Owner: GcHeapType> {
-    raw: u32,
-    owner: PhantomData<fn() -> Owner>,
-}
-
-impl<Owner: GcHeapType> LinearAddr<Owner> {
-    pub(crate) const fn new(raw: u32) -> Self {
-        Self {
-            raw,
-            owner: PhantomData,
-        }
-    }
-
-    pub(crate) const fn raw(self) -> u32 {
-        self.raw
-    }
-}
-
-impl<Owner: GcHeapType> sealed::Sealed for LinearAddr<Owner> {}
-
-/// A validated memory32 byte span with one statically named GC owner.
-///
-/// Fields are private and construction checks the one-past-end address, so a
-/// span cannot wrap memory32. The `2^32` one-past-end value is valid even
-/// though it does not fit in [`LinearAddr`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LinearSpan<Owner: GcHeapType> {
-    start: LinearAddr<Owner>,
-    byte_len: u32,
-}
-
-impl<Owner: GcHeapType> LinearSpan<Owner> {
-    const MEMORY32_END: u64 = u32::MAX as u64 + 1;
-
-    pub(crate) const fn new(start: LinearAddr<Owner>, byte_len: u32) -> Option<Self> {
-        let end = start.raw() as u64 + byte_len as u64;
-        if end <= Self::MEMORY32_END {
-            Some(Self { start, byte_len })
-        } else {
-            None
-        }
-    }
-
-    pub(crate) const fn start(self) -> LinearAddr<Owner> {
-        self.start
-    }
-
-    pub(crate) const fn byte_len(self) -> u32 {
-        self.byte_len
-    }
-
-    pub(crate) const fn end_exclusive(self) -> u64 {
-        self.start.raw() as u64 + self.byte_len as u64
-    }
-}
-
 /// Sealed relation between a field owner, its value, and nullability.
 ///
-/// Scalar and linear-address fields are non-nullable. Only [`GcRef`] admits
-/// [`Nullable`], so `GcField<_, I64Value, _, Nullable>` does not type-check.
+/// Scalar fields are non-nullable. Strong and external
+/// reference storage admits [`Nullable`], so `GcField<_, I64Value, _, Nullable>` does not type-check.
 pub(crate) trait GcFieldValue<Owner, Nullability>: sealed::Sealed
 where
     Owner: GcHeapType,
     Nullability: GcFieldNullability,
 {
+    const GET_KIND: GcStorageGet;
+    fn storage_type(layouts: &GcLayoutRegistry) -> StorageType;
 }
-
-impl<Owner: GcHeapType> GcFieldValue<Owner, NonNullable> for I32Value {}
-impl<Owner: GcHeapType> GcFieldValue<Owner, NonNullable> for I64Value {}
-impl<Owner: GcHeapType> GcFieldValue<Owner, NonNullable> for F64Value {}
-impl<Owner: GcHeapType> GcFieldValue<Owner, NonNullable> for LinearAddr<Owner> {}
-impl<Owner: GcHeapType, Target: GcHeapType> GcFieldValue<Owner, NonNullable> for GcRef<Target> {}
-impl<Owner: GcHeapType, Target: GcHeapType> GcFieldValue<Owner, Nullable> for GcRef<Target> {}
 
 /// One field in one declared Wasm-GC struct.
 ///
@@ -296,76 +291,49 @@ where
         }
     }
 
-    const fn ordinal(self) -> GcFieldOrdinal {
+    const fn ordinal(&self) -> GcFieldOrdinal {
         self.ordinal
     }
 }
 
-/// The first GC type in the migration: a capability/ABI witness only.
-///
-/// It carries no JavaScript object and therefore does not create a second live
-/// object model while the linear heap is still active.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeGcAnchor {}
-
-impl sealed::Sealed for RuntimeGcAnchor {}
-impl GcHeapType for RuntimeGcAnchor {}
-
-/// A capability-only holder with one strong edge to [`RuntimeGcAnchor`].
-///
-/// Like the anchor, this is not a JavaScript object. It exists to make the
-/// first executable reference-bearing field exercise the same typed schema
-/// path future semantic layouts will use without creating a second object
-/// model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeGcAnchorHolder {}
-
-impl sealed::Sealed for RuntimeGcAnchorHolder {}
-impl GcHeapType for RuntimeGcAnchorHolder {}
-
-/// Assigned type index plus the fixed schema of [`RuntimeGcAnchor`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGcAnchorSchema {
-    type_index: GcTypeIndex<RuntimeGcAnchor>,
+/// The module's globals in declaration order. Keeping the types beside the
+/// encoded section lets a program module import the runtime's globals without
+/// parsing the runtime back.
+pub(crate) struct GlobalLedger {
+    entries: Vec<(GlobalType, ConstExpr)>,
 }
 
-impl RuntimeGcAnchorSchema {
-    /// Bumped only when the emitted GC value ABI changes incompatibly.
-    const ABI_VERSION: i32 = 1;
-    const FIELD_COUNT: u32 = 1;
-    const ABI_VERSION_FIELD: GcField<RuntimeGcAnchor, I32Value, Immutable, NonNullable> =
-        GcField::new(GcFieldOrdinal::new(0));
-
-    const fn new(type_index: GcTypeIndex<RuntimeGcAnchor>) -> Self {
-        Self { type_index }
+impl GlobalLedger {
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
     }
 
-    const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchor> {
-        self.type_index
-    }
-}
-
-/// Assigned type index plus the fixed schema of [`RuntimeGcAnchorHolder`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGcAnchorHolderSchema {
-    type_index: GcTypeIndex<RuntimeGcAnchorHolder>,
-}
-
-impl RuntimeGcAnchorHolderSchema {
-    const FIELD_COUNT: u32 = 1;
-    const ANCHOR_FIELD: GcField<
-        RuntimeGcAnchorHolder,
-        GcRef<RuntimeGcAnchor>,
-        Immutable,
-        NonNullable,
-    > = GcField::new(GcFieldOrdinal::new(0));
-
-    const fn new(type_index: GcTypeIndex<RuntimeGcAnchorHolder>) -> Self {
-        Self { type_index }
+    pub(crate) fn global(&mut self, global_type: GlobalType, init: &ConstExpr) -> &mut Self {
+        self.entries.push((global_type, init.clone()));
+        self
     }
 
-    const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchorHolder> {
-        self.type_index
+    pub(crate) fn len(&self) -> u32 {
+        u32::try_from(self.entries.len()).expect("global count fits the Wasm index domain")
+    }
+
+    /// The types of the first `count` globals.
+    pub(crate) fn types(&self, count: u32) -> Vec<GlobalType> {
+        self.entries[..count as usize]
+            .iter()
+            .map(|(global_type, _)| *global_type)
+            .collect()
+    }
+
+    /// The section declaring every global after the first `skip`.
+    fn section_after(&self, skip: u32) -> GlobalSection {
+        let mut section = GlobalSection::new();
+        for (global_type, init) in &self.entries[skip as usize..] {
+            section.global(*global_type, init);
+        }
+        section
     }
 }
 
@@ -375,41 +343,83 @@ impl RuntimeGcAnchorHolderSchema {
 /// exposed to module assembly. Raw type indices and field ordinals never leave
 /// this module, so a caller cannot guess an index or pair a field with a
 /// different owner before encoding. Finalizing the complete scalar global
-/// section derives and appends the sole typed root, then keeps its construction
+/// section derives and appends the complete typed root set, then keeps its construction
 /// and extraction private.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct RuntimeModuleTypes {
-    gc_anchor: RuntimeGcAnchorSchema,
-    gc_anchor_holder: RuntimeGcAnchorHolderSchema,
+pub(crate) struct RuntimeGcTypes {
+    layouts: GcLayoutRegistry,
 }
 
-impl RuntimeModuleTypes {
-    pub(crate) fn register(types: &mut TypeSection) -> Self {
-        let gc_anchor = RuntimeGcAnchorSchema::new(gc_struct_with_i32_field(
-            types,
-            RuntimeGcAnchorSchema::ABI_VERSION_FIELD,
-        ));
-        let gc_anchor_holder = RuntimeGcAnchorHolderSchema::new(gc_struct_with_ref_field(
-            types,
-            RuntimeGcAnchorHolderSchema::ANCHOR_FIELD,
-            gc_anchor.type_index(),
-        ));
-
-        Self {
-            gc_anchor,
-            gc_anchor_holder,
-        }
+impl RuntimeGcTypes {
+    fn from_layouts(layouts: GcLayoutRegistry) -> Self {
+        Self { layouts }
     }
 
     /// Consumes the complete open global section, derives the root from its
-    /// actual next index, appends it, and seals the section together with the
+    /// actual next indices, appends them, and seals the section together with the
     /// only matching runtime schema.
-    pub(crate) fn finalize_globals(self, mut globals: GlobalSection) -> FinalizedModuleGlobals {
-        let runtime_schema = RuntimeModuleSchema {
+    ///
+    /// The per-program module once guards are declared last, after every root,
+    /// so no root index depends on the program.
+    fn finalize_globals(
+        self,
+        mut globals: GlobalLedger,
+        snapshot: bool,
+        module_guard_count: u32,
+    ) -> FinalizedModuleGlobals {
+        let pooled_strings = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let well_known_symbols = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let registered_symbols = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let current_realm = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let throw_name = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let throw_message = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let throw_constructor_name = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let pending_jobs_head = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let pending_jobs_tail = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let unhandled_promises_head = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let unhandled_promises_tail = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let module_evaluation_promise = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let collection_key_hash_counter = CollectionKeyHashCounterGlobal::declare(&mut globals);
+        let atomics_async_waiters_head = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let atomics_async_waiters_tail = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let program_hooks = ProgramHookGlobals::declare(&mut globals);
+        let snapshot =
+            snapshot.then(|| snapshot::SnapshotRoots::declare(&self.layouts, &mut globals));
+        let module_guards_first = globals.len();
+        for _ in 0..module_guard_count {
+            globals.global(
+                GlobalType {
+                    val_type: ValType::I32,
+                    mutable: true,
+                    shared: false,
+                },
+                &ConstExpr::i32_const(0),
+            );
+        }
+        let runtime_schema = RuntimeSchema {
             types: self,
-            gc_anchor_root: GcRootGlobal::new(globals.len()),
+            pooled_strings,
+            well_known_symbols,
+            registered_symbols,
+            current_realm,
+            throw_name,
+            throw_message,
+            throw_constructor_name,
+            pending_jobs_head,
+            pending_jobs_tail,
+            unhandled_promises_head,
+            unhandled_promises_tail,
+            module_evaluation_promise,
+            collection_key_hash_counter,
+            atomics_async_waiters_head,
+            atomics_async_waiters_tail,
+            program_hooks,
+            snapshot,
+            module_guards: ModuleGuardGlobals {
+                first: module_guards_first,
+                count: module_guard_count,
+            },
         };
-        runtime_schema.append_root_global(&mut globals);
         FinalizedModuleGlobals {
             section: globals,
             runtime_schema,
@@ -417,72 +427,283 @@ impl RuntimeModuleTypes {
     }
 }
 
-/// Complete, opaque runtime GC schema carried only by the main-function role.
+/// Frozen type declarations and their exact assigned GC indices.
 ///
-/// The anchor type is stored once in `types`; the root adds only its typed
-/// global index. Declaration, initialization and cleanup therefore cannot
-/// acquire two independently supplied indices for the same anchor layout.
-#[derive(Debug, PartialEq, Eq)]
-struct RuntimeModuleSchema {
-    types: RuntimeModuleTypes,
-    gc_anchor_root: GcRootGlobal<RuntimeGcAnchor>,
+/// Registration consumes the section after singleton function signatures.
+/// Multi-member recursion groups make TypeSection::len a group-entry count;
+/// no later caller can append or guess a type index through that section.
+/// The only transition finalizes globals into the existing sealed package.
+pub(crate) struct RuntimeModuleTypes {
+    section: TypeSection,
+    runtime: RuntimeGcTypes,
 }
 
-impl RuntimeModuleSchema {
-    /// Appends the sole runtime GC root after every previously registered
-    /// global. Only [`RuntimeModuleTypes::finalize_globals`] can bind and invoke
-    /// this operation, so module assembly cannot encode the root's raw type or
-    /// index or append another global after it.
-    fn append_root_global(&self, globals: &mut GlobalSection) {
-        assert_eq!(
-            globals.len(),
-            self.gc_anchor_root.raw(),
-            "runtime GC root must be appended after every pre-existing global"
+impl RuntimeModuleTypes {
+    pub(crate) fn register() -> Self {
+        use crate::{module::StaticSignature, runtime_helpers::RuntimeHelperId};
+        use wasm_encoder::{CompositeInnerType, CompositeType, FuncType, SubType};
+        let function_count = StaticSignature::ALL.len() + RuntimeHelperId::ALL.len();
+        let layouts = GcLayoutRegistry::assigned(
+            u32::try_from(function_count).expect("function type count overflow"),
         );
-        let anchor_type = HeapType::Concrete(self.types.gc_anchor.type_index().raw());
+        let mut section = TypeSection::new();
+        let mut members = Vec::new();
+        let function_type = |definition: crate::module::StaticSignatureDefinition| SubType {
+            is_final: true,
+            supertype_idx: None,
+            composite_type: CompositeType {
+                inner: CompositeInnerType::Func(FuncType::new(
+                    definition.parameters().iter().copied(),
+                    definition.results().iter().copied(),
+                )),
+                shared: false,
+                descriptor: None,
+                describes: None,
+            },
+        };
+        for signature in StaticSignature::ALL {
+            let definition = signature.definition(&layouts);
+            if signature.requires_runtime_group() {
+                members.push(function_type(definition));
+            } else {
+                section.ty().function(
+                    definition.parameters().iter().copied(),
+                    definition.results().iter().copied(),
+                );
+            }
+        }
+        for helper in RuntimeHelperId::ALL {
+            members.push(function_type(helper.definition(&layouts)));
+        }
+        members.extend(
+            GcLayout::ALL
+                .iter()
+                .map(|layout| layout.definition(&layouts)),
+        );
+        section.ty().rec(members);
+        Self {
+            section,
+            runtime: RuntimeGcTypes::from_layouts(layouts),
+        }
+    }
+
+    pub(crate) fn finalize_globals(
+        self,
+        globals: GlobalLedger,
+        snapshot: bool,
+        module_guard_count: u32,
+    ) -> FinalizedRuntimeModule {
+        FinalizedRuntimeModule {
+            types: FinalizedModuleTypes {
+                section: self.section,
+            },
+            globals: self
+                .runtime
+                .finalize_globals(globals, snapshot, module_guard_count),
+        }
+    }
+}
+
+/// Finalized type declarations expose only Wasm section encoding.
+///
+/// The raw section never leaves this module after recursive registration:
+/// there is no extraction, mutable borrow, count query or append operation.
+pub(crate) struct FinalizedModuleTypes {
+    section: TypeSection,
+}
+
+impl Encode for FinalizedModuleTypes {
+    fn encode(&self, sink: &mut Vec<u8>) {
+        self.section.encode(sink);
+    }
+}
+
+impl Section for FinalizedModuleTypes {
+    fn id(&self) -> u8 {
+        self.section.id()
+    }
+}
+
+/// One consume-once owner of the matching frozen types and rooted globals.
+///
+/// Only registration can construct this owner. Borrowed encoding/root views
+/// cannot move its sections apart or combine their ownership across packages.
+/// Module assembly carries the owner unchanged through main and code emission.
+pub(crate) struct FinalizedRuntimeModule {
+    types: FinalizedModuleTypes,
+    globals: FinalizedModuleGlobals,
+}
+
+impl FinalizedRuntimeModule {
+    pub(crate) fn types(&self) -> &FinalizedModuleTypes {
+        &self.types
+    }
+
+    pub(crate) fn globals(&self) -> &FinalizedModuleGlobals {
+        &self.globals
+    }
+}
+
+/// Nonzero identity ordinals for object/Symbol collection keys. Only the
+/// sealed module schema can declare or advance this scalar global.
+#[derive(Debug, PartialEq, Eq)]
+struct CollectionKeyHashCounterGlobal {
+    index: u32,
+}
+impl CollectionKeyHashCounterGlobal {
+    fn declare(globals: &mut GlobalLedger) -> Self {
+        let index = globals.len();
         globals.global(
             GlobalType {
-                val_type: ValType::Ref(RefType {
-                    nullable: true,
-                    heap_type: anchor_type,
-                }),
+                val_type: ValType::I64,
                 mutable: true,
                 shared: false,
             },
-            &ConstExpr::ref_null(anchor_type),
+            &ConstExpr::i64_const(1),
         );
+        Self { index }
+    }
+}
+
+/// Complete, opaque runtime GC schema borrowed by every function builder.
+///
+/// Every semantic global carries the layout assigned by the same registry.
+/// Declaration and use cannot acquire independently supplied raw indices.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeSchema {
+    types: RuntimeGcTypes,
+    pooled_strings: GcRootGlobal<PooledStringTable>,
+    well_known_symbols: GcRootGlobal<WellKnownSymbolTable>,
+    registered_symbols: GcRootGlobal<RegisteredSymbolTable>,
+    current_realm: GcRootGlobal<RealmRecord>,
+    throw_name: GcRootGlobal<StringValue>,
+    throw_message: GcRootGlobal<StringValue>,
+    throw_constructor_name: GcRootGlobal<StringValue>,
+    pending_jobs_head: GcRootGlobal<PendingJob>,
+    pending_jobs_tail: GcRootGlobal<PendingJob>,
+    unhandled_promises_head: GcRootGlobal<PromiseObject>,
+    unhandled_promises_tail: GcRootGlobal<PromiseObject>,
+    module_evaluation_promise: GcRootGlobal<PromiseObject>,
+    collection_key_hash_counter: CollectionKeyHashCounterGlobal,
+    atomics_async_waiters_head: GcRootGlobal<AtomicsAsyncWaiter>,
+    atomics_async_waiters_tail: GcRootGlobal<AtomicsAsyncWaiter>,
+    program_hooks: ProgramHookGlobals,
+    snapshot: Option<snapshot::SnapshotRoots>,
+    module_guards: ModuleGuardGlobals,
+}
+
+/// One mutable `(ref null $helper)` global per program hook, null until the
+/// program's `main` installs the hook. Declared for every program, in
+/// [`RuntimeHelperId`] order, so the runtime half never depends on which hooks
+/// a program provides.
+#[derive(Debug, PartialEq, Eq)]
+struct ProgramHookGlobals {
+    first: u32,
+}
+
+impl ProgramHookGlobals {
+    fn declare(globals: &mut GlobalLedger) -> Self {
+        use crate::runtime_helpers::ProgramHook;
+        let first = globals.len();
+        for hook in ProgramHook::ALL {
+            let heap_type = HeapType::Concrete(hook.helper().type_index());
+            globals.global(
+                GlobalType {
+                    val_type: ValType::Ref(RefType {
+                        nullable: true,
+                        heap_type,
+                    }),
+                    mutable: true,
+                    shared: false,
+                },
+                &ConstExpr::ref_null(heap_type),
+            );
+        }
+        Self { first }
+    }
+}
+
+/// The once-guard globals, declared after every root.
+#[derive(Debug, PartialEq, Eq)]
+struct ModuleGuardGlobals {
+    first: u32,
+    count: u32,
+}
+
+impl RuntimeSchema {
+    /// The global holding `hook`'s function reference.
+    pub(crate) fn program_hook_global(&self, hook: crate::runtime_helpers::ProgramHook) -> u32 {
+        self.program_hooks.first + hook as u32
     }
 
-    /// Constructs the capability anchor and holder, traverses the holder's
-    /// typed strong edge and establishes the main-lifetime root.
-    fn emit_initialize_anchor_root(&self, function: &mut Function) {
-        function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
-        emit_struct_new(function, self.types.gc_anchor.type_index());
-        emit_struct_new(function, self.types.gc_anchor_holder.type_index());
-        emit_struct_get(
-            function,
-            self.types.gc_anchor_holder.type_index(),
-            RuntimeGcAnchorHolderSchema::ANCHOR_FIELD,
-        );
-        emit_root_set(function, self.gc_anchor_root);
+    pub(crate) fn module_unit_guard(
+        &self,
+        unit: u32,
+    ) -> Result<crate::planning::ModuleUnitGuard, crate::EmitError> {
+        if unit >= self.module_guards.count {
+            return Err(crate::EmitError::unsupported(
+                "module once guard requires its declared unit",
+            ));
+        }
+        Ok(crate::planning::ModuleUnitGuard::new(
+            self.module_guards.first + unit,
+        ))
     }
 
-    /// Verifies the capability anchor ABI and clears the main-lifetime root.
-    fn emit_verify_and_clear_anchor_root(&self, function: &mut Function) {
-        emit_root_get(function, self.gc_anchor_root);
-        function.instruction(&Instruction::RefAsNonNull);
-        emit_struct_get(
-            function,
-            self.types.gc_anchor.type_index(),
-            RuntimeGcAnchorSchema::ABI_VERSION_FIELD,
-        );
-        function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
-        function.instruction(&Instruction::I32Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        emit_ref_null(function, self.types.gc_anchor.type_index());
-        emit_root_set(function, self.gc_anchor_root);
+    pub(crate) fn layouts(&self) -> &GcLayoutRegistry {
+        &self.types.layouts
+    }
+    pub(crate) fn struct_type<T: GcStructHeapType>(&self) -> GcStructType<T> {
+        self.types.layouts.struct_type()
+    }
+    /// Bind a declaration-owned field to this module's registered struct type.
+    pub(crate) fn field<O, V, M, N>(
+        &self,
+        field: GcField<O, V, M, N>,
+    ) -> GcFieldAccessor<O, V, M, N>
+    where
+        O: GcStructHeapType,
+        V: GcFieldValue<O, N>,
+        M: GcFieldMutability,
+        N: GcFieldNullability,
+    {
+        self.struct_type::<O>().field(field)
+    }
+
+    pub(crate) fn array_type<T: GcArrayHeapType>(
+        &self,
+    ) -> GcArrayType<T, T::Element, T::Mutability, T::Nullability> {
+        self.types.layouts.array_type()
+    }
+    pub(crate) fn reference_type<T: GcHeapType>(&self, nullable: GcNullability) -> RefType {
+        self.types.layouts.reference(T::LAYOUT, nullable)
+    }
+    pub(crate) fn signature(
+        &self,
+        signature: crate::module::StaticSignature,
+    ) -> crate::module::StaticSignatureDefinition {
+        signature.definition(&self.types.layouts)
+    }
+
+    fn throw_diagnostic_root(
+        &self,
+        role: crate::module::ThrowDiagnosticRole,
+    ) -> GcRootGlobal<StringValue> {
+        match role {
+            crate::module::ThrowDiagnosticRole::Name => self.throw_name,
+            crate::module::ThrowDiagnosticRole::Message => self.throw_message,
+            crate::module::ThrowDiagnosticRole::ConstructorName => self.throw_constructor_name,
+        }
+    }
+
+    pub(crate) fn export_throw_diagnostics(&self, exports: &mut wasm_encoder::ExportSection) {
+        for role in crate::module::ThrowDiagnosticRole::ALL {
+            exports.export(
+                role.export_name(),
+                wasm_encoder::ExportKind::Global,
+                self.throw_diagnostic_root(*role).raw(),
+            );
+        }
     }
 }
 
@@ -492,103 +713,50 @@ impl RuntimeModuleSchema {
 /// The raw section and schema are both private. This value implements the Wasm
 /// section traits itself, and main holds a reference to this exact package for
 /// its opaque lifecycle operations. No caller can clone the raw
-/// [`GlobalSection`], append another global, extract a copyable schema, or pair
+/// [`GlobalLedger`], append another global, extract a copyable schema, or pair
 /// lifecycle instructions from one package with another package's section.
 pub(crate) struct FinalizedModuleGlobals {
-    section: GlobalSection,
-    runtime_schema: RuntimeModuleSchema,
+    section: GlobalLedger,
+    runtime_schema: RuntimeSchema,
 }
 
 impl FinalizedModuleGlobals {
-    pub(crate) fn emit_initialize_anchor_root(&self, function: &mut Function) {
-        self.runtime_schema.emit_initialize_anchor_root(function);
+    pub(crate) fn schema(&self) -> &RuntimeSchema {
+        &self.runtime_schema
     }
 
-    pub(crate) fn emit_verify_and_clear_anchor_root(&self, function: &mut Function) {
-        self.runtime_schema
-            .emit_verify_and_clear_anchor_root(function);
+    /// The globals every program shares: all of them but the program's own
+    /// once guards, which are declared last.
+    pub(crate) fn runtime_global_types(&self) -> Vec<GlobalType> {
+        self.section.types(self.runtime_schema.module_guards.first)
     }
-}
 
-impl Encode for FinalizedModuleGlobals {
-    fn encode(&self, sink: &mut Vec<u8>) {
-        self.section.encode(sink);
+    /// Borrowed encoding of the globals after the imported prefix. The raw
+    /// encoder stays inside this owner and cannot be cloned or extended by a
+    /// module assembly caller.
+    pub(crate) fn defined_section(&self, imported: u32) -> impl Section + '_ {
+        struct DefinedGlobalSection<'a> {
+            ledger: &'a GlobalLedger,
+            imported: u32,
+        }
+
+        impl Encode for DefinedGlobalSection<'_> {
+            fn encode(&self, sink: &mut Vec<u8>) {
+                self.ledger.section_after(self.imported).encode(sink);
+            }
+        }
+
+        impl Section for DefinedGlobalSection<'_> {
+            fn id(&self) -> u8 {
+                wasm_encoder::SectionId::Global.into()
+            }
+        }
+
+        DefinedGlobalSection {
+            ledger: &self.section,
+            imported,
+        }
     }
-}
-
-impl Section for FinalizedModuleGlobals {
-    fn id(&self) -> u8 {
-        self.section.id()
-    }
-}
-
-fn gc_struct_with_i32_field<T, Mutability>(
-    types: &mut TypeSection,
-    field: GcField<T, I32Value, Mutability, NonNullable>,
-) -> GcTypeIndex<T>
-where
-    T: GcHeapType,
-    Mutability: GcFieldMutability,
-{
-    assert_eq!(
-        field.ordinal().raw(),
-        0,
-        "a one-field GC struct must declare field ordinal zero"
-    );
-    let index = GcTypeIndex::new(types.len());
-    types.ty().struct_([FieldType {
-        element_type: StorageType::Val(ValType::I32),
-        mutable: Mutability::MUTABLE,
-    }]);
-    index
-}
-
-fn gc_struct_with_ref_field<Owner, Target, Mutability, Nullability>(
-    types: &mut TypeSection,
-    field: GcField<Owner, GcRef<Target>, Mutability, Nullability>,
-    target: GcTypeIndex<Target>,
-) -> GcTypeIndex<Owner>
-where
-    Owner: GcHeapType,
-    Target: GcHeapType,
-    Mutability: GcFieldMutability,
-    Nullability: GcFieldNullability,
-    GcRef<Target>: GcFieldValue<Owner, Nullability>,
-{
-    assert_eq!(
-        field.ordinal().raw(),
-        0,
-        "a one-field GC struct must declare field ordinal zero"
-    );
-    let index = GcTypeIndex::new(types.len());
-    types.ty().struct_([FieldType {
-        element_type: StorageType::Val(ValType::Ref(RefType {
-            nullable: Nullability::NULLABLE,
-            heap_type: HeapType::Concrete(target.raw()),
-        })),
-        mutable: Mutability::MUTABLE,
-    }]);
-    index
-}
-
-fn emit_struct_new<T: GcHeapType>(function: &mut Function, ty: GcTypeIndex<T>) {
-    function.instruction(&Instruction::StructNew(ty.raw()));
-}
-
-fn emit_struct_get<Owner, Value, Mutability, Nullability>(
-    function: &mut Function,
-    owner: GcTypeIndex<Owner>,
-    field: GcField<Owner, Value, Mutability, Nullability>,
-) where
-    Owner: GcHeapType,
-    Value: GcFieldValue<Owner, Nullability>,
-    Mutability: GcFieldMutability,
-    Nullability: GcFieldNullability,
-{
-    function.instruction(&Instruction::StructGet {
-        struct_type_index: owner.raw(),
-        field_index: field.ordinal().raw(),
-    });
 }
 
 fn emit_root_get<T: GcHeapType>(function: &mut Function, root: GcRootGlobal<T>) {
@@ -599,47 +767,87 @@ fn emit_root_set<T: GcHeapType>(function: &mut Function, root: GcRootGlobal<T>) 
     function.instruction(&Instruction::GlobalSet(root.raw()));
 }
 
-fn emit_ref_null<T: GcHeapType>(function: &mut Function, ty: GcTypeIndex<T>) {
-    function.instruction(&Instruction::RefNull(HeapType::Concrete(ty.raw())));
-}
-
-const _: () = assert!(RuntimeGcAnchorSchema::FIELD_COUNT == 1);
-const _: () = assert!(RuntimeGcAnchorSchema::ABI_VERSION_FIELD.ordinal().raw() == 0);
-const _: () = assert!(RuntimeGcAnchorHolderSchema::FIELD_COUNT == 1);
-const _: () = assert!(RuntimeGcAnchorHolderSchema::ANCHOR_FIELD.ordinal().raw() == 0);
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn finalized_globals_bind_the_root_to_the_actual_next_index() {
-        for existing_global_count in [0_u32, 1, 7] {
-            let mut types = TypeSection::new();
-            let runtime = RuntimeModuleTypes::register(&mut types);
-            let mut globals = GlobalSection::new();
-            for _ in 0..existing_global_count {
-                globals.global(
-                    GlobalType {
-                        val_type: ValType::I64,
-                        mutable: true,
-                        shared: false,
-                    },
-                    &ConstExpr::i64_const(0),
+    fn recursive_callable_and_semantic_declarations_validate_together() {
+        let registered = RuntimeModuleTypes::register();
+        let runtime = registered.finalize_globals(GlobalLedger::new(), false, 0);
+        let mut module = wasm_encoder::Module::new();
+        module.section(runtime.types());
+        module.section(&runtime.globals().defined_section(0));
+        let bytes = module.finish();
+        wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
+            .validate_all(&bytes)
+            .expect("typed callable fields and semantic edges share one assigned recursion group");
+        let mut group_sizes = Vec::new();
+        for payload in wasmparser::Parser::new(0).parse_all(&bytes) {
+            if let wasmparser::Payload::TypeSection(section) = payload.unwrap() {
+                for group in section {
+                    let size = group.unwrap().types().len();
+                    group_sizes.extend(std::iter::repeat_n(size, size));
+                }
+            }
+        }
+        for signature in crate::module::StaticSignature::ALL {
+            let size = group_sizes[signature.type_index() as usize];
+            if signature.requires_runtime_group() {
+                assert!(
+                    size > 1,
+                    "{signature:?} must retain its concrete recursive references"
+                );
+            } else {
+                assert_eq!(
+                    size, 1,
+                    "{signature:?} must canonicalize independently for native host binding"
                 );
             }
+        }
+    }
 
-            let finalized = runtime.finalize_globals(globals);
-            assert_eq!(
-                finalized.runtime_schema.gc_anchor_root.raw(),
-                existing_global_count,
-                "the typed root must bind the encoded section's actual next index"
-            );
-            assert_eq!(
-                finalized.section.len(),
-                existing_global_count + 1,
-                "finalization must append exactly one root"
-            );
+    #[test]
+    fn finalized_globals_bind_the_root_to_the_actual_next_index() {
+        for existing_global_count in [0_u32, 1, 7] {
+            for snapshot in [false, true] {
+                let runtime = RuntimeModuleTypes::register();
+                let mut globals = GlobalLedger::new();
+                for _ in 0..existing_global_count {
+                    globals.global(
+                        GlobalType {
+                            val_type: ValType::I64,
+                            mutable: true,
+                            shared: false,
+                        },
+                        &ConstExpr::i64_const(0),
+                    );
+                }
+
+                let finalized = runtime.finalize_globals(globals, snapshot, 0);
+                assert_eq!(
+                    finalized.globals.runtime_schema.pooled_strings.raw(),
+                    existing_global_count,
+                    "the typed root must bind the encoded section's actual next index"
+                );
+                assert_eq!(
+                    finalized.globals.runtime_schema.snapshot.is_some(),
+                    snapshot
+                );
+                let snapshot_global_count = if snapshot {
+                    2 + u32::try_from(GcSnapshotLayout::ALL.len()).unwrap()
+                } else {
+                    0
+                };
+                assert_eq!(
+                    finalized.globals.section.len(),
+                    existing_global_count
+                        + 15
+                        + crate::runtime_helpers::ProgramHook::ALL.len() as u32
+                        + snapshot_global_count,
+                    "ordinary roots and opt-in typed inventory/witnesses share the actual section"
+                );
+            }
         }
     }
 }

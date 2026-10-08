@@ -3,7 +3,7 @@ use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
-const MATH_SOURCE: &str = include_str!("../src/builtins/math.rs");
+const MATH_SOURCE: &str = include_str!("../src/builtins/math/sum_precise.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/sync-iterator-locals-release-ownership.md");
 const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");

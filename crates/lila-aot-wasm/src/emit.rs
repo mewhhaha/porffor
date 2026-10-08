@@ -1,21 +1,7 @@
-use std::borrow::Cow;
-
-use lila_ir::DerivedConstructorActivationIr;
-
-use crate::functions::{
-    emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
-};
-use crate::modules::module_execution_record_count;
-use crate::objects::{
-    emit_object_append_accessor_property_helper_function,
-    emit_object_append_data_property_helper_function, emit_plain_object_alloc_helper_function,
-    ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
-    PreventExtensionsTraversalTargetLocals,
-};
 use lila_ir::{
     direct_await_sequence_resume_state, AsyncDisposableScopeExecutionIr, AwaitSequenceError,
-    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId,
-    SyncDisposableScopeExecutionIr, ValueKind,
+    DerivedConstructorActivationIr, FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr,
+    StandardBuiltinId, SyncDisposableScopeExecutionIr, ValueKind,
 };
 // `CodeSection` is deliberately absent from this list. Every code-section entry
 // now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
@@ -26,15 +12,17 @@ use lila_ir::{
 // `code_sink::Function`, reached through the glob below. Importing the encoder
 // type here would shadow the sink in this file alone, which is precisely the
 // hole the sink exists to close.
-use wasm_encoder::{
-    ConstExpr, DataSection, ExportKind, ExportSection, FunctionSection, GlobalType, ImportSection,
-    Instruction, MemorySection, MemoryType, Module, ValType,
-};
+use crate::runtime_artifact::{EmittedModule, ModuleKind};
+use wasm_encoder::{Instruction, ValType};
 
 use super::*;
-use lila_intl::{embedded_intl_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION};
+use crate::gc_types::*;
 
+mod async_generator_admission;
+mod body_compilation;
+mod body_entry;
 mod completion_exit;
+mod module_assembly;
 mod runtime_requirement;
 pub(crate) use completion_exit::CompletionExit;
 #[cfg(test)]
@@ -65,30 +53,14 @@ pub(crate) enum PropagateCallThrow {
     LeaveInCompletion,
 }
 
-/// What the ordinary property-read path does with a throw raised by a getter.
-///
-/// This one is deliberately **not** the same mechanism as
-/// [`PropagateCallThrow`]. `BreakToOrdinaryReadExit` emits a raw `Br` out of
-/// frames the read path opened and closes itself, not a `ControlTarget`
-/// branch, so it survives the retirement of the hand-counted `extra_depth`
-/// arguments (see the closing section of `code_sink.rs`). It used to be spelled
-/// `Option<u32>` with `Some(8)` at its single call site, and the `8` was then
-/// `saturating_sub(1)`-ed inside the callee — a number that crossed a module
-/// boundary to be adjusted at the far end. Now nothing crosses: the depth is a
-/// constant beside the code that emits it.
+/// Whether the completed ordinary property read routes a getter's whole Throw
+/// to the active handler or leaves it for the caller to inspect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AccessorThrowRouting {
-    /// Break out to the ordinary-read exit the caller opened.
+    /// Publish the whole operation completion and route its Throw.
     BreakToOrdinaryReadExit,
     /// Leave `completion_local == THROW` in place.
     LeaveInCompletion,
-}
-
-impl AccessorThrowRouting {
-    /// Labels between the getter-call site and the ordinary-read exit block,
-    /// counted from inside the `is_callable` `If`. Was `Some(8) - 1` written at
-    /// the call site.
-    pub(crate) const ORDINARY_READ_EXIT_BREAK_DEPTH: u32 = 7;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,21 +79,6 @@ pub(crate) struct ControlTarget {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct IteratorCloseOnThrowLocals {
-    pub(crate) iterator_payload_local: u32,
-    pub(crate) iterator_tag_local: u32,
-    pub(crate) key_local: u32,
-    pub(crate) return_payload_local: u32,
-    pub(crate) return_tag_local: u32,
-    pub(crate) result_payload_local: u32,
-    pub(crate) result_tag_local: u32,
-    pub(crate) saved_payload_local: u32,
-    pub(crate) saved_tag_local: u32,
-    pub(crate) saved_completion_local: u32,
-    pub(crate) saved_aux_local: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(crate) struct LoopTargets {
     pub(crate) continue_frame: ControlTarget,
 }
@@ -134,9 +91,43 @@ pub(crate) struct LabelTargets {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LocalBindingId {
+    ordinal: usize,
+}
+
+pub(crate) struct LocalBindingLocals {
+    value: ValueLocals,
+    initialized: I32Local,
+    role: LocalBindingRole,
+}
+enum LocalBindingRole {
+    Source {
+        private_argument_list: Option<GcLocal<ValueArray, Nullable>>,
+    },
+    CompilerTemporary,
+}
+impl LocalBindingLocals {
+    pub(crate) fn value(&self) -> &ValueLocals {
+        &self.value
+    }
+    pub(crate) fn initialized(&self) -> I32Local {
+        self.initialized
+    }
+    fn private_argument_list(&self) -> Option<&GcLocal<ValueArray, Nullable>> {
+        match &self.role {
+            LocalBindingRole::Source {
+                private_argument_list,
+            } => private_argument_list.as_ref(),
+            LocalBindingRole::CompilerTemporary => None,
+        }
+    }
+}
+
+/// Scope maps may copy a private identity; the builder retains the only rooted
+/// value/initialization owner. Environment storage names the real slot/hops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BindingStorage {
-    Fixed { payload_local: u32, kind: ValueKind },
-    Dynamic { tag_local: u32, payload_local: u32 },
+    Local(LocalBindingId),
     EnvSlot { slot: u32, hops: u32 },
 }
 
@@ -154,31 +145,57 @@ pub(crate) enum ReturnAbi {
 /// a copyable schema to pair with another section.
 enum FunctionModuleState<'a> {
     Main(&'a FinalizedModuleGlobals, PromiseRejectionPolicy),
-    PreparedScript(&'a PreparedScriptUnit),
-    Internal,
+    PreparedScript(
+        &'a PreparedScriptUnit,
+        &'a crate::function_entry::PlannedFunctionEntry,
+    ),
+    Internal(&'a crate::function_entry::PlannedFunctionEntry),
+    RuntimeOperation(RuntimeHelperId),
 }
 
-impl FunctionModuleState<'_> {
-    const fn parameter_count(&self) -> usize {
+impl<'a> FunctionModuleState<'a> {
+    fn parameter_count(&self) -> usize {
         match self {
-            Self::Main(_, _) => 0,
-            Self::Internal => JS_FUNCTION_PARAM_COUNT,
-            Self::PreparedScript(_) => PREPARED_SCRIPT_PARAM_COUNT,
+            Self::Main(_, _) => StaticSignature::Main.parameter_count(),
+            Self::Internal(entry) | Self::PreparedScript(_, entry) => {
+                entry.signature().parameter_count()
+            }
+            Self::RuntimeOperation(helper) => helper.parameter_types().len(),
         }
     }
 
     const fn return_abi(&self) -> ReturnAbi {
         match self {
             Self::Main(_, _) => ReturnAbi::MainExport,
-            Self::Internal | Self::PreparedScript(_) => ReturnAbi::MultiValue,
+            Self::Internal(_) | Self::PreparedScript(_, _) | Self::RuntimeOperation(_) => {
+                ReturnAbi::MultiValue
+            }
         }
+    }
+    fn planned_body_entry(&self) -> Option<crate::function_entry::PlannedBodyEntry<'a>> {
+        match self {
+            Self::Internal(entry) | Self::PreparedScript(_, entry) => Some(entry.body()),
+            Self::Main(_, _) | Self::RuntimeOperation(_) => None,
+        }
+    }
+}
+
+/// Only a builder owning the planned entry can finish this body. ModuleCode
+/// consumes the entry's declaration and verifies its index at publication.
+pub(crate) struct CompletedCallableBody {
+    entry: crate::function_entry::PlannedFunctionEntry,
+    body: Function,
+}
+impl CompletedCallableBody {
+    pub(crate) fn into_parts(self) -> (crate::function_entry::PlannedFunctionEntry, Function) {
+        (self.entry, self.body)
     }
 }
 
 /// Closed inputs for compiling the one exported main body.
 ///
 /// Fields and construction stay in this module. The finalized module package
-/// consumes the plan and supplies its own private globals to `compile_into`, so
+/// consumes the plan and supplies its own private globals to `compile`, so
 /// module assembly cannot pass an arbitrary callback that ignores package A
 /// while compiling against package B.
 pub(crate) struct MainFunctionCompilation<'a> {
@@ -188,13 +205,7 @@ pub(crate) struct MainFunctionCompilation<'a> {
     functions: &'a FunctionMetaRegistry,
     uses_heap: bool,
     runtime_bootstrap_plan: RuntimeBootstrapPlan,
-    heap_alloc_function_index: Option<u32>,
-    object_append_data_property_function_index: Option<u32>,
-    object_append_accessor_property_function_index: Option<u32>,
-    function_object_alloc_function_index: Option<u32>,
-    plain_object_alloc_function_index: Option<u32>,
-    array_alloc_function_index: Option<u32>,
-    first_wasm_index: u32,
+    runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
 }
 
 impl<'a> MainFunctionCompilation<'a> {
@@ -206,13 +217,7 @@ impl<'a> MainFunctionCompilation<'a> {
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
-        first_wasm_index: u32,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Self {
         Self {
             script,
@@ -221,434 +226,28 @@ impl<'a> MainFunctionCompilation<'a> {
             functions,
             uses_heap,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-            first_wasm_index,
+            runtime_helper_base,
         }
     }
 
-    pub(crate) const fn first_wasm_index(&self) -> u32 {
-        self.first_wasm_index
-    }
-
-    pub(crate) fn compile_into(
+    pub(crate) fn compile(
         self,
         module_globals: &FinalizedModuleGlobals,
-        code: &mut ModuleCode,
-    ) -> Result<u32, EmitError> {
+    ) -> Result<(EmittedFunction, u32), EmitError> {
         let mut builder = FunctionBuilder::new_main(
             self.script,
             self.strings,
             self.functions,
             self.uses_heap,
             self.runtime_bootstrap_plan,
-            self.heap_alloc_function_index,
-            self.object_append_data_property_function_index,
-            self.object_append_accessor_property_function_index,
-            self.function_object_alloc_function_index,
-            self.plain_object_alloc_function_index,
-            self.array_alloc_function_index,
+            self.runtime_helper_base,
             module_globals,
             self.promise_rejection_policy,
         );
         let main = builder.compile()?;
         let emitted_local_count = builder.emitted_local_count();
-        code.push(EmittedFunction::new(FunctionIdentity::Main, main));
-        Ok(emitted_local_count)
+        Ok((EmittedFunction::main(main), emitted_local_count))
     }
-}
-
-/// What `current_env_local` is allowed to mean when numeric conversion creates
-/// an error object.
-///
-/// Main bodies, user/host functions and ordinary runtime helpers can carry a
-/// lexical environment (or no environment) and therefore must use the global
-/// error-constructor fallback. Standard builtins receive a self-backed Realm
-/// record. Only the two numeric-conversion helpers receive the corresponding
-/// trusted Realm-or-zero value through helper ABI parameter 6.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NumericErrorRealmSource {
-    GlobalFallback,
-    StandardBuiltinEnvironment,
-    NumericConversionHelperArgument,
-}
-
-impl NumericErrorRealmSource {
-    /// The closed body-domain transition performed when a runtime helper starts.
-    /// A new helper is a compile error here until it explicitly chooses whether
-    /// its environment is trusted numeric-conversion Realm state.
-    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
-        match helper {
-            RuntimeHelperId::ValueToNumber | RuntimeHelperId::ValueToNumeric => {
-                Self::NumericConversionHelperArgument
-            }
-            RuntimeHelperId::HeapAlloc
-            | RuntimeHelperId::ObjectAppendDataProperty
-            | RuntimeHelperId::ObjectAppendAccessorProperty
-            | RuntimeHelperId::FunctionObjectAlloc
-            | RuntimeHelperId::PlainObjectAlloc
-            | RuntimeHelperId::ArrayAlloc
-            | RuntimeHelperId::ObjectRead
-            | RuntimeHelperId::ObjectWrite
-            | RuntimeHelperId::ObjectDefineData
-            | RuntimeHelperId::ProxyCall
-            | RuntimeHelperId::ProxyConstruct
-            | RuntimeHelperId::StringEquality
-            | RuntimeHelperId::NumberToString
-            | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ObjectGetPrototypeOf
-            | RuntimeHelperId::ObjectIsExtensible
-            | RuntimeHelperId::ObjectPreventExtensions
-            | RuntimeHelperId::ObjectReadProxy
-            | RuntimeHelperId::RegExpMatcher
-            | RuntimeHelperId::RegExpCompiler
-            | RuntimeHelperId::ArrayAppendPresentIndex
-            | RuntimeHelperId::ModuleEvaluate
-            | RuntimeHelperId::ModuleReady
-            | RuntimeHelperId::ModuleGather
-            | RuntimeHelperId::ModuleExecute
-            | RuntimeHelperId::ModuleFulfilled
-            | RuntimeHelperId::ModuleRejected
-            | RuntimeHelperId::ModuleDeferredImport
-            | RuntimeHelperId::FunctionCall
-            | RuntimeHelperId::DynamicPropertyRead
-            | RuntimeHelperId::OrdinarySetDataOnReceiver
-            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
-            | RuntimeHelperId::ArrayWrite
-            | RuntimeHelperId::OrdinarySet
-            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
-            | RuntimeHelperId::DecimalToBinary64
-            | RuntimeHelperId::BigIntArithmetic
-            | RuntimeHelperId::TemporalCalendarIsoDateProbe
-            | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString
-            | RuntimeHelperId::ValueToPropertyKey
-            | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding
-            | RuntimeHelperId::RuntimeErrorObject
-            | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
-        }
-    }
-}
-
-/// Where Proxy `[[Call]]` and `[[Construct]]` obtain the Realm of the current
-/// execution context.
-///
-/// Main, user and host bodies can carry ordinary lexical environments, so
-/// they use the entry-Realm fallback. Standard builtins carry a self-backed
-/// function environment. The outlined object-read and Proxy dispatch helpers
-/// receive only that trusted environment-or-zero projection through ABI
-/// parameter 6.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProxyExecutionRealmSource {
-    MainRealmFallback,
-    StandardBuiltinEnvironment,
-    ObjectReadHelperArgument,
-    ProxyDispatchHelperArgument,
-}
-
-impl ProxyExecutionRealmSource {
-    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
-        match numeric_source {
-            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
-            NumericErrorRealmSource::GlobalFallback
-            | NumericErrorRealmSource::NumericConversionHelperArgument => Self::MainRealmFallback,
-        }
-    }
-
-    /// The closed body-domain transition performed when a runtime helper starts.
-    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
-        match helper {
-            RuntimeHelperId::ObjectRead
-            | RuntimeHelperId::ObjectReadProxy
-            | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString => Self::ObjectReadHelperArgument,
-            RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
-                Self::ProxyDispatchHelperArgument
-            }
-            RuntimeHelperId::HeapAlloc
-            | RuntimeHelperId::ObjectAppendDataProperty
-            | RuntimeHelperId::ObjectAppendAccessorProperty
-            | RuntimeHelperId::FunctionObjectAlloc
-            | RuntimeHelperId::PlainObjectAlloc
-            | RuntimeHelperId::ArrayAlloc
-            | RuntimeHelperId::ObjectWrite
-            | RuntimeHelperId::ObjectDefineData
-            | RuntimeHelperId::StringEquality
-            | RuntimeHelperId::NumberToString
-            | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ObjectGetPrototypeOf
-            | RuntimeHelperId::ObjectIsExtensible
-            | RuntimeHelperId::ObjectPreventExtensions
-            | RuntimeHelperId::RegExpMatcher
-            | RuntimeHelperId::RegExpCompiler
-            | RuntimeHelperId::ArrayAppendPresentIndex
-            | RuntimeHelperId::ModuleEvaluate
-            | RuntimeHelperId::ModuleReady
-            | RuntimeHelperId::ModuleGather
-            | RuntimeHelperId::ModuleExecute
-            | RuntimeHelperId::ModuleFulfilled
-            | RuntimeHelperId::ModuleRejected
-            | RuntimeHelperId::ModuleDeferredImport
-            | RuntimeHelperId::FunctionCall
-            | RuntimeHelperId::DynamicPropertyRead
-            | RuntimeHelperId::OrdinarySetDataOnReceiver
-            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
-            | RuntimeHelperId::ArrayWrite
-            | RuntimeHelperId::OrdinarySet
-            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
-            | RuntimeHelperId::DecimalToBinary64
-            | RuntimeHelperId::BigIntArithmetic
-            | RuntimeHelperId::TemporalCalendarIsoDateProbe
-            | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPropertyKey
-            | RuntimeHelperId::RuntimeErrorObject
-            | RuntimeHelperId::JsonStringifyValue => Self::MainRealmFallback,
-        }
-    }
-}
-
-/// What `current_env_local` is allowed to mean when proxy `[[Get]]` detects a
-/// revoked proxy.
-///
-/// User and host functions may carry ordinary lexical environments, so they
-/// must use the main-Realm fallback. Standard builtins carry a trusted
-/// self-backed Realm record. Ordinary, Proxy and indexed reads plus the Proxy
-/// call/construct helpers receive only that trusted record-or-zero through ABI
-/// parameter 6.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ObjectReadErrorRealmSource {
-    GlobalFallback,
-    StandardBuiltinEnvironment,
-    ObjectReadHelperArgument,
-    ProxyDispatchHelperArgument,
-}
-
-/// What `current_env_local` is allowed to mean when an object mutation creates
-/// a TypeError.
-///
-/// User and host functions may carry ordinary lexical environments, so they
-/// must use the main-Realm fallback. Standard builtins carry a trusted
-/// self-backed Realm record. The five outlined set-path helpers receive only
-/// that trusted record-or-zero through their private compiler-owned ABIs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ObjectMutationErrorRealmSource {
-    GlobalFallback,
-    StandardBuiltinEnvironment,
-    SetPathHelperArgument,
-}
-
-impl ObjectMutationErrorRealmSource {
-    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
-        match numeric_source {
-            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
-            NumericErrorRealmSource::GlobalFallback
-            | NumericErrorRealmSource::NumericConversionHelperArgument => Self::GlobalFallback,
-        }
-    }
-
-    /// The closed body-domain transition performed when a runtime helper starts.
-    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
-        match helper {
-            RuntimeHelperId::ObjectWrite
-            | RuntimeHelperId::OrdinarySetDataOnReceiver
-            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
-            | RuntimeHelperId::OrdinarySet
-            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback => Self::SetPathHelperArgument,
-            RuntimeHelperId::HeapAlloc
-            | RuntimeHelperId::ObjectAppendDataProperty
-            | RuntimeHelperId::ObjectAppendAccessorProperty
-            | RuntimeHelperId::FunctionObjectAlloc
-            | RuntimeHelperId::PlainObjectAlloc
-            | RuntimeHelperId::ArrayAlloc
-            | RuntimeHelperId::ObjectRead
-            | RuntimeHelperId::ObjectDefineData
-            | RuntimeHelperId::ProxyCall
-            | RuntimeHelperId::ProxyConstruct
-            | RuntimeHelperId::StringEquality
-            | RuntimeHelperId::NumberToString
-            | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
-            | RuntimeHelperId::ObjectGetPrototypeOf
-            | RuntimeHelperId::ObjectIsExtensible
-            | RuntimeHelperId::ObjectPreventExtensions
-            | RuntimeHelperId::ObjectReadProxy
-            | RuntimeHelperId::RegExpMatcher
-            | RuntimeHelperId::RegExpCompiler
-            | RuntimeHelperId::ArrayAppendPresentIndex
-            | RuntimeHelperId::ModuleEvaluate
-            | RuntimeHelperId::ModuleReady
-            | RuntimeHelperId::ModuleGather
-            | RuntimeHelperId::ModuleExecute
-            | RuntimeHelperId::ModuleFulfilled
-            | RuntimeHelperId::ModuleRejected
-            | RuntimeHelperId::ModuleDeferredImport
-            | RuntimeHelperId::FunctionCall
-            | RuntimeHelperId::DynamicPropertyRead
-            | RuntimeHelperId::ArrayWrite
-            | RuntimeHelperId::DecimalToBinary64
-            | RuntimeHelperId::BigIntArithmetic
-            | RuntimeHelperId::TemporalCalendarIsoDateProbe
-            | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString
-            | RuntimeHelperId::ValueToPropertyKey
-            | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding
-            | RuntimeHelperId::RuntimeErrorObject
-            | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
-        }
-    }
-}
-
-impl ObjectReadErrorRealmSource {
-    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
-        match numeric_source {
-            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
-            NumericErrorRealmSource::GlobalFallback
-            | NumericErrorRealmSource::NumericConversionHelperArgument => Self::GlobalFallback,
-        }
-    }
-
-    /// The closed body-domain transition performed when a runtime helper starts.
-    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
-        match helper {
-            RuntimeHelperId::ObjectRead
-            | RuntimeHelperId::ObjectReadProxy
-            | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString => Self::ObjectReadHelperArgument,
-            RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
-                Self::ProxyDispatchHelperArgument
-            }
-            RuntimeHelperId::HeapAlloc
-            | RuntimeHelperId::ObjectAppendDataProperty
-            | RuntimeHelperId::ObjectAppendAccessorProperty
-            | RuntimeHelperId::FunctionObjectAlloc
-            | RuntimeHelperId::PlainObjectAlloc
-            | RuntimeHelperId::ArrayAlloc
-            | RuntimeHelperId::ObjectWrite
-            | RuntimeHelperId::ObjectDefineData
-            | RuntimeHelperId::StringEquality
-            | RuntimeHelperId::NumberToString
-            | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ObjectGetPrototypeOf
-            | RuntimeHelperId::ObjectIsExtensible
-            | RuntimeHelperId::ObjectPreventExtensions
-            | RuntimeHelperId::RegExpMatcher
-            | RuntimeHelperId::RegExpCompiler
-            | RuntimeHelperId::ArrayAppendPresentIndex
-            | RuntimeHelperId::ModuleEvaluate
-            | RuntimeHelperId::ModuleReady
-            | RuntimeHelperId::ModuleGather
-            | RuntimeHelperId::ModuleExecute
-            | RuntimeHelperId::ModuleFulfilled
-            | RuntimeHelperId::ModuleRejected
-            | RuntimeHelperId::ModuleDeferredImport
-            | RuntimeHelperId::FunctionCall
-            | RuntimeHelperId::DynamicPropertyRead
-            | RuntimeHelperId::OrdinarySetDataOnReceiver
-            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
-            | RuntimeHelperId::ArrayWrite
-            | RuntimeHelperId::OrdinarySet
-            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
-            | RuntimeHelperId::DecimalToBinary64
-            | RuntimeHelperId::BigIntArithmetic
-            | RuntimeHelperId::TemporalCalendarIsoDateProbe
-            | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPropertyKey
-            | RuntimeHelperId::RuntimeErrorObject
-            | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
-        }
-    }
-}
-
-/// Which objects the append helpers (`emit_object_append_*_property_with_flags`)
-/// can be handed while this body is being emitted.
-///
-/// An append skips [[DefineOwnProperty]] and writes straight into an ordinary
-/// object's property table. %Array.prototype% is an Array exotic object, so a
-/// builtin installed into it must take the array named-descriptor path
-/// instead; the append helpers guard that with a run-time identity check
-/// against `ARRAY_PROTOTYPE_GLOBAL_INDEX`. Only the main export's
-/// installation of the Array constructor installs into %Array.prototype% by
-/// append (created realms are built in host builtins, which define rather than
-/// append). Every other append targets an object its caller just allocated or
-/// another intrinsic, so the check could never fire there, yet keyed on
-/// `is_main()` it inlined a whole array descriptor definition at each of those
-/// sites.
-///
-/// The scope is `OrdinaryObjects` for every body and becomes
-/// `RealmBootstrap` only inside
-/// [`FunctionBuilder::with_realm_bootstrap_appends`], whose one caller is the
-/// main export's Array constructor installation, so a script-level append, or
-/// any other intrinsic's, cannot carry the check.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AppendTargetScope {
-    /// The main export's realm bootstrap prologue: an install may target
-    /// %Array.prototype%.
-    RealmBootstrap,
-    /// Every other emission: append targets are ordinary objects.
-    OrdinaryObjects,
-}
-
-impl AppendTargetScope {
-    pub(crate) const fn may_target_array_prototype(self) -> bool {
-        match self {
-            Self::RealmBootstrap => true,
-            Self::OrdinaryObjects => false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrdinarySetDataOnReceiverEmission {
-    Inline,
-    Outlined,
-}
-
-/// Which of the two OrdinarySet-with-explicit-receiver helpers is being
-/// compiled.
-///
-/// One `compile_ordinary_set_helper` body serves both, and the two things that
-/// distinguish them — the [`RuntimeHelperId`] its body is filed under, and
-/// whether an exotic receiver may fall back to its generic `[[Set]]` — used to
-/// be a `bool` parameter next to a separately written helper id. Carrying them
-/// as one value makes body construction exhaustive. The later helper-body
-/// filing table remains a separate source invariant and is pinned beside these
-/// producers by the bounded structure guard.
-enum OrdinarySetReceiverFallback {
-    Allowed,
-    Denied,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -672,8 +271,30 @@ impl CompletionKind {
     }
 }
 
+mod runtime_operations;
+
+mod template_objects;
+pub(crate) use template_objects::TemplateSourceExecution;
+
 pub(crate) struct FunctionBuilder<'a> {
+    schema: &'a RuntimeSchema,
+    owned_body: Option<Function>,
+    current_environment: GcLocal<Environment, Nullable>,
+    current_private_environment: GcLocal<PrivateEnvironment, Nullable>,
+    direct_eval_context: Option<GcLocal<DirectEvalExecutionContext, Nullable>>,
+    completion: CompletionLocals,
+    local_bindings: Vec<Option<LocalBindingLocals>>,
+    body_entry_locals: Option<crate::function_entry::BodyEntryLocals>,
+    // Only a declared typed helper parameter can retain an actual callable's
+    // immutable context. It never manufactures a callable body entry.
+    helper_function_context: Option<GcLocal<FunctionContext>>,
+    // Complete source operations can transport their caller's already selected
+    // Realm without claiming a callable context or a source Environment chain.
+    helper_execution_realm: Option<GcLocal<RealmRecord>>,
+    pub(crate) bootstrap_realm: Option<crate::builtins::BootstrapRealm>,
     pub(crate) body: &'a BlockIr,
+    template_source_body: Option<lila_ir::TemplateSourceIr>,
+    pub(crate) template_source_execution: Option<TemplateSourceExecution>,
     module_prelude_id: Option<lila_ir::StaticScriptId>,
     pub(crate) params: &'a [FunctionParamIr],
     pub(crate) owned_env_bindings: &'a [OwnedEnvBindingIr],
@@ -692,30 +313,10 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) uses_heap: bool,
     pub(crate) completion_exit: CompletionExit,
     module_state: FunctionModuleState<'a>,
-    numeric_error_realm_source: NumericErrorRealmSource,
-    proxy_execution_realm_source: ProxyExecutionRealmSource,
-    object_read_error_realm_source: ObjectReadErrorRealmSource,
-    object_mutation_error_realm_source: ObjectMutationErrorRealmSource,
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
-    pub(crate) next_binding_local: u32,
-    pub(crate) temp_local_count: u32,
-    pub(crate) current_env_local: u32,
-    pub(crate) class_function_context_local: u32,
-    pub(crate) captured_direct_eval_execution_context_local: Option<u32>,
-    pub(crate) active_private_environment_locals: Vec<u32>,
-    pub(crate) named_function_context_local: u32,
-    pub(crate) result_local: u32,
-    pub(crate) result_tag_local: u32,
-    pub(crate) completion_local: u32,
-    pub(crate) completion_aux_local: u32,
-    pub(crate) scratch_local: u32,
-    pub(crate) temp_local_base: u32,
-    pub(crate) temp_stack_depth: u32,
-    pub(crate) max_temp_stack_depth: u32,
+    emitted_local_count: u32,
     pub(crate) environment_depth: u32,
-    pub(crate) this_payload_local: Option<u32>,
-    pub(crate) this_tag_local: Option<u32>,
     pub(crate) control_stack: Vec<ControlFrameKind>,
     pub(crate) breakable_stack: Vec<ControlTarget>,
     pub(crate) loop_stack: Vec<LoopTargets>,
@@ -723,40 +324,16 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) throw_handler_stack: Vec<ControlTarget>,
     pub(crate) finally_stack: Vec<ControlTarget>,
     pub(crate) generator_finalizer_depth: u32,
-    pub(crate) stub_standard_builtin_body: bool,
+    pub(crate) statement_list_value_context:
+        Option<crate::control_flow::GeneratorStatementListValueContext>,
+    pub(crate) checked_async_generator_environment_owner:
+        Option<crate::control_flow::CheckedAsyncGeneratorEnvironmentOwner>,
+    pub(crate) checked_async_generator_resource_owner:
+        Option<crate::control_flow::CheckedAsyncGeneratorResourceOwner>,
+    pub(crate) async_generator_resume_environment_plan:
+        Option<lila_ir::AsyncGeneratorResumeEnvironmentPlanIr>,
     pub(crate) runtime_bootstrap_plan: RuntimeBootstrapPlan,
-    pub(crate) heap_alloc_function_index: Option<u32>,
-    pub(crate) object_append_data_property_function_index: Option<u32>,
-    pub(crate) object_append_accessor_property_function_index: Option<u32>,
-    pub(crate) function_object_alloc_function_index: Option<u32>,
-    pub(crate) plain_object_alloc_function_index: Option<u32>,
-    pub(crate) array_alloc_function_index: Option<u32>,
-    /// When false, `emit_object_read_ordinary` inlines its body instead of
-    /// emitting a call to the shared object-read runtime helper. Set false only
-    /// while compiling the object-read helper itself (to avoid self-recursion).
-    pub(crate) outline_object_read: bool,
-    /// When false, `emit_object_write` inlines its body instead of emitting a
-    /// call to the shared object-write runtime helper. Set false only while
-    /// compiling the object-write helper itself.
-    pub(crate) outline_object_write: bool,
-    /// When false, `emit_object_define_data_with_flag_locals` inlines its body
-    /// instead of emitting a call to the shared object-define-data helper. Set
-    /// false only while compiling that helper itself. Realm/global bootstrap
-    /// defines hundreds of data properties, so outlining this keeps the
-    /// bootstrap-style functions well under Cranelift's per-function limit.
-    pub(crate) outline_object_define_data: bool,
-    /// When false, `emit_function_handle_call_with_argv_inner` inlines the
-    /// plain function-call dispatcher instead of calling the shared helper.
-    /// Set false only while compiling that helper itself.
-    pub(crate) outline_function_call: bool,
-    /// When false, `emit_function_or_proxy_call_with_argv_inner` inlines the
-    /// proxy-aware call-dispatch state machine instead of calling the shared
-    /// helper. Set false only while compiling that helper itself.
-    pub(crate) outline_proxy_call: bool,
-    /// When false, `emit_function_or_proxy_construct_with_argv` inlines the
-    /// proxy-aware construct-dispatch state machine instead of calling the
-    /// shared helper. Set false only while compiling that helper itself.
-    pub(crate) outline_proxy_construct: bool,
+    pub(crate) runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     /// When false, `emit_string_payload_equality_i32` inlines its byte-compare
     /// loop instead of calling the shared string-equality helper. Set false only
     /// while compiling that helper itself. Builtin bodies compare interned
@@ -794,88 +371,6 @@ pub(crate) struct FunctionBuilder<'a> {
     /// arithmetic expressions, so outlining it keeps user functions below
     /// Cranelift's per-function virtual-register limit.
     pub(crate) outline_value_to_numeric: bool,
-    /// When false, `emit_object_get_prototype_of` inlines the
-    /// proxy-aware `[[GetPrototypeOf]]` state machine instead of emitting a call
-    /// to the shared helper. Set false only while compiling that helper itself.
-    /// The proxy get-prototype-of expansion (which mutually inlines the
-    /// proxy-aware `[[IsExtensible]]` walk to a fixed depth) is ~356KB per
-    /// `instanceof` site under a realm/proxy-enabled module, so outlining it is
-    /// what keeps `instanceof other.X` reading functions from blowing past
-    /// Cranelift's per-function code-size limit.
-    pub(crate) outline_object_get_prototype_of: bool,
-    /// When false, `emit_object_is_extensible_i32` inlines the
-    /// proxy-aware `[[IsExtensible]]` state machine instead of emitting a call to
-    /// the shared helper. Set false only while compiling that helper itself.
-    pub(crate) outline_object_is_extensible: bool,
-    /// When false, `emit_object_prevent_extensions` emits the proxy-aware
-    /// `[[PreventExtensions]]` state machine instead of calling the shared
-    /// helper. Set false only while compiling that helper itself; recursive
-    /// missing/nullish-trap fallback still calls the helper explicitly.
-    pub(crate) outline_object_prevent_extensions: bool,
-    /// When false, `emit_object_read_with_key_tag` inlines the proxy-aware
-    /// `[[Get]]` wrapper (proxy-handler check, `get` trap invoke, invariant
-    /// validation, one-level nested-proxy unroll) instead of emitting a call to
-    /// the shared helper. Set false only while compiling that helper itself. The
-    /// proxy read wrapper is ~21KB per read site under a realm/proxy-enabled
-    /// module, and dynamic reads are the single most common operation, so
-    /// outlining it is the dominant code-size win for realm modules.
-    pub(crate) outline_object_read_proxy: bool,
-    pub(crate) outline_array_write: bool,
-    /// When false, `emit_typed_array_or_object_index_read_from_locals` inlines
-    /// the whole `expr[index]` read composite (Arguments / Array-with-prototype
-    /// / TypedArray element load / ordinary object key read, including the
-    /// number→string key materialization) instead of calling the shared helper.
-    /// Set false only while compiling that helper itself.
-    ///
-    /// Measured at 72,635 bytes per inline site. The 26 bracket reads in
-    /// `testIntl.js`'s `canonicalizeLanguageTag` alone accounted for 1,671,288
-    /// of that function's 3,615,449 bytes — 51.0% — which is what tripped
-    /// wasmtime's `Code for function is too large` in the 17
-    /// `intl402/DateTimeFormat` cases that `include: [testIntl.js]`.
-    pub(crate) outline_indexed_element_read: bool,
-    /// When false, `emit_typed_array_or_object_index_write_from_locals` inlines
-    /// the `expr[index] = value` composite (TypedArray element store versus
-    /// ordinary `[[Set]]`) instead of calling the shared helper. Set false only
-    /// while compiling that helper itself. 174,558 bytes per inline site.
-    pub(crate) outline_indexed_element_write: bool,
-    /// When false, `emit_tagged_to_primitive_locals` inlines the whole
-    /// ToPrimitive composite — the
-    /// `@@toPrimitive`/`valueOf`/`toString` hook chain plus the
-    /// Array/Arguments/Function arms — instead of calling the shared helper for
-    /// the hint. Set false only while compiling one of those helper bodies.
-    ///
-    /// **One flag for all three hints, deliberately.** Each hint has its own
-    /// body ([`RuntimeHelperId::helper_for`]), but clearing per-hint would let
-    /// the body of one hint's helper emit a call to another's, and this lane
-    /// could not run the compiler to prove that graph acyclic. One flag makes
-    /// "a ToPrimitive helper body contains no ToPrimitive call at all" a
-    /// property of the seam rather than of a call-graph argument; the cost is
-    /// that the three bodies each carry their own inline copy of any nested
-    /// composite, which is bounded because they are emitted once per module.
-    ///
-    /// Measured at 70,072 bytes per inline site (`x + y` on two operands of
-    /// unknown kind costs 140,144), and ~49 copies of it are 98.0% of the
-    /// 3,615,449-byte `js::canonicalizeLanguageTag#f46` body. See
-    /// [`RuntimeHelperId::ValueToPrimitiveDefault`] for the measurement and how
-    /// to reproduce it.
-    pub(crate) outline_value_to_primitive: bool,
-    /// When false, `emit_value_to_property_key_locals` inlines ToPropertyKey
-    /// (ToPrimitive with the string hint, then the symbol-marker/ToString
-    /// split) instead of calling the shared helper. Set false only while
-    /// compiling that helper itself.
-    ///
-    /// 72,528 bytes per inline site, of which the ToPrimitive composite above
-    /// is 70,072; every computed member access whose key is not statically a
-    /// String or a Symbol reaches it.
-    pub(crate) outline_value_to_property_key: bool,
-    /// Controls whether the shared object-write helper emits receiver-side
-    /// ordinary data writes as calls to their dedicated runtime helper. Other
-    /// builders keep these writes inline so only the repeated copies inside the
-    /// already-outlined object-write state machine are extracted.
-    pub(crate) ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission,
-    /// See [`AppendTargetScope`]; private so only
-    /// [`Self::with_realm_bootstrap_appends`] can widen it.
-    append_target_scope: AppendTargetScope,
     /// When `Some(local)`, `emit_object_write` is being emitted as the shared
     /// outlined write helper and must decide sloppy/strict `[[Set]]` failure
     /// behavior from the runtime value of `local` (a helper parameter carrying
@@ -891,7 +386,7 @@ pub(crate) struct FunctionBuilder<'a> {
     /// included, because PutValue 3.d asks about `V.[[Strict]]` and not about
     /// the mode of the code being emitted. The two differ whenever lowering
     /// hoists a write into a generated function.
-    pub(crate) object_write_strict_flag_local: Option<u32>,
+    pub(crate) object_write_strict_flag_local: Option<I32Local>,
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
@@ -901,6 +396,39 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
 pub fn emit_with_promise_rejection_policy(
     program: &ProgramIr,
     promise_rejection_policy: PromiseRejectionPolicy,
+) -> Result<WasmArtifact, EmitError> {
+    emit_with_intl_profile(
+        program,
+        promise_rejection_policy,
+        &lila_intl::IntlCompilationProfile::default(),
+    )
+}
+
+/// Compile with one immutable Intl data selection for all emission retries.
+/// Programs without Intl or system-zone consumers leave its images unresolved.
+pub fn emit_with_intl_profile(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+) -> Result<WasmArtifact, EmitError> {
+    emit_with_observation_mode(program, promise_rejection_policy, intl_profile, false)
+}
+
+/// Emits the canonical schema witnesses and rooted Realm inventory consumed
+/// solely by the native host graph adapter.
+pub fn emit_with_rooted_snapshot(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+) -> Result<WasmArtifact, EmitError> {
+    emit_with_observation_mode(program, promise_rejection_policy, intl_profile, true)
+}
+
+fn emit_with_observation_mode(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+    snapshot: bool,
 ) -> Result<WasmArtifact, EmitError> {
     // Diagnostics are scanned *before* `program.script`: a stage that reports a
     // reason for failing also declines to produce a script, so checking the
@@ -923,14 +451,17 @@ pub fn emit_with_promise_rejection_policy(
             "compiler invariant violated: Module entry and trusted evaluation-completion operation must have the same owner",
         ));
     }
-    emit_script(script, promise_rejection_policy)
+    let intl_selection = lila_intl::IntlDataSelection::new(intl_profile.clone());
+    emit_script(script, promise_rejection_policy, &intl_selection, snapshot)
 }
 
 fn emit_script(
     script: &ScriptIr,
     promise_rejection_policy: PromiseRejectionPolicy,
+    intl_selection: &lila_intl::IntlDataSelection,
+    snapshot: bool,
 ) -> Result<WasmArtifact, EmitError> {
-    let uses_heap = runtime_requirement::requires_runtime(script);
+    let uses_heap = snapshot || runtime_requirement::requires_runtime(script);
     let mut prepared_script = script.clone();
     if uses_heap {
         super::builtins::append_empty_dynamic_function_bodies(&mut prepared_script);
@@ -952,30 +483,38 @@ fn emit_script(
         }
     }
 
-    // Emission fixpoint over the builtin stub partitions (standard and host).
-    // The seed partitions come from the script text
-    // (`should_stub_standard_builtin`; host builtins the script references).
-    // Each pass records, via `FunctionMetaRegistry`, every builtin whose
-    // function value was materialized somewhere (its funcref-table slot became
-    // runtime-reachable) or whose body was direct-called. Any such builtin
-    // that was stubbed this pass is force-compiled on the next pass, so no
-    // reachable function value can ever resolve to the shared "not emitted"
-    // stub. The forced sets grow monotonically and are bounded by the builtin
-    // counts, so the loop terminates; in practice it converges in 2-4 passes.
-    let mut forced = ForcedBuiltins::default();
-    loop {
-        let (artifact, touched_stubbed) =
-            emit_script_with_forced_builtins(script, &forced, uses_heap, promise_rejection_policy)?;
-        if touched_stubbed.standard.is_empty()
-            && touched_stubbed.host.is_empty()
-            && !touched_stubbed.number_pow_import
-        {
-            return Ok(artifact);
-        }
-        forced.standard.extend(touched_stubbed.standard);
-        forced.host.extend(touched_stubbed.host);
-        forced.number_pow_import |= touched_stubbed.number_pow_import;
-    }
+    let runtime = uses_heap
+        .then(|| crate::runtime_artifact(intl_selection))
+        .transpose()?;
+    let kind = match &runtime {
+        Some(runtime) => ModuleKind::Program(runtime),
+        None => ModuleKind::Standalone,
+    };
+    Ok(
+        module_assembly::emit_script_module(
+            script,
+            kind,
+            promise_rejection_policy,
+            intl_selection,
+        )?
+        .artifact,
+    )
+}
+
+/// The runtime module, emitted from the empty script every program is a
+/// continuation of.
+pub(crate) fn emit_runtime_module(
+    script: &ScriptIr,
+    intl_selection: &lila_intl::IntlDataSelection,
+) -> Result<EmittedModule, EmitError> {
+    let mut script = script.clone();
+    super::builtins::append_empty_dynamic_function_bodies(&mut script);
+    module_assembly::emit_script_module(
+        &script,
+        ModuleKind::Runtime,
+        PromiseRejectionPolicy::default(),
+        intl_selection,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -989,15 +528,132 @@ fn async_generator_contains_suspension(
     suspension: AsyncGeneratorSuspension,
 ) -> bool {
     match statement {
+        StatementIr::EmptyStatementCompletion(item) => {
+            async_generator_contains_suspension(item.statement(), suspension)
+        }
         StatementIr::ResumableClassDefinition(plan) => plan
             .prefixes()
             .flat_map(|prefix| prefix.statements())
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
         StatementIr::AsyncAwait { .. } => matches!(suspension, AsyncGeneratorSuspension::Await),
         StatementIr::AsyncModuleInstantiation => false,
+        StatementIr::ArrayDestructuringOperation(_) => false,
         StatementIr::GeneratorYield { .. } => {
             matches!(suspension, AsyncGeneratorSuspension::Yield)
         }
+        StatementIr::AsyncGeneratorLoop(plan) => {
+            (matches!(suspension, AsyncGeneratorSuspension::Await)
+                && plan.resource().is_some_and(|resource| {
+                    matches!(
+                        resource.capability(),
+                        lila_ir::AsyncGeneratorResourceCapabilityIr::Async(_)
+                    )
+                }))
+                || plan
+                    .regions()
+                    .flat_map(|region| &region.block().statements)
+                    .any(|statement| async_generator_contains_suspension(statement, suspension))
+        }
+        StatementIr::AsyncGeneratorIf(plan) => plan
+            .regions()
+            .flat_map(|region| &region.block().statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncGeneratorWith(plan) => plan
+            .regions()
+            .flat_map(|region| &region.block().statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncGeneratorSwitch(plan) => {
+            (matches!(suspension, AsyncGeneratorSuspension::Await)
+                && plan.resource().is_some_and(|resource| {
+                    matches!(
+                        resource.capability(),
+                        lila_ir::AsyncGeneratorResourceCapabilityIr::Async(_)
+                    )
+                }))
+                || plan
+                    .regions()
+                    .flat_map(|region| &region.block().statements)
+                    .any(|statement| async_generator_contains_suspension(statement, suspension))
+        }
+        StatementIr::OrdinaryGeneratorLoop(plan) => plan
+            .regions()
+            .flat_map(|region| &region.block().statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::OrdinaryGeneratorIf(plan) => [plan.then_branch(), plan.else_branch()]
+            .into_iter()
+            .flat_map(|region| &region.block().statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => plan
+            .body()
+            .block()
+            .statements
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncGeneratorResourceScope(plan) => {
+            (matches!(suspension, AsyncGeneratorSuspension::Await)
+                && matches!(
+                    plan.capability(),
+                    lila_ir::AsyncGeneratorResourceCapabilityIr::Async(_)
+                ))
+                || plan
+                    .body()
+                    .block()
+                    .statements
+                    .iter()
+                    .any(|statement| async_generator_contains_suspension(statement, suspension))
+        }
+        StatementIr::AsyncGeneratorResourceRegistration(_) => false,
+        StatementIr::AsyncGeneratorArrayDestructuring(plan) => plan
+            .body()
+            .block()
+            .statements
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncFunctionArrayDestructuring(plan) => plan
+            .body()
+            .statements
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::OrdinaryGeneratorWith(plan) => [plan.head().region(), plan.body()]
+            .into_iter()
+            .flat_map(|region| &region.block().statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncFunctionWith(plan) => [plan.head(), plan.body()]
+            .into_iter()
+            .flat_map(|block| &block.statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncGeneratorForIn(plan) => [
+            plan.head().region().block(),
+            plan.initialization(),
+            plan.body().block(),
+        ]
+        .into_iter()
+        .flat_map(|block| &block.statements)
+        .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncGeneratorForOf(plan) => {
+            (matches!(suspension, AsyncGeneratorSuspension::Await)
+                && (matches!(
+                    plan.protocol(),
+                    lila_ir::AsyncGeneratorIteratorProtocolIr::Awaited { .. }
+                ) || plan.resource().is_some_and(|resource| {
+                    matches!(
+                        resource.capability(),
+                        lila_ir::AsyncGeneratorResourceCapabilityIr::Async(_)
+                    )
+                })))
+                || [
+                    plan.head().region().block(),
+                    plan.initialization().block(),
+                    plan.body().block(),
+                ]
+                .into_iter()
+                .flat_map(|block| &block.statements)
+                .any(|statement| async_generator_contains_suspension(statement, suspension))
+        }
+        StatementIr::OrdinaryGeneratorSwitch(plan) => plan
+            .regions()
+            .flat_map(|region| &region.block().statements)
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
         StatementIr::GeneratorLoop {
             before_suspension,
             suspension_statement,
@@ -1011,7 +667,12 @@ fn async_generator_contains_suspension(
         StatementIr::AsyncFunctionForOfIterator { .. } => {
             matches!(suspension, AsyncGeneratorSuspension::Await)
         }
-        StatementIr::AsyncFunctionIf { .. } => {
+        StatementIr::GeneratorForOfIterator { .. } => {
+            matches!(suspension, AsyncGeneratorSuspension::Yield)
+        }
+        StatementIr::AsyncFunctionIf { .. }
+        | StatementIr::AsyncFunctionWhile(_)
+        | StatementIr::AsyncFunctionSwitch(_) => {
             matches!(suspension, AsyncGeneratorSuspension::Await)
         }
         StatementIr::GeneratorIf {
@@ -1146,264 +807,7 @@ fn async_generator_contains_suspension(
 }
 
 fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Option<&'static str> {
-    match statement {
-        StatementIr::ResumableClassDefinition(plan) => plan
-            .prefixes()
-            .flat_map(|prefix| prefix.statements())
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::ModuleImportBinding(_) => Some("module import binding"),
-        StatementIr::AsyncModuleInstantiation => Some("async module instantiation"),
-        StatementIr::ModuleUnitOnce { .. } => Some("module unit evaluation"),
-        StatementIr::AsyncFunctionIf { .. } => Some("plain async function branches"),
-        StatementIr::Empty
-        | StatementIr::Lexical { .. }
-        | StatementIr::AnnexBFunctionCopy { .. }
-        | StatementIr::Var(_)
-        | StatementIr::DeclarationEvaluation(_)
-        | StatementIr::Expression(_)
-        | StatementIr::Debugger
-        | StatementIr::Throw(_)
-        | StatementIr::Return(_) => None,
-        StatementIr::LexicalBlock(statements)
-        | StatementIr::ParameterInitialization { statements, .. } => statements
-            .iter()
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::Block(block) => block
-            .statements
-            .iter()
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. } => None,
-        StatementIr::GeneratorLoop {
-            before_suspension,
-            suspension_statement,
-            after_suspension,
-            entry_state,
-            resume_state,
-            exit_state,
-            ..
-        } => {
-            let contains_suspension = |statement: &StatementIr| {
-                async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
-                    || async_generator_contains_suspension(
-                        statement,
-                        AsyncGeneratorSuspension::Yield,
-                    )
-            };
-            if before_suspension.iter().any(contains_suspension) {
-                return Some("resumable loops with a suspending prelude");
-            }
-            let final_resume_state = match suspension_statement.as_ref() {
-                StatementIr::GeneratorYield {
-                    form,
-                    suspend_state,
-                    resume_state,
-                    ..
-                } => {
-                    match form {
-                        YieldForm::Plain => {}
-                        YieldForm::Delegate(_) => {
-                            return Some("resumable loops with delegated yield");
-                        }
-                    }
-                    if suspend_state != entry_state {
-                        return Some("resumable loops with non-linear suspension states");
-                    }
-                    if after_suspension.iter().any(contains_suspension) {
-                        return Some("resumable yield loops containing multiple suspensions");
-                    }
-                    *resume_state
-                }
-                StatementIr::AsyncAwait { .. } => match direct_await_sequence_resume_state(
-                    suspension_statement,
-                    after_suspension,
-                    *entry_state,
-                ) {
-                    Ok(final_resume_state) => final_resume_state,
-                    Err(AwaitSequenceError::FirstAwaitRequired) => {
-                        unreachable!("the loop's first suspension is an await")
-                    }
-                    Err(AwaitSequenceError::NestedSuspension) => {
-                        return Some("resumable await loops containing nested suspensions");
-                    }
-                    Err(AwaitSequenceError::StateMismatch { .. }) => {
-                        return Some("resumable loops with non-linear suspension states");
-                    }
-                },
-                _ => return Some("resumable loops without a direct suspension"),
-            };
-            if final_resume_state != *resume_state {
-                return Some("resumable loops with non-linear suspension states");
-            }
-            if exit_state != resume_state {
-                return Some("resumable loops with an unplanned exit state");
-            }
-            std::iter::once(suspension_statement.as_ref())
-                .chain(before_suspension)
-                .chain(after_suspension)
-                .find_map(async_generator_dispatcher_unsupported_feature)
-        }
-        StatementIr::AsyncFunctionForOfIterator { .. } => {
-            Some("resumable synchronous for-of requires a plain async function")
-        }
-        StatementIr::GeneratorIf {
-            then_before_yield,
-            then_yield_statement,
-            then_after_yield,
-            else_before_yield,
-            else_yield_statement,
-            else_after_yield,
-            ..
-        } => {
-            let surrounding_statements = then_before_yield
-                .iter()
-                .chain(then_after_yield)
-                .chain(else_before_yield)
-                .chain(else_after_yield);
-            if surrounding_statements.clone().any(|statement| {
-                async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
-                    || async_generator_contains_suspension(
-                        statement,
-                        AsyncGeneratorSuspension::Yield,
-                    )
-            }) {
-                return Some("resumable branches containing multiple suspensions");
-            }
-            surrounding_statements
-                .chain(then_yield_statement.as_deref())
-                .chain(else_yield_statement.as_deref())
-                .find_map(async_generator_dispatcher_unsupported_feature)
-        }
-        StatementIr::ForOfIterator {
-            head:
-                ForOfIteratorHeadIr::Assignment {
-                    binding,
-                    async_plan: Some(_),
-                    ..
-                },
-            body,
-            ..
-        } if async_generator_for_await_is_transparent_yield(&binding.name, body) => None,
-        // Body yields occupy states inside the for-await plan's span. Captured
-        // head bindings now reattach their existing per-iteration environment;
-        // nested for-await and additional materialized body scopes are separate
-        // dispatcher capabilities and remain explicitly rejected.
-        StatementIr::ForOfIterator {
-            head:
-                ForOfIteratorHeadIr::Assignment {
-                    async_plan: Some(_),
-                    ..
-                },
-            body,
-            ..
-        } => {
-            // A nested `for await` allocates its own four states inside this
-            // loop's span, so this loop's per-iteration gate would enter the
-            // inner loop's head instead of the inner loop entering it.
-            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Await) {
-                return Some("for-await iteration with a nested for-await in the loop body");
-            }
-            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
-                && matches!(body.as_ref(), StatementIr::Block(block) if block.lexical_environment.is_some())
-            {
-                return Some(
-                    "for-await-of with a block-scoped body environment and a body suspension",
-                );
-            }
-            None
-        }
-        StatementIr::ForOfIterator {
-            head: ForOfIteratorHeadIr::AsyncDisposable(_),
-            ..
-        } => Some("await using for-of requires a plain async function"),
-        StatementIr::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            if async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
-                || async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Yield)
-            {
-                return Some("branches containing suspension");
-            }
-            std::iter::once(then_branch.as_ref())
-                .chain(else_branch.as_deref())
-                .find_map(async_generator_dispatcher_unsupported_feature)
-        }
-        StatementIr::While { .. }
-        | StatementIr::DoWhile { .. }
-        | StatementIr::For { .. }
-        | StatementIr::ForOfIterator { .. }
-        | StatementIr::ForInArray { .. }
-        | StatementIr::ForInString { .. }
-        | StatementIr::ForInObject { .. } => Some("loops"),
-        StatementIr::Switch { .. } => Some("switch statements"),
-        StatementIr::Labelled { .. } => Some("labelled statements"),
-        StatementIr::TryCatch {
-            try_block,
-            catch_block,
-            async_plan: Some(_),
-            ..
-        } => try_block
-            .statements
-            .iter()
-            .chain(&catch_block.statements)
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::TryFinally {
-            try_block,
-            finally_block,
-            async_plan: Some(_),
-            ..
-        } => try_block
-            .statements
-            .iter()
-            .chain(&finally_block.statements)
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::TryCatchFinally {
-            try_block,
-            catch_block,
-            finally_block,
-            async_plan: Some(_),
-            ..
-        } => try_block
-            .statements
-            .iter()
-            .chain(&catch_block.statements)
-            .chain(&finally_block.statements)
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::TryCatch { .. }
-        | StatementIr::TryFinally { .. }
-        | StatementIr::TryCatchFinally { .. } => Some("try statements without a resume plan"),
-        StatementIr::SyncDisposableScope {
-            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(_),
-            body,
-            ..
-        } => body
-            .statements
-            .iter()
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::SyncDisposableScope {
-            execution:
-                SyncDisposableScopeExecutionIr::Immediate
-                | SyncDisposableScopeExecutionIr::PlainGenerator(_)
-                | SyncDisposableScopeExecutionIr::AsyncFunction(_),
-            ..
-        } => Some("synchronous using scope with a mismatched execution owner"),
-        StatementIr::AsyncDisposableScope {
-            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(_),
-            body,
-            ..
-        } => body
-            .statements
-            .iter()
-            .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::AsyncDisposableScope {
-            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(_),
-            ..
-        } => Some("await using scope with a mismatched execution owner"),
-        StatementIr::Break { .. } | StatementIr::Continue { .. } => {
-            Some("loop control completions")
-        }
-    }
+    async_generator_admission::check(statement)
 }
 
 pub(crate) fn async_generator_for_await_is_transparent_yield(
@@ -1437,1919 +841,564 @@ pub(crate) fn async_generator_for_await_is_transparent_yield(
     }
 }
 
-/// Builtins whose real bodies must be emitted regardless of what the script
-/// text references, because a previous emission pass proved they are
-/// dynamically reachable (see `emit_script`).
-#[derive(Default)]
-struct ForcedBuiltins {
-    standard: BTreeSet<StandardBuiltinId>,
-    host: BTreeSet<HostBuiltinId>,
-    number_pow_import: bool,
-}
-
-fn emit_script_with_forced_builtins(
-    script: &ScriptIr,
-    forced: &ForcedBuiltins,
-    uses_heap: bool,
-    promise_rejection_policy: PromiseRejectionPolicy,
-) -> Result<(WasmArtifact, ForcedBuiltins), EmitError> {
-    let references_agent_host = script
-        .host_builtins
-        .iter()
-        .chain(&forced.host)
-        .any(|builtin| {
-            matches!(
-                builtin,
-                HostBuiltinId::AgentStart
-                    | HostBuiltinId::AgentBroadcast
-                    | HostBuiltinId::AgentReceiveBroadcast
-                    | HostBuiltinId::AgentReport
-                    | HostBuiltinId::AgentGetReport
-                    | HostBuiltinId::AgentSleep
-                    | HostBuiltinId::AgentMonotonicNow
-                    | HostBuiltinId::AgentLeaving
-            )
-        });
-    let uses_shared_memory = references_agent_host
-        || script_references_memory_atomics(script)
-        || forced
-            .standard
-            .iter()
-            .copied()
-            .any(standard_builtin_uses_memory_atomics);
-    let uses_atomics_wait_async =
-        script_references_standard_builtin(script, StandardBuiltinId::AtomicsWaitAsync)
-            || forced
-                .standard
-                .contains(&StandardBuiltinId::AtomicsWaitAsync);
-    let mut compiled_host_builtins = script.host_builtins.clone();
-    if compiled_host_builtins.contains(&HostBuiltinId::CreateHTMLDDA)
-        && !compiled_host_builtins.contains(&HostBuiltinId::HTMLDDA)
-    {
-        compiled_host_builtins.push(HostBuiltinId::HTMLDDA);
-    }
-    if compiled_host_builtins.contains(&HostBuiltinId::CreateRealm)
-        && !compiled_host_builtins.contains(&HostBuiltinId::RealmEvalScript)
-    {
-        compiled_host_builtins.push(HostBuiltinId::RealmEvalScript);
-    }
-    for builtin in HostBuiltinId::ALL {
-        if forced.host.contains(builtin) && !compiled_host_builtins.contains(builtin) {
-            compiled_host_builtins.push(*builtin);
-        }
-    }
-    let stubbed_host_builtins = HostBuiltinId::ALL
-        .iter()
-        .copied()
-        .filter(|builtin| uses_heap && !compiled_host_builtins.contains(builtin))
-        .collect::<Vec<_>>();
-    // The main job checkpoint reports unhandled Promise rejections through the
-    // same line-oriented host ABI as `print`. Its import therefore belongs to
-    // every heap-backed module even when user source never names `print`.
-    let uses_host_print = uses_heap || compiled_host_builtins.contains(&HostBuiltinId::Print);
-    let uses_agent_host = compiled_host_builtins.iter().any(|builtin| {
-        matches!(
-            builtin,
-            HostBuiltinId::AgentStart
-                | HostBuiltinId::AgentBroadcast
-                | HostBuiltinId::AgentReceiveBroadcast
-                | HostBuiltinId::AgentReport
-                | HostBuiltinId::AgentGetReport
-                | HostBuiltinId::AgentSleep
-                | HostBuiltinId::AgentMonotonicNow
-                | HostBuiltinId::AgentLeaving
-        )
-    });
-    let uses_number_pow_import = forced.number_pow_import;
-    let mut compiled_standard_builtins = Vec::new();
-    let mut stubbed_standard_builtins = Vec::new();
-    for builtin in StandardBuiltinId::all_functions()
-        .iter()
-        .filter(|_| uses_heap)
-    {
-        if !forced.standard.contains(builtin) && should_stub_standard_builtin(script, *builtin) {
-            stubbed_standard_builtins.push(*builtin);
-        } else {
-            compiled_standard_builtins.push(*builtin);
-        }
-    }
-    let uses_wall_clock_millis = compiled_standard_builtins
-        .iter()
-        .any(|builtin| builtin.requires_wall_clock());
-    let uses_intl_host = compiled_standard_builtins
-        .iter()
-        .any(|builtin| builtin.requires_intl_host());
-    let uses_random_f64 = compiled_standard_builtins
-        .iter()
-        .any(|builtin| builtin.requires_random());
-    let number_pow_import_function_index =
-        uses_number_pow_import.then_some(1 + u32::from(uses_host_print));
-    let wall_clock_millis_import_function_index = uses_wall_clock_millis
-        .then_some(1 + u32::from(uses_host_print) + u32::from(uses_number_pow_import));
-    let shared_memory_alloc_function_index = uses_shared_memory.then_some(
-        1 + u32::from(uses_host_print)
-            + u32::from(uses_number_pow_import)
-            + u32::from(uses_wall_clock_millis),
-    );
-    let monotonic_clock_nanos_import_function_index =
-        uses_atomics_wait_async.then(|| shared_memory_alloc_function_index.unwrap() + 1);
-    let sleep_nanos_import_function_index =
-        monotonic_clock_nanos_import_function_index.map(|index| index + 1);
-    let agent_call_import_function_index = uses_agent_host.then_some(
-        1 + u32::from(uses_host_print)
-            + u32::from(uses_number_pow_import)
-            + u32::from(uses_wall_clock_millis)
-            + u32::from(uses_shared_memory)
-            + 2 * u32::from(uses_atomics_wait_async),
-    );
-    // Intl is appended after the agent import so adding this independent host
-    // capability cannot renumber any existing import.
-    let intl_call_import_function_index = uses_intl_host.then_some(
-        1 + u32::from(uses_host_print)
-            + u32::from(uses_number_pow_import)
-            + u32::from(uses_wall_clock_millis)
-            + u32::from(uses_shared_memory)
-            + 2 * u32::from(uses_atomics_wait_async)
-            + u32::from(uses_agent_host),
-    );
-    // Randomness is appended after Intl, preserving every existing optional
-    // host function index. Its catalog flag is the sole import authority.
-    let random_f64_import_function_index = uses_random_f64.then_some(
-        1 + u32::from(uses_host_print)
-            + u32::from(uses_number_pow_import)
-            + u32::from(uses_wall_clock_millis)
-            + u32::from(uses_shared_memory)
-            + 2 * u32::from(uses_atomics_wait_async)
-            + u32::from(uses_agent_host)
-            + u32::from(uses_intl_host),
-    );
-    let reject_dynamic_source_import_function_index = 1
-        + u32::from(uses_host_print)
-        + u32::from(uses_number_pow_import)
-        + u32::from(uses_wall_clock_millis)
-        + u32::from(uses_shared_memory)
-        + 2 * u32::from(uses_atomics_wait_async)
-        + u32::from(uses_agent_host)
-        + u32::from(uses_intl_host)
-        + u32::from(uses_random_f64);
-    let imported_function_count = reject_dynamic_source_import_function_index + 1;
-    let uses_json_stringify =
-        compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
-    // The Temporal calendar helpers are only *called* from the five types that
-    // carry a [[Calendar]] slot; nothing else can reach them.
-    let uses_temporal_calendar = compiled_standard_builtins.iter().any(|builtin| {
-        let name = builtin.debug_name();
-        name.contains("Temporal.PlainDate")
-            || name.contains("Temporal.PlainYearMonth")
-            || name.contains("Temporal.PlainMonthDay")
-            || name.contains("Temporal.ZonedDateTime")
-    });
-    let runtime_bootstrap_plan = if uses_heap {
-        RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins)
-    } else {
-        RuntimeBootstrapPlan::default()
-    };
-    let has_shared_stub =
-        !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty();
-    let host_import_function_indices = HostImportFunctionIndices::new(
-        number_pow_import_function_index.map(NumberPowImportFunctionIndex::new),
-        wall_clock_millis_import_function_index.map(WallClockMillisImportFunctionIndex::new),
-        shared_memory_alloc_function_index.map(SharedMemoryAllocImportFunctionIndex::new),
-        monotonic_clock_nanos_import_function_index
-            .map(MonotonicClockNanosImportFunctionIndex::new),
-        sleep_nanos_import_function_index.map(SleepNanosImportFunctionIndex::new),
-        agent_call_import_function_index.map(AgentCallImportFunctionIndex::new),
-        intl_call_import_function_index.map(IntlCallImportFunctionIndex::new),
-        random_f64_import_function_index.map(RandomF64ImportFunctionIndex::new),
-        RejectDynamicSourceImportFunctionIndex::new(reject_dynamic_source_import_function_index),
-    );
-    let function_metas = FunctionMetaRegistry::new(
-        build_function_metas(
-            script.functions.as_slice(),
-            script.prepared_script_units(),
-            &compiled_standard_builtins,
-            &stubbed_standard_builtins,
-            &compiled_host_builtins,
-            &stubbed_host_builtins,
-            imported_function_count,
-        ),
-        compiled_host_builtins.iter().copied().collect(),
-        host_import_function_indices,
-        script.prepared_dynamic_functions.clone(),
-        script.prepared_scripts.clone(),
-        module_unit_guard_count(script),
-        module_execution_record_count(script),
-    );
-    let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
-    let string_pool =
-        StringPool::collect(script, function_metas.metas(), &compiled_standard_builtins);
-    let module_types = ModuleTypeRegistry::new();
-    let module_guard_count = module_unit_guard_count(script);
-
-    // Every fixed and dynamic scalar-global count is now known. Build and
-    // consume the section immediately so main can borrow its exact rooted
-    // package while retaining the previous main-first body compilation order.
-    let mut globals = ModuleGlobalSectionBuilder::new();
-    globals.global(
-        GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i32_const(ValueKind::Undefined.tag()),
-    );
-    globals.global(
-        GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i32_const(COMPLETION_KIND_NORMAL as i32),
-    );
-    globals.global(
-        GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i32_const(0),
-    );
-    if uses_heap {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(align_heap_start(string_pool.bytes.len()) as i64),
-        );
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(0),
-        );
-        for _ in 0..59 {
-            globals.global(
-                GlobalType {
-                    val_type: ValType::I64,
-                    mutable: true,
-                    shared: false,
-                },
-                &ConstExpr::i64_const(0),
-            );
-        }
-    }
-    globals.global(
-        GlobalType {
-            val_type: ValType::I64,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i64_const(0),
-    );
-    if uses_heap {
-        for _ in THROW_ERROR_NAME_HEAP_GLOBAL_INDEX + 1..GLOBAL_INDEX_REGISTRY.len() as u32 {
-            globals.global(
-                GlobalType {
-                    val_type: ValType::I64,
-                    mutable: true,
-                    shared: false,
-                },
-                &ConstExpr::i64_const(0),
-            );
-        }
-    }
-    for _ in &string_pool.template_objects {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(0),
-        );
-    }
-    // One "already evaluated" guard per module unit, immediately after the
-    // template-object globals so no existing index moves. Zero means "not yet
-    // evaluated"; `FunctionBuilder::emit_module_unit_once` sets it.
-    for _ in 0..module_guard_count {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I32,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i32_const(0),
-        );
-    }
-    for _ in 0..module_execution_record_count(script) {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(0),
-        );
-    }
-    let module_sections = module_types.finalize_globals(globals);
-
-    let callable_function_count = script.functions.len()
-        + script.prepared_script_units().count()
-        + emitted_standard_builtins.len()
-        + usize::from(has_shared_stub)
-        + compiled_host_builtins.len();
-    let heap_alloc_function_index =
-        uses_heap.then_some(imported_function_count + 1 + callable_function_count as u32);
-    // Derived through `RuntimeHelperId::index` like every other helper index,
-    // not by chaining `+ 1` off the previous one. A `+ 1` chain keeps compiling
-    // — and keeps pointing one function too low — when a helper is inserted
-    // ahead of these six, while the enum's own arithmetic shifts with the list.
-    let object_append_data_property_function_index =
-        heap_alloc_function_index.map(|base| RuntimeHelperId::ObjectAppendDataProperty.index(base));
-    let object_append_accessor_property_function_index = heap_alloc_function_index
-        .map(|base| RuntimeHelperId::ObjectAppendAccessorProperty.index(base));
-    let function_object_alloc_function_index =
-        heap_alloc_function_index.map(|base| RuntimeHelperId::FunctionObjectAlloc.index(base));
-    let plain_object_alloc_function_index =
-        heap_alloc_function_index.map(|base| RuntimeHelperId::PlainObjectAlloc.index(base));
-    let array_alloc_function_index =
-        heap_alloc_function_index.map(|base| RuntimeHelperId::ArrayAlloc.index(base));
-
-    let mut module_package = module_sections.compile_main(MainFunctionCompilation::new(
-        script,
-        promise_rejection_policy,
-        &string_pool,
-        &function_metas,
-        uses_heap,
-        runtime_bootstrap_plan.clone(),
-        heap_alloc_function_index,
-        object_append_data_property_function_index,
-        object_append_accessor_property_function_index,
-        function_object_alloc_function_index,
-        plain_object_alloc_function_index,
-        array_alloc_function_index,
-        imported_function_count,
-    ))?;
-
-    // Every element is an `EmittedFunction`: a body that already knows which
-    // source-level function it belongs to and how many bytes it encodes to.
-    let mut compiled_functions: Vec<EmittedFunction> = Vec::with_capacity(callable_function_count);
-    for function in &script.functions {
-        let mut builder = FunctionBuilder::new_function(
-            function,
-            script
-                .prepared_script_units()
-                .find(|unit| unit.function_ids.contains(&function.id))
-                .map_or(&script.global_bindings, |unit| &unit.global_bindings),
-            &string_pool,
-            &function_metas,
-            uses_heap,
-            runtime_bootstrap_plan.clone(),
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-        )?;
-        compiled_functions.push(EmittedFunction::new(
-            FunctionIdentity::Script {
-                id: function.id.clone(),
-                name: function.name.clone(),
-            },
-            builder.compile()?,
-        ));
-    }
-    for unit in script.prepared_script_units() {
-        let mut builder = FunctionBuilder::new_prepared_script(
-            unit,
-            &string_pool,
-            &function_metas,
-            uses_heap,
-            runtime_bootstrap_plan.clone(),
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-        );
-        compiled_functions.push(EmittedFunction::new(
-            FunctionIdentity::Script {
-                id: unit.id.function_id(),
-                name: unit.id.function_id(),
-            },
-            builder.compile()?,
-        ));
-    }
-    for builtin in &emitted_standard_builtins {
-        let mut builder = FunctionBuilder::new_standard_builtin(
-            *builtin,
-            &string_pool,
-            &function_metas,
-            uses_heap,
-            false,
-            runtime_bootstrap_plan.clone(),
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-        );
-        compiled_functions.push(EmittedFunction::new(
-            FunctionIdentity::StandardBuiltin(*builtin),
-            builder.compile_builtin()?,
-        ));
-    }
-    if has_shared_stub {
-        let stub_builtin = stubbed_standard_builtins
-            .first()
-            .copied()
-            .unwrap_or(StandardBuiltinId::FunctionConstructor);
-        let mut builder = FunctionBuilder::new_standard_builtin(
-            stub_builtin,
-            &string_pool,
-            &function_metas,
-            uses_heap,
-            true,
-            runtime_bootstrap_plan.clone(),
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-        );
-        compiled_functions.push(EmittedFunction::new(
-            FunctionIdentity::StandardBuiltinStub(stub_builtin),
-            builder.compile_builtin()?,
-        ));
-    }
-    for builtin in &compiled_host_builtins {
-        let mut builder = FunctionBuilder::new_host_builtin(
-            *builtin,
-            &string_pool,
-            &function_metas,
-            uses_heap,
-            runtime_bootstrap_plan.clone(),
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-        );
-        compiled_functions.push(EmittedFunction::new(
-            FunctionIdentity::HostBuiltin(*builtin),
-            builder.compile_builtin()?,
-        ));
-    }
-
-    // Shared object-read / object-write runtime helpers. These carry the large
-    // property-access state machines that would otherwise be inlined at every
-    // read/write site, blowing single functions past Cranelift's per-function
-    // code-size limit. They are emitted once, directly after the heap helpers,
-    // and are reached with plain `call`s (never through the funcref table).
-    let object_read_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_read_helper()
-        })
-        .transpose()?;
-    let object_write_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_write_helper()
-        })
-        .transpose()?;
-    let object_define_data_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_define_data_helper()
-        })
-        .transpose()?;
-    let proxy_call_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_proxy_call_helper()
-        })
-        .transpose()?;
-    let proxy_construct_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_proxy_construct_helper()
-        })
-        .transpose()?;
-    let string_equality_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_string_equality_helper()
-        })
-        .transpose()?;
-    let number_to_string_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_number_to_string_helper()
-        })
-        .transpose()?;
-    let string_to_number_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_string_to_number_helper()
-        })
-        .transpose()?;
-    let value_to_string_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_value_to_string_helper()
-        })
-        .transpose()?;
-    let value_to_number_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_value_to_number_helper()
-        })
-        .transpose()?;
-    let value_to_numeric_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_value_to_numeric_helper()
-        })
-        .transpose()?;
-    let object_get_prototype_of_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_get_prototype_of_helper()
-        })
-        .transpose()?;
-    let object_is_extensible_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_is_extensible_helper()
-        })
-        .transpose()?;
-    let object_prevent_extensions_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_prevent_extensions_helper()
-        })
-        .transpose()?;
-    let object_read_proxy_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_read_proxy_helper()
-        })
-        .transpose()?;
-    let regexp_matcher_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_regexp_matcher_helper()
-        })
-        .transpose()?;
-    let regexp_compiler_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_regexp_compiler_helper()
-        })
-        .transpose()?;
-    let function_call_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_function_call_helper()
-        })
-        .transpose()?;
-    let dynamic_property_read_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_dynamic_property_read_helper()
-        })
-        .transpose()?;
-    let ordinary_set_data_on_receiver_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_ordinary_set_data_on_receiver_helper()
-        })
-        .transpose()?;
-    let ordinary_set_data_on_receiver_with_fallback_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_ordinary_set_data_on_receiver_with_fallback_helper()
-        })
-        .transpose()?;
-    let array_write_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_array_write_helper()
-        })
-        .transpose()?;
-    let array_append_present_index_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_array_append_present_index_helper()
-        })
-        .transpose()?;
-    let ordinary_set_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_ordinary_set_helper(OrdinarySetReceiverFallback::Allowed)
-        })
-        .transpose()?;
-    let ordinary_set_without_receiver_fallback_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_ordinary_set_helper(OrdinarySetReceiverFallback::Denied)
-        })
-        .transpose()?;
-    let decimal_to_binary64_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_decimal_to_binary64_helper()
-        })
-        .transpose()?;
-    let bigint_arithmetic_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_bigint_arithmetic_helper()
-        })
-        .transpose()?;
-    let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_json_stringify_value_helper()
-        })
-        .transpose()?;
-    let object_has_property_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_object_has_property_helper()
-        })
-        .transpose()?;
-    let runtime_error_object_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_runtime_error_object_helper()
-        })
-        .transpose()?;
-    let with_environment_has_binding_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_with_environment_has_binding_helper()
-        })
-        .transpose()?;
-    let indexed_element_read_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_indexed_element_read_helper()
-        })
-        .transpose()?;
-    let indexed_element_write_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_indexed_element_write_helper()
-        })
-        .transpose()?;
-    // One ToPrimitive body per hint, built from the closed `ToPrimitiveHint`
-    // domain rather than from three copied blocks, so a fourth hint is a
-    // compile error in `RuntimeHelperId::helper_for` and not a missing body
-    // here. `BTreeMap` keys them by helper id, so the order of this loop does
-    // not decide the order they are written in — `RuntimeHelperId::ALL` does.
-    let mut value_to_primitive_helper_functions: BTreeMap<RuntimeHelperId, Function> =
-        BTreeMap::new();
-    if uses_heap {
-        for hint in [
-            ToPrimitiveHint::Default,
-            ToPrimitiveHint::Number,
-            ToPrimitiveHint::String,
-        ] {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            value_to_primitive_helper_functions.insert(
-                RuntimeHelperId::helper_for(hint),
-                builder.compile_value_to_primitive_helper(hint)?,
-            );
-        }
-    }
-    let value_to_property_key_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_value_to_property_key_helper()
-        })
-        .transpose()?;
-    // Both Temporal calendar helpers are emitted whenever the heap is enabled,
-    // with a stub body when no calendar-bearing Temporal builtin is compiled,
-    // so their fixed function offsets never shift. Order matters: the probe
-    // helper takes the lower index.
-    let temporal_calendar_iso_date_probe_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_temporal_calendar_iso_date_probe_helper(uses_temporal_calendar)
-        })
-        .transpose()?;
-    let temporal_calendar_identifier_helper_function = uses_heap
-        .then(|| {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                heap_alloc_function_index,
-                object_append_data_property_function_index,
-                object_append_accessor_property_function_index,
-                function_object_alloc_function_index,
-                plain_object_alloc_function_index,
-                array_alloc_function_index,
-            );
-            builder.compile_temporal_calendar_identifier_helper(uses_temporal_calendar)
-        })
-        .transpose()?;
-
-    // Compiled helper bodies, keyed by identity rather than by position. The
-    // code section below is generated by walking `RuntimeHelperId::ALL` and
-    // draining this map, so emission order comes from the enum's declaration
-    // order alone and a helper whose body was compiled but never emitted (or
-    // vice versa) is a panic here instead of a silently shifted function index
-    // at every call site.
-    let mut helper_bodies: BTreeMap<RuntimeHelperId, Function> = BTreeMap::new();
-    if uses_heap {
-        let heap_alloc_index =
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled");
-        let append_data_index = object_append_data_property_function_index
-            .expect("object append helper index must exist when heap is enabled");
-        helper_bodies.insert(
-            RuntimeHelperId::HeapAlloc,
-            emit_heap_alloc_helper_function(),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectAppendDataProperty,
-            emit_object_append_data_property_helper_function(heap_alloc_index),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectAppendAccessorProperty,
-            emit_object_append_accessor_property_helper_function(heap_alloc_index),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::FunctionObjectAlloc,
-            emit_function_object_alloc_helper_function(heap_alloc_index, append_data_index),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::PlainObjectAlloc,
-            emit_plain_object_alloc_helper_function(heap_alloc_index),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ArrayAlloc,
-            emit_array_alloc_helper_function(heap_alloc_index),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectRead,
-            object_read_helper_function
-                .expect("object-read helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectWrite,
-            object_write_helper_function
-                .expect("object-write helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectDefineData,
-            object_define_data_helper_function
-                .expect("object-define-data helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ProxyCall,
-            proxy_call_helper_function.expect("proxy-call helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ProxyConstruct,
-            proxy_construct_helper_function
-                .expect("proxy-construct helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::StringEquality,
-            string_equality_helper_function
-                .expect("string-equality helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::NumberToString,
-            number_to_string_helper_function
-                .expect("number-to-string helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::StringToNumber,
-            string_to_number_helper_function
-                .expect("string-to-number helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ValueToString,
-            value_to_string_helper_function
-                .expect("value-to-string helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ValueToNumber,
-            value_to_number_helper_function
-                .expect("value-to-number helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ValueToNumeric,
-            value_to_numeric_helper_function
-                .expect("value-to-numeric helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectGetPrototypeOf,
-            object_get_prototype_of_helper_function
-                .expect("get-prototype-of helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectIsExtensible,
-            object_is_extensible_helper_function
-                .expect("is-extensible helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectPreventExtensions,
-            object_prevent_extensions_helper_function
-                .expect("prevent-extensions helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectReadProxy,
-            object_read_proxy_helper_function
-                .expect("object-read-proxy helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::RegExpMatcher,
-            regexp_matcher_helper_function
-                .expect("regexp matcher helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::RegExpCompiler,
-            regexp_compiler_helper_function
-                .expect("regexp compiler helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::FunctionCall,
-            function_call_helper_function
-                .expect("function-call helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::DynamicPropertyRead,
-            dynamic_property_read_helper_function
-                .expect("dynamic property-read helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::OrdinarySetDataOnReceiver,
-            ordinary_set_data_on_receiver_helper_function
-                .expect("ordinary receiver-set helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback,
-            ordinary_set_data_on_receiver_with_fallback_helper_function
-                .expect("ordinary receiver-set fallback helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ArrayWrite,
-            array_write_helper_function
-                .expect("array-write helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ArrayAppendPresentIndex,
-            array_append_present_index_helper_function
-                .expect("array present-index helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::OrdinarySet,
-            ordinary_set_helper_function
-                .expect("ordinary-set helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::OrdinarySetWithoutReceiverFallback,
-            ordinary_set_without_receiver_fallback_helper_function
-                .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::DecimalToBinary64,
-            decimal_to_binary64_helper_function
-                .expect("decimal converter helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::BigIntArithmetic,
-            bigint_arithmetic_helper_function
-                .expect("BigInt arithmetic helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::TemporalCalendarIsoDateProbe,
-            temporal_calendar_iso_date_probe_helper_function
-                .expect("temporal calendar date-probe helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::TemporalCalendarIdentifier,
-            temporal_calendar_identifier_helper_function
-                .expect("temporal calendar identifier helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::ObjectHasProperty,
-            object_has_property_helper_function
-                .expect("object has-property helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::WithEnvironmentHasBinding,
-            with_environment_has_binding_helper_function
-                .expect("with HasBinding helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::RuntimeErrorObject,
-            runtime_error_object_helper_function
-                .expect("runtime error-object helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::IndexedElementRead,
-            indexed_element_read_helper_function
-                .expect("indexed element-read helper must exist when heap is enabled"),
-        );
-        helper_bodies.insert(
-            RuntimeHelperId::IndexedElementWrite,
-            indexed_element_write_helper_function
-                .expect("indexed element-write helper must exist when heap is enabled"),
-        );
-        for hint in [
-            ToPrimitiveHint::Default,
-            ToPrimitiveHint::Number,
-            ToPrimitiveHint::String,
-        ] {
-            let helper = RuntimeHelperId::helper_for(hint);
-            helper_bodies.insert(
-                helper,
-                value_to_primitive_helper_functions
-                    .remove(&helper)
-                    .expect("every ToPrimitive hint helper must exist when heap is enabled"),
-            );
-        }
-        helper_bodies.insert(
-            RuntimeHelperId::ValueToPropertyKey,
-            value_to_property_key_helper_function
-                .expect("to-property-key helper must exist when heap is enabled"),
-        );
-        for operation in crate::modules::ModuleRuntimeOperation::ALL {
-            let body = if crate::modules::module_execution_record_count(script) > 0 {
-                let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                    &string_pool,
-                    &function_metas,
-                    uses_heap,
-                    runtime_bootstrap_plan.clone(),
-                    heap_alloc_function_index,
-                    object_append_data_property_function_index,
-                    object_append_accessor_property_function_index,
-                    function_object_alloc_function_index,
-                    plain_object_alloc_function_index,
-                    array_alloc_function_index,
-                );
-                builder.compile_module_runtime_operation(operation)?
-            } else {
-                // No trusted module operation may occur without its graph witness.
-                // Keep indices stable without rooting unused async execution machinery.
-                let mut body = Function::new_with_locals_types([]);
-                body.instruction(&Instruction::Unreachable);
-                body.instruction(&Instruction::End);
-                body
-            };
-            helper_bodies.insert(operation.helper(), body);
-        }
-        if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
-            helper_bodies.insert(
-                RuntimeHelperId::JsonStringifyValue,
-                json_stringify_value_helper_function,
-            );
-        }
-    }
-
-    let main_wasm_index = imported_function_count;
-
-    // The function section, the code section, the helper-index accessors and
-    // the `debug_dump` helper count are all generated from one traversal of
-    // `RuntimeHelperId::ALL`. Before this they were four hand-maintained lists
-    // of the same 33 entries, and the `debug_dump` copy had already drifted
-    // (`27` against a counted 32 + 1).
-    let helper_emission =
-        RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify);
-    let mut functions = FunctionSection::new();
-    functions.function(0);
-    for index in 0..callable_function_count {
-        let prepared_start = script.functions.len();
-        let prepared_end = prepared_start + script.prepared_script_units().count();
-        functions.function(if (prepared_start..prepared_end).contains(&index) {
-            PREPARED_SCRIPT_TYPE_INDEX
-        } else {
-            JS_FUNCTION_TYPE_INDEX
-        });
-    }
-    if uses_heap {
-        for helper in RuntimeHelperId::ALL {
-            if helper.is_emitted(helper_emission) {
-                functions.function(helper.type_index());
-            }
-        }
-    }
-
-    let mut exports = ExportSection::new();
-    exports.export("main", ExportKind::Func, main_wasm_index);
-    if script.module_entry_evaluation().is_some() {
-        exports.export(
-            MODULE_EVALUATION_STATUS_EXPORT,
-            ExportKind::Global,
-            MODULE_EVALUATION_STATUS_GLOBAL_INDEX,
-        );
-    }
-    exports.export(
-        RESULT_TAG_EXPORT,
-        ExportKind::Global,
-        RESULT_TAG_GLOBAL_INDEX,
-    );
-    exports.export(
-        COMPLETION_KIND_EXPORT,
-        ExportKind::Global,
-        COMPLETION_KIND_GLOBAL_INDEX,
-    );
-    exports.export(
-        COMPLETION_AUX_EXPORT,
-        ExportKind::Global,
-        COMPLETION_AUX_GLOBAL_INDEX,
-    );
-    exports.export(
-        THROW_ERROR_NAME_EXPORT,
-        ExportKind::Global,
-        throw_error_name_global_index(uses_heap),
-    );
-    // The message travels beside the name so a host-visible throw reports what
-    // went wrong, not only which error class it was. In a module with no heap
-    // both resolve to the same global index; two exports of one global are
-    // legal Wasm and the pair is unobservable there, because the message is
-    // only read when the completion value is a heap object.
-    exports.export(
-        THROW_ERROR_MESSAGE_EXPORT,
-        ExportKind::Global,
-        throw_error_message_global_index(uses_heap),
-    );
-    exports.export(
-        THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
-        ExportKind::Global,
-        throw_error_constructor_name_global_index(uses_heap),
-    );
-
-    if uses_heap {
-        for helper in RuntimeHelperId::ALL {
-            if !helper.is_emitted(helper_emission) {
-                continue;
-            }
-            let body = helper_bodies.remove(&helper).unwrap_or_else(|| {
-                panic!(
-                    "runtime helper `{}` is emitted in this module but has no compiled body",
-                    helper.debug_name()
-                )
-            });
-            compiled_functions.push(EmittedFunction::new(
-                FunctionIdentity::RuntimeHelper(helper),
-                body,
-            ));
-        }
-    }
-    assert!(
-        helper_bodies.is_empty(),
-        "compiled runtime helper bodies were never emitted: {:?}",
-        helper_bodies.keys().collect::<Vec<_>>()
-    );
-    module_package.append_remaining_functions(compiled_functions);
-
-    let mut imports = ImportSection::new();
-    imports.import(
-        HOST_IMPORT_MODULE,
-        HOST_IMPORT_AGENT_CAN_SUSPEND,
-        wasm_encoder::EntityType::Function(HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX),
-    );
-    if uses_host_print {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_PRINT_LINE_UTF8,
-            wasm_encoder::EntityType::Function(HOST_PRINT_IMPORT_TYPE_INDEX),
-        );
-    }
-    if uses_number_pow_import {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_NUMBER_POW,
-            wasm_encoder::EntityType::Function(HOST_NUMBER_POW_IMPORT_TYPE_INDEX),
-        );
-    }
-    if uses_wall_clock_millis {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_WALL_CLOCK_MILLIS,
-            wasm_encoder::EntityType::Function(HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX),
-        );
-    }
-    if uses_shared_memory {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_SHARED_MEMORY_ALLOC,
-            wasm_encoder::EntityType::Function(HEAP_ALLOC_TYPE_INDEX),
-        );
-        if uses_atomics_wait_async {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
-                wasm_encoder::EntityType::Function(HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX),
-            );
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_SLEEP_NANOS,
-                wasm_encoder::EntityType::Function(HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX),
-            );
-        }
-        let initial_pages = initial_memory_pages(string_pool.bytes.len(), uses_heap);
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_PRIVATE_MEMORY,
-            wasm_encoder::EntityType::Memory(MemoryType {
-                minimum: initial_pages,
-                maximum: None,
-                memory64: false,
-                shared: false,
-                page_size_log2: None,
-            }),
-        );
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_SHARED_MEMORY,
-            wasm_encoder::EntityType::Memory(MemoryType {
-                minimum: 1,
-                maximum: Some(16_384),
-                memory64: false,
-                shared: true,
-                page_size_log2: None,
-            }),
-        );
-    }
-    if uses_agent_host {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_AGENT_CALL,
-            wasm_encoder::EntityType::Function(HOST_AGENT_CALL_IMPORT_TYPE_INDEX),
-        );
-    }
-    if uses_intl_host {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_INTL_CALL,
-            wasm_encoder::EntityType::Function(HOST_INTL_CALL_IMPORT_TYPE_INDEX),
-        );
-    }
-    if uses_random_f64 {
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_RANDOM_F64,
-            wasm_encoder::EntityType::Function(HOST_RANDOM_F64_IMPORT_TYPE_INDEX),
-        );
-    }
-    imports.import(
-        HOST_IMPORT_MODULE,
-        HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
-        wasm_encoder::EntityType::Function(HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX),
-    );
-
-    let mut memories = None;
-    let mut data = None;
-    if !string_pool.bytes.is_empty() || uses_heap {
-        if !uses_shared_memory {
-            let mut section = MemorySection::new();
-            section.memory(MemoryType {
-                minimum: initial_memory_pages(string_pool.bytes.len(), uses_heap),
-                maximum: None,
-                memory64: false,
-                shared: false,
-                page_size_log2: None,
-            });
-            memories = Some(section);
-        }
-        exports.export("memory", ExportKind::Memory, 0);
-        if !string_pool.bytes.is_empty() {
-            let mut section = DataSection::new();
-            section.active(
-                0,
-                &ConstExpr::i32_const(STATIC_DATA_OFFSET as i32),
-                string_pool.bytes.iter().copied(),
-            );
-            data = Some(section);
-        }
-    }
-
-    let first_callable_wasm_index = imported_function_count + 1;
-    let declared_function_count = functions.len();
-    let main_emitted_local_count = module_package.main_emitted_local_count();
-    let mut module = Module::new();
-    let function_table = module_package.append_to_module(
-        &mut module,
-        ModuleAssemblySections::new(
-            imports,
-            functions,
-            first_callable_wasm_index,
-            callable_function_count,
-            memories,
-            exports,
-            data,
-        ),
-    );
-    // The function section and the code section must describe the same number
-    // of functions, or wasmtime rejects the module as malformed. This compares
-    // the code section's own record count against `FunctionSection`'s own
-    // counter — two independently maintained accumulators, one incremented by
-    // `FunctionSection::function` above and one by `ModuleCode::push` below it.
-    //
-    // Recomputing the expectation from `callable_function_count` and a second
-    // `RuntimeHelperId::ALL.filter(is_emitted)` walk would *not* be a check:
-    // both sides would derive from the same two variables and the assertion
-    // could never fire on any input.
-    assert_eq!(
-        u32::try_from(function_table.records().len()).expect("emitted function count fits u32"),
-        declared_function_count,
-        "code section entries must match the function section declarations"
-    );
-
-    let mut debug_dump = vec![
-        "module: js-aot".to_string(),
-        "export func: main -> i64".to_string(),
-        format!("static result kind: {}", script.result_kind().as_str()),
-        format!("locals: {main_emitted_local_count}"),
-        format!("internal functions: {}", callable_function_count),
-        // Derived from the same table the bodies were pushed into, so it
-        // cannot go stale the way the previous hand-written `27` did: the
-        // counted truth was already 32 unconditional helpers plus one
-        // conditional one.
-        format!(
-            "runtime helper functions: {}",
-            function_table.runtime_helper_count()
-        ),
-        format!(
-            "standard builtin bodies: {} real, {} shared-stubbed",
-            emitted_standard_builtins.len(),
-            stubbed_standard_builtins.len()
-        ),
-        format!(
-            "runtime bootstrap: {} standard roots, full globals={}",
-            runtime_bootstrap_plan.standard_roots.len(),
-            runtime_bootstrap_plan.full_standard_globals
-        ),
-        format!(
-            "standard builtin real names: {}",
-            emitted_standard_builtins
-                .iter()
-                .map(|builtin| builtin.debug_name())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        format!(
-            "host builtin bodies: {} real, {} shared-stubbed",
-            compiled_host_builtins.len(),
-            stubbed_host_builtins.len()
-        ),
-        format!(
-            "host builtin real names: {}",
-            compiled_host_builtins
-                .iter()
-                .map(|builtin| builtin.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        format!("global registry slots: {}", GLOBAL_INDEX_REGISTRY.len()),
-        format!("completion kind slots: {}", COMPLETION_KIND_REGISTRY.len()),
-        format!("export global: {RESULT_TAG_EXPORT}"),
-        format!("export global: {COMPLETION_KIND_EXPORT}"),
-        format!("export global: {COMPLETION_AUX_EXPORT}"),
-        format!("export global: {THROW_ERROR_NAME_EXPORT}"),
-        format!("export global: {THROW_ERROR_MESSAGE_EXPORT}"),
-        format!("export global: {THROW_ERROR_CONSTRUCTOR_NAME_EXPORT}"),
-        format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
-    ];
-
-    // Emitted-size attribution. `tests/emit_golden.rs` records `debug_dump` per
-    // fixture, so these two lines make the largest emitted body a tracked
-    // artifact across all 527 CLI fixtures at no extra cost, and give a
-    // `Code for function is too large` failure a named suspect.
-    //
-    // (The `[origin:unknown]` prefix such a failure also carries is a
-    // `lila-test262` `FailureOrigin` taxonomy value, not a function name;
-    // nothing here changes it, and the engine-side attribution is deliberately
-    // index-only so that it cannot change it either.)
-    //
-    // Both lines use the `key=value` shape `EmittedFunctionSummary::report_lines`
-    // uses, with `name=` **last**. Emitted names contain spaces
-    // (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`,
-    // `get #private`), so a positional layout cannot be parsed back: putting the
-    // free-form name last is what makes it unambiguous without quoting, and
-    // `tests/emit_golden.rs` parses exactly these keys.
-    //
-    // One traversal, three consumers. `function_sizes` on the artifact, the two
-    // attribution lines below and the opt-in full report are all rendered from
-    // `summaries`, so no reader can be told two different things about the same
-    // body. The precedent is the `runtime helper functions: 27` line above,
-    // which was a second copy of a fact and had drifted by five.
-    let function_sizes = function_table.summaries();
-    debug_dump.push(EmittedFunctionSummary::attribution_line(
-        "largest emitted function",
-        EmittedFunctionSummary::largest(&function_sizes),
-    ));
-    // Reported separately because it is often a different function, and it is
-    // the one that predicts Cranelift's virtual-register exhaustion.
-    debug_dump.push(EmittedFunctionSummary::attribution_line(
-        "most locals in an emitted function",
-        EmittedFunctionSummary::most_locals(&function_sizes),
-    ));
-    debug_dump.push(format!(
-        "emitted code bytes: {}",
-        function_table.total_body_bytes()
-    ));
-    if emit_size_report_requested() {
-        debug_dump.extend(EmittedFunctionSummary::report_lines(
-            &function_sizes,
-            usize::MAX,
-        ));
-    }
-    // The same report, written from inside the emitter to a file the caller
-    // names. Unlike `debug_dump` this survives every wrapper between here and
-    // `main`: the dump has exactly one printer, two crates away, and it was
-    // unreachable from `lila build wasm` and from the Test262 wasm-aot backend
-    // for the whole of batch 2 — which is how a size claim went a full batch
-    // without anyone noticing the measurement was silently empty.
-    //
-    // `emit_script` runs this function as a fixpoint over the builtin stub
-    // partitions (2-4 passes), so the file is rewritten once per pass and the
-    // last write is the one that describes the module actually returned. That is
-    // the wanted behaviour, and it is why the sink truncates rather than appends.
-    write_size_report_file_if_requested(&function_sizes);
-    if uses_host_print {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRINT_LINE_UTF8}"
-        ));
-    }
-    if uses_number_pow_import {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_NUMBER_POW}"
-        ));
-    }
-    if uses_wall_clock_millis {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_WALL_CLOCK_MILLIS}"
-        ));
-    }
-    if uses_shared_memory {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_SHARED_MEMORY_ALLOC}"
-        ));
-        debug_dump.push(format!(
-            "import memory: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRIVATE_MEMORY}"
-        ));
-        debug_dump.push(format!(
-            "import memory: {HOST_IMPORT_MODULE}.{HOST_IMPORT_SHARED_MEMORY}"
-        ));
-    }
-    if uses_atomics_wait_async {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_MONOTONIC_CLOCK_NANOS}"
-        ));
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_SLEEP_NANOS}"
-        ));
-    }
-    if uses_agent_host {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CALL}"
-        ));
-    }
-    if uses_intl_host {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_INTL_CALL}"
-        ));
-    }
-    if uses_random_f64 {
-        debug_dump.push(format!(
-            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_RANDOM_F64}"
-        ));
-    }
-    debug_dump.push(format!(
-        "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_REJECT_DYNAMIC_SOURCE}"
-    ));
-
-    if !string_pool.bytes.is_empty() || uses_heap {
-        if uses_shared_memory {
-            debug_dump.push("memory: exported private linear memory".to_string());
-        } else {
-            debug_dump.push("memory: exported linear memory".to_string());
-        }
-
-        if !string_pool.bytes.is_empty() {
-            debug_dump.push("data segments: 1".to_string());
-        } else {
-            debug_dump.push("data segments: 0".to_string());
-        }
-        if uses_heap {
-            debug_dump.push("heap: enabled".to_string());
-        }
-    } else {
-        debug_dump.push("memory: none".to_string());
-        debug_dump.push("data segments: 0".to_string());
-    }
-
-    if uses_intl_host {
-        let identity = embedded_intl_data_identity().map_err(|error| {
-            EmitError::unsupported(format!(
-                "failed to construct the Intl artifact identity: {error}"
-            ))
-        })?;
-        let artifact_identity = identity.artifact_identity();
-        module.section(&wasm_encoder::CustomSection {
-            name: Cow::Borrowed(INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION),
-            data: Cow::Borrowed(artifact_identity.as_bytes()),
-        });
-        debug_dump.push(format!(
-            "custom section: {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} ({} bytes)",
-            artifact_identity.as_bytes().len()
-        ));
-    }
-
-    // The Wasm custom `name` section, built from the same identity table that
-    // measured every body. Wasmtime composes its per-function symbol as
-    // `wasm[0]::function[N]::<clean_symbol(name)>` from exactly this section
-    // (wasmtime/src/compile.rs), so a native-compilation failure that used to
-    // read `[origin:unknown] ... Code for function is too large` can now name
-    // the function it is about. Custom sections are ignored by validation and
-    // do not participate in `largest_wasm_code_body_size`, so this does not
-    // move the engine's size-optimized routing threshold.
-    module.section(&function_table.name_section());
-    debug_dump.push(format!(
-        "name section: {} named functions",
-        function_table.records().len()
-    ));
-
-    // Report-only by default: a budget below the largest body Cranelift accepts
-    // today would turn green tests red, and that maximum has not been measured
-    // across the fixture corpus yet. Opt in with
-    // `LILA_EMIT_FUNCTION_BODY_BUDGET_BYTES` to have the compiler fail in
-    // milliseconds with a named function instead of waiting ~37 s for Cranelift
-    // to fail anonymously.
-    if let Some(budget) = FunctionBodyBudget::from_env() {
-        function_table.check_budget(budget)?;
-    }
-
-    // Builtins codegen proved reachable (materialized or direct-called) while
-    // their body was stubbed this pass: the caller force-compiles these and
-    // re-emits (see `emit_script`).
-    let touched_stubbed = ForcedBuiltins {
-        standard: function_metas
-            .touched_standard_builtins()
-            .into_iter()
-            .filter(|builtin| stubbed_standard_builtins.contains(builtin))
-            .collect(),
-        host: function_metas
-            .touched_host_builtins()
-            .into_iter()
-            .filter(|builtin| stubbed_host_builtins.contains(builtin))
-            .collect(),
-        number_pow_import: function_metas.touched_number_pow_import() && !uses_number_pow_import,
-    };
-
-    Ok((
-        WasmArtifact {
-            bytes: module.finish(),
-            invariant_note: "direct-js-to-wasm module",
-            debug_dump: debug_dump.join("\n"),
-            function_sizes,
-        },
-        touched_stubbed,
-    ))
-}
-
 impl<'a> FunctionBuilder<'a> {
-    pub(crate) const fn numeric_error_realm_source(&self) -> NumericErrorRealmSource {
-        self.numeric_error_realm_source
+    pub(crate) fn allocate_local_binding(
+        &mut self,
+        _mode: lila_ir::BindingMode,
+        function: &mut Function,
+    ) -> BindingStorage {
+        let value = self.schema.reserve_value_local(function);
+        value.set_undefined(function);
+        let initialized = self.schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        initialized.store(function);
+        let id = LocalBindingId {
+            ordinal: self.local_bindings.len(),
+        };
+        self.local_bindings.push(Some(LocalBindingLocals {
+            value,
+            initialized,
+            role: LocalBindingRole::Source {
+                private_argument_list: None,
+            },
+        }));
+        BindingStorage::Local(id)
+    }
+    /// An eager inferred-name binding is compiler storage, with no source
+    /// declaration mode or TDZ. Its whole value is initialized before use.
+    pub(crate) fn allocate_compiler_temporary_binding(
+        &mut self,
+        source: &ValueLocals,
+        function: &mut Function,
+    ) -> BindingStorage {
+        let value = self.schema.reserve_value_local(function);
+        value.copy_from(source, function);
+        let initialized = self.schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(1));
+        initialized.store(function);
+        let id = LocalBindingId {
+            ordinal: self.local_bindings.len(),
+        };
+        self.local_bindings.push(Some(LocalBindingLocals {
+            value,
+            initialized,
+            role: LocalBindingRole::CompilerTemporary,
+        }));
+        BindingStorage::Local(id)
+    }
+    pub(crate) fn local_binding(&self, id: LocalBindingId) -> &LocalBindingLocals {
+        self.local_bindings[id.ordinal]
+            .as_ref()
+            .expect("live local binding owner")
+    }
+    pub(crate) fn release_local_binding(&mut self, id: LocalBindingId, function: &mut Function) {
+        let binding = self.local_bindings[id.ordinal]
+            .take()
+            .expect("local binding released once");
+        if let LocalBindingRole::Source {
+            private_argument_list: Some(list),
+        } = binding.role
+        {
+            list.clear(function);
+        }
+        self.schema.release_i32_local(binding.initialized, function);
+        binding.value.clear(function);
+    }
+    /// The paired IR capture has compiler-private storage. Its ValueArray is
+    /// never encoded as a JavaScript Array or a StoredValue reference.
+    pub(crate) fn emit_store_captured_argument_list(
+        &mut self,
+        storage: BindingStorage,
+        arguments: &GcLocal<ValueArray>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.schema;
+        match storage {
+            BindingStorage::EnvSlot { slot, hops } => {
+                let environment = self.resolve_env_handle_local(hops, function);
+                let cell = self.emit_environment_cell_local(&environment, slot, function);
+                schema
+                    .struct_type::<BindingCell>()
+                    .field(BindingCellSchema::ARGUMENT_LIST)
+                    .write(
+                        &cell,
+                        GcOperand::nullable_reference(arguments, schema),
+                        schema,
+                        function,
+                    );
+                schema
+                    .struct_type::<BindingCell>()
+                    .field(BindingCellSchema::INITIALIZED)
+                    .write(&cell, GcOperand::boolean(true), schema, function);
+                cell.clear(function);
+                environment.clear(function);
+            }
+            BindingStorage::Local(id) => {
+                let binding = self.local_bindings[id.ordinal]
+                    .as_mut()
+                    .expect("paired private capture owns a live binding");
+                let LocalBindingRole::Source {
+                    private_argument_list,
+                } = &mut binding.role
+                else {
+                    return Err(EmitError::unsupported(
+                        "compiler temporary cannot own a captured argument list",
+                    ));
+                };
+                let list = private_argument_list.get_or_insert_with(|| {
+                    schema
+                        .reserve_gc_local::<ValueArray, Nullable>(function)
+                        .initialize_null(schema, function)
+                });
+                list.replace(arguments.load(schema, function).nullable(), function);
+                function.instruction(&Instruction::I32Const(1));
+                binding.initialized.store(function);
+                if let Some(frame) = self
+                    .body_entry_locals
+                    .as_ref()
+                    .and_then(|entry| entry.resume_frame())
+                {
+                    Self::emit_store_frame_argument_list(
+                        schema,
+                        frame,
+                        id.ordinal,
+                        Some(arguments),
+                        function,
+                    )?;
+                }
+            }
+        }
+        Ok(())
     }
 
-    pub(crate) const fn proxy_execution_realm_source(&self) -> ProxyExecutionRealmSource {
-        self.proxy_execution_realm_source
+    pub(crate) fn emit_load_captured_argument_list(
+        &mut self,
+        list: &lila_ir::CapturedArgumentListIr,
+        function: &mut Function,
+    ) -> Result<GcLocal<ValueArray>, EmitError> {
+        let schema = self.schema;
+        let storage = self.lookup_binding(list.storage_name()).ok_or_else(|| {
+            EmitError::unsupported(
+                "compiler invariant: captured argument list has no paired storage",
+            )
+        })?;
+        let output = schema.reserve_gc_local::<ValueArray, NonNullable>(function);
+        match storage {
+            BindingStorage::EnvSlot { slot, hops } => {
+                let environment = self.resolve_env_handle_local(hops, function);
+                let cell = self.emit_environment_cell_local(&environment, slot, function);
+                let result = output.initialize(
+                    schema
+                        .struct_type::<BindingCell>()
+                        .field(BindingCellSchema::ARGUMENT_LIST)
+                        .read(&cell, schema, function)
+                        .reference()
+                        .require_non_null(function),
+                    function,
+                );
+                cell.clear(function);
+                environment.clear(function);
+                Ok(result)
+            }
+            BindingStorage::Local(id) => {
+                if let Some(frame) = self
+                    .body_entry_locals
+                    .as_ref()
+                    .and_then(|entry| entry.resume_frame())
+                {
+                    let table = schema
+                        .reserve_gc_local::<PrivateArgumentListTable, NonNullable>(function)
+                        .initialize(
+                            schema
+                                .struct_type::<InvocationFrame>()
+                                .field(InvocationFrameSchema::PRIVATE_ARGUMENT_LISTS)
+                                .read(frame, schema, function)
+                                .reference(),
+                            function,
+                        );
+                    let index = schema.reserve_i32_local(function);
+                    function.instruction(&Instruction::I32Const(
+                        i32::try_from(id.ordinal).map_err(|_| {
+                            EmitError::unsupported(
+                                "private argument-list slot exceeds Wasm array bounds",
+                            )
+                        })?,
+                    ));
+                    index.store(function);
+                    let result = output.initialize(
+                        schema
+                            .array_type::<PrivateArgumentListTable>()
+                            .read(&table, index, schema, function)
+                            .reference()
+                            .require_non_null(function),
+                        function,
+                    );
+                    schema.release_i32_local(index, function);
+                    table.clear(function);
+                    Ok(result)
+                } else {
+                    let binding = self.local_binding(id);
+                    let list = binding.private_argument_list().ok_or_else(|| {
+                        EmitError::unsupported(
+                            "compiler invariant: argument-list storage was not initialized",
+                        )
+                    })?;
+                    Ok(output.initialize(
+                        list.load(schema, function).require_non_null(function),
+                        function,
+                    ))
+                }
+            }
+        }
     }
 
-    pub(crate) const fn object_read_error_realm_source(&self) -> ObjectReadErrorRealmSource {
-        self.object_read_error_realm_source
+    /// Stable binding ordinals retain lists across suspension independently of
+    /// JavaScript locals. Growing the private table preserves existing edges.
+    fn emit_store_frame_argument_list(
+        schema: &RuntimeSchema,
+        frame: &GcLocal<InvocationFrame>,
+        ordinal: usize,
+        arguments: Option<&GcLocal<ValueArray>>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ordinal = i32::try_from(ordinal).map_err(|_| {
+            EmitError::unsupported("private argument-list slot exceeds Wasm array bounds")
+        })?;
+        let required = ordinal.checked_add(1).ok_or_else(|| {
+            EmitError::unsupported("private argument-list table exceeds Wasm array bounds")
+        })?;
+        let table = schema
+            .reserve_gc_local::<PrivateArgumentListTable, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<InvocationFrame>()
+                    .field(InvocationFrameSchema::PRIVATE_ARGUMENT_LISTS)
+                    .read(frame, schema, function)
+                    .reference(),
+                function,
+            );
+        let length = schema.reserve_i32_local(function);
+        schema
+            .array_type::<PrivateArgumentListTable>()
+            .length(&table, schema, function);
+        length.store(function);
+        let index = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(ordinal));
+        index.store(function);
+        length.load(function);
+        index.load(function);
+        function.instruction(&Instruction::I32LeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let new_length = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(required));
+        new_length.store(function);
+        let grown = schema
+            .reserve_gc_local::<PrivateArgumentListTable, NonNullable>(function)
+            .initialize(
+                schema.array_type::<PrivateArgumentListTable>().filled(
+                    GcOperand::null(schema),
+                    new_length,
+                    function,
+                ),
+                function,
+            );
+        let cursor = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        cursor.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        cursor.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        let old = schema
+            .reserve_gc_local::<ValueArray, Nullable>(function)
+            .initialize(
+                schema
+                    .array_type::<PrivateArgumentListTable>()
+                    .read(&table, cursor, schema, function)
+                    .reference(),
+                function,
+            );
+        schema.array_type::<PrivateArgumentListTable>().write(
+            &grown,
+            cursor,
+            GcOperand::reference(&old, schema),
+            schema,
+            function,
+        );
+        old.clear(function);
+        cursor.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        cursor.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PRIVATE_ARGUMENT_LISTS)
+            .write(
+                frame,
+                GcOperand::reference(&grown, schema),
+                schema,
+                function,
+            );
+        table.replace(grown.load(schema, function), function);
+        schema.release_i32_local(cursor, function);
+        grown.clear(function);
+        schema.release_i32_local(new_length, function);
+        function.instruction(&Instruction::End);
+        match arguments {
+            Some(arguments) => schema.array_type::<PrivateArgumentListTable>().write(
+                &table,
+                index,
+                GcOperand::nullable_reference(arguments, schema),
+                schema,
+                function,
+            ),
+            None => schema.array_type::<PrivateArgumentListTable>().write(
+                &table,
+                index,
+                GcOperand::null(schema),
+                schema,
+                function,
+            ),
+        }
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
+        table.clear(function);
+        Ok(())
     }
 
-    pub(crate) const fn object_mutation_error_realm_source(
+    pub(crate) fn emit_clear_private_argument_lists_in_scope(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.schema;
+        let storages = self
+            .binding_scopes
+            .last()
+            .map(|scope| scope.values().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for storage in storages {
+            match storage {
+                BindingStorage::Local(id) => {
+                    if let Some(list) = self.local_binding(id).private_argument_list() {
+                        list.set_null(schema, function);
+                        if let Some(frame) = self
+                            .body_entry_locals
+                            .as_ref()
+                            .and_then(|entry| entry.resume_frame())
+                        {
+                            Self::emit_store_frame_argument_list(
+                                schema, frame, id.ordinal, None, function,
+                            )?;
+                        }
+                    }
+                }
+                BindingStorage::EnvSlot { slot, hops } => {
+                    let environment = self.resolve_env_handle_local(hops, function);
+                    let cell = self.emit_environment_cell_local(&environment, slot, function);
+                    schema
+                        .struct_type::<BindingCell>()
+                        .field(BindingCellSchema::ARGUMENT_LIST)
+                        .write(&cell, GcOperand::null(schema), schema, function);
+                    cell.clear(function);
+                    environment.clear(function);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn runtime_schema(&self) -> &'a RuntimeSchema {
+        self.schema
+    }
+    pub(crate) fn emit_interned_string_reference(
         &self,
-    ) -> ObjectMutationErrorRealmSource {
-        self.object_mutation_error_realm_source
+        value: &str,
+        function: &mut Function,
+    ) -> Result<GcStackReference<StringValue>, EmitError> {
+        let ordinal = self.strings.pooled_string_index(value)?;
+        if self.uses_heap {
+            return Ok(self.schema.pooled_string_reference(ordinal, function));
+        }
+        // Runtime-free scripts do not initialize the module's pooled table.
+        // Their literal primitives still own real GC Strings and UTF-16 units.
+        let schema = self.schema;
+        let units = StringPool::runtime_code_units_for_string(value);
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(
+            i32::try_from(units.len()).expect("literal UTF-16 length"),
+        ));
+        length.store(function);
+        let units_slot = schema.reserve_gc_local::<CodeUnitArray, NonNullable>(function);
+        let construction = StringConstruction::allocate(schema, units_slot, length, function);
+        for (ordinal, code_unit) in units.into_iter().enumerate() {
+            function.instruction(&Instruction::I32Const(
+                i32::try_from(ordinal).expect("literal UTF-16 index"),
+            ));
+            index.store(function);
+            function.instruction(&Instruction::I32Const(i32::from(code_unit)));
+            unit.store(function);
+            construction.write(index, unit, schema, function);
+        }
+        let string = construction.publish(schema, function);
+        schema.release_i32_local(unit, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
+        Ok(string)
     }
-
-    pub(crate) fn template_object_global_index(&self, site_id: u64) -> u32 {
-        let site_offset = self
-            .strings
-            .template_objects
-            .keys()
-            .position(|candidate| *candidate == site_id)
-            .expect("template object site must be collected") as u32;
-        GLOBAL_INDEX_REGISTRY.len() as u32 + site_offset
+    pub(crate) fn emit_runtime_error_message_reference(
+        &self,
+        message: RuntimeErrorMessage,
+        function: &mut Function,
+    ) -> Result<GcStackReference<StringValue>, EmitError> {
+        Ok(self
+            .schema
+            .pooled_string_reference(self.strings.runtime_error_string_index(message)?, function))
+    }
+    pub(crate) fn emit_well_known_symbol_reference(
+        &self,
+        symbol: lila_ir::WellKnownSymbol,
+        function: &mut Function,
+    ) -> Result<GcStackReference<SymbolValue>, EmitError> {
+        Ok(self.schema.well_known_symbol_reference(symbol, function))
+    }
+    pub(crate) fn current_private_environment(&self) -> &GcLocal<PrivateEnvironment, Nullable> {
+        &self.current_private_environment
+    }
+    pub(crate) fn replace_current_private_environment(
+        &self,
+        value: GcStackReference<PrivateEnvironment, Nullable>,
+        function: &mut Function,
+    ) {
+        self.current_private_environment.replace(value, function);
+    }
+    pub(crate) fn load_current_realm(&self, function: &mut Function) -> GcLocal<RealmRecord> {
+        let slot = self
+            .schema
+            .reserve_gc_local::<RealmRecord, NonNullable>(function);
+        slot.initialize(self.schema.load_current_realm(function), function)
+    }
+    pub(crate) fn replace_current_realm(
+        &self,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) {
+        self.schema.replace_current_realm(realm, function);
+    }
+    pub(crate) fn emit_propagate_current_throw_if_needed(&mut self, function: &mut Function) {
+        self.completion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+    }
+    pub(crate) fn emit_clear_throw_diagnostic(
+        &self,
+        role: ThrowDiagnosticRole,
+        function: &mut Function,
+    ) {
+        self.schema.clear_throw_diagnostic(role, function);
+    }
+    pub(crate) fn emit_store_throw_diagnostic(
+        &self,
+        role: ThrowDiagnosticRole,
+        value: &GcLocal<StringValue>,
+        function: &mut Function,
+    ) {
+        self.schema.store_throw_diagnostic(role, value, function);
+    }
+    pub(crate) fn current_environment(&self) -> &GcLocal<Environment, Nullable> {
+        &self.current_environment
+    }
+    pub(crate) fn replace_current_environment(
+        &self,
+        value: GcStackReference<Environment, Nullable>,
+        function: &mut Function,
+    ) {
+        self.current_environment.replace(value, function);
+    }
+    pub(crate) fn completion(&self) -> &CompletionLocals {
+        &self.completion
+    }
+    pub(crate) fn runtime_helper_base(
+        &self,
+    ) -> Result<crate::runtime_helpers::RuntimeHelperFunctionBase, EmitError> {
+        self.runtime_helper_base.ok_or_else(|| {
+            EmitError::unsupported(
+                "compiler invariant: runtime helper call has no registered helper plan",
+            )
+        })
+    }
+    pub(crate) fn body_entry_locals(&self) -> Option<&crate::function_entry::BodyEntryLocals> {
+        self.body_entry_locals.as_ref()
+    }
+    pub(crate) fn current_function_context(&self) -> Option<&GcLocal<FunctionContext>> {
+        self.body_entry_locals()
+            .and_then(|entry| entry.function_context())
+            .or(self.helper_function_context.as_ref())
+    }
+    pub(crate) fn clear_helper_function_context(&mut self, function: &mut Function) {
+        if let Some(context) = self.helper_function_context.take() {
+            context.clear(function);
+        }
+    }
+    pub(crate) fn helper_execution_realm(&self) -> Option<&GcLocal<RealmRecord>> {
+        self.helper_execution_realm.as_ref()
+    }
+    pub(crate) fn clear_helper_execution_realm(&mut self, function: &mut Function) {
+        if let Some(realm) = self.helper_execution_realm.take() {
+            realm.clear(function);
+        }
+    }
+    fn take_owned_body(&mut self) -> Function {
+        self.owned_body
+            .take()
+            .expect("one registered body per FunctionBuilder")
+    }
+    pub(crate) fn helper_parameters<P: crate::runtime_helpers::HelperParameters>(
+        &mut self,
+        function: &mut Function,
+    ) -> P {
+        assert!(
+            matches!(self.module_state, FunctionModuleState::RuntimeOperation(actual) if actual == P::ID),
+            "helper parameter roles must match this declaration"
+        );
+        let parameters = self.schema.helper_parameters::<P>(function);
+        if let Some(environment) = parameters.caller_environment() {
+            self.current_environment
+                .replace(environment.load(self.schema, function), function);
+        }
+        if let Some(context) = parameters.caller_function_context() {
+            assert!(
+                self.helper_function_context.is_none(),
+                "one callable context per helper body"
+            );
+            self.helper_function_context = Some(
+                self.schema
+                    .reserve_gc_local(function)
+                    .initialize(context.load(self.schema, function), function),
+            );
+        }
+        if let Some(realm) = parameters.caller_execution_realm() {
+            assert!(
+                self.helper_execution_realm.is_none() && self.current_function_context().is_none(),
+                "one execution Realm authority per helper body"
+            );
+            self.helper_execution_realm = Some(
+                self.schema
+                    .reserve_gc_local(function)
+                    .initialize(realm.load(self.schema, function), function),
+            );
+        }
+        parameters
     }
 
     fn new_main(
@@ -3358,17 +1407,14 @@ impl<'a> FunctionBuilder<'a> {
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
         module_globals: &'a FinalizedModuleGlobals,
         promise_rejection_policy: PromiseRejectionPolicy,
     ) -> Self {
         let mut builder = Self::new(
+            module_globals.schema(),
             &script.body,
+            script.template_source,
             &[],
             script.owned_env_bindings.as_slice(),
             script.eval_environment.as_ref(),
@@ -3384,35 +1430,27 @@ impl<'a> FunctionBuilder<'a> {
             Some(&script.global_bindings),
             uses_heap,
             FunctionModuleState::Main(module_globals, promise_rejection_policy),
-            NumericErrorRealmSource::GlobalFallback,
             false,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
+            runtime_helper_base,
         );
         builder.module_prelude_id = script.module_prelude.as_ref().map(|unit| unit.id);
         builder
     }
 
     fn new_prepared_script(
+        schema: &'a RuntimeSchema,
         unit: &'a PreparedScriptUnit,
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Self {
         Self::new(
+            schema,
             &unit.body,
+            unit.template_source,
             &[],
             &unit.owned_env_bindings,
             unit.eval_environment.as_ref(),
@@ -3427,36 +1465,34 @@ impl<'a> FunctionBuilder<'a> {
             None,
             Some(&unit.global_bindings),
             uses_heap,
-            FunctionModuleState::PreparedScript(unit),
-            NumericErrorRealmSource::GlobalFallback,
+            FunctionModuleState::PreparedScript(
+                unit,
+                &functions
+                    .get(&unit.id.function_id())
+                    .expect("prepared Script has its planned entry")
+                    .entry,
+            ),
             false,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
+            runtime_helper_base,
         )
     }
 
     fn new_function(
+        schema: &'a RuntimeSchema,
         function: &'a FunctionIr,
         global_bindings: &'a GlobalBindingPlan,
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Result<Self, EmitError> {
         let arguments_protocol = FunctionArgumentsProtocol::for_user_function(function)?;
         Ok(Self::new(
+            schema,
             &function.body,
+            function.template_source,
             function.params.as_slice(),
             function.owned_env_bindings.as_slice(),
             function.eval_environment.as_ref(),
@@ -3471,35 +1507,32 @@ impl<'a> FunctionBuilder<'a> {
             function.is_named_expression.then(|| function.name.clone()),
             Some(global_bindings),
             uses_heap,
-            FunctionModuleState::Internal,
-            NumericErrorRealmSource::GlobalFallback,
+            FunctionModuleState::Internal(
+                &functions
+                    .get(&function.id)
+                    .expect("user function has its planned entry")
+                    .entry,
+            ),
             function.is_derived_constructor,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
+            runtime_helper_base,
         ))
     }
 
     fn new_host_builtin(
+        schema: &'a RuntimeSchema,
         builtin: HostBuiltinId,
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Self {
         let function_id = builtin.function_id();
         Self::new(
+            schema,
             &EMPTY_BLOCK,
+            None,
             &[],
             &[],
             None,
@@ -3514,34 +1547,32 @@ impl<'a> FunctionBuilder<'a> {
             None,
             None,
             uses_heap,
-            FunctionModuleState::Internal,
-            NumericErrorRealmSource::GlobalFallback,
+            FunctionModuleState::Internal(
+                &functions
+                    .get(&builtin.function_id())
+                    .expect("host builtin has its planned entry")
+                    .entry,
+            ),
             false,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
+            runtime_helper_base,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
     fn new_runtime_operation_helper(
+        schema: &'a RuntimeSchema,
+        helper: RuntimeHelperId,
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Self {
         Self::new(
+            schema,
             &EMPTY_BLOCK,
+            None,
             &[],
             &[],
             None,
@@ -3556,35 +1587,27 @@ impl<'a> FunctionBuilder<'a> {
             None,
             None,
             uses_heap,
-            FunctionModuleState::Internal,
-            NumericErrorRealmSource::GlobalFallback,
+            FunctionModuleState::RuntimeOperation(helper),
             false,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
+            runtime_helper_base,
         )
     }
 
     fn new_standard_builtin(
+        schema: &'a RuntimeSchema,
         builtin: StandardBuiltinId,
+        entry: &'a crate::function_entry::PlannedFunctionEntry,
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
-        stub_body: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Self {
-        let mut builder = Self::new(
+        Self::new(
+            schema,
             &EMPTY_BLOCK,
+            None,
             &[],
             &[],
             None,
@@ -3599,23 +1622,17 @@ impl<'a> FunctionBuilder<'a> {
             None,
             None,
             uses_heap,
-            FunctionModuleState::Internal,
-            NumericErrorRealmSource::StandardBuiltinEnvironment,
+            FunctionModuleState::Internal(entry),
             false,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-        );
-        builder.stub_standard_builtin_body = stub_body;
-        builder
+            runtime_helper_base,
+        )
     }
 
     fn new(
+        schema: &'a RuntimeSchema,
         body: &'a BlockIr,
+        template_source: Option<lila_ir::TemplateSourceIr>,
         params: &'a [FunctionParamIr],
         owned_env_bindings: &'a [OwnedEnvBindingIr],
         eval_environment: Option<&'a lila_ir::EvalEnvironmentRoleIr>,
@@ -3631,16 +1648,18 @@ impl<'a> FunctionBuilder<'a> {
         script_global_bindings: Option<&'a GlobalBindingPlan>,
         uses_heap: bool,
         module_state: FunctionModuleState<'a>,
-        numeric_error_realm_source: NumericErrorRealmSource,
         is_derived_constructor: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
-        heap_alloc_function_index: Option<u32>,
-        object_append_data_property_function_index: Option<u32>,
-        object_append_accessor_property_function_index: Option<u32>,
-        function_object_alloc_function_index: Option<u32>,
-        plain_object_alloc_function_index: Option<u32>,
-        array_alloc_function_index: Option<u32>,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
     ) -> Self {
+        let parameter_types = match &module_state {
+            FunctionModuleState::Main(_, _) => schema.signature(StaticSignature::Main),
+            FunctionModuleState::PreparedScript(_, entry)
+            | FunctionModuleState::Internal(entry) => schema.signature(entry.signature()),
+            FunctionModuleState::RuntimeOperation(helper) => helper.definition(schema.layouts()),
+        }
+        .parameters()
+        .to_vec();
         let return_abi = module_state.return_abi();
         let hoisted_vars = match &module_state {
             FunctionModuleState::Main(_, _) => script_global_bindings
@@ -3648,50 +1667,82 @@ impl<'a> FunctionBuilder<'a> {
                 .main_frame_write_bindings()
                 .map(|binding| binding.name.clone())
                 .collect(),
-            FunctionModuleState::PreparedScript(unit) if unit.has_global_variable_environment() => {
+            FunctionModuleState::PreparedScript(unit, _)
+                if unit.has_global_variable_environment() =>
+            {
                 unit.global_bindings
                     .main_frame_write_bindings()
                     .map(|binding| binding.name.clone())
                     .collect()
             }
-            FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => {
-                collect_hoisted_vars_block_root(body)
-            }
+            FunctionModuleState::Internal(_)
+            | FunctionModuleState::RuntimeOperation(_)
+            | FunctionModuleState::PreparedScript(_, _) => collect_hoisted_vars_block_root(body),
         };
-        let self_binding_local_count = usize::from(self_binding_name.is_some());
-        let param_local_count = module_state.parameter_count() as u32;
-        let needs_arguments_binding_locals = function_arguments_protocol.present().is_some();
-        let captured_arguments_local_count = if captured_bindings
-            .iter()
-            .any(|binding| binding.name == LEXICAL_ARGUMENTS_NAME)
-        {
-            2
+        let template_source_body = template_source;
+        let async_generator_resume_environment_plan = function_id
+            .as_deref()
+            .and_then(|id| functions.get(id))
+            .and_then(|meta| meta.async_generator_resume_environment_plan.clone());
+        let mut owned_body = Function::with_parameters(
+            LocalDeclarations::from_types(std::iter::empty()),
+            parameter_types,
+        );
+        let current_environment = schema
+            .reserve_gc_local::<Environment, Nullable>(&mut owned_body)
+            .initialize_null(schema, &mut owned_body);
+        let current_private_environment = schema
+            .reserve_gc_local::<PrivateEnvironment, Nullable>(&mut owned_body)
+            .initialize_null(schema, &mut owned_body);
+        let completion = schema.reserve_completion(&mut owned_body);
+        completion.initialize(&mut owned_body);
+        let body_entry_locals = module_state
+            .planned_body_entry()
+            .map(|entry| entry.materialize(schema, &mut owned_body));
+        if let Some(entry) = &body_entry_locals {
+            current_environment.replace(
+                entry.lexical_environment().load(schema, &mut owned_body),
+                &mut owned_body,
+            );
+        }
+        let direct_eval_context = if let Some(entry) = &body_entry_locals {
+            current_private_environment.replace(
+                entry.private_environment().load(schema, &mut owned_body),
+                &mut owned_body,
+            );
+            entry.direct_eval_context().map(|context| {
+                let slot = schema
+                    .reserve_gc_local::<DirectEvalExecutionContext, Nullable>(&mut owned_body);
+                slot.initialize(context.load(schema, &mut owned_body), &mut owned_body)
+            })
         } else {
-            0
+            None
         };
-        let total_binding_local_count = (count_block_lexicals(body)
-            + self_binding_local_count
-            + count_param_binding_locals(params, owned_env_bindings)
-            + if needs_arguments_binding_locals { 2 } else { 0 }
-            + captured_arguments_local_count) as u32
-            + (hoisted_vars.len() as u32 * 2);
-        let temp_local_count = count_block_temp_locals(body).max(2048) as u32;
-        let current_env_local = param_local_count + total_binding_local_count;
-        let class_function_context_local = current_env_local + 5;
-        let named_function_context_local = class_function_context_local + 1;
-        let scratch_local = named_function_context_local + 1;
-        let captured_direct_eval_execution_context_local = captured_bindings
-            .iter()
-            .any(|binding| binding.name == lila_ir::DIRECT_EVAL_EXECUTION_CONTEXT_NAME)
-            .then_some(scratch_local + 1);
-        let object_read_error_realm_source =
-            ObjectReadErrorRealmSource::for_initial_body(numeric_error_realm_source);
-        let object_mutation_error_realm_source =
-            ObjectMutationErrorRealmSource::for_initial_body(numeric_error_realm_source);
-        let proxy_execution_realm_source =
-            ProxyExecutionRealmSource::for_initial_body(numeric_error_realm_source);
+        let direct_eval_context = direct_eval_context.or_else(|| {
+            captured_bindings
+                .iter()
+                .any(|binding| binding.name == lila_ir::DIRECT_EVAL_EXECUTION_CONTEXT_NAME)
+                .then(|| {
+                    schema
+                        .reserve_gc_local::<DirectEvalExecutionContext, Nullable>(&mut owned_body)
+                        .initialize_null(schema, &mut owned_body)
+                })
+        });
         Self {
+            schema,
+            owned_body: Some(owned_body),
+            current_environment,
+            current_private_environment,
+            direct_eval_context,
+            completion,
+            local_bindings: Vec::new(),
+            body_entry_locals,
+            helper_function_context: None,
+            helper_execution_realm: None,
+            bootstrap_realm: None,
             body,
+            template_source_body,
+            template_source_execution: None,
             module_prelude_id: None,
             params,
             owned_env_bindings,
@@ -3710,32 +1761,10 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             completion_exit: CompletionExit::for_return_abi(return_abi),
             module_state,
-            numeric_error_realm_source,
-            proxy_execution_realm_source,
-            object_read_error_realm_source,
-            object_mutation_error_realm_source,
             hoisted_vars,
             binding_scopes: Vec::new(),
-            next_binding_local: param_local_count,
-            temp_local_count,
-            current_env_local,
-            class_function_context_local,
-            captured_direct_eval_execution_context_local,
-            active_private_environment_locals: Vec::new(),
-            named_function_context_local,
-            result_local: current_env_local + 1,
-            result_tag_local: current_env_local + 2,
-            completion_local: current_env_local + 3,
-            completion_aux_local: current_env_local + 4,
-            scratch_local,
-            temp_local_base: scratch_local
-                + 1
-                + u32::from(captured_direct_eval_execution_context_local.is_some()),
-            temp_stack_depth: 0,
-            max_temp_stack_depth: 0,
+            emitted_local_count: 0,
             environment_depth: 0,
-            this_payload_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(1),
-            this_tag_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(2),
             control_stack: Vec::new(),
             breakable_stack: Vec::new(),
             loop_stack: Vec::new(),
@@ -3743,309 +1772,60 @@ impl<'a> FunctionBuilder<'a> {
             throw_handler_stack: Vec::new(),
             finally_stack: Vec::new(),
             generator_finalizer_depth: 0,
-            stub_standard_builtin_body: false,
+            statement_list_value_context: None,
+            checked_async_generator_environment_owner: None,
+            checked_async_generator_resource_owner: None,
+            async_generator_resume_environment_plan,
             runtime_bootstrap_plan,
-            heap_alloc_function_index,
-            object_append_data_property_function_index,
-            object_append_accessor_property_function_index,
-            function_object_alloc_function_index,
-            plain_object_alloc_function_index,
-            array_alloc_function_index,
-            outline_object_read: true,
-            outline_object_write: true,
-            outline_object_define_data: true,
-            outline_function_call: true,
-            outline_proxy_call: true,
-            outline_proxy_construct: true,
+            runtime_helper_base,
             outline_string_equality: true,
             outline_number_to_string: true,
             outline_string_to_number: true,
             outline_value_to_string: true,
             outline_value_to_number: true,
             outline_value_to_numeric: true,
-            outline_object_get_prototype_of: true,
-            outline_object_is_extensible: true,
-            outline_object_prevent_extensions: true,
-            outline_object_read_proxy: true,
-            outline_array_write: true,
-            outline_indexed_element_read: true,
-            outline_indexed_element_write: true,
-            outline_value_to_primitive: true,
-            outline_value_to_property_key: true,
-            ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission::Inline,
-            append_target_scope: AppendTargetScope::OrdinaryObjects,
             object_write_strict_flag_local: None,
         }
     }
 
-    /// Wasm function index of the shared object-read runtime helper. It is
-    /// emitted immediately after the six heap/object allocation helpers.
-    pub(crate) fn object_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectRead.index(base))
-    }
-
-    /// Wasm function index of the shared object-write runtime helper.
-    pub(crate) fn object_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectWrite.index(base))
-    }
-
-    /// Wasm function index of the shared object-define-data runtime helper.
-    pub(crate) fn object_define_data_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectDefineData.index(base))
-    }
-
-    /// Wasm function index of the shared proxy-aware call-dispatch helper.
-    pub(crate) fn proxy_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ProxyCall.index(base))
-    }
-
-    /// Wasm function index of the shared proxy-aware construct-dispatch helper.
-    pub(crate) fn proxy_construct_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ProxyConstruct.index(base))
-    }
-
-    /// Wasm function index of the shared string-equality helper.
-    pub(crate) fn string_equality_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::StringEquality.index(base))
-    }
-
-    /// Wasm function index of the shared number-to-string helper.
-    pub(crate) fn number_to_string_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::NumberToString.index(base))
-    }
-
-    /// Wasm function index of the shared string-to-number helper.
-    pub(crate) fn string_to_number_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::StringToNumber.index(base))
-    }
-
-    /// Wasm function index of the shared dynamic ToString (value-to-string)
-    /// helper.
-    pub(crate) fn value_to_string_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ValueToString.index(base))
-    }
-
-    /// Wasm function index of the shared dynamic ToNumber (value-to-number)
-    /// helper. Unconditional (like value-to-string) so its fixed offset never
-    /// shifts.
-    pub(crate) fn value_to_number_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ValueToNumber.index(base))
-    }
-
-    /// Wasm function index of the shared dynamic ToNumeric helper.
-    pub(crate) fn value_to_numeric_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ValueToNumeric.index(base))
-    }
-
-    /// Wasm function index of the shared ToPrimitive helper for `hint`.
-    ///
-    /// The hint picks the *callee*, through
-    /// [`RuntimeHelperId::helper_for`]'s exhaustive match, rather than being
-    /// forwarded to one body as data.
-    pub(crate) fn value_to_primitive_helper_function_index(
-        &self,
-        hint: ToPrimitiveHint,
-    ) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::helper_for(hint).index(base))
-    }
-
-    /// Wasm function index of the shared ToPropertyKey helper.
-    pub(crate) fn value_to_property_key_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ValueToPropertyKey.index(base))
-    }
-
-    /// Wasm function index of the shared proxy-aware `[[GetPrototypeOf]]` helper.
-    /// Unconditional (emitted whenever heap is used) so its fixed offset never
-    /// shifts.
-    pub(crate) fn object_get_prototype_of_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectGetPrototypeOf.index(base))
-    }
-
-    /// Wasm function index of the shared proxy-aware `[[IsExtensible]]` helper.
-    /// Unconditional (emitted whenever heap is used) so its fixed offset never
-    /// shifts.
-    pub(crate) fn object_is_extensible_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectIsExtensible.index(base))
-    }
-
-    /// Wasm function index of the shared proxy-aware
-    /// `[[PreventExtensions]]` helper. Unconditional whenever heap support is
-    /// emitted, so recursive Proxy-target fallback always has a stable callee.
-    pub(crate) fn object_prevent_extensions_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectPreventExtensions.index(base))
-    }
-
-    /// Wasm function index of the shared proxy-aware `[[Get]]` helper.
-    /// Unconditional (emitted whenever heap is used) so its fixed offset never
-    /// shifts.
-    pub(crate) fn object_read_proxy_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ObjectReadProxy.index(base))
-    }
-
-    /// Wasm function index of the sequence-only RegExp matcher helper.
-    /// Unconditional (emitted whenever heap is used) so its fixed offset never
-    /// shifts.
-    pub(crate) fn regexp_matcher_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::RegExpMatcher.index(base))
-    }
-
-    pub(crate) fn regexp_compiler_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::RegExpCompiler.index(base))
-    }
-
-    /// Wasm function index of the shared plain function-call dispatcher.
-    /// Unconditional (emitted whenever heap is used) so its fixed offset never
-    /// shifts.
-    pub(crate) fn function_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::FunctionCall.index(base))
-    }
-
-    /// Wasm function index of the runtime-kind dynamic property-read helper.
-    /// Unconditional (emitted whenever heap is used) so its fixed offset never
-    /// shifts.
-    pub(crate) fn dynamic_property_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::DynamicPropertyRead.index(base))
-    }
-
-    /// Wasm function index of the receiver-side OrdinarySet data-property
-    /// helper. Unconditional (emitted whenever heap is used) so its fixed
-    /// offset never shifts.
-    pub(crate) fn ordinary_set_data_on_receiver_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::OrdinarySetDataOnReceiver.index(base))
-    }
-
-    pub(crate) fn ordinary_set_data_on_receiver_with_fallback_helper_function_index(
-        &self,
-    ) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback.index(base))
-    }
-
-    /// Wasm function index of the shared dense/sparse Array element-write helper.
-    pub(crate) fn array_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ArrayWrite.index(base))
-    }
-
-    pub(crate) fn array_append_present_index_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::ArrayAppendPresentIndex.index(base))
-    }
-
-    /// Wasm function index of the shared OrdinarySet helper with an explicit receiver.
-    pub(crate) fn ordinary_set_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::OrdinarySet.index(base))
-    }
-
-    pub(crate) fn ordinary_set_without_receiver_fallback_helper_function_index(
-        &self,
-    ) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::OrdinarySetWithoutReceiverFallback.index(base))
-    }
-
-    /// Wasm function index of the exact decimal source-text to binary64 helper.
-    pub(crate) fn decimal_to_binary64_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::DecimalToBinary64.index(base))
-    }
-
-    /// Wasm function index of the shared arbitrary-precision BigInt arithmetic
-    /// helper.
-    pub(crate) fn bigint_arithmetic_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::BigIntArithmetic.index(base))
-    }
-
-    /// Wasm function index of the Temporal ISO-date calendar-probe helper.
-    /// Always emitted (stubbed when no calendar-bearing Temporal builtin is
-    /// compiled) so its fixed offset never shifts.
-    pub(crate) fn temporal_calendar_iso_date_probe_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::TemporalCalendarIsoDateProbe.index(base))
-    }
-
-    /// Wasm function index of the shared `ToTemporalCalendarIdentifier`
-    /// string-resolution helper. Always emitted (stubbed when unused).
-    pub(crate) fn temporal_calendar_identifier_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::TemporalCalendarIdentifier.index(base))
-    }
-
-    /// Wasm function index of the shared `expr[index]` read composite.
-    pub(crate) fn indexed_element_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::IndexedElementRead.index(base))
-    }
-
-    /// Wasm function index of the shared `expr[index] = value` write composite.
-    pub(crate) fn indexed_element_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::IndexedElementWrite.index(base))
-    }
-
-    /// Wasm function index of the shared JSON.stringify value helper. Emitted
-    /// only when `JSON.stringify` is compiled, immediately after the last
-    /// unconditional runtime helper, so its index never shifts the preceding
-    /// fixed-offset helpers.
-    pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index
-            .map(|base| RuntimeHelperId::JsonStringifyValue.index(base))
-    }
-
-    pub(crate) fn local_count(&self) -> usize {
-        self.temp_local_base as usize - self.module_state.parameter_count()
-            + self.temp_local_count as usize
-    }
-
     pub(crate) fn emitted_local_count(&self) -> u32 {
-        self.temp_local_base - self.module_state.parameter_count() as u32
-            + self.max_temp_stack_depth
+        self.emitted_local_count
     }
 
     pub(crate) const fn is_main(&self) -> bool {
         matches!(self.return_abi(), ReturnAbi::MainExport)
     }
 
+    pub(crate) fn has_source_execution_environment(&self) -> bool {
+        match self.module_state {
+            FunctionModuleState::Main(_, _) | FunctionModuleState::PreparedScript(_, _) => true,
+            FunctionModuleState::Internal(_) => self
+                .current_function_meta()
+                .is_some_and(|meta| meta.standard_builtin.is_none() && meta.host_builtin.is_none()),
+            FunctionModuleState::RuntimeOperation(_) => false,
+        }
+    }
+
     pub(crate) fn has_global_script_bindings(&self) -> bool {
         match self.module_state {
             FunctionModuleState::Main(_, _) => true,
-            FunctionModuleState::PreparedScript(unit) => unit.has_global_variable_environment(),
-            FunctionModuleState::Internal => false,
+            FunctionModuleState::PreparedScript(unit, _) => unit.has_global_variable_environment(),
+            FunctionModuleState::Internal(_) | FunctionModuleState::RuntimeOperation(_) => false,
         }
     }
 
     pub(crate) fn direct_eval_derived_constructor_owner(&self) -> Option<&FunctionId> {
         match self.module_state {
-            FunctionModuleState::PreparedScript(unit) => match &unit.kind {
+            FunctionModuleState::PreparedScript(unit, _) => match &unit.kind {
                 PreparedScriptKind::DirectEval(context) => context.derived_constructor_owner(),
-                PreparedScriptKind::RealmScript | PreparedScriptKind::IndirectEval => None,
+                PreparedScriptKind::RealmScript
+                | PreparedScriptKind::IndirectEval
+                | PreparedScriptKind::ShadowRealmEvaluate => None,
             },
-            FunctionModuleState::Main(_, _) | FunctionModuleState::Internal => {
-                self.captured_direct_eval_execution_context_local?;
+            FunctionModuleState::Main(_, _)
+            | FunctionModuleState::Internal(_)
+            | FunctionModuleState::RuntimeOperation(_) => {
+                self.direct_eval_context.as_ref()?;
                 let function_id = self
                     .function_id
                     .as_ref()
@@ -4072,31 +1852,17 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(crate) fn direct_eval_execution_context_local(&self) -> Option<u32> {
-        match self.module_state {
-            FunctionModuleState::PreparedScript(unit)
-                if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) =>
-            {
-                Some(9)
-            }
-            FunctionModuleState::Main(_, _)
-            | FunctionModuleState::Internal
-            | FunctionModuleState::PreparedScript(_) => {
-                self.captured_direct_eval_execution_context_local
-            }
-        }
+    pub(crate) fn direct_eval_execution_context_local(
+        &self,
+    ) -> Option<&GcLocal<DirectEvalExecutionContext, Nullable>> {
+        self.direct_eval_context.as_ref()
     }
 
-    pub(crate) fn direct_eval_private_environment_param_local(&self) -> Option<u32> {
+    pub(crate) fn planned_entry(&self) -> Option<&crate::function_entry::PlannedFunctionEntry> {
         match self.module_state {
-            FunctionModuleState::PreparedScript(unit)
-                if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) =>
-            {
-                Some(8)
-            }
-            FunctionModuleState::Main(_, _)
-            | FunctionModuleState::Internal
-            | FunctionModuleState::PreparedScript(_) => None,
+            FunctionModuleState::Internal(entry)
+            | FunctionModuleState::PreparedScript(_, entry) => Some(entry),
+            FunctionModuleState::Main(_, _) | FunctionModuleState::RuntimeOperation(_) => None,
         }
     }
 
@@ -4111,2041 +1877,37 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn compiled_host_builtin_by_name(&self, name: &str) -> Option<HostBuiltinId> {
-        host_builtin_by_name(name)
-            .filter(|builtin| self.functions.contains_compiled_host_builtin(*builtin))
+        host_builtin_by_name(name).filter(|builtin| self.functions.host_surface_contains(*builtin))
     }
 
     pub(crate) fn should_read_script_global_property(&self, name: &str) -> bool {
+        // An owned cell without its compiler alias is an emission invariant
+        // failure, never an unresolved source global.
         !self.is_main()
             && name != LEXICAL_THIS_NAME
             && name != LEXICAL_ARGUMENTS_NAME
+            && self.owned_env_slot(name).is_none()
             && self.lookup_binding(name).is_none()
     }
 
-    pub(crate) fn reserve_temp_local(&mut self) -> u32 {
-        assert!(self.temp_stack_depth < self.temp_local_count);
-        let local = self.temp_local_base + self.temp_stack_depth;
-        self.temp_stack_depth += 1;
-        self.max_temp_stack_depth = self.max_temp_stack_depth.max(self.temp_stack_depth);
-        local
-    }
-
-    pub(crate) fn release_temp_local(&mut self, local: u32) {
-        assert!(self.temp_stack_depth > 0);
-        self.temp_stack_depth -= 1;
-        let expected = self.temp_local_base + self.temp_stack_depth;
-        assert_eq!(local, expected);
-    }
-
-    /// Rewrites the body's local declaration down to the locals actually used.
-    ///
-    /// This is the single funnel every compiled body passes through, but it is
-    /// deliberately *not* where attribution happens: six of its call sites live
-    /// in `bigint.rs`, `builtins/{temporal,json,decimal,regexp}.rs`, and the six
-    /// heap/alloc helpers never reach it at all. Attribution instead lives at
-    /// the one point every code-section element does pass through —
-    /// [`EmittedFunction::new`], which measures the finished body and is the
-    /// only thing [`ModuleCode::push`] accepts. See `emitted_function.rs`.
-    pub(crate) fn finish_function(&self, function: Function) -> Function {
-        let planned_local_count = self.local_count() as u32;
-        let emitted_local_count = self.emitted_local_count();
-        if emitted_local_count == planned_local_count {
-            return function;
-        }
-
-        // The rebuild itself lives in `code_sink.rs`: it is the one operation
-        // that reconstructs a body from raw bytes, and going through the public
-        // constructors here would reset the label depth to "fresh body" on a
-        // body that is already closed.
-        function.rewrite_local_declaration(planned_local_count, emitted_local_count)
-    }
-
-    fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
-        let is_base_class_constructor = self.current_function_meta().is_some_and(|meta| {
-            meta.protocol.class_kind() == ClassFunctionKind::Constructor
-                && !meta.is_derived_constructor
-        });
-        if !is_base_class_constructor {
-            return;
-        }
-        let (Some(this_payload_local), Some(this_tag_local)) =
-            (self.this_payload_local, self.this_tag_local)
-        else {
-            return;
-        };
-
-        // Only a fall-through Normal completion is normalized here. Explicit
-        // Return and Throw completions remain visible to OrdinaryConstruct,
-        // which preserves object returns and selects the preallocated receiver
-        // for primitive returns.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(this_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(this_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::End);
-    }
-
-    fn compile(&mut self) -> Result<Function, EmitError> {
-        if self.functions.module_execution_record_count() == 0
-            && self.current_function_meta().is_some_and(|meta| {
-                matches!(
-                    meta.protocol,
-                    FunctionProtocolIr::ModuleActivation
-                        | FunctionProtocolIr::AsyncModuleActivation
-                )
-            })
-        {
-            return Err(EmitError::unsupported(
-                "private module activation requires its validated execution graph",
-            ));
-        }
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-
-        self.push_scope();
-        self.initialize_runtime_gc_anchor_root(&mut function);
-        self.ensure_heap_ptr_after_static_data(&mut function);
-        if self.uses_heap {
-            self.init_current_realm(&mut function)?;
-            self.init_current_env(&mut function)?;
-            self.initialize_direct_eval_execution_context(&mut function)?;
-            if let FunctionModuleState::PreparedScript(unit) = self.module_state {
-                self.emit_instantiate_prepared_script_declarations(unit, &mut function)?;
-            }
-            self.init_runtime_roots(&mut function)?;
-            self.emit_initialize_main_global_lexicals(&mut function)?;
-            self.init_script_global_object(&mut function)?;
-            self.init_template_objects(&mut function)?;
-            self.bind_captured_bindings(&mut function);
-        }
-        let suspended_initialization =
-            self.current_function_meta()
-                .and_then(|meta| match meta.protocol.execution_kind() {
-                    FunctionExecutionKind::Generator => Some((
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        GENERATOR_RESUME_STATE_INITIALIZING,
-                    )),
-                    FunctionExecutionKind::AsyncGenerator => Some((
-                        HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-                        ASYNC_GENERATOR_RESUME_STATE_INITIALIZING,
-                    )),
-                    FunctionExecutionKind::Ordinary | FunctionExecutionKind::Async => None,
-                });
-        let resumable_initialized_offset = self.current_function_meta().and_then(|meta| match meta
-            .protocol
-            .execution_kind()
-        {
-            FunctionExecutionKind::Generator => Some(HEAP_GENERATOR_INITIALIZED_OFFSET),
-            FunctionExecutionKind::Async => Some(HEAP_ASYNC_INITIALIZED_OFFSET),
-            FunctionExecutionKind::AsyncGenerator => Some(HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET),
-            FunctionExecutionKind::Ordinary => None,
-        });
-        if let Some(initialized_offset) = resumable_initialized_offset {
-            let activation_local = self
-                .new_target_payload_local()
-                .expect("resumable body must use the function call ABI");
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                initialized_offset,
-                self.scratch_local,
-                &mut function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-        }
-        self.bind_self_function(&mut function)?;
-        if let Some(constructor_meta) = self
-            .current_function_meta()
-            .filter(|meta| {
-                meta.protocol.class_kind() == ClassFunctionKind::Constructor
-                    && !meta.is_derived_constructor
-            })
-            .cloned()
-        {
-            let this_payload_local = self
-                .this_payload_local
-                .expect("base class constructor must receive a this payload");
-            let this_tag_local = self
-                .this_tag_local
-                .expect("base class constructor must receive a this tag");
-            self.emit_initialize_instance_elements(
-                &constructor_meta,
-                self.class_function_context_local,
-                this_payload_local,
-                this_tag_local,
-                &mut function,
-            )?;
-        }
-        self.bind_parameters(&mut function)?;
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        for name in self.hoisted_vars.clone() {
-            // A main-frame write name always owns storage. Internal functions
-            // may instead reuse their parameter or implicit `arguments`
-            // binding, preserving their existing hoisting behavior.
-            let reuses_function_binding = !self.is_main()
-                && (self.params.iter().any(|param| param.name == name)
-                    || (name == LEXICAL_ARGUMENTS_NAME
-                        && self.function_arguments_protocol.present().is_some()));
-            if reuses_function_binding {
-                continue;
-            }
-            let storage = if let Some(slot) = self.owned_env_slot(&name) {
-                BindingStorage::EnvSlot { slot, hops: 0 }
-            } else {
-                let tag_local = self.next_binding_local;
-                let payload_local = self.next_binding_local + 1;
-                self.next_binding_local += 2;
-                BindingStorage::Dynamic {
-                    tag_local,
-                    payload_local,
-                }
-            };
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(name, storage);
-            self.initialize_binding_undefined(storage, &mut function);
-        }
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        if let Some(initialized_offset) = resumable_initialized_offset {
-            self.initialize_direct_lexical_bindings(&self.body.statements, &mut function);
-            let activation_local = self
-                .new_target_payload_local()
-                .expect("resumable body must use the function call ABI");
-            self.store_i64_const_at_offset(activation_local, initialized_offset, 1, &mut function);
-            function.instruction(&Instruction::End);
-        }
-        if self
-            .current_function_meta()
-            .is_some_and(|meta| meta.protocol == FunctionProtocolIr::AsyncModuleActivation)
-        {
-            let activation = self
-                .new_target_payload_local()
-                .expect("module activation uses the function ABI");
-            self.emit_load_async_module_entry_mode(activation, self.scratch_local, &mut function);
-            let mode = self.reserve_temp_local();
-            let state = self.reserve_temp_local();
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::LocalSet(mode));
-            self.load_i64_to_local_from_offset(
-                activation,
-                HEAP_ASYNC_RESUME_STATE_OFFSET,
-                state,
-                &mut function,
-            );
-            function.instruction(&Instruction::LocalGet(mode));
-            function.instruction(&Instruction::I64Const(
-                AsyncModuleEntryMode::Execute.word() as i64
-            ));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            let final_state = self
-                .body
-                .statements
-                .iter()
-                .rev()
-                .find_map(Self::async_statement_exit_state)
-                .expect("an async module has an instantiation boundary");
-            function.instruction(&Instruction::LocalGet(state));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::LocalGet(state));
-            function.instruction(&Instruction::I64Const(i64::from(final_state)));
-            function.instruction(&Instruction::I64GtU);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(state));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(mode));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.release_temp_local(state);
-            self.release_temp_local(mode);
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(
-                AsyncModuleEntryMode::Allocate.word() as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.set_completion_kind(CompletionKind::Normal, &mut function);
-            self.emit_statement_result(&mut function, ValueKind::Undefined);
-            self.emit_return_current_completion(&mut function);
-            function.instruction(&Instruction::End);
-        }
-        if let Some((resume_state_offset, initializing_state)) = suspended_initialization {
-            let activation_local = self
-                .new_target_payload_local()
-                .expect("suspended function body must use the function call ABI");
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                resume_state_offset,
-                self.scratch_local,
-                &mut function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(initializing_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.set_completion_kind(CompletionKind::Normal, &mut function);
-            self.emit_statement_result(&mut function, ValueKind::Undefined);
-            self.emit_return_current_completion(&mut function);
-            function.instruction(&Instruction::End);
-        }
-        if self
-            .current_function_meta()
-            .is_some_and(|meta| meta.is_synthetic_default_derived_constructor)
-        {
-            self.emit_super_construct_with_arg_vector(
-                self.argc_param_local(),
-                self.argv_param_local(),
-                self.result_local,
-                self.result_tag_local,
-                &mut function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                self.result_local,
-                self.result_tag_local,
-                &mut function,
-            )?;
-        }
-        let module_entry_kind = if self.is_main() {
-            lila_ir::ModuleEntryEvaluationIr::in_root_block(self.body).map(|entry| entry.kind())
-        } else {
-            None
-        };
-        if module_entry_kind.is_some() {
-            self.initialize_module_entry_completion(&mut function);
-        }
-        let main_job_checkpoint = if self.is_main() && self.uses_heap {
-            let target = self.open_frame(ControlFrameKind::Block, &mut function);
-            self.completion_exit.enter_main_job_checkpoint(target);
-            Some(target)
-        } else {
-            None
-        };
-        if let Some(id) = self.module_prelude_id {
-            self.emit_module_prelude(id, &mut function)?;
-        }
-        self.compile_block_contents(self.body, &mut function)?;
-        if let Some(target) = main_job_checkpoint {
-            self.completion_exit.leave_main_job_checkpoint(target);
-            self.pop_control(ControlFrameKind::Block);
-            function.instruction(&Instruction::End);
-        }
-        if matches!(self.return_abi(), ReturnAbi::MultiValue)
-            && !matches!(self.module_state, FunctionModuleState::PreparedScript(_))
-            && !self
-                .current_function_meta()
-                .is_some_and(|meta| meta.protocol.class_kind() == ClassFunctionKind::Constructor)
-        {
-            self.emit_statement_result(&mut function, ValueKind::Undefined);
-        }
-        self.normalize_base_class_constructor_result(&mut function);
-        self.emit_derived_constructor_body_result(&mut function)?;
-        if self.is_main() && self.uses_heap {
-            if self
-                .functions
-                .monotonic_clock_nanos_import_function_index()
-                .is_some()
-            {
-                function.instruction(&Instruction::Block(BlockType::Empty));
-                function.instruction(&Instruction::Loop(BlockType::Empty));
-                self.emit_drain_promise_jobs(&mut function)?;
-                self.emit_drain_atomics_wait_async_timeouts(&mut function)?;
-                function.instruction(&Instruction::BrIf(0));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-            } else {
-                self.emit_drain_promise_jobs(&mut function)?;
-            }
-            if let Some(kind) = module_entry_kind {
-                self.emit_module_entry_checkpoint(kind, &mut function)?;
-            }
-            // Every job that could still attach a handler has now run, so a
-            // promise still marked unhandled really is an unhandled rejection.
-            let promise_rejection_policy = match self.module_state {
-                FunctionModuleState::Main(_, policy) => policy,
-                FunctionModuleState::PreparedScript(_) | FunctionModuleState::Internal => {
-                    unreachable!("only the main export reports unhandled rejections")
-                }
-            };
-            self.emit_report_unhandled_rejection(promise_rejection_policy, &mut function)?;
-            self.emit_capture_final_throw_constructor_name(&mut function);
-        }
-        assert!(
-            self.next_binding_local <= self.current_env_local,
-            "binding local planner boundary {} exceeded by next local {}",
-            self.current_env_local,
-            self.next_binding_local
-        );
-        self.pop_scope();
-        self.verify_and_clear_runtime_gc_anchor_root(&mut function);
-
-        match self.return_abi() {
-            ReturnAbi::MainExport => {
-                function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::GlobalSet(RESULT_TAG_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::GlobalSet(COMPLETION_KIND_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::GlobalSet(COMPLETION_AUX_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalGet(self.result_local));
-            }
-            ReturnAbi::MultiValue => {
-                function.instruction(&Instruction::LocalGet(self.result_local));
-                function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-            }
-        }
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    fn init_template_objects(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        if !self.is_main() {
-            return Ok(());
-        }
-
-        let templates = self
-            .strings
-            .template_objects
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        for template in templates {
-            let raw_elements = template
-                .raw
-                .iter()
-                .cloned()
-                .map(|raw| {
-                    TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(raw))
-                })
-                .collect::<Vec<_>>();
-            let cooked_elements = template
-                .cooked
-                .iter()
-                .map(|cooked| match cooked {
-                    Some(cooked) => TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::String),
-                        ExprIr::String(cooked.clone()),
-                    ),
-                    None => TypedExpr::undefined(),
-                })
-                .collect::<Vec<_>>();
-
-            let raw_local = self.reserve_temp_local();
-            self.compile_array_literal_payload(&raw_elements, function)?;
-            function.instruction(&Instruction::LocalSet(raw_local));
-            self.freeze_template_array(raw_local, raw_elements.len(), function);
-
-            let cooked_local = self.reserve_temp_local();
-            self.compile_array_literal_payload(&cooked_elements, function)?;
-            function.instruction(&Instruction::LocalSet(cooked_local));
-
-            let key_local = self.reserve_temp_local();
-            let raw_tag_local = self.reserve_temp_local();
-            let false_local = self.reserve_temp_local();
-            function.instruction(&Instruction::I64Const(self.strings.payload("raw")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::LocalSet(raw_tag_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(false_local));
-            self.emit_array_define_named_data_descriptor(
-                cooked_local,
-                key_local,
-                raw_local,
-                raw_tag_local,
-                false_local,
-                false_local,
-                false_local,
-                None,
-                None,
-                None,
-                None,
-                None,
-                function,
-            )?;
-            self.freeze_template_array(cooked_local, cooked_elements.len(), function);
-            function.instruction(&Instruction::LocalGet(cooked_local));
-            function.instruction(&Instruction::GlobalSet(
-                self.template_object_global_index(template.site_id),
-            ));
-
-            self.release_temp_local(false_local);
-            self.release_temp_local(raw_tag_local);
-            self.release_temp_local(key_local);
-            self.release_temp_local(cooked_local);
-            self.release_temp_local(raw_local);
-        }
-        Ok(())
-    }
-
-    fn freeze_template_array(
-        &mut self,
-        array_local: u32,
-        element_count: usize,
+    pub(crate) fn emit_increment_local(
+        &self,
+        local: I64Local,
+        delta: i64,
         function: &mut Function,
     ) {
-        let buffer_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let descriptor_kind_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(array_local, HEAP_PTR_OFFSET, buffer_local, function);
-        for index in 0..element_count {
-            function.instruction(&Instruction::LocalGet(buffer_local));
-            function.instruction(&Instruction::I64Const(
-                (index as u64 * HEAP_ARRAY_ENTRY_SIZE) as i64,
-            ));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(entry_local));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-                descriptor_kind_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(
-                !((OBJECT_DESCRIPTOR_CONFIGURABLE | OBJECT_DESCRIPTOR_WRITABLE) as i64),
-            ));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-                descriptor_kind_local,
-                function,
-            );
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-        self.emit_array_store_length_writable_descriptor(
-            array_local,
-            descriptor_kind_local,
-            function,
-        );
-        self.store_i64_const_at_offset(array_local, HEAP_ARRAY_NON_EXTENSIBLE_OFFSET, 1, function);
-        self.release_temp_local(descriptor_kind_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(buffer_local);
+        local.load(function);
+        function.instruction(&Instruction::I64Const(delta));
+        function.instruction(&Instruction::I64Add);
+        local.store(function);
     }
 
-    fn initialize_runtime_gc_anchor_root(&self, function: &mut Function) {
-        let module_globals = match &self.module_state {
-            FunctionModuleState::Main(module_globals, _) => module_globals,
-            FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => return,
-        };
-
-        // Construct the anchor, make it reachable through the holder's
-        // immutable non-null reference field, then transfer that edge into the
-        // typed mutable/nullable global before main can call or allocate.
-        // Keeping the value as a Wasm reference is the point: this capability
-        // root must not introduce an integer handle beside the future GC
-        // object model.
-        module_globals.emit_initialize_anchor_root(function);
-    }
-
-    /// Verifies and clears the capability root on a real main exit.
-    ///
-    /// `emit_return_current_completion` calls this only after declining the
-    /// temporary main-job-checkpoint branch, so pending jobs retain the root.
-    /// Internal functions carry no finalized global package and emit nothing.
-    pub(crate) fn verify_and_clear_runtime_gc_anchor_root(&self, function: &mut Function) {
-        let module_globals = match &self.module_state {
-            FunctionModuleState::Main(module_globals, _) => module_globals,
-            FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => return,
-        };
-        module_globals.emit_verify_and_clear_anchor_root(function);
-    }
-
-    fn ensure_heap_ptr_after_static_data(&self, function: &mut Function) {
-        if !self.is_main() || !self.uses_heap {
-            return;
-        }
-        let heap_start = align_heap_start(self.strings.bytes.len()) as i64;
-        function.instruction(&Instruction::I64Const(heap_start));
-        function.instruction(&Instruction::GlobalSet(HEAP_PTR_GLOBAL_INDEX));
-    }
-
-    pub(crate) const fn append_target_scope(&self) -> AppendTargetScope {
-        self.append_target_scope
-    }
-
-    /// Runs `install` in [`AppendTargetScope::RealmBootstrap`] and restores
-    /// `OrdinaryObjects` afterwards, on success and on error alike.
-    ///
-    /// This is the only widening of the scope. Its one caller is the main
-    /// export's installation of the Array constructor and %Array.prototype%
-    /// (`init_builtin_constructor_object(ArrayConstructor, ..)` in
-    /// `init_runtime_roots`), the only builtin installation whose target can
-    /// be %Array.prototype%. Every other intrinsic's installation, and all of
-    /// the script's own function objects, global-object bindings and template
-    /// objects, append without the identity check.
-    pub(crate) fn with_realm_bootstrap_appends<T>(
-        &mut self,
-        install: impl FnOnce(&mut Self) -> Result<T, EmitError>,
-    ) -> Result<T, EmitError> {
-        debug_assert!(self.is_main());
-        debug_assert_eq!(self.append_target_scope, AppendTargetScope::OrdinaryObjects);
-        self.append_target_scope = AppendTargetScope::RealmBootstrap;
-        let installed = install(self);
-        self.append_target_scope = AppendTargetScope::OrdinaryObjects;
-        installed
-    }
-
-    fn init_current_realm(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        if !self.is_main() || !self.uses_heap {
-            return Ok(());
-        }
-        let realm_local = self.reserve_temp_local();
-        let realm = self.emit_alloc_realm_record(1, 1, realm_local, function)?;
-        function.instruction(&Instruction::LocalGet(realm.index()));
-        function.instruction(&Instruction::GlobalSet(CURRENT_REALM_GLOBAL_INDEX));
-        self.release_temp_local(realm_local);
-        Ok(())
-    }
-
-    fn compile_builtin(&mut self) -> Result<Function, EmitError> {
-        let Some(function_id) = self.function_id.clone() else {
-            return Err(EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing builtin id",
-            ));
-        };
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.push_scope();
-        self.init_current_env(&mut function)?;
-        self.initialize_direct_eval_execution_context(&mut function)?;
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
-            if self.stub_standard_builtin_body {
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    &format!(
-                        "standard builtin body is not emitted unless referenced directly: {}",
-                        builtin.debug_name()
-                    ),
-                    self.result_local,
-                    self.result_tag_local,
-                    &mut function,
-                )?;
-                self.emit_return_current_completion(&mut function);
-            } else {
-                self.compile_standard_builtin(builtin, &mut function)?;
-            }
-        } else {
-            match HostBuiltinId::from_function_id(&function_id) {
-                Some(HostBuiltinId::Print) => self.compile_host_print_builtin(&mut function)?,
-                Some(HostBuiltinId::Gc) => self.compile_host_gc_builtin(&mut function)?,
-                Some(HostBuiltinId::AssertThrows) => {
-                    self.compile_host_assert_throws_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::IsConstructor) => {
-                    self.compile_host_is_constructor_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::CreateRealm) => {
-                    self.compile_host_create_realm_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::RealmEvalScript) => {
-                    self.compile_host_realm_eval_script_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AsyncDisposableStackSyncDispose) => {
-                    self.emit_async_disposable_stack_sync_dispose(&mut function)?
-                }
-                Some(HostBuiltinId::GeneratorFunctionConstructor) => self
-                    .compile_dynamic_function_constructor_builtin(
-                        DynamicFunctionKind::Generator,
-                        &mut function,
-                    )?,
-                Some(HostBuiltinId::AsyncFunctionConstructor) => self
-                    .compile_dynamic_function_constructor_builtin(
-                        DynamicFunctionKind::Async,
-                        &mut function,
-                    )?,
-                Some(HostBuiltinId::AsyncGeneratorFunctionConstructor) => self
-                    .compile_dynamic_function_constructor_builtin(
-                        DynamicFunctionKind::AsyncGenerator,
-                        &mut function,
-                    )?,
-                Some(HostBuiltinId::CreateHTMLDDA) => {
-                    self.compile_host_create_html_dda_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::HTMLDDA) => {
-                    self.compile_host_html_dda_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::ParseInt) => {
-                    self.compile_host_parse_int_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::ParseFloat) => {
-                    self.compile_host_parse_float_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::DetachArrayBuffer) => {
-                    self.compile_host_detach_array_buffer_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentStart) => {
-                    self.compile_host_agent_start_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentBroadcast) => {
-                    self.compile_host_agent_broadcast_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentReceiveBroadcast) => {
-                    self.compile_host_agent_receive_broadcast_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentReport) => {
-                    self.compile_host_agent_report_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentGetReport) => {
-                    self.compile_host_agent_get_report_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentSleep) => {
-                    self.compile_host_agent_sleep_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentMonotonicNow) => {
-                    self.compile_host_agent_monotonic_now_builtin(&mut function)?
-                }
-                Some(HostBuiltinId::AgentLeaving) => {
-                    self.compile_host_agent_leaving_builtin(&mut function)?
-                }
-                None => {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: unknown builtin `{function_id}`"
-                    )));
-                }
-            }
-        }
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Starts the body of `helper` and, in the same step, switches that
-    /// helper's own inline seam off for the rest of this builder's life.
-    ///
-    /// The clearing is *derived from the helper id* instead of being written
-    /// out again in every `compile_*_helper`. That matters because the failure
-    /// mode of forgetting it is invisible to every cheap check: a helper whose
-    /// body reaches its own seam emits `call $itself`, which type-checks in
-    /// Rust, encodes to valid Wasm, links, validates, and only diverges when
-    /// the case that reaches it is executed. Twenty compilers each carrying
-    /// their own `self.outline_x = false;` line is twenty chances to omit it;
-    /// this is one place, and the match below is exhaustive with no `_` arm, so
-    /// a new [`RuntimeHelperId`] does not build until it states whether it owns
-    /// a seam.
-    ///
-    /// Helpers without a seam have no inline body at their call sites to fall
-    /// back *to* (the six
-    /// allocation helpers are plain free functions, not `FunctionBuilder`
-    /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
-    /// keeps its seam live: nested-value serialization *is* a runtime self-call
-    /// (`emit_json_stringify_value_call`), which is why "the body must never
-    /// name its own index" cannot be a blanket rule.
-    ///
-    /// The helper bodies compiled outside this file — `objects.rs`,
-    /// `bigint.rs`, `builtins/{decimal,json,regexp,temporal}.rs` — route
-    /// through here too, which is why this is `pub(crate)`. That leaves
-    /// `FunctionBuilder::compile`/`compile_builtin` as the only two places in
-    /// the crate that build a body-shaped [`Function`] without naming a helper,
-    /// and neither of those is a helper.
-    ///
-    /// That last sentence is a fact about the source, not a property the type
-    /// system can hold: [`Function`] is `code_sink::Function` and anyone in the
-    /// crate may construct one, so a new `compile_x_helper` may construct one
-    /// directly. It is kept true by
-    /// `runtime_helpers::tests::only_three_places_build_a_function_builder_body`,
-    /// which counts the construction sites; do not restate it as an
-    /// enforcement claim anywhere else.
-    pub(crate) fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
-        self.numeric_error_realm_source = NumericErrorRealmSource::for_runtime_helper(helper);
-        self.proxy_execution_realm_source = ProxyExecutionRealmSource::for_runtime_helper(helper);
-        self.object_read_error_realm_source =
-            ObjectReadErrorRealmSource::for_runtime_helper(helper);
-        self.object_mutation_error_realm_source =
-            ObjectMutationErrorRealmSource::for_runtime_helper(helper);
-        match helper {
-            RuntimeHelperId::ObjectRead => self.outline_object_read = false,
-            RuntimeHelperId::ObjectWrite => self.outline_object_write = false,
-            RuntimeHelperId::ObjectDefineData => self.outline_object_define_data = false,
-            RuntimeHelperId::ProxyCall => self.outline_proxy_call = false,
-            RuntimeHelperId::ProxyConstruct => self.outline_proxy_construct = false,
-            RuntimeHelperId::StringEquality => self.outline_string_equality = false,
-            RuntimeHelperId::NumberToString => self.outline_number_to_string = false,
-            RuntimeHelperId::StringToNumber => self.outline_string_to_number = false,
-            RuntimeHelperId::ValueToString => self.outline_value_to_string = false,
-            RuntimeHelperId::ValueToNumber => self.outline_value_to_number = false,
-            RuntimeHelperId::ValueToNumeric => self.outline_value_to_numeric = false,
-            RuntimeHelperId::ObjectGetPrototypeOf => self.outline_object_get_prototype_of = false,
-            RuntimeHelperId::ObjectIsExtensible => self.outline_object_is_extensible = false,
-            RuntimeHelperId::ObjectPreventExtensions => {
-                self.outline_object_prevent_extensions = false
-            }
-            RuntimeHelperId::ObjectReadProxy => self.outline_object_read_proxy = false,
-            RuntimeHelperId::FunctionCall => self.outline_function_call = false,
-            RuntimeHelperId::ArrayWrite => self.outline_array_write = false,
-            RuntimeHelperId::IndexedElementRead => self.outline_indexed_element_read = false,
-            RuntimeHelperId::IndexedElementWrite => self.outline_indexed_element_write = false,
-            // All three hints clear the one ToPrimitive seam flag: see
-            // `outline_value_to_primitive` for why it is one flag and not three.
-            RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString => self.outline_value_to_primitive = false,
-            // Only its own seam: the ToPropertyKey body *should* reach the
-            // ToPrimitive helper by call rather than inline it again.
-            RuntimeHelperId::ValueToPropertyKey => self.outline_value_to_property_key = false,
-            // No inline seam of their own.
-            RuntimeHelperId::HeapAlloc
-            | RuntimeHelperId::ObjectAppendDataProperty
-            | RuntimeHelperId::ObjectAppendAccessorProperty
-            | RuntimeHelperId::FunctionObjectAlloc
-            | RuntimeHelperId::PlainObjectAlloc
-            | RuntimeHelperId::ArrayAlloc
-            | RuntimeHelperId::RegExpMatcher
-            | RuntimeHelperId::RegExpCompiler
-            | RuntimeHelperId::ArrayAppendPresentIndex
-            | RuntimeHelperId::ModuleEvaluate
-            | RuntimeHelperId::ModuleReady
-            | RuntimeHelperId::ModuleGather
-            | RuntimeHelperId::ModuleExecute
-            | RuntimeHelperId::ModuleFulfilled
-            | RuntimeHelperId::ModuleRejected
-            | RuntimeHelperId::ModuleDeferredImport
-            | RuntimeHelperId::DynamicPropertyRead
-            | RuntimeHelperId::OrdinarySetDataOnReceiver
-            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
-            | RuntimeHelperId::OrdinarySet
-            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
-            | RuntimeHelperId::DecimalToBinary64
-            | RuntimeHelperId::BigIntArithmetic
-            | RuntimeHelperId::TemporalCalendarIsoDateProbe
-            | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding
-            // Its call sites have no inline body to fall back to, and its body
-            // allocates and appends without creating a runtime error, so it
-            // cannot reach its own call seam.
-            | RuntimeHelperId::RuntimeErrorObject
-            // Deliberately recursive: see above.
-            | RuntimeHelperId::JsonStringifyValue => {}
-        }
-        Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()))
-    }
-
-    /// Compiles the shared object-read runtime helper. Rather than inlining the
-    /// large ordinary/proxy property-read state machine at every read site, that
-    /// sequence is emitted exactly once here and reached with a plain `call`.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`] (seven i64 params, four i64
-    /// results). Params: 0=object payload, 1=object tag, 2=receiver payload,
-    /// 3=receiver tag, 4=key payload. Param 5 is unused. Param 6 is the trusted
-    /// Proxy execution-Realm environment or zero. Results are the standard
-    /// `(result, result_tag, completion, completion_aux)` tuple.
-    fn compile_object_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectRead);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_read_ordinary_inner(
-            0,
-            1,
-            2,
-            3,
-            4,
-            self.result_local,
-            self.result_tag_local,
-            AccessorThrowRouting::LeaveInCompletion,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared object-write runtime helper. The large ordinary/proxy
-    /// property-write state machine is emitted once here and reached with a
-    /// plain `call`.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
-    /// 1=object tag, 2=key payload, 3=value payload, 4=value tag, 5=calling
-    /// function strictness, 6=calling standard builtin's realm environment (or
-    /// zero). On a setter/proxy throw the thrown value is surfaced through the
-    /// `(result, result_tag, completion, completion_aux)` result tuple.
-    fn compile_object_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectWrite);
-        self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
-        // Helper parameter 5 carries the calling function's strictness (0 sloppy,
-        // nonzero strict). Parameter 6 carries a standard builtin's self-backed
-        // realm environment; other callers pass zero. This lets ArraySetLength
-        // create a RangeError in the calling builtin's Realm.
-        self.object_write_strict_flag_local = Some(5);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_write(0, 1, 2, 3, 4, &mut function)?;
-        self.pop_scope();
-        self.object_write_strict_flag_local = None;
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the receiver-side data-property step used by OrdinarySet.
-    /// This state machine is repeated several times inside the shared
-    /// object-write helper, so that helper calls this single outlined copy.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=receiver
-    /// payload, 1=receiver tag, 2=key payload, 3=key tag, 4=value payload,
-    /// 5=value tag, 6=calling realm environment. Results are the standard
-    /// `(result, result_tag, completion, aux)` tuple; on normal completion the
-    /// first result is the boolean success value.
-    fn compile_ordinary_set_data_on_receiver_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::OrdinarySetDataOnReceiver);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_ordinary_set_data_on_receiver_result_with_depth(
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            self.result_local,
-            4,
-            false,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the receiver-side OrdinarySet step used when an exotic
-    /// receiver must fall back to its generic `[[Set]]` behavior.
-    fn compile_ordinary_set_data_on_receiver_with_fallback_helper(
-        &mut self,
-    ) -> Result<Function, EmitError> {
-        let mut function =
-            self.begin_helper_body(RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_ordinary_set_data_on_receiver_result_with_depth(
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            self.result_local,
-            4,
-            true,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared Array element-write state machine. Argument-vector
-    /// construction and builtin internals use this path often enough that
-    /// inlining it can exceed Cranelift's per-function code-size limit.
-    /// Params: 0=array payload, 1=index, 2=value payload, 3=value tag,
-    /// 4=calling realm environment. Params 5/6 are unused.
-    fn compile_array_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ArrayWrite);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(4));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_array_write(0, 1, 2, 3, &mut function)?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles OrdinarySet with an explicit receiver once for callers such as
-    /// `Reflect.set`. The five tagged inputs are passed through the standard
-    /// argument vector in params 5/6.
-    fn compile_ordinary_set_helper(
-        &mut self,
-        receiver_fallback: OrdinarySetReceiverFallback,
-    ) -> Result<Function, EmitError> {
-        let (runtime_helper, receiver_generic_write_allowed) = match receiver_fallback {
-            OrdinarySetReceiverFallback::Allowed => (RuntimeHelperId::OrdinarySet, true),
-            OrdinarySetReceiverFallback::Denied => {
-                (RuntimeHelperId::OrdinarySetWithoutReceiverFallback, false)
-            }
-        };
-        let mut function = self.begin_helper_body(runtime_helper);
-        self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let key_payload_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let realm_environment_local = self.reserve_temp_local();
-        let realm_environment_tag_local = self.reserve_temp_local();
-        let strict_local = self.reserve_temp_local();
-
-        self.push_scope();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(strict_local));
-        self.object_write_strict_flag_local = Some(strict_local);
-        self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, &mut function);
-        self.emit_builtin_arg_to_locals(
-            1,
-            receiver_payload_local,
-            receiver_tag_local,
-            &mut function,
-        );
-        self.emit_builtin_arg_to_locals(2, key_payload_local, key_tag_local, &mut function);
-        self.emit_builtin_arg_to_locals(3, value_payload_local, value_tag_local, &mut function);
-        self.emit_builtin_arg_to_locals(
-            4,
-            realm_environment_local,
-            realm_environment_tag_local,
-            &mut function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_environment_local));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_ordinary_set_result_with_receiver_fallback(
-            target_payload_local,
-            target_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            key_payload_local,
-            key_tag_local,
-            value_payload_local,
-            value_tag_local,
-            self.result_local,
-            receiver_generic_write_allowed,
-            &mut function,
-        )?;
-        self.object_write_strict_flag_local = None;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::End);
-        self.pop_scope();
-
-        self.release_temp_local(strict_local);
-        self.release_temp_local(realm_environment_tag_local);
-        self.release_temp_local(realm_environment_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(key_payload_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared object-define-data runtime helper. Bootstrap-style
-    /// code (realm setup, `$262.createRealm`) defines hundreds of data
-    /// properties; emitting the define state machine once here keeps those
-    /// functions under Cranelift's per-function limit.
-    ///
-    /// Wasm signature is [`OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX`] (seven
-    /// i64 params, no results). Params: 0=object payload, 1=key payload,
-    /// 2=value payload, 3=value tag, 4=writable, 5=enumerable, 6=configurable.
-    fn compile_object_define_data_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectDefineData);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_object_define_data_with_flag_locals(0, 1, 2, 3, 4, 5, 6, &mut function)?;
-        self.pop_scope();
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared plain function-call dispatcher.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
-    /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Param 6 is
-    /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
-    /// throws are surfaced through the completion rather than propagated.
-    fn compile_function_call_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::FunctionCall);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_function_handle_call_with_argv_inner(
-            0,
-            1,
-            Some((2, Some(3))),
-            4,
-            5,
-            self.result_local,
-            self.result_tag_local,
-            PropagateCallThrow::LeaveInCompletion,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared runtime-kind dynamic property-read dispatcher.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
-    /// 1=target tag, 2=receiver payload, 3=receiver tag, 4=property-key payload,
-    /// 5=property-key tag. Param 6 is unused. Results are the standard
-    /// `(result, result_tag, completion, aux)` tuple.
-    fn compile_dynamic_property_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::DynamicPropertyRead);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_dynamic_property_read_with_key_locals(
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            self.result_local,
-            self.result_tag_local,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared proxy-aware call-dispatch helper. The proxy call
-    /// state machine (walk the proxy chain, invoke the `apply` trap, otherwise
-    /// `call_indirect`) is emitted once here and reached with a plain `call`.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
-    /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Param 6 is the
-    /// trusted Proxy execution-Realm environment or zero. Results are the
-    /// `(result, result_tag, completion, aux)` tuple;
-    /// throws are surfaced through the completion rather than propagated.
-    fn compile_proxy_call_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ProxyCall);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            self.result_local,
-            self.result_tag_local,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared proxy-aware construct-dispatch helper.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
-    /// 1=callee tag, 2=new.target payload, 3=new.target tag, 4=argc, 5=argv.
-    /// Param 6 is the trusted Proxy execution-Realm environment or zero.
-    /// Results are the `(result, result_tag, completion, aux)` tuple.
-    fn compile_proxy_construct_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ProxyConstruct);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_function_or_proxy_construct_with_argv(
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            self.result_local,
-            self.result_tag_local,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared string-payload-equality helper. Builtin bodies
-    /// compare interned string payloads at thousands of sites (property-name
-    /// matching, key switches); the ~65-instruction byte-compare loop is emitted
-    /// once here and reached with a plain `call`, keeping the largest builtin
-    /// bodies under Cranelift's per-function virtual-register limit.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=lhs string
-    /// payload, 1=rhs string payload, 2=ASCII-case-fold mode. Params 3-6 are
-    /// unused. Results are the
-    /// standard four-i64 tuple with the comparison result (0 or 1) in the first
-    /// slot; the other three are always zero.
-    fn compile_string_equality_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::StringEquality);
-        self.push_scope();
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(0, 1, Some(2), &mut function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared number-to-string helper (the ECMAScript Number→
-    /// String digit-emission state machine, several KB per inline copy).
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=number payload
-    /// (f64 bits). Params 1-6 are unused. Results are the standard four-i64
-    /// tuple with the string payload in the first slot; the rest are zero.
-    fn compile_number_to_string_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::NumberToString);
-        self.push_scope();
-        self.emit_number_to_string_payload(0, &mut function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared string-to-number helper (the ECMAScript String→
-    /// Number parse state machine, several KB per inline copy).
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=string payload.
-    /// Params 1-6 are unused. Results are the standard four-i64 tuple with the
-    /// number payload (f64 bits) in the first slot; the rest are zero.
-    fn compile_string_to_number_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::StringToNumber);
-        self.push_scope();
-        self.emit_string_to_number_payload(0, &mut function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared dynamic ToString helper (per-kind dispatch,
-    /// ToPrimitive followed by primitive string conversion). Function receivers
-    /// run their observable hooks; only Function.prototype.toString reads source.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag, 6=trusted execution-Realm context or zero. Params 2-5 are
-    /// unused. Results are the standard four-i64
-    /// tuple: on normal completion the string payload is in the first slot; a
-    /// ToPrimitive/Symbol throw is surfaced through the completion slots.
-    fn compile_value_to_string_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToString);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_value_to_string_payload(0, 1, &mut function)?;
-        // A Symbol/ToPrimitive throw deep inside (see
-        // `emit_object_to_primitive_locals_inner`) leaves completion=THROW
-        // with the real error already in `self.result_local` without branching;
-        // only commit the computed string payload over `self.result_local` on
-        // the normal-completion path, else the throw would be silently replaced
-        // by whatever placeholder value the dispatch produced.
-        let computed_value_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalSet(computed_value_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(computed_value_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::End);
-        self.release_temp_local(computed_value_local);
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        // The result tag is String on normal completion, but on a throw
-        // `self.result_local` holds the real thrown error (typically an Object),
-        // not a string — report its actual tag instead of hardcoding String.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared dynamic ToNumber helper (per-kind dispatch,
-    /// ToPrimitive on objects, array→string coercion, BigInt/Symbol throws,
-    /// string parse — several KB per inline copy across ~130 builtin sites).
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag, and 6=a standard builtin's self-backed realm environment
-    /// (zero for non-standard callers). Params 2-5 are unused. This lets
-    /// ToNumber-created BigInt/Symbol TypeErrors use the builtin's defining
-    /// Realm without interpreting an ordinary lexical environment as realm
-    /// metadata. Results are the standard four-i64
-    /// tuple: on normal completion the number payload (f64 bits) is in the
-    /// first slot with a Number tag; a BigInt/Symbol/ToPrimitive throw is
-    /// surfaced through the completion slots.
-    fn compile_value_to_number_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumber);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_value_to_number_payload(1, 0, &mut function)?;
-        // Same discipline as `compile_value_to_string_helper`: a BigInt/Symbol/
-        // ToPrimitive throw leaves completion=THROW with the real error already
-        // in `self.result_local` without branching, so only commit the computed
-        // number payload on the normal-completion path.
-        let computed_value_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalSet(computed_value_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(computed_value_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::End);
-        self.release_temp_local(computed_value_local);
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        // Same reasoning as `compile_value_to_string_helper`: report the real
-        // thrown error's tag on a throw instead of hardcoding Number.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared dynamic ToNumeric helper.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params 0 and 1 contain
-    /// the input payload and tag. Param 6 contains a standard builtin's
-    /// self-backed realm environment, or zero for a non-standard caller;
-    /// params 2-5 are unused. The standard four-i64 result tuple preserves the
-    /// resulting Number-or-BigInt tag and any abrupt completion produced by
-    /// ToPrimitive.
-    fn compile_value_to_numeric_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumeric);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_value_to_numeric_locals(0, 1, &mut function)?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalGet(1));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles one of the three shared ToPrimitive helpers.
-    ///
-    /// One body per [`ToPrimitiveHint`], selected by
-    /// [`RuntimeHelperId::helper_for`], because the hook order the composite
-    /// emits genuinely differs by hint (`toString` before `valueOf` for the
-    /// string hint, the reverse otherwise). Passing the hint as a runtime `i64`
-    /// parameter to a single body would replace three compile-time-distinct
-    /// callees with one, and a wrong-hint call would then be invisible until a
-    /// Test262 case observed the wrong coercion order.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag, 2=the closed conversion-error Realm ABI word, and
-    /// 6=trusted execution-Realm context or zero. Params 3-5 are unused. Results
-    /// are the standard four-i64
-    /// tuple: on normal completion the primitive `(payload, tag)` is in the
-    /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
-    /// surfaced through the completion slots with the thrown value in the first
-    /// two, which is exactly what the inline composite leaves in its output
-    /// locals, so the seam's callers cannot tell the difference.
-    ///
-    /// Parameter 6 preserves the Realm of hook reads/calls and generated
-    /// conversion errors without interpreting lexical environments as metadata.
-    fn compile_value_to_primitive_helper(
-        &mut self,
-        hint: ToPrimitiveHint,
-    ) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::helper_for(hint));
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_to_primitive_runtime_helper_result_tuple(hint, 0, 1, &mut function)?;
-        self.pop_scope();
-        // The pending-completion consumer in `operations.rs` returns its output
-        // locals **unconditionally**, and this is the one place this helper
-        // deliberately does *not* copy
-        // `compile_value_to_string_helper`.
-        //
-        // That helper needs a `completion == THROW` guard because
-        // `emit_value_to_string_payload` hands back a *stack* value which is
-        // meaningless on the throw path, so committing it over
-        // `self.result_local` would overwrite the real error. Here the composite
-        // has no stack result at all: every throw path inside
-        // `emit_object_to_primitive_locals_inner` writes the thrown value into
-        // these same two output locals before setting completion — the
-        // hook-read arm and the `@@toPrimitive` arm both `local.set` them from
-        // the failing value, and `emit_throw_runtime_error` takes them as its
-        // out-params. That is not an inference: it is the contract the tagged
-        // emitter's active-handler route and the helper-tuple consumer both
-        // depend on. Returning `self.result_local` instead would be
-        // strictly *worse* than the inline body, because the hook-read throw
-        // arm leaves the error in the output locals without routing it through
-        // `emit_throw_from_locals`.
-        //
-        // The seam's `store_call_results` re-homes the returned pair into
-        // `result_local`/`result_tag_local` on throw, so callers that read the
-        // current completion instead of the output locals (
-        // `emit_return_current_completion_if_throw` in `emit_value_to_bigint_locals`)
-        // see what they saw before. The wrapper has already emitted those two
-        // locals followed by the completion and auxiliary slots.
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared ToPropertyKey helper: ToPrimitive with the string
-    /// hint, then the Symbol-marker / ToString split.
-    ///
-    /// Its body reaches the ToPrimitive *helper* rather than inlining the
-    /// composite again, because `begin_helper_body` clears only this helper's
-    /// own seam. That is the one intended helper-to-helper edge in this pair.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag, updated in place, 6=calling function's realm environment.
-    /// Params 2-5 are unused. Results are the
-    /// standard four-i64 tuple. The inline body's own throw propagation is what
-    /// produces the abrupt result: inside a helper there is no active catch
-    /// target, so it becomes a completion return, exactly as in
-    /// `compile_value_to_numeric_helper`.
-    fn compile_value_to_property_key_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToPropertyKey);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_value_to_property_key_locals(0, 1, &mut function)?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalGet(1));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared proxy-aware `[[GetPrototypeOf]]` helper. The proxy
-    /// get-prototype-of state machine (walk the proxy chain, invoke the
-    /// `getPrototypeOf` trap, validate against a non-extensible target) is
-    /// emitted once here and reached with a plain `call`, instead of being
-    /// inlined (~356KB) at every `instanceof`/prototype-walk site in a
-    /// realm/proxy-enabled module.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
-    /// 1=object tag. Params 2-6 are unused. Results are the standard four-i64
-    /// tuple: on normal completion the prototype `(payload, tag)` is in the first
-    /// two slots; a proxy-trap throw is surfaced through the completion slots.
-    fn compile_object_get_prototype_of_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectGetPrototypeOf);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_get_prototype_of(
-            0,
-            1,
-            self.result_local,
-            self.result_tag_local,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared proxy-aware `[[IsExtensible]]` helper, called by the
-    /// get-prototype-of helper (and the `Object`/`Reflect` extensibility
-    /// builtins) instead of inlining its proxy-trap walk.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
-    /// 1=object tag. Params 2-6 are unused. Results are the standard four-i64
-    /// tuple: on normal completion the boolean result (0/1) is in the first slot;
-    /// a proxy-trap throw is surfaced through the completion slots.
-    fn compile_object_is_extensible_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectIsExtensible);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_is_extensible_i32(0, 1, self.result_local, &mut function)?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared proxy-aware `[[PreventExtensions]]` helper.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params 0 and 1 are the
-    /// traversal target payload and tag; params 2-6 are unused. On normal
-    /// completion the Boolean result (0/1) is in the first result slot, while
-    /// Proxy lookup/call/invariant throws use the standard completion slots.
-    fn compile_object_prevent_extensions_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectPreventExtensions);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        let request = ObjectPreventExtensionsRequest::new(
-            PreventExtensionsTraversalTargetLocals::new(0, 1),
-            PreventExtensionsResultLocal::new(self.result_local),
-        );
-        self.emit_object_prevent_extensions(request, &mut function)?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared proxy-aware `[[Get]]` helper. The proxy read wrapper
-    /// (proxy-handler check, `get` trap invoke, invariant validation, one-level
-    /// nested-proxy target unroll) is emitted once here and reached with a plain
-    /// `call`, instead of being inlined (~21KB) at every dynamic property read in
-    /// a realm/proxy-enabled module.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
-    /// 1=object tag, 2=receiver payload, 3=receiver tag, 4=key payload, 5=key
-    /// tag. Param 6 is the trusted Proxy execution-Realm environment or zero.
-    /// Results are the standard four-i64 tuple: on normal
-    /// completion the value `(payload, tag)` is in the first two slots; a
-    /// proxy-trap throw is surfaced through the completion slots.
-    fn compile_object_read_proxy_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectReadProxy);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_read_with_key_tag(
-            0,
-            1,
-            2,
-            3,
-            4,
-            Some(5),
-            self.result_local,
-            self.result_tag_local,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    // `compile_indexed_element_read_helper` and
-    // `compile_indexed_element_write_helper` live in `objects.rs`, beside the
-    // composites they outline, and are the only `compile_*_helper` pair that
-    // does. That is not a filing preference: the bodies they emit are the two
-    // largest inline expansions in the crate (72,635 and 174,558 bytes), and
-    // keeping the compiler in the same module as the body is what lets the body
-    // itself stay module-private with exactly two callers — its seam's fallback
-    // arm and its helper compiler. A third caller elsewhere in the crate would
-    // re-inline the composite and quietly undo the outlining; with the body
-    // private, that call does not compile.
-
-    fn init_current_env(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        match self.return_abi() {
-            ReturnAbi::MainExport => {
-                function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(self.current_env_local));
-                self.load_i64_to_local_from_offset(
-                    self.current_env_local,
-                    HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
-                    self.current_env_local,
-                    function,
-                );
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.class_function_context_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.named_function_context_local));
-            }
-            ReturnAbi::MultiValue => {
-                function.instruction(&Instruction::LocalGet(0));
-                function.instruction(&Instruction::LocalSet(self.current_env_local));
-                if self
-                    .current_function_meta()
-                    .is_some_and(WasmFunctionMeta::has_function_context)
-                {
-                    // Functions that need execution context state receive an
-                    // immutable context in their env parameter. Lexical lookup
-                    // resumes from the environment captured inside it.
-                    function.instruction(&Instruction::LocalGet(self.current_env_local));
-                    function.instruction(&Instruction::LocalSet(self.class_function_context_local));
-                    self.load_i64_to_local_from_offset(
-                        self.current_env_local,
-                        HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
-                        self.current_env_local,
-                        function,
-                    );
-                } else {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(self.class_function_context_local));
-                }
-                if self
-                    .current_function_meta()
-                    .is_some_and(|meta| meta.is_named_expression)
-                {
-                    function.instruction(&Instruction::LocalGet(self.current_env_local));
-                    function.instruction(&Instruction::LocalSet(self.named_function_context_local));
-                    if self.eval_environment.is_none() {
-                        self.load_i64_to_local_from_offset(
-                            self.current_env_local,
-                            ENV_PARENT_OFFSET,
-                            self.current_env_local,
-                            function,
-                        );
-                    }
-                } else {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(self.named_function_context_local));
-                }
-            }
-        }
-
-        let resumable_activation = self.current_function_meta().and_then(|meta| {
-            let environment_offset = match meta.protocol.execution_kind() {
-                FunctionExecutionKind::Generator => HEAP_GENERATOR_ENV_OFFSET,
-                FunctionExecutionKind::Async => HEAP_ASYNC_INVOCATION_ENV_OFFSET,
-                FunctionExecutionKind::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
-                FunctionExecutionKind::Ordinary => return None,
-            };
-            Some((
-                self.new_target_payload_local()
-                    .expect("resumable function bodies use the function call ABI"),
-                environment_offset,
-            ))
-        });
-        let has_function_body_environment = self.body.statements.iter().any(|statement| {
-            matches!(statement, StatementIr::Block(body) if body.lexical_environment.as_ref().is_some_and(|environment|
-                matches!(environment.initialization, lila_ir::LexicalEnvironmentInitializationIr::FunctionBody { .. })))
-        });
-        // Capture analysis counts every resumable activation, even before
-        // lowering adds any suspension-owned operand slots to it.
-        if self.owned_env_bindings.is_empty()
-            && self.eval_environment.is_none()
-            && !has_function_body_environment
-            && resumable_activation.is_none()
-        {
-            return Ok(());
-        }
-
-        if let Some((activation_local, environment_offset)) = resumable_activation {
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                environment_offset,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::LocalSet(self.current_env_local));
-            function.instruction(&Instruction::Else);
-        }
-
-        if matches!(
-            self.eval_environment,
-            Some(lila_ir::EvalEnvironmentRoleIr::Declarative {
-                kind: lila_ir::EvalDeclarativeEnvironmentKindIr::Parameters,
-                ..
-            })
-        ) {
-            self.emit_allocate_lexical_environment_record(
-                &LexicalEnvironmentIr {
-                    initialization: lila_ir::LexicalEnvironmentInitializationIr::Uninitialized,
-                    eval_environment: Some(lila_ir::EvalEnvironmentRoleIr::Declarative {
-                        kind: lila_ir::EvalDeclarativeEnvironmentKindIr::Variable,
-                        bindings: Vec::new(),
-                    }),
-                    bindings: Vec::new(),
-                },
-                function,
-            )?;
-        }
-
-        let parent_env_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(parent_env_local));
-        self.emit_heap_alloc_const(
-            ENV_SLOT_BASE_OFFSET + self.owned_env_bindings.len() as u64 * ENV_SLOT_SIZE,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.store_i64_local_at_offset(
-            self.current_env_local,
-            ENV_PARENT_OFFSET,
-            parent_env_local,
-            function,
-        );
-        self.emit_initialize_named_environment_header(
-            self.current_env_local,
-            self.eval_environment,
-            function,
-        )?;
-        if resumable_activation.is_some() {
-            self.emit_prepare_resumable_function_body_environment(function)?;
-        }
-        for binding in self.owned_env_bindings {
-            self.store_i64_const_at_offset(
-                self.current_env_local,
-                ENV_SLOT_BASE_OFFSET + binding.slot as u64 * ENV_SLOT_SIZE + ENV_SLOT_TAG_OFFSET,
-                ENV_SLOT_UNINITIALIZED_TAG as u64,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                self.current_env_local,
-                ENV_SLOT_BASE_OFFSET
-                    + binding.slot as u64 * ENV_SLOT_SIZE
-                    + ENV_SLOT_PAYLOAD_OFFSET,
-                0,
-                function,
-            );
-        }
-        if self.function_flavor == FunctionFlavor::Ordinary {
-            if self.is_derived_constructor {
-                let activation = self
-                    .lexical_derived_activation
-                    .expect("derived constructor must have activation metadata");
-                self.initialize_derived_activation(activation, function)?;
-            }
-            if let Some(slot) = self.owned_env_slot(LEXICAL_THIS_NAME) {
-                if self.is_main() {
-                    self.release_temp_local(parent_env_local);
-                    return Ok(());
-                }
-                let Some(this_payload_local) = self.this_payload_local else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: top-level `this`",
-                    ));
-                };
-                let Some(this_tag_local) = self.this_tag_local else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing `this` tag local",
-                    ));
-                };
-                self.write_binding_from_locals(
-                    BindingStorage::EnvSlot { slot, hops: 0 },
-                    this_payload_local,
-                    this_tag_local,
-                    function,
-                );
-            }
-            if let Some(slot) = self.owned_env_slot(LEXICAL_NEW_TARGET_NAME) {
-                if self.current_function_meta().is_some_and(|meta| {
-                    matches!(
-                        meta.protocol.execution_kind(),
-                        FunctionExecutionKind::Generator
-                            | FunctionExecutionKind::Async
-                            | FunctionExecutionKind::AsyncGenerator
-                    )
-                }) {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                    self.write_binding_from_locals(
-                        BindingStorage::EnvSlot { slot, hops: 0 },
-                        self.scratch_local,
-                        self.result_tag_local,
-                        function,
-                    );
-                } else {
-                    let Some(new_target_payload_local) = self.new_target_payload_local() else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing `new.target` payload local",
-                        ));
-                    };
-                    let Some(new_target_tag_local) = self.new_target_tag_local() else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing `new.target` tag local",
-                        ));
-                    };
-                    self.write_binding_from_locals(
-                        BindingStorage::EnvSlot { slot, hops: 0 },
-                        new_target_payload_local,
-                        new_target_tag_local,
-                        function,
-                    );
-                }
-            }
-            if let Some(slot) = self.owned_env_slot(LEXICAL_HOME_OBJECT_NAME) {
-                self.load_i64_to_local_from_offset(
-                    self.class_function_context_local,
-                    HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
-                    self.scratch_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    self.class_function_context_local,
-                    HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
-                    self.result_tag_local,
-                    function,
-                );
-                self.write_binding_from_locals(
-                    BindingStorage::EnvSlot { slot, hops: 0 },
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                );
-            }
-        }
-        if let Some((activation_local, environment_offset)) = resumable_activation {
-            self.store_i64_local_at_offset(
-                activation_local,
-                environment_offset,
-                self.current_env_local,
-                function,
-            );
-            let saved_environment_offset = match self
-                .current_function_meta()
-                .map(|meta| meta.protocol.execution_kind())
-            {
-                Some(FunctionExecutionKind::Generator) => Some(HEAP_GENERATOR_LEXICAL_ENV_OFFSET),
-                Some(FunctionExecutionKind::Async) => Some(HEAP_ASYNC_ENV_OFFSET),
-                Some(FunctionExecutionKind::Ordinary | FunctionExecutionKind::AsyncGenerator)
-                | None => None,
-            };
-            if let Some(saved_environment_offset) = saved_environment_offset {
-                self.store_i64_local_at_offset(
-                    activation_local,
-                    saved_environment_offset,
-                    self.current_env_local,
-                    function,
-                );
-            }
-            function.instruction(&Instruction::End);
-        }
-        self.release_temp_local(parent_env_local);
-        Ok(())
-    }
-
-    /// Seeds compiler-private derived-constructor activation slots in the
-    /// freshly allocated invocation environment.  This state must never live
-    /// in the function object's immutable lexical context: recursion and
-    /// re-entrant construction each require independent `this` status.
-    fn initialize_derived_activation(
-        &mut self,
-        activation: &DerivedConstructorActivationIr,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let this = self
-            .owned_env_slot(&activation.this_binding)
-            .ok_or_else(|| {
-                EmitError::unsupported("derived constructor activation owner has no `this` slot")
-            })?;
-        let status = self
-            .owned_env_slot(&activation.this_status_binding)
-            .ok_or_else(|| {
-                EmitError::unsupported("derived constructor activation owner has no status slot")
-            })?;
-        let new_target = self
-            .owned_env_slot(&activation.new_target_binding)
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "derived constructor activation owner has no new.target slot",
-                )
-            })?;
-        let active_function = self
-            .owned_env_slot(&activation.active_function_binding)
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "derived constructor activation owner has no active-function slot",
-                )
-            })?;
-        let (Some(new_target_payload), Some(new_target_tag)) =
-            (self.new_target_payload_local(), self.new_target_tag_local())
-        else {
-            return Err(EmitError::unsupported(
-                "derived constructor activation requires the multi-value call ABI",
-            ));
-        };
-
-        // `this` is deliberately initialized to an unobservable undefined
-        // value.  GetDerivedThis gates it on the false status slot.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.write_env_slot_from_locals(
-            this,
-            0,
-            self.scratch_local,
-            self.result_tag_local,
-            function,
-        );
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.write_env_slot_from_locals(
-            status,
-            0,
-            self.scratch_local,
-            self.result_tag_local,
-            function,
-        );
-        self.write_env_slot_from_locals(
-            new_target,
-            0,
-            new_target_payload,
-            new_target_tag,
-            function,
-        );
-
-        // Param 0 is the immutable function context.  The current functions
-        // ABI stores the executing function object in that context; later
-        // construct lowering consumes this activation slot rather than a
-        // mutable per-function context field.
-        self.load_i64_to_local_from_offset(
-            0,
-            HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.write_env_slot_from_locals(
-            active_function,
-            0,
-            self.scratch_local,
-            self.result_tag_local,
-            function,
-        );
-        Ok(())
+    /// Every body retains its exact owned mixed-type declaration. The reported
+    /// count is measured from that same body, never a source estimate or a
+    /// homogeneous scalar prefix that can discard reference locals.
+    pub(crate) fn finish_function(&mut self, function: Function) -> Function {
+        self.emitted_local_count = function.allocated_local_count();
+        function
     }
 
     pub(crate) const fn memarg32(offset: u64) -> MemArg {
@@ -6214,25 +1976,5 @@ impl<'a> FunctionBuilder<'a> {
             align: 0,
             memory_index: 1,
         }
-    }
-
-    pub(crate) fn buffer_memarg64(&self, offset: u64) -> MemArg {
-        Self::memarg64_in(self.buffer_memory_index(), offset)
-    }
-
-    pub(crate) fn buffer_memarg8(&self, offset: u64) -> MemArg {
-        Self::memarg8_in(self.buffer_memory_index(), offset)
-    }
-
-    pub(crate) fn buffer_memory_index(&self) -> u32 {
-        // Split modules keep object/runtime state in private memory 0 while
-        // allocating every ArrayBuffer backing store from memory 1. Ordinary
-        // buffers remain semantically private because only their owning
-        // instance has metadata containing the disjoint host allocation.
-        u32::from(
-            self.functions
-                .shared_memory_alloc_function_index()
-                .is_some(),
-        )
     }
 }

@@ -1,13 +1,21 @@
 use core::fmt;
-use std::sync::OnceLock;
+use std::sync::Arc;
 
 use super::numeric::CompactExponentTable;
 use super::options::{CurrencyCode, FractionDigitCount};
 use super::plural_rules::{CardinalCategory, CardinalRules, PluralVariants};
 
+mod domains;
 mod fingerprint;
+mod projection;
+pub(crate) use domains::NumberLocaleDomains;
+pub(crate) use domains::NumberLocaleView;
+pub(crate) use projection::{
+    encode_full, encode_selected, encode_selected_currencies, encode_selected_numbering,
+};
 mod read;
 mod validate;
+pub(crate) use fingerprint::NUMBERING_SUPPLEMENT_PROVENANCE;
 pub use fingerprint::NUMBER_FORMAT_DATA_SHA256;
 
 #[cfg(test)]
@@ -29,6 +37,7 @@ pub enum NumberProfileTable {
     CurrencySets,
     UnitSets,
     PluralRules,
+    OrdinalRules,
     PluralRanges,
     Profiles,
     Locales,
@@ -52,6 +61,7 @@ pub enum NumberProfileError {
     MissingDefaultLocale,
     TrailingBytes,
     Allocation,
+    Image,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +104,7 @@ index_domain!(
     CurrencySetId,
     UnitSetId,
     PluralRulesId,
+    OrdinalRulesId,
     PluralRangeId,
     ProfileId,
 );
@@ -282,8 +293,9 @@ impl UnitSet {
 #[derive(Debug)]
 pub(super) struct LocaleProfile {
     pub default_numbering: u8,
-    pub numbering: Box<[NumberingProfileId]>,
+    pub numbering: Box<[Option<NumberingProfileId>]>,
     pub plural_rules: PluralRulesId,
+    pub ordinal_rules: OrdinalRulesId,
     pub plural_ranges: PluralRangeId,
     pub currencies: CurrencySetId,
     pub units: [UnitSetId; 3],
@@ -291,7 +303,7 @@ pub(super) struct LocaleProfile {
 
 #[derive(Debug)]
 pub(super) struct NumberingSystem {
-    pub name: &'static str,
+    pub name: Box<str>,
     pub digits: [char; 10],
 }
 
@@ -336,7 +348,9 @@ impl CurrencyFractions {
 
 #[derive(Debug)]
 pub struct NumberProfiles {
-    texts: Box<[&'static str]>,
+    locale_data: crate::LocaleDataImage,
+    domains: NumberLocaleDomains,
+    texts: Box<[Box<str>]>,
     patterns: Box<[Pattern]>,
     signed_patterns: Box<[SignedPattern]>,
     pattern_choices: Box<[PluralVariants<PatternId>]>,
@@ -349,13 +363,14 @@ pub struct NumberProfiles {
     currency_sets: Box<[CurrencySet]>,
     unit_sets: Box<[UnitSet]>,
     plural_rules: Box<[CardinalRules]>,
+    ordinal_rules: Box<[CardinalRules]>,
     plural_ranges: Box<[[CardinalCategory; 36]]>,
     profiles: Box<[LocaleProfile]>,
-    locales: Box<[&'static str]>,
+    locales: Box<[Box<str>]>,
     locale_profiles: Box<[ProfileId]>,
     systems: Box<[NumberingSystem]>,
-    system_names: Box<[&'static str]>,
-    unit_names: Box<[&'static str]>,
+    system_names: Box<[Box<str>]>,
+    unit_names: Box<[Box<str>]>,
     fractions: CurrencyFractions,
     letter_set: UnicodeSetId,
     digit_set: UnicodeSetId,
@@ -363,11 +378,14 @@ pub struct NumberProfiles {
 }
 
 impl NumberProfiles {
-    pub fn available_locales(&self) -> &[&'static str] {
-        &self.locales
+    pub fn available_locales(&self) -> &[Box<str>] {
+        match &self.domains {
+            NumberLocaleDomains::Complete => &self.locales,
+            NumberLocaleDomains::Projected { public, .. } => public,
+        }
     }
 
-    pub fn numbering_systems(&self) -> &[&'static str] {
+    pub fn numbering_systems(&self) -> &[Box<str>] {
         &self.system_names
     }
 
@@ -375,22 +393,119 @@ impl NumberProfiles {
         &self.fractions
     }
 
+    /// Codes from actual locale-reachable label sets, excluding the well-formed
+    /// code fallback that NumberFormat accepts without localized currency data.
+    pub(crate) fn reachable_currency_codes(&self) -> impl Iterator<Item = [u8; 3]> + '_ {
+        self.available_locales().iter().flat_map(move |locale| {
+            let currencies = self
+                .profile(locale)
+                .expect("admitted public locale is physical")
+                .currencies;
+            self.currency_sets[currencies.0]
+                .0
+                .iter()
+                .map(|row| row.code)
+        })
+    }
+
+    pub(crate) fn has_currency_data(&self, locale: &str, code: &CurrencyCode) -> bool {
+        self.profile(locale).is_some_and(|profile| {
+            self.currency_sets[profile.currencies.0]
+                .find(code.clone().ascii())
+                .is_some()
+        })
+    }
+
     pub(super) fn profile(&self, locale: &str) -> Option<&LocaleProfile> {
         self.locales
-            .binary_search(&locale)
+            .binary_search_by(|name| name.as_ref().cmp(locale))
             .ok()
             .map(|index| &self.profiles[self.locale_profiles[index].0])
     }
 
+    fn plural_rules_for(
+        &self,
+        profile: &LocaleProfile,
+        kind: crate::plural_rules::PluralType,
+    ) -> &CardinalRules {
+        match kind {
+            crate::plural_rules::PluralType::Cardinal => &self.plural_rules[profile.plural_rules.0],
+            crate::plural_rules::PluralType::Ordinal => {
+                &self.ordinal_rules[profile.ordinal_rules.0]
+            }
+        }
+    }
+    pub(crate) fn plural_categories(
+        &self,
+        locale: &str,
+        kind: crate::plural_rules::PluralType,
+    ) -> Option<crate::plural_rules::PluralCategorySet> {
+        self.profile(locale)
+            .map(|profile| self.plural_rules_for(profile, kind).categories())
+    }
+    pub(crate) fn select_plural_category(
+        &self,
+        locale: &str,
+        kind: crate::plural_rules::PluralType,
+        notation: super::options::Notation,
+        rounded: &super::numeric::RoundedDecimal,
+    ) -> Result<Option<CardinalCategory>, super::numeric::NumberFormatResourceError> {
+        let Some(profile) = self.profile(locale) else {
+            return Ok(None);
+        };
+        let row = match notation {
+            super::options::Notation::Standard
+            | super::options::Notation::Scientific
+            | super::options::Notation::Engineering => None,
+            super::options::Notation::Compact(display) => {
+                let numbering = self.numbering(
+                    profile.numbering[usize::from(profile.default_numbering)]
+                        .expect("admitted locale owns its default numbering record"),
+                );
+                let set = match display {
+                    super::options::CompactDisplay::Short => numbering.compact_short,
+                    super::options::CompactDisplay::Long => numbering.compact_long,
+                };
+                rounded
+                    .magnitude()?
+                    .and_then(|magnitude| self.compact(set).exponents.select(magnitude))
+            }
+        };
+        let operands = super::numeric::PluralOperands::bare_with_compact_row(rounded, row);
+        Ok(Some(self.plural_rules_for(profile, kind).select(operands)))
+    }
+    pub(crate) fn plural_range_category(
+        &self,
+        locale: &str,
+        kind: crate::plural_rules::PluralType,
+        start: CardinalCategory,
+        end: CardinalCategory,
+    ) -> Option<CardinalCategory> {
+        self.profile(locale).map(|profile| match kind {
+            crate::plural_rules::PluralType::Cardinal => {
+                self.range_category(profile.plural_ranges, start, end)
+            }
+            // CLDR47 supplies cardinal matrices only. Ordinal range selection
+            // deliberately uses the documented ILD end-category default.
+            crate::plural_rules::PluralType::Ordinal => end,
+        })
+    }
+
     pub(super) fn system(&self, name: &str) -> Option<(usize, &NumberingSystem)> {
         self.system_names
-            .binary_search(&name)
+            .binary_search_by(|value| value.as_ref().cmp(name))
             .ok()
             .map(|index| (index, &self.systems[index]))
     }
 
-    pub(super) fn text(&self, id: TextId) -> &'static str {
-        self.texts[id.0]
+    pub(crate) fn supports_numbering_system(&self, locale: &str, name: &str) -> bool {
+        self.profile(locale)
+            .zip(self.system(name))
+            .is_some_and(|(profile, (index, _))| profile.numbering[index].is_some())
+    }
+
+    pub(super) fn text(&self, id: TextId) -> &str {
+        &self.texts[id.0]
     }
     pub(super) fn pattern(&self, id: PatternId) -> &Pattern {
         &self.patterns[id.0]
@@ -425,6 +540,10 @@ impl NumberProfiles {
     pub(super) fn rules(&self, id: PluralRulesId) -> &CardinalRules {
         &self.plural_rules[id.0]
     }
+    #[cfg(test)]
+    pub(super) fn ordinal_rules_for_sample(&self, index: usize) -> &CardinalRules {
+        &self.ordinal_rules[index]
+    }
     pub(super) fn range_category(
         &self,
         id: PluralRangeId,
@@ -448,12 +567,30 @@ impl NumberProfiles {
 }
 
 pub fn embedded_number_profiles() -> Result<&'static NumberProfiles, InvalidNumberProfile> {
-    static PROFILES: OnceLock<Result<NumberProfiles, InvalidNumberProfile>> = OnceLock::new();
-    PROFILES
-        .get_or_init(|| {
-            let bytes = include_bytes!("../../../data/number-cldr-47/profiles.bin");
-            read::decode(bytes)
-        })
-        .as_ref()
-        .map_err(|error| *error)
+    crate::number_image::embedded_number_profiles_data_image_ref()
+        .map(|image| image.profiles_ref())
+        .map_err(image_error)
+}
+
+pub fn embedded_number_profiles_arc() -> Result<Arc<NumberProfiles>, InvalidNumberProfile> {
+    crate::number_image::embedded_number_profiles_data_image_ref()
+        .map(|image| image.profiles())
+        .map_err(image_error)
+}
+
+fn image_error(_: crate::IntlDataImageError) -> InvalidNumberProfile {
+    InvalidNumberProfile {
+        table: NumberProfileTable::Header,
+        index: 0,
+        reason: NumberProfileError::Image,
+    }
+}
+
+impl NumberProfiles {
+    pub(crate) fn from_bytes(
+        bytes: &[u8],
+        locale: &crate::LocaleDataImage,
+    ) -> Result<Self, InvalidNumberProfile> {
+        read::decode(bytes, locale)
+    }
 }

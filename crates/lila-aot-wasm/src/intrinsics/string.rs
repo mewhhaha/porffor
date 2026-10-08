@@ -1,47 +1,14 @@
-//! `string` intrinsic installation.
-//!
-//! Extracted verbatim from `builtins/bootstrap.rs::init_builtin_constructor_object`.
-//! Property installation order is observable through `Object.keys`, so the
-//! statement order inside each installer is load-bearing — do not reorder.
+//! Fresh intrinsic properties retain completed values and defining Realm.
 
 use super::super::*;
-use super::IntrinsicInstall;
+use super::{IntrinsicInstall, IntrinsicKey};
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(crate) fn install_string_constructor_intrinsics(
         &mut self,
         context: &IntrinsicInstall<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // Re-bind the shared preamble values under the names the moved body
-        // already uses, so the body below is a verbatim copy of the arm it
-        // replaced. Most families read only a few of them.
-        #[allow(unused_variables)]
-        let IntrinsicInstall {
-            builtin,
-            meta,
-            prototype_global_index,
-            constructor_global_index,
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            prototype_object_local,
-        } = *context;
-
-        function.instruction(&Instruction::GlobalGet(STRING_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(object_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_store_boxed_primitive_metadata(
-            object_local,
-            BOXED_PRIMITIVE_KIND_STRING,
-            payload_local,
-            tag_local,
-            function,
-        );
         for builtin in [
             StandardBuiltinId::StringPrototypeToString,
             StandardBuiltinId::StringPrototypeValueOf,
@@ -92,54 +59,55 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::StringPrototypeIsWellFormed,
             StandardBuiltinId::StringPrototypeToWellFormed,
         ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
             match builtin {
-                StandardBuiltinId::StringPrototypeTrimStart => {
-                    self.emit_object_define_function_data_with_aliases(
-                        object_local,
-                        "trimStart",
-                        &["trimLeft"],
-                        meta,
+                StandardBuiltinId::StringPrototypeTrimStart => self
+                    .emit_install_intrinsic_method_aliases(
+                        context.prototype,
+                        &[
+                            IntrinsicKey::Name("trimStart"),
+                            IntrinsicKey::Name("trimLeft"),
+                        ],
+                        builtin,
+                        context.realm,
+                        true,
+                        true,
                         function,
-                    )?;
-                }
-                StandardBuiltinId::StringPrototypeTrimEnd => {
-                    self.emit_object_define_function_data_with_aliases(
-                        object_local,
-                        "trimEnd",
-                        &["trimRight"],
-                        meta,
+                    )?,
+                StandardBuiltinId::StringPrototypeTrimEnd => self
+                    .emit_install_intrinsic_method_aliases(
+                        context.prototype,
+                        &[
+                            IntrinsicKey::Name("trimEnd"),
+                            IntrinsicKey::Name("trimRight"),
+                        ],
+                        builtin,
+                        context.realm,
+                        true,
+                        true,
                         function,
-                    )?;
-                }
-                _ => self.emit_object_define_function_data(
-                    object_local,
-                    builtin.string_prototype_method_name().unwrap(),
-                    meta,
+                    )?,
+                _ => self.emit_install_intrinsic_method(
+                    context.prototype,
+                    IntrinsicKey::Name(builtin.string_prototype_method_name().ok_or_else(
+                        || EmitError::unsupported("planned String method has no prototype name"),
+                    )?),
+                    builtin,
+                    context.realm,
+                    true,
+                    true,
                     function,
                 )?,
             }
         }
-        let iterator_meta = self
-            .functions
-            .get(&StandardBuiltinId::StringPrototypeIterator.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `String.prototype[Symbol.iterator]`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            object_local,
-            "Symbol.iterator",
-            iterator_meta,
+        self.emit_install_intrinsic_method(
+            context.prototype,
+            IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Iterator),
+            StandardBuiltinId::StringPrototypeIterator,
+            context.realm,
+            true,
+            true,
             function,
         )?;
-
         Ok(())
     }
 }

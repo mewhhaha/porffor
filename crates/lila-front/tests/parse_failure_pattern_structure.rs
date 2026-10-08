@@ -438,7 +438,7 @@ fn all_six_parse_failure_pattern_consumers_are_exhaustive() {
         ),
         (
             "const fn code_is_owned_twice_by_exact_starts_with(",
-            "// These conditions are intentionally parse-owned.",
+            "const fn typed_class_method_owner_has_no_message_row(",
             r#"
                 const fn code_is_owned_twice_by_exact_starts_with(
                     code: EarlyErrorCode,

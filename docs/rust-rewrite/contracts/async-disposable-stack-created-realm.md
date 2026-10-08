@@ -1,5 +1,29 @@
 # AsyncDisposableStack created-Realm ownership
 
+## Current atomic GC source — 2026-10-05
+
+The common completed GC bootstrap publishes AsyncDisposableStack intrinsics
+for created Realms. The host's separate
+`created_realm_async_disposable_stack_intrinsics.rs` duplicate and
+`created_realm_async_disposable_stack_structure` raw-slot mirror are retired.
+Typed Realm intrinsic records and immutable FunctionContext capture replace
+the former 424-byte offset and environment-zero protocol. Constructor fallback
+consumes the shared completed GetPrototypeFromConstructor operation; whole
+completions and captured disposal/reaction state retain errors and callbacks.
+
+The existing `aot_created_realm_async_disposable_stack` and
+`aot_async_disposable_stack_realm` semantic targets remain. Their historical
+observations do not certify the current GC source.
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 The source-free AsyncDisposableStack surface is published in every created
 Realm. Empty Function construction makes a foreign NewTarget directly reachable,
 so constructor prototype fallback is ordinary supported behavior.

@@ -1,0 +1,20 @@
+function check(value, message) { if (!value) throw new Error(message); }
+var segments = new Intl.Segmenter('en').segment('AB');
+var sp = Object.getPrototypeOf(segments), iterator = segments[Symbol.iterator](), ip = Object.getPrototypeOf(iterator);
+check(Object.getPrototypeOf(sp) === Object.prototype, 'Segments prototype parent');
+check(!Object.prototype.hasOwnProperty.call(sp, 'constructor') && !Object.prototype.hasOwnProperty.call(sp, Symbol.toStringTag), 'Segments has no invented constructor/tag');
+check(sp.containing.length === 1 && sp[Symbol.iterator].length === 0 && sp[Symbol.iterator].name === '[Symbol.iterator]', 'Segments methods');
+var ordinaryIteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+check(Object.getPrototypeOf(ip) === ordinaryIteratorPrototype, 'IteratorPrototype chain');
+check(iterator[Symbol.iterator]() === iterator, 'inherited iterator identity');
+check(ip.next.length === 0 && ip.next.name === 'next', 'next metadata');
+var tag = Object.getOwnPropertyDescriptor(ip, Symbol.toStringTag);
+check(tag.value === 'Segmenter String Iterator' && !tag.writable && !tag.enumerable && tag.configurable, 'iterator tag descriptor');
+check(Object.prototype.toString.call(iterator) === '[object Segmenter String Iterator]', 'iterator tag');
+segments = null;
+var first = iterator.next(), second = iterator.next(), done = iterator.next(), again = iterator.next();
+check(first.value.segment === 'A' && second.value.segment === 'B' && !first.done && !second.done, 'retained complete owner');
+check(done.done && done.value === undefined && again.done && again.value === undefined && done !== again, 'stable fresh completion');
+check(Object.keys(first).join(',') === 'value,done', 'iterator result order');
+check(Array.from(new Intl.Segmenter().segment('')).length === 0, 'empty iterator');
+print('ok iterator_metadata_completion_and_lifetimes'); 262;

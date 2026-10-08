@@ -175,12 +175,18 @@ fn every_field_sensitive_consumer_retains_the_typed_request() {
     assert!(!BOA_MODULE_ITEMS.contains("ModuleRequest::from(*specifier)"));
     assert!(BOA_SCOPE_ANALYZER.contains("request.visit_with_mut(self)?;"));
 
-    assert_eq!(
-        RECORD_SOURCE
-            .matches("module_request(interner, request.module_request())")
-            .count(),
-        2
+    let record = code_without_whitespace(RECORD_SOURCE);
+    assert!(record.contains("ExportDeclaration::ReExport{request,..}=>request.module_request(),"));
+    assert!(record.contains("letrequest=record_request(interner,source_request,admission);"));
+    assert!(
+        record.contains("letrequest=record_request(interner,request.module_request(),admission);")
     );
+    // Both entry-table passes retain the typed request through the actual
+    // loaded-closure/catalog admission boundary.
+    assert!(record.contains(
+        "super::admission::GraphAdmission::LoadedClosure=>module_request(interner,request)"
+    ));
+    assert!(record.contains("CatalogEligibility::Eligible=>module_request(interner,request)"));
     assert!(!RECORD_SOURCE.contains("module_request(interner, request);"));
     assert!(!RECORD_SOURCE.contains("parse_ignored_import_attributes"));
     assert!(!RECORD_SOURCE.contains("ExportDeclaration::ReExport { kind, specifier }"));

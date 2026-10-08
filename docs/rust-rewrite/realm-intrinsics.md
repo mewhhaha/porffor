@@ -245,3 +245,50 @@ make the registry the bootstrap source, make `%Function.prototype%` callable,
 repair every intrinsic family or unrelated partial-bootstrap prototype loader,
 or complete error, hook and teardown semantics. T03 shortcut materializations
 must be removed as those general semantics land.
+
+## Segmenter Realm owners
+
+The Segmenter source batch extends the traced Realm record to 632 bytes
+with exactly three prototype slots: Segmenter at 608, Segments at 616 and
+SegmentIterator at 624. The constructor remains in the existing Realm
+builtin function owner. `GetPrototypeFromConstructor` uses the closed
+Segmenter default-prototype variant. Created Realms install their own
+auxiliary prototypes and callables, with SegmentIteratorPrototype inheriting
+that Realm’s IteratorPrototype. Iterator and result allocation consumes the
+active function Realm; entry globals do not supply foreign result parents.
+Execution of the dedicated cross-Realm controls remains pending. See the
+[Segmenter contract](contracts/intl-segmenter-wasm.md).
+
+
+## DurationFormat intrinsic extension
+
+DurationFormat adds the entry globals161 (prototype) and162 (constructor),
+the648-byte Realm intrinsic record's prototype slot632 and a closed
+NonArrayRealmIntrinsicSlot/OrdinaryDefaultPrototype selector. Entry and
+created-Realm Intl namespace installation consumes the same intrinsic
+catalogue. Constructor NewTarget resolution uses the existing required
+resolved-Realm prototype route; its direct-call census remains seven.
+supportedLocalesOf and formatToParts allocate arrays in the called function's
+Realm. The112-byte formatter traces only its locale and numbering-system
+text payloads; its twelve configuration words are scalar fields.
+
+## TypedArray species default identities — dry source
+
+All twelve concrete TypedArray constructors have append-only identity slots in
+the Realm intrinsic record, separate from their existing prototype slots.
+Entry and created Realm installers publish the actual functions after graph
+setup. A private non-copyable current-function constructor owner selects by the
+closed element-kind domain through the executing builtin's defining function,
+Realm and intrinsic record. The canonical callable Function prototype locates
+the entry Realm only for the established zero-environment builtin convention.
+Missing Realm, record, kind or constructor is an internal invariant failure.
+Public globals and `prototype.constructor` properties never supply a fallback.
+
+Each of map/filter/slice/subarray roots all twelve installers because a borrowed
+method can receive any kind from another Realm. Existing once-only dependency
+walking terminates constructor/method cycles. The species factory consumes the
+captured default and owns custom Proxy-aware construction plus validated result
+publication. The graph, selected constructor and error Realm remain distinct
+specification authorities. Compilation, Wasm validation and semantic controls
+remain pending; no full Realm or GC acceptance is claimed. See
+`contracts/typed-array-species-create-ownership.md`.

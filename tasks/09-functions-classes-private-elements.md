@@ -1,5 +1,169 @@
 # T09 — Functions, constructors, classes and private elements
 
+## RegExp Call preserves returned callable candidates — 2026-10-07 dry source
+
+Ordinary RegExp Call can return its first object argument unchanged, including
+a source function or Function constructor. Its result now keeps the argument's
+known callable identities in an open target set, alongside the possible fresh
+RegExp outcome. It retains no instance-shape proof. Later calls therefore feed
+the original parameter/receiver observations and finite dynamic-source candidate
+preparation through the existing admission owner.
+
+Two IR controls and two paired Engine cohorts are authored for retained open
+targets, prepared Function source, callable identity and changed argument/receiver
+kinds. Formatting and diff checks passed; compilation and runtime remain unrun.
+No T09 or aggregate conformance acceptance is claimed.
+
+## Array Yield/Await, With and complete ForIn source owners — 2026-10-06
+
+Ordinary-generator array patterns retain their actual GC IteratorRecord and cached
+next/done state across yielding target/default work. Original GetIterator, Step,
+Put and IteratorClose owners remain shared, including nested patterns and whole
+injected Return/Throw. Complete With retains the original boxed object record;
+the head runs before entering that record and resume reattaches it before body
+injection. Class abrupt cleanup and invocation-entry anchoring preserve original
+parent lexical/private environments and nested finalizer ordering.
+
+Complete ordinary ForIn retains four checked invocation cells and one GC cursor
+for current object, remaining accepted keys, index and visited String keys.
+Head TDZ, original Var/lexical/pattern/Reference initialization, per-iteration
+environments and local/outward completion routing are joined. Admission requires
+an actual retained-key write or the original sloppy immutable-binding Ignore
+Reference proof. OwnKeys and descriptor observations preserve StatementList V;
+prototype traversal remains lazy and ForIn performs no IteratorClose.
+
+Plain async Array patterns now consume an opaque complete owner through lexical,
+var and used/discarded assignment paths. The actual source Await/operation tape,
+branch ranges and original cell inventory are checked once, including nested
+arrays, recursive objects, optional tails and class evaluation operands. General
+state readers continue to reject bare iterator operations. The native Generator
+and Async entries share one physical acquisition/body/close pipeline; rejected
+Await enters the reconstructed close scope and normal Await retains original
+References and iterator storage.
+
+Plain async With now checks the actual ToObject codomain, original object record,
+head publication and complete Await tape. Plain async ForIn checks the exact AST
+head identity, four original invocation cells and the shared physical retained-key
+initialization proof. Head/body ranges and continue-to-advance routing share the
+original ordinary-generator native pipeline. Rejection reconstructs original
+cleanup scopes before injection; ForIn performs no IteratorClose.
+
+Mixed async-generator classic loops, If/value regions, complete With, Switch and ForIn
+have independent source reviews. One source allocator checks all eager and
+suspended phase entries and the exact Await/Yield tape. Private certificates
+retain invocation anchoring and captured Block/Try ancestry; the original
+ForAwait iteration environment and implicit disposal boundaries remain joined.
+The native code uses the original loop, Reference, With and Switch algorithms. Ordinary,
+plain async and mixed With share one private validated ToObject/Object
+Environment proof. The old proxy-control successor corrects four expected
+HasProperty counts from the actual Object Environment algorithms.
+
+Mixed Switch checks its complete discriminant, lazy selectors, fallback and
+source-order bodies against the exact mixed tape. Its original two retained cells
+and shared CaseBlock are validated once. Discriminant work precedes CaseBlock
+TDZ/function instantiation; default selection follows every actual selector.
+The shared operand finish callback reads generated terminal values inside their
+actual temporary scope, including original and mixed loop callers.
+
+Mixed ForIn shares the original four-cell storage and retained-key initialization
+proof. Head TDZ records remain distinct from fresh per-key records, including
+closures created before enumeration. Its original cursor performs no IteratorClose.
+
+These source epochs and meaningful AST/IR/native/Engine controls remain
+uncompiled and unrun. Mixed patterns, nested or suspended iterator heads and
+suspended resource continuations remain source work before joined verification.
+
+## Switch, Throw, object-pattern and class-name source owners — 2026-10-06
+
+Ordinary Switch stages its complete discriminant before the CaseBlock environment,
+then evaluates selectors in order and retains fallthrough completion in original
+activation cells. Its private source and IR types validate state ranges, lexical
+ownership and local Break handling. Empty statement completion wraps the entire
+original item. Yielding Throw operands stage their whole selected value before
+the existing Throw operation; injected Return/Throw retain the existing finalizer
+and pending-completion transport.
+
+Object patterns now suspend in computed names, assignment targets and complete
+undefined-only defaults. Ordered raw/boxed source and normalized PropertyName
+factories feed the same native GetV, CopyDataProperties and target Put owners.
+WriteOnly Identifier References and raw member base/key cells survive suspension;
+lexical declarations and scoped classic For heads initialize original cells.
+Recursive objects and eager nested arrays keep their actual semantic owners.
+The patched frontend cover converter retains computed nested patterns and actual
+NamedEvaluation. Class labels now use parser name-scope provenance: inferred
+names preserve outer reads and TDZ, explicit names retain inner class cells.
+
+The complete source joins, retained controls and boundary guard have independent
+reviews. New IR and paired Wasm fixtures cover ordering, TDZ, GC, primitive
+receivers, retained With References, iterator closing and yielding finalizers.
+Compilation, guard execution and runtime remain unrun. Array-owned Yield/Await,
+broader ForIn/With, nested/suspended iterators, mixed async-generator and resource
+continuations remain open before the combined capped verification.
+See the [object-pattern contract](../docs/rust-rewrite/contracts/generator-object-patterns.md)
+and [class-name contract](../docs/rust-rewrite/contracts/class-name-source.md).
+
+## Earlier optional and eager assignment source joins — 2026-10-06
+
+Eager assignment patterns now stage their whole RHS before target keys, Gets,
+defaults/rest and the existing assignment emitter. Scoped classic For lexical
+heads retain the actual declaration-to-activation mapping.
+
+Optional chains own the complete base plan and guarded key/argument regions,
+including multiple/delegated Yields. First Calls retain their actual Reference
+receivers; later Gets and spreads keep their established order. Terminal property
+Delete retains raw base/key, skips its getter and returns true when shorted.
+Ordinary and suspended Delete share the existing native deletion owner. All retained
+source control names/cohorts remain, with complete-region state assertions.
+
+These owners have independent source reviews and authored GC/whole-completion
+controls; compilation and execution remain unrun. Object-owned suspensions and
+Switch now have the source owners above. Array-owned suspensions, broader ForIn/With,
+nested/suspended iterators and mixed async/resource continuations remain source work. See the [optional region contract](../docs/rust-rewrite/contracts/generator-optional-regions.md).
+
+## Ordinary generator controls and optional private calls — 2026-10-06 source
+
+Optional private calls now acquire the private reference, brand/getter result
+and original receiver before testing the callee for nullishness. Arguments stay
+lazy, getter effects invalidate caller facts, and whole abrupt completions use
+the existing GC call path. No public compatibility route is added.
+
+Ordinary generator For/While/DoWhile and branching loop bodies now consume
+validated source phases and the existing activation/environment/finalizer
+owners. Heads, updates and multiple body yields retain exact resume states,
+captured per-iteration cells and whole Return/Throw or labelled branch
+completion. The former async loop representation stays on its own execution
+route. Yielding logical selectors and compound Identifier assignments now
+retain the old value before the RHS and defer coercion until afterward for
+actual declarative/captured/per-iteration bindings. Runtime, global and With
+Identifier assignments now capture the original selected Reference across all
+RHS suspensions, including conditional logical assignment. A private native GC
+record retains its actual environment entry/cell or object base; PutValue uses
+that record after the RHS instead of resolving a changed environment chain.
+Committed Return and caught/uncaught Throw release private reference edges;
+normal and unfinished delegated yields retain them. Source private GetValue
+now applies getter effects before suspended private Value/Property tails and
+later arguments. Plain identifier assignments use a closed WriteOnly capture
+without GetValue; compound/logical assignments retain ReadBeforeRhs capture.
+The exact predecessor static/no-With linear iterator assignment route is
+preserved beside the ordinary captured-reference path.
+
+Complete conditional/logical value regions now own yielding selectors and
+multiple, nested or delegated arm yields. Eager operators retain operands before
+coercion; each template substitution converts before the next suspension. Eager
+binding patterns use the same ordinary Object/Array initialization owners after
+their complete suspended initializer. Staged object literals normalize each key
+before its value, use one retained allocation and one shared actual property
+definition body, preserve method HomeObject, and name prepared computed classes
+before class initialization. Discarded literals reach the same source/lowering
+owners. Eager pattern assignment and scoped classic For heads are source-reviewed;
+pattern-owned, iterator/control and mixed async/resource continuations remain
+source debt. These additions have authored controls and source peers, without
+compilation or execution evidence.
+
+Source receipts and independent review precede the combined compile and
+semantic checkpoint. New controls are authored, not executed; no conformance
+count or T09 completion is claimed.
+
 **Status:** In progress — broad function/class support exists; full call/construct semantics remain
 
 **Parallel group:** Core foundations  
@@ -7,6 +171,66 @@
 **Blocks:** T12-T15, T24
 
 ## Current repository state
+
+The 2026-10-04 remaining invocation source removes the ArrayBuffer species
+getter .call bypass that discarded the acquired forwarding function and
+substituted boxed/global this. Existing Function.call/apply/bind argument,
+forwarded result/effect, dynamic-source admission and defineProperty analysis
+remain attached to the original indirect call. Four species getter factories
+and spread signatures now admit arbitrary raw this values without invented
+constructor targets. Function Call/Bind catalog effects include synchronous
+user code from actual Call and Proxy metadata observation.
+
+Meaningful lowering and three finite paired Engine cohorts are authored with
+the neighboring factory/iterator/literal retirement. All source remains
+type/runtime unverified; the full-task dry pass precedes capped sequential
+verification. Full T09 and current-pin acceptance remain open. See the
+[contract](../docs/rust-rewrite/contracts/remaining-invocation-reference-ownership.md).
+
+A prepared, uncompiled native-function source repair addresses the frozen
+published `built-in-function-object.js` failure in both Script modes. The
+shared RegExp legacy accessor owners use valid initial native names `get input`
+and `set input` instead of debug phrases containing several identifiers. Their
+existing identities and aliases remain intact. A const catalog invariant
+admits the closed anonymous, ASCII identifier, accessor and well-known Symbol
+name forms; ordinary named functions retain their names. The unchanged pinned
+source runs with the complete native matcher and intrinsic traversal in a new
+Engine regression, alongside controls for accessor/Symbol syntax and stable
+source text after public `name` replacement, a throwing getter, and deletion.
+The historical four-mode checkpoint below and the later published failure
+remain evidence of their own runs. No compilation or runtime PASS is claimed
+for this proposal; the joined batch must be verified. The representation and
+initial-name contract are recorded in
+[`native-function-source-syntax.md`](../docs/rust-rewrite/contracts/native-function-source-syntax.md).
+
+A separate uncompiled repair replaces the Arguments object's virtual
+`Symbol.iterator` projection with a real writable, non-enumerable, configurable
+named data property initialized from its realm's original
+`%Array.prototype.values%` intrinsic. Assignment, `defineProperty`, deletion,
+descriptor reads, own-key enumeration and subsequent iteration then follow
+the existing property model. Changing `Array.prototype.values` or
+`Array.prototype[Symbol.iterator]` cannot change newly or previously created
+Arguments objects' initial iterator. The pinned mapped and unmapped
+`Symbol.iterator.js` witnesses remain untouched. New regressions cover
+mutation, deletion/recreation, descriptors, inherited accessors and prototype
+mutation. No compilation or runtime PASS is claimed; the joined batch must be
+verified.
+
+Plain super assignments now retain a nullable reference base through RHS
+evaluation, then apply PutValue's ToObject validation before ToPropertyKey.
+The pre-fix debug product baseline failed both pinned
+`language/expressions/assignment/target-super-computed-reference-null.js` and
+`target-super-identifier-reference-null.js` in both Script modes (`0/4`,
+Runtime/Bug): early null-base rejection suppressed each RHS counter update.
+The general emitter ordering fix and
+`aot_super_assignment_reference` engine integration target cover the exact
+unchanged sources, arbitrary RHS throws, absent key coercion for null bases,
+captured-base stability across prototype changes, Symbol keys and Receiver
+identity, and compound/uninitialized-this controls. On 2026-09-29 the engine
+target passes all seven tests, and the exact pinned `target-super` prefix
+passes all six sloppy/strict executions with every non-success bucket zero.
+Broader integration verification remains pending; this is not a full-tree
+conformance claim.
 
 The IR and Wasm backend contain explicit function metadata, call/construct
 lowering, closures, bound functions, classes and private-element support, with
@@ -400,3 +624,20 @@ cargo test -p lila-cli wasm_class --quiet
 ```
 
 Run real filters under `language/expressions/function`, `arrow-function`, `class`, `language/statements/function`, `built-ins/Function`, `Function/prototype`, and private-element feature groups.
+
+Anonymous class field initializers now have an explicit NamedEvaluation name
+authority in the proposed source batch. Public numeric, BigInt and computed
+keys retain the original normalized key, while literal and private fields
+retain their String names. The closed IR domain keeps that authority separate
+from a computed object's retained name binding, and the class emitter applies
+it before nested class elements or static initialization. Parenthesized
+anonymous definitions are admitted by their actual absence of a source name
+scope; explicit names, references and comma results preserve ordinary
+evaluation. The complete pinned `staging/sm/fields/numeric-fields.js` remains
+unchanged and has a new paired-mode Engine regression alongside ordering,
+descriptor, Symbol, private-name and key-coercion controls. Source inspection
+and formatting do not establish runtime success: compilation, focused checks
+and pinned/broad verification remain unrun, and function-valued fields, class
+binding analysis and full class/private closure remain outside this batch.
+The boundary is recorded in
+[`class-field-named-evaluation.md`](../docs/rust-rewrite/contracts/class-field-named-evaluation.md).

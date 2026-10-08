@@ -120,6 +120,10 @@ fn named_offsets_apply_to_components_at_the_full_exact_time_domain() {
 function fields(f,t){return f.formatToParts(t).filter(p=>p.type!=='literal').map(p=>p.type+':'+p.value).join('|');}
 for(var row of [
  ['America/New_York',64076313600000,'-04:00'],
+ ['Africa/Casablanca',64092203999000,'+01:00'],
+ ['Africa/Casablanca',64092204000000,'+01:00'],
+ ['Africa/Casablanca',64092205800000,'+01:00'],
+ ['Africa/El_Aaiun',64092211199000,'+01:00'],
  ['Australia/Lord_Howe',1775314800000,'+10:30'],
  ['Pacific/Apia',1325239200000,'+14:00']
 ]){

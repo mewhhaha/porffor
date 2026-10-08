@@ -1,5 +1,18 @@
 # Set-iterator heap-slot identity authority
 
+Current dry source — 2026-10-05: the raw-offset source-mirror target below
+is retired from the atomic semantic GC draft. It checked passive layout
+spelling, offsets and source occurrence counts. The current GC authoring uses
+typed registry fields and complete semantic value owners; these earlier
+mirrors cannot verify that representation or its behavior. Historical source
+descriptions, commands and results below retain their original scope.
+
+The full GC source cutover, remaining Temporal and AsyncDisposableStack
+authoring, compiler checks and runtime verification remain pending. See the
+[current value/heap architecture](../value-heap-gc.md). Weak reachability retains
+its explicit [unavailable facility boundary](weak-unavailable-runtime-boundary.md).
+No verification or conformance result is inferred from this retirement.
+
 ## Closed layout identities
 
 The passive Set iterator layout contains exactly four capability-free

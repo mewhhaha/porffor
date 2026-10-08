@@ -13,6 +13,8 @@ import xml.etree.ElementTree as ET
 REPOSITORY = Path(__file__).resolve().parents[1]
 SOURCE_PATH = "crates/lila-intl/data/zone-names-cldr-47"
 OUTPUT_PATH = "crates/lila-intl/src/provider/time_zone_names/generated.rs"
+NATIVE_OUTPUT_PATH = SOURCE_PATH + "/native-profile.json"
+NATIVE_MANIFEST_PATH = SOURCE_PATH + "/native-profile-manifest.json"
 WIDTHS = ("short", "long")
 KINDS = ("generic", "standard", "daylight")
 CLDR_COMMIT = "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
@@ -346,15 +348,53 @@ def generate(source_dir):
     return generated, json.dumps(report, indent=2) + "\n"
 
 
+def generate_image(source_dir):
+    """Project the complete checked primary rows into a consumed native image.
+
+    This is separate from the historical Rust-table output: source authoring
+    must not rewrite that retained source epoch merely to change its carrier.
+    """
+    manifest_bytes, sources, rows = extract(source_dir)
+    payload = {"schema": 1, "cldr_release": "47.0.0", "cldr_commit": CLDR_COMMIT,
+               "country_icu_commit": ICU_COMMIT,
+               "source_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+               "supported_locales": ["en", "en-US"],
+               "fallback_chain": ["root", "en", "en_US"], "rows": rows}
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode() + b"\n"
+    normalized = json.dumps(rows, ensure_ascii=False, sort_keys=True,
+                            separators=(",", ":")).encode()
+    receipt = {"schema": 1, "marker": "lila/time-zone/names/cldr47/v1",
+               "payload_bytes": len(encoded), "payload_sha256": hashlib.sha256(encoded).hexdigest(),
+               "source_manifest_sha256": payload["source_manifest_sha256"],
+               "generator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+               "normalized_rows_sha256": hashlib.sha256(normalized).hexdigest(),
+               "source_bytes": sum(map(len, sources.values())),
+               "zones": len(rows["zones"]), "aliases": len(rows["aliases"]),
+               "metazones": len(rows["metazones"]),
+               "periods": sum(len(zone["periods"]) for zone in rows["zones"]),
+               "supported_locales": payload["supported_locales"],
+               "historical_rust_output": "retained unchanged; not a runtime consumer"}
+    return encoded.decode(), json.dumps(receipt, indent=2) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, default=REPOSITORY / SOURCE_PATH)
     parser.add_argument("--output", type=Path, default=REPOSITORY / OUTPUT_PATH)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--native-image", action="store_true",
+                        help="write the native JSON/manifest without rewriting historical Rust tables")
     parser.add_argument("--check", action="store_true")
     options = parser.parse_args()
-    generated, report = generate(options.source_dir)
-    for path, contents in ((options.output, generated), (options.report, report)):
+    if options.native_image:
+        generated, report = generate_image(options.source_dir)
+        output = REPOSITORY / NATIVE_OUTPUT_PATH
+        report_path = REPOSITORY / NATIVE_MANIFEST_PATH
+    else:
+        generated, report = generate(options.source_dir)
+        output, report_path = options.output, options.report
+    for path, contents in ((output, generated), (report_path, report)):
         if path is None:
             continue
         if options.check:

@@ -1,6 +1,59 @@
 # T21 — Symbols, collections, weak collections and weak references
 
-**Status:** In progress — symbols/collections implemented; weak reachability is explicitly unavailable
+## Current source position — 2026-10-07
+
+The reviewed Symbol and strong-collection source is authored, and semantic Wasm
+GC is present. Real weak reachability and ephemerons remain unavailable through
+the explicit runtime capability boundary; installed weak surfaces and early
+validation do not provide successful weak storage or finalization. Task-wide
+native, full pinned collection/weak trees and resource/performance acceptance
+remain open. Historical strong-retaining implementations are superseded.
+
+## Current source audit — 2026-10-07
+
+The semantic Wasm GC switch is now implemented; its older pending status below
+is superseded by the joined source and recorded GC checkpoints. Real weak and
+ephemeron support remains a distinct unavailable runtime capability, with the
+existing out-of-band rejection rather than a strongly retaining implementation.
+
+The current primitive Get batch removes unconditional Symbol description,
+constructor and @@toPrimitive facts. Narrow facts require the live original
+prototype property; unmodified descriptions also admit undefined. Replaced
+getters preserve ordinary effects and whole completions. Meaningful controls
+are authored and unrun; see the
+[primitive property contract](../docs/rust-rewrite/contracts/primitive-property-read-effects.md).
+
+## Actual weak capability boundary — 2026-10-03 dry source
+
+One closed IR authority now supplies the product Wasmtime policy and all sixteen
+actual weak constructor/method routes. `RuntimeUnavailableCapability::WeakReachability`
+uses the existing mandatory out-of-band rejection import with new wire code 9;
+codes 0–8 retain their meanings. Valid construction rejects after ordinary
+validation and prototype observation, before any weak record, adder/iterator,
+kept target or finalization cell can be exposed. Wrong-brand and earlier
+argument/prototype failures keep their ordinary JavaScript completion and
+intrinsic Realm. Installed descriptors and constructor inspection remain
+ordinary intrinsic operations.
+
+The active strong-retaining weak implementations and shared WeakMap/WeakSet
+algorithm selectors are retired. Strong Map/Set algorithms remain on their
+existing path. Passive weak layout/edge declarations are an inventory only.
+Engine retains unavailable capabilities separately from dynamic-source reasons
+and compiler gaps, including aggregates; real JavaScript failures, timeout and
+trap retain priority. Test262 reports the capability as Unsupported/NotImplemented,
+and it cannot satisfy an expected runtime JavaScript exception or be caught to
+produce PASS. Genuine earlier TypeErrors still satisfy runtime-negative tests.
+
+Source controls cover installed surfaces, wrong-brand errors, argument/prototype
+ordering and defining-Realm identity, constructor aliases and Reflect.construct,
+uncatchable rejection and expected-negative classification. Existing fake weak
+instance/behavior assertions and producer guards are retired. All current
+controls remain uncompiled and unexecuted. Earlier results below retain their
+original source scope and cannot verify this correction. The semantic GC switch,
+real weak/ephemeron facility and complete T05/T21 acceptance remain open. See the
+[boundary contract](../docs/rust-rewrite/contracts/weak-unavailable-runtime-boundary.md).
+
+**Status:** In progress — reviewed Symbol/strong-collection source is authored; real weak reachability is explicitly unavailable, and task-wide native, pinned-suite and resource/performance acceptance remain open.
 
 **Parallel group:** Feature lane; split internally by Symbol, strong collections and weak reachability  
 **Depends on:** T05, T06, T10; iterators use T15; cleanup jobs use T14  
@@ -8,12 +61,23 @@
 
 ## Current repository state
 
-Symbol, Map, Set, WeakMap, WeakSet, WeakRef and FinalizationRegistry have
-runtime records and builtin implementations, including ordered collection
-storage and registered weak/ephemeron edges. Because the collector is not
-executable, weak targets cannot clear and finalization cleanup jobs cannot be
-driven by reachability. Strong collection coverage has advanced, but the full
-weak-semantics and complete-tree criteria remain blocked on T05/T14.
+The 2026-10-03 dry implementation makes actual `GetSetRecord` return a
+non-copyable `CompletedSetLikeRecord`. All Set predicate/algebra iteration
+helpers require that completed owner, preserving the argument, converted size
+and observed methods together. One consuming release restores its retained
+locals in strict reverse order. Existing semantic regression sources remain;
+compilation and execution are pending. See the
+[completed record contract](../docs/rust-rewrite/contracts/completed-set-like-record.md).
+
+Symbol, Map and Set retain their active runtime records and builtin algorithms.
+WeakMap, WeakSet, WeakRef and FinalizationRegistry retain installed intrinsic
+surfaces and ordinary early validation, while actual successful construction
+and weak storage require the explicitly unavailable runtime facility. Their
+previous strong-retaining record producers are retired. Passive weak layout
+and ephemeron edge declarations do not implement reachability or cleanup jobs.
+Strong collection coverage has advanced, but real weak semantics and complete
+tree acceptance remain open on T05/T14. Later records below describe their
+dated source checkpoints; current weak behavior follows the boundary above.
 
 Map and Set iterator result shape is now a closed persisted-wire domain rather
 than five raw integer constants. Each constructor accepts only

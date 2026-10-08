@@ -1,8 +1,7 @@
-use super::intl_host_request::CopiedIntlHostRequest;
 use super::*;
 use lila_intl::number_format::{
-    embedded_number_profiles, NumberLocaleRequest, NumberProfiles, NumberSupportedLocalesRequest,
-    RangeNumberPartition, ResolvedNumberLocale, ScalarNumberPartition,
+    NumberLocaleRequest, NumberSupportedLocalesRequest, RangeNumberPartition, ResolvedNumberLocale,
+    ScalarNumberPartition,
 };
 use lila_intl::NumberWireError;
 use lila_intl::{
@@ -20,17 +19,17 @@ pub(super) trait NumberHostOperation:
 {
     fn decode_request(
         bytes: &[u8],
-        profiles: &NumberProfiles,
+        kernel: &IntlKernel<EmbeddedIntlProvider>,
     ) -> Result<Self::Request, NumberWireError>;
     fn encode_response(response: &Self::Response) -> Result<Vec<u8>, NumberWireError>;
 }
 
 macro_rules! number_host_operation {
-    ($operation:ty, $response:ty, $bytes:ident, $profiles:ident, $decode:expr) => {
+    ($operation:ty, $response:ty, $bytes:ident, $kernel:ident, $decode:expr) => {
         impl NumberHostOperation for $operation {
             fn decode_request(
                 $bytes: &[u8],
-                $profiles: &NumberProfiles,
+                $kernel: &IntlKernel<EmbeddedIntlProvider>,
             ) -> Result<Self::Request, NumberWireError> {
                 $decode
             }
@@ -44,46 +43,40 @@ number_host_operation!(
     ResolveNumberLocale,
     ResolvedNumberLocale,
     bytes,
-    _profiles,
+    _kernel,
     NumberLocaleRequest::decode(bytes)
 );
 number_host_operation!(
     SupportedNumberLocales,
     NumberSupportedLocalesResult,
     bytes,
-    _profiles,
+    _kernel,
     NumberSupportedLocalesRequest::decode(bytes)
 );
 number_host_operation!(
     FormatNumberParts,
     ScalarNumberPartition,
     bytes,
-    profiles,
-    NumberFormatRequest::decode(bytes, profiles)
+    kernel,
+    kernel.decode_number_format_request(bytes)
 );
 number_host_operation!(
     FormatNumberRangeParts,
     RangeNumberPartition,
     bytes,
-    profiles,
-    NumberRangeFormatRequest::decode(bytes, profiles)
+    kernel,
+    kernel.decode_number_range_request(bytes)
 );
 
 pub(super) fn call<O>(
-    mut caller: WasmtimeCaller<'_, WasmHostState>,
-    request_wire: i64,
-    result_wire: i64,
-) -> wasmtime::Result<i64>
+    kernel: &IntlKernel<EmbeddedIntlProvider>,
+    payload: &[u8],
+) -> wasmtime::Result<Option<Vec<u8>>>
 where
     O: NumberHostOperation,
     EmbeddedIntlProvider: IntlOperationProvider<O>,
 {
-    let kernel = Arc::clone(&caller.data().intl_kernel);
-    let copied = CopiedIntlHostRequest::read(&mut caller, request_wire, result_wire)?;
-    let profiles = embedded_number_profiles().map_err(|error| {
-        wasmtime::Error::msg(format!("invalid embedded Intl number profiles: {error}"))
-    })?;
-    let request = O::decode_request(copied.bytes(), profiles).map_err(|error| {
+    let request = O::decode_request(payload, kernel).map_err(|error| {
         wasmtime::Error::msg(format!(
             "invalid Intl {} request: {error}",
             O::HOST_OP.name()
@@ -98,11 +91,12 @@ where
     let response = match operation.execute(request) {
         Ok(response) => response,
         Err(NumberFormatOperationError::NaNRangeEndpoint) => {
-            return Ok(IntlHostCallOutcome::Rejected.wire());
+            return Ok(None);
         }
         Err(
-            error
-            @ (NumberFormatOperationError::Kernel(_) | NumberFormatOperationError::Numeric(_)),
+            error @ (NumberFormatOperationError::Kernel(_)
+            | NumberFormatOperationError::Numeric(_)
+            | NumberFormatOperationError::UnavailableService(_)),
         ) => {
             return Err(wasmtime::Error::msg(format!(
                 "Intl {} failed: {error}",
@@ -116,8 +110,11 @@ where
             O::HOST_OP.name()
         ))
     })?;
-    copied.write(&mut caller, &bytes)
+    Ok(Some(bytes))
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use lila_intl::number_format::embedded_number_profiles_arc;

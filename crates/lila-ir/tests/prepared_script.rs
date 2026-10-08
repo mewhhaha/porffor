@@ -1,8 +1,8 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
     lower_with_host_surface_policy, ExprIr, GlobalDeclarationSetIr, GlobalLexicalBindingModeIr,
-    HostSurfacePolicy, PreparedScriptKind, PreparedScriptOutcome, ProgramIr, StatementIr,
-    TypedExpr, ValueKind,
+    HostSurfacePolicy, PreparedScriptKind, PreparedScriptOutcome, ProgramIr, PropertyKeyIr,
+    StatementIr, TypedExpr, ValueKind,
 };
 
 fn lower(source: &str) -> ProgramIr {
@@ -109,9 +109,27 @@ fn prepared_var_deletion_keeps_descriptor_and_presence_checks_in_runtime_ir() {
         let script = program.script.unwrap();
         let unit = script.prepared_script_units().next().unwrap();
         assert!(unit.body.statements.iter().any(|statement| {
-            matches!(statement, StatementIr::Expression(TypedExpr {
-                expr: ExprIr::DeleteGlobalProperty { name, .. }, ..
-            }) if name == "declared")
+            match (deletion, statement) {
+                (
+                    "delete declared",
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::DeleteGlobalProperty { name, .. },
+                        ..
+                    }),
+                ) => name == "declared",
+                (
+                    "delete globalThis.declared",
+                    StatementIr::Expression(TypedExpr {
+                        expr:
+                            ExprIr::DeleteProperty {
+                                key: PropertyKeyIr::StaticString(name),
+                                ..
+                            },
+                        ..
+                    }),
+                ) => name == "declared",
+                _ => false,
+            }
         }));
         assert!(unit.body.statements.iter().any(|statement| {
             matches!(statement, StatementIr::Expression(TypedExpr {
@@ -119,13 +137,13 @@ fn prepared_var_deletion_keeps_descriptor_and_presence_checks_in_runtime_ir() {
             }) if name == "declared")
         }));
         let Some(StatementIr::Expression(TypedExpr {
-            expr: ExprIr::TypeOf { expr },
+            expr: ExprIr::TypeOfUnresolvedIdentifier { name },
             ..
         })) = unit.body.statements.last()
         else {
             panic!("typeof a possibly deleted var requires runtime lookup");
         };
-        assert!(matches!(&expr.expr, ExprIr::GlobalPropertyRead { name } if name == "declared"));
+        assert_eq!(name, "declared");
     }
 }
 

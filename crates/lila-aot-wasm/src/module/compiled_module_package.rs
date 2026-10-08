@@ -1,93 +1,39 @@
 use std::borrow::Cow;
 
-use wasm_encoder::{ElementSection, Elements, RefType, TableSection, TableType};
+use wasm_encoder::{ElementSection, Elements};
 
 use super::*;
+use crate::gc_types::FinalizedRuntimeModule;
 
 /// The one type section and the typed indices assigned while constructing it.
 pub(crate) struct ModuleTypeRegistry {
-    section: TypeSection,
-    runtime: RuntimeModuleTypes,
+    registered: RuntimeModuleTypes,
 }
 
 impl ModuleTypeRegistry {
     pub(crate) fn new() -> Self {
-        let mut types = ModuleTypeSectionBuilder::new();
-        types.function([], [ValType::I64]);
-        types.function(
-            function_param_types(),
-            [ValType::I64, ValType::I64, ValType::I64, ValType::I64],
-        );
-        types.function([ValType::I64], [ValType::I64]);
-        types.function(
-            [
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
-            [],
-        );
-        types.function(
-            [
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
-            [],
-        );
-        types.function(
-            [
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
-            [ValType::I64],
-        );
-        types.function([ValType::I64, ValType::I64], [ValType::I64]);
-        types.function([ValType::I64], [ValType::I64, ValType::I64]);
-        types.function([ValType::I32, ValType::I32], []);
-        types.function([ValType::F64, ValType::F64], [ValType::F64]);
-        types.function([], [ValType::I32]);
-        types.function([], [ValType::I64]);
-        types.function([ValType::I64], []);
-        types.function([ValType::I64, ValType::I64, ValType::I64], [ValType::I64]);
-        types.function([], [ValType::F64]);
-
-        types.function(
-            std::iter::repeat_n(ValType::I64, PREPARED_SCRIPT_PARAM_COUNT),
-            [ValType::I64; 4],
-        );
-
-        let runtime = RuntimeModuleTypes::register(&mut types.section);
-
         Self {
-            section: types.finish(),
-            runtime,
+            registered: RuntimeModuleTypes::register(),
         }
     }
 
     /// Consumes every scalar/dynamic global and returns the sealed section with
     /// the runtime schema derived from its actual final scalar index.
+    ///
+    /// `snapshot_roots` declares the typed inventory and witness globals;
+    /// `module_guard_count` once guards follow every root.
     pub(crate) fn finalize_globals(
         self,
         globals: ModuleGlobalSectionBuilder,
+        snapshot_roots: bool,
+        module_guard_count: u32,
     ) -> FinalizedModuleSections {
-        let Self { section, runtime } = self;
         FinalizedModuleSections {
-            types: section,
-            globals: globals.finish(runtime),
+            runtime: self.registered.finalize_globals(
+                globals.section,
+                snapshot_roots,
+                module_guard_count,
+            ),
         }
     }
 }
@@ -95,50 +41,74 @@ impl ModuleTypeRegistry {
 /// The type and global sections finalized as one consume-once package.
 ///
 /// Consuming [`ModuleTypeRegistry`] prevents a second global package from being
-/// finalized against the same typed registry. The only next transition accepts
-/// the emitter's closed main-compilation plan, compiles it against this exact
-/// package and starts package-owned code with that main body.
+/// finalized against the same typed registry. The only next transition starts
+/// package-owned code at the first defined function index.
 pub(crate) struct FinalizedModuleSections {
-    types: TypeSection,
-    globals: FinalizedModuleGlobals,
+    runtime: FinalizedRuntimeModule,
 }
 
 impl FinalizedModuleSections {
-    pub(crate) fn compile_main(
-        self,
-        compilation: MainFunctionCompilation<'_>,
-    ) -> Result<CompiledModulePackage, EmitError> {
-        let mut code = ModuleCode::new(compilation.first_wasm_index());
-        let main_emitted_local_count = compilation.compile_into(&self.globals, &mut code)?;
-        Ok(CompiledModulePackage {
-            types: self.types,
-            globals: self.globals,
-            code,
-            main_emitted_local_count,
-        })
+    pub(crate) fn begin(self, first_wasm_index: u32) -> CompiledModulePackage {
+        CompiledModulePackage {
+            runtime: self.runtime,
+            code: ModuleCode::new(first_wasm_index),
+            main: None,
+            program_functions: Vec::new(),
+            main_emitted_local_count: 0,
+        }
     }
 }
 
-/// Type, rooted globals and code whose first body is main compiled against that
-/// exact root, sealed together behind one consuming assembly operation.
+/// Types, rooted globals and paired function declarations/bodies, sealed
+/// behind one assembly.
 ///
-/// None of the three Wasm sections has an independent append method. Remaining
-/// bodies extend package-owned code by mutable borrow; only the final assembly
+/// None of these Wasm sections has an independent append method. Bodies
+/// extend package-owned code by mutable borrow, in planned index order (main
+/// compiled against this exact root is one of them); only the final assembly
 /// transition consumes the package. Normal Rust code therefore cannot combine
 /// A's main with B's types or globals or reuse either package for another
 /// module.
 pub(crate) struct CompiledModulePackage {
-    types: TypeSection,
-    globals: FinalizedModuleGlobals,
+    runtime: FinalizedRuntimeModule,
     code: ModuleCode,
+    main: Option<EmittedFunction>,
+    program_functions: Vec<EmittedFunction>,
     main_emitted_local_count: u32,
 }
 
 impl CompiledModulePackage {
-    pub(crate) fn append_remaining_functions(&mut self, remaining_functions: Vec<EmittedFunction>) {
-        for function in remaining_functions {
+    pub(crate) fn schema(&self) -> &crate::gc_types::RuntimeSchema {
+        self.runtime.globals().schema()
+    }
+
+    /// The types of the globals a program module imports from the runtime.
+    pub(crate) fn runtime_global_types(&self) -> Vec<wasm_encoder::GlobalType> {
+        self.runtime.globals().runtime_global_types()
+    }
+    /// Compiles and retains main against this package's own globals. Only final
+    /// assembly can publish it, between the runtime and program functions.
+    pub(crate) fn compile_main(
+        &mut self,
+        compilation: MainFunctionCompilation<'_>,
+    ) -> Result<(), EmitError> {
+        assert!(self.main.is_none(), "a module package compiles main once");
+        let (main, emitted_local_count) = compilation.compile(self.runtime.globals())?;
+        self.main = Some(main);
+        self.main_emitted_local_count = emitted_local_count;
+        Ok(())
+    }
+
+    /// Runtime bodies precede main. Retain program bodies until the package
+    /// publishes its own main, so no caller can separate main from its globals.
+    pub(crate) fn append_functions(
+        &mut self,
+        runtime_functions: Vec<EmittedFunction>,
+        program_functions: Vec<EmittedFunction>,
+    ) {
+        for function in runtime_functions {
             self.code.push(function);
         }
+        self.program_functions.extend(program_functions);
     }
 
     pub(crate) const fn main_emitted_local_count(&self) -> u32 {
@@ -151,32 +121,41 @@ impl CompiledModulePackage {
         sections: ModuleAssemblySections,
     ) -> ModuleFunctionTable {
         let Self {
-            types,
-            globals,
-            code,
+            runtime,
+            mut code,
+            main,
+            program_functions,
             main_emitted_local_count: _,
         } = self;
-        let (code, function_table) = code.finish();
+        if let Some(main) = main {
+            code.push(main);
+        }
+        for function in program_functions {
+            code.push(function);
+        }
+        let (functions, code, function_table) = code.finish();
         let ModuleAssemblySections {
             imports,
-            functions,
             callable_function_table,
             memories,
             exports,
             data,
+            imported_globals,
         } = sections;
-        let CallableFunctionTableSections { tables, elements } = callable_function_table;
+        let CallableFunctionTableSections { elements } = callable_function_table;
 
-        module.section(&types);
+        module.section(runtime.types());
         module.section(&imports);
         module.section(&functions);
-        module.section(&tables);
         if let Some(memories) = memories {
             module.section(&memories);
         }
-        module.section(&globals);
+        module.section(&runtime.globals().defined_section(imported_globals));
         module.section(&exports);
         module.section(&elements);
+        if let Some(data) = &data {
+            module.section(&wasm_encoder::DataCountSection { count: data.len() });
+        }
         module.section(&code);
         if let Some(data) = data {
             module.section(&data);
@@ -186,38 +165,22 @@ impl CompiledModulePackage {
     }
 }
 
-/// The table section and its active element segment, constructed from one
-/// callable-function range.
+/// Declarative references for every defined function.
+/// Calls use registered typed funcrefs; no dispatch table is allocated.
 ///
 /// Keeping both encoder sections private prevents module assembly callers from
 /// supplying an empty section or pairing entries from different ranges.
 struct CallableFunctionTableSections {
-    tables: TableSection,
     elements: ElementSection,
 }
 
 impl CallableFunctionTableSections {
-    fn new(first_callable_wasm_index: u32, callable_function_count: usize) -> Self {
-        let mut tables = TableSection::new();
-        tables.table(TableType {
-            element_type: RefType::FUNCREF,
-            minimum: callable_function_count as u64,
-            maximum: Some(callable_function_count as u64),
-            table64: false,
-            shared: false,
-        });
-
+    fn new(defined_functions: std::ops::Range<u32>) -> Self {
         let mut elements = ElementSection::new();
-        let function_indexes = (first_callable_wasm_index
-            ..first_callable_wasm_index + callable_function_count as u32)
-            .collect::<Vec<_>>();
-        elements.active(
-            Some(0),
-            &ConstExpr::i32_const(0),
-            Elements::Functions(Cow::Owned(function_indexes)),
-        );
+        let function_indexes = defined_functions.collect::<Vec<_>>();
+        elements.declared(Elements::Functions(Cow::Owned(function_indexes)));
 
-        Self { tables, elements }
+        Self { elements }
     }
 }
 
@@ -225,92 +188,57 @@ impl CallableFunctionTableSections {
 /// runtime package according to Wasm's canonical section order.
 pub(crate) struct ModuleAssemblySections {
     imports: ImportSection,
-    functions: FunctionSection,
     callable_function_table: CallableFunctionTableSections,
     memories: Option<MemorySection>,
     exports: ExportSection,
     data: Option<DataSection>,
+    /// Globals the module imports from the runtime; the global section
+    /// declares only the ones after them.
+    imported_globals: u32,
 }
 
 impl ModuleAssemblySections {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         imports: ImportSection,
-        functions: FunctionSection,
-        first_callable_wasm_index: u32,
-        callable_function_count: usize,
+        defined_functions: std::ops::Range<u32>,
         memories: Option<MemorySection>,
         exports: ExportSection,
         data: Option<DataSection>,
+        imported_globals: u32,
     ) -> Self {
         Self {
             imports,
-            functions,
-            callable_function_table: CallableFunctionTableSections::new(
-                first_callable_wasm_index,
-                callable_function_count,
-            ),
+            callable_function_table: CallableFunctionTableSections::new(defined_functions),
             memories,
             exports,
             data,
+            imported_globals,
         }
     }
 }
 
-// These function-pointer assignments are compile-time lifecycle gates. Main
-// compilation and module assembly must consume their package states, while
-// adding the already-compiled internal bodies may only borrow the one compiled
-// package. A future edit that weakens those ownership transitions no longer
-// matches these function types and fails to compile.
-const _: for<'a> fn(
-    FinalizedModuleSections,
-    MainFunctionCompilation<'a>,
-) -> Result<CompiledModulePackage, EmitError> = FinalizedModuleSections::compile_main;
+// These function-pointer assignments are compile-time lifecycle gates. Module
+// assembly must consume its package state, while adding compiled bodies may
+// only borrow the one compiled package. A future edit that weakens those
+// ownership transitions no longer matches these function types and fails to
+// compile.
+const _: fn(FinalizedModuleSections, u32) -> CompiledModulePackage = FinalizedModuleSections::begin;
 const _: fn() -> ModuleTypeRegistry = ModuleTypeRegistry::new;
 const _: fn(
     ImportSection,
-    FunctionSection,
-    u32,
-    usize,
+    std::ops::Range<u32>,
     Option<MemorySection>,
     ExportSection,
     Option<DataSection>,
+    u32,
 ) -> ModuleAssemblySections = ModuleAssemblySections::new;
-const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>) =
-    CompiledModulePackage::append_remaining_functions;
+const _: fn(&mut CompiledModulePackage, MainFunctionCompilation<'_>) -> Result<(), EmitError> =
+    CompiledModulePackage::compile_main;
+const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>, Vec<EmittedFunction>) =
+    CompiledModulePackage::append_functions;
 const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections) -> ModuleFunctionTable =
     CompiledModulePackage::append_to_module;
-
-/// Single-use owner of the module type section.
-///
-/// Function signatures are appended here. The opaque runtime-GC registration
-/// operation borrows the same section once, so GC types follow those signatures
-/// without exposing their assigned indices back to module assembly.
-struct ModuleTypeSectionBuilder {
-    section: TypeSection,
-}
-
-impl ModuleTypeSectionBuilder {
-    fn new() -> Self {
-        Self {
-            section: TypeSection::new(),
-        }
-    }
-
-    fn function<P, R>(&mut self, params: P, results: R)
-    where
-        P: IntoIterator<Item = ValType>,
-        P::IntoIter: ExactSizeIterator,
-        R: IntoIterator<Item = ValType>,
-        R::IntoIter: ExactSizeIterator,
-    {
-        self.section.ty().function(params, results);
-    }
-
-    fn finish(self) -> TypeSection {
-        self.section
-    }
-}
 
 /// The sole construction path for the module global section.
 ///
@@ -320,22 +248,18 @@ impl ModuleTypeSectionBuilder {
 /// only matching runtime schema, which makes omission or a separately planned
 /// root index a compile error rather than an out-of-band convention.
 pub(crate) struct ModuleGlobalSectionBuilder {
-    section: GlobalSection,
+    section: GlobalLedger,
 }
 
 impl ModuleGlobalSectionBuilder {
     pub(crate) fn new() -> Self {
         Self {
-            section: GlobalSection::new(),
+            section: GlobalLedger::new(),
         }
     }
 
     pub(crate) fn global(&mut self, global_type: GlobalType, init_expr: &ConstExpr) -> &mut Self {
         self.section.global(global_type, init_expr);
         self
-    }
-
-    fn finish(self, runtime: RuntimeModuleTypes) -> FinalizedModuleGlobals {
-        runtime.finalize_globals(self.section)
     }
 }

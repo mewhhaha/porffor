@@ -100,6 +100,18 @@ The provider returns final localized parts. Wasm joins the same parts for
 second time. All provider locales, numbering systems and range policies remain
 owned by the pinned NumberFormat provider and its generated data identity.
 
+## Shared PluralRules extraction (staged)
+
+The PluralRules successor moves digit-option observation, primitive exact
+numeric observation and the common bounded wire cursor into
+`builtins/intl_number`. NumberFormat consumes the same actual operations with
+its own style/currency defaults and retains its original later compactDisplay
+Get. The NumberFormat wire/configuration remains unchanged; the service now
+shares the extended Intl ABI 7 with Temporal and PluralRules. Its historical
+ABI 5 introduction above remains the original receipt. The shared extraction
+requires fresh coordinated compilation and NumberFormat replay; prior focused
+results do not verify these new source bytes.
+
 ## Verification boundary
 
 The staged native target `aot_intl_numberformat` contains 16 ordinary-source
@@ -117,3 +129,7 @@ Source staging and formatting are not product verification. The coordinated
 provider, registration and consumer batch must pass compilation, native/CLI
 controls and the full pinned NumberFormat replay before any conformance count
 is updated. No Test262 execution is skipped or marked passing by this contract.
+
+The shared wire owner is `builtins/intl_provider_wire.rs`. NumberFormat and
+PluralRules retain their existing wire-v1 field order and outcomes; ListFormat
+uses the same bounded request/response lifecycle and exact UTF-16 writer.

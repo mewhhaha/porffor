@@ -10,6 +10,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+pub(crate) const FINGERPRINT_SCHEME: &str = "lila-program-cache-compiler-v3";
+
 pub(crate) const COMPILER_INPUTS: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
@@ -34,7 +36,7 @@ pub(crate) fn fingerprint(workspace: &Path) -> io::Result<String> {
     files.dedup();
 
     let mut digest = Sha256::new();
-    digest.update(b"lila-program-cache-compiler-v3");
+    digest.update(FINGERPRINT_SCHEME.as_bytes());
     for path in files {
         let relative = path.strip_prefix(workspace).map_err(io::Error::other)?;
         let label = relative

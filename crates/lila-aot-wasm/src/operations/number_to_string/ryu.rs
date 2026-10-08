@@ -175,28 +175,28 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_ryu_power_lookup(
         &mut self,
         table: RyuPowerTable,
-        index_local: u32,
-        low_local: u32,
-        high_local: u32,
+        index_local: crate::gc_types::I64Local,
+        low_local: crate::gc_types::I64Local,
+        high_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(low_local));
+        low_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(high_local));
+        high_local.store(function);
         for index in 0..=table.last_index() {
             let (low, high) = table.power(index);
-            function.instruction(&Instruction::LocalGet(index_local));
+            index_local.load(function);
             function.instruction(&Instruction::I64Const(index as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(low as i64));
-            function.instruction(&Instruction::LocalSet(low_local));
+            low_local.store(function);
             function.instruction(&Instruction::I64Const(high as i64));
-            function.instruction(&Instruction::LocalSet(high_local));
+            high_local.store(function);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(high_local));
+        high_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
@@ -205,99 +205,101 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_unsigned_multiply_128(
         &mut self,
-        lhs_local: u32,
-        rhs_local: u32,
-        low_local: u32,
-        high_local: u32,
+        lhs_local: crate::gc_types::I64Local,
+        rhs_local: crate::gc_types::I64Local,
+        low_local: crate::gc_types::I64Local,
+        high_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
-        let lhs_high_local = self.reserve_temp_local();
-        let rhs_high_local = self.reserve_temp_local();
-        let low_product_local = self.reserve_temp_local();
-        let cross_product_local = self.reserve_temp_local();
-        let cross_low_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let lhs_high_local = schema.reserve_i64_local(function);
+        let rhs_high_local = schema.reserve_i64_local(function);
+        let low_product_local = schema.reserve_i64_local(function);
+        let cross_product_local = schema.reserve_i64_local(function);
+        let cross_low_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(lhs_local));
+        lhs_local.load(function);
         function.instruction(&Instruction::I64Const(U32_MASK));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalGet(rhs_local));
-        function.instruction(&Instruction::I64Const(U32_MASK));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(low_product_local));
-        function.instruction(&Instruction::LocalGet(lhs_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(lhs_high_local));
-        function.instruction(&Instruction::LocalGet(rhs_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(rhs_high_local));
-        function.instruction(&Instruction::LocalGet(lhs_high_local));
-        function.instruction(&Instruction::LocalGet(rhs_local));
+        rhs_local.load(function);
         function.instruction(&Instruction::I64Const(U32_MASK));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(low_product_local));
+        low_product_local.store(function);
+        lhs_local.load(function);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        lhs_high_local.store(function);
+        rhs_local.load(function);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        rhs_high_local.store(function);
+        lhs_high_local.load(function);
+        rhs_local.load(function);
+        function.instruction(&Instruction::I64Const(U32_MASK));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Mul);
+        low_product_local.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cross_product_local));
-        function.instruction(&Instruction::LocalGet(cross_product_local));
+        cross_product_local.store(function);
+        cross_product_local.load(function);
         function.instruction(&Instruction::I64Const(U32_MASK));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalGet(lhs_local));
+        lhs_local.load(function);
         function.instruction(&Instruction::I64Const(U32_MASK));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalGet(rhs_high_local));
+        rhs_high_local.load(function);
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cross_low_local));
-        function.instruction(&Instruction::LocalGet(cross_low_local));
+        cross_low_local.store(function);
+        cross_low_local.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(low_product_local));
+        low_product_local.load(function);
         function.instruction(&Instruction::I64Const(U32_MASK));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(low_local));
-        function.instruction(&Instruction::LocalGet(lhs_high_local));
-        function.instruction(&Instruction::LocalGet(rhs_high_local));
+        low_local.store(function);
+        lhs_high_local.load(function);
+        rhs_high_local.load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(cross_product_local));
+        cross_product_local.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(cross_low_local));
+        cross_low_local.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high_local));
+        high_local.store(function);
 
-        self.release_temp_local(cross_low_local);
-        self.release_temp_local(cross_product_local);
-        self.release_temp_local(low_product_local);
-        self.release_temp_local(rhs_high_local);
-        self.release_temp_local(lhs_high_local);
+        schema.release_i64_local(cross_low_local, function);
+        schema.release_i64_local(cross_product_local, function);
+        schema.release_i64_local(low_product_local, function);
+        schema.release_i64_local(rhs_high_local, function);
+        schema.release_i64_local(lhs_high_local, function);
     }
 
     fn emit_ryu_mul_shift(
         &mut self,
-        value_local: u32,
-        multiplier_low_local: u32,
-        multiplier_high_local: u32,
-        shift_local: u32,
-        output_local: u32,
+        value_local: crate::gc_types::I64Local,
+        multiplier_low_local: crate::gc_types::I64Local,
+        multiplier_high_local: crate::gc_types::I64Local,
+        shift_local: crate::gc_types::I64Local,
+        output_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
-        let low_product_low_local = self.reserve_temp_local();
-        let low_product_high_local = self.reserve_temp_local();
-        let high_product_low_local = self.reserve_temp_local();
-        let high_product_high_local = self.reserve_temp_local();
-        let sum_low_local = self.reserve_temp_local();
-        let sum_high_local = self.reserve_temp_local();
-        let carry_local = self.reserve_temp_local();
-        let right_shift_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let low_product_low_local = schema.reserve_i64_local(function);
+        let low_product_high_local = schema.reserve_i64_local(function);
+        let high_product_low_local = schema.reserve_i64_local(function);
+        let high_product_high_local = schema.reserve_i64_local(function);
+        let sum_low_local = schema.reserve_i64_local(function);
+        let sum_high_local = schema.reserve_i64_local(function);
+        let carry_local = schema.reserve_i64_local(function);
+        let right_shift_local = schema.reserve_i64_local(function);
 
         self.emit_unsigned_multiply_128(
             value_local,
@@ -313,206 +315,209 @@ impl<'a> FunctionBuilder<'a> {
             high_product_high_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(low_product_high_local));
-        function.instruction(&Instruction::LocalGet(high_product_low_local));
+        low_product_high_local.load(function);
+        high_product_low_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(sum_low_local));
-        function.instruction(&Instruction::LocalGet(sum_low_local));
-        function.instruction(&Instruction::LocalGet(high_product_low_local));
+        sum_low_local.store(function);
+        sum_low_local.load(function);
+        high_product_low_local.load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(carry_local));
-        function.instruction(&Instruction::LocalGet(high_product_high_local));
-        function.instruction(&Instruction::LocalGet(carry_local));
+        carry_local.store(function);
+        high_product_high_local.load(function);
+        carry_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(sum_high_local));
-        function.instruction(&Instruction::LocalGet(shift_local));
+        sum_high_local.store(function);
+        shift_local.load(function);
         function.instruction(&Instruction::I64Const(64));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(right_shift_local));
-        function.instruction(&Instruction::LocalGet(sum_low_local));
-        function.instruction(&Instruction::LocalGet(right_shift_local));
+        right_shift_local.store(function);
+        sum_low_local.load(function);
+        right_shift_local.load(function);
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(sum_high_local));
+        sum_high_local.load(function);
         function.instruction(&Instruction::I64Const(64));
-        function.instruction(&Instruction::LocalGet(right_shift_local));
+        right_shift_local.load(function);
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Shl);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
 
-        self.release_temp_local(right_shift_local);
-        self.release_temp_local(carry_local);
-        self.release_temp_local(sum_high_local);
-        self.release_temp_local(sum_low_local);
-        self.release_temp_local(high_product_high_local);
-        self.release_temp_local(high_product_low_local);
-        self.release_temp_local(low_product_high_local);
-        self.release_temp_local(low_product_low_local);
+        schema.release_i64_local(right_shift_local, function);
+        schema.release_i64_local(carry_local, function);
+        schema.release_i64_local(sum_high_local, function);
+        schema.release_i64_local(sum_low_local, function);
+        schema.release_i64_local(high_product_high_local, function);
+        schema.release_i64_local(high_product_low_local, function);
+        schema.release_i64_local(low_product_high_local, function);
+        schema.release_i64_local(low_product_low_local, function);
     }
 
     fn emit_multiple_of_power_of_five(
         &mut self,
-        value_local: u32,
-        exponent_local: u32,
-        output_local: u32,
+        value_local: crate::gc_types::I64Local,
+        exponent_local: crate::gc_types::I64Local,
+        output_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
-        let divisor_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let divisor_local = schema.reserve_i64_local(function);
+        let index_local = schema.reserve_i64_local(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(divisor_local));
+        divisor_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(exponent_local));
+        index_local.load(function);
+        exponent_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(divisor_local));
+        divisor_local.load(function);
         function.instruction(&Instruction::I64Const(5));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(divisor_local));
-        function.instruction(&Instruction::LocalGet(index_local));
+        divisor_local.store(function);
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalGet(divisor_local));
+        value_local.load(function);
+        divisor_local.load(function);
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        self.release_temp_local(index_local);
-        self.release_temp_local(divisor_local);
+        output_local.store(function);
+        schema.release_i64_local(index_local, function);
+        schema.release_i64_local(divisor_local, function);
     }
 
     pub(super) fn emit_ryu_shortest_decimal(
         &mut self,
-        absolute_bits_local: u32,
-        output_mantissa_local: u32,
-        output_exponent_local: u32,
+        absolute_bits_local: crate::gc_types::I64Local,
+        output_mantissa_local: crate::gc_types::I64Local,
+        output_exponent_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
-        let ieee_mantissa_local = self.reserve_temp_local();
-        let ieee_exponent_local = self.reserve_temp_local();
-        let binary_exponent_local = self.reserve_temp_local();
-        let binary_mantissa_local = self.reserve_temp_local();
-        let accept_bounds_local = self.reserve_temp_local();
-        let scaled_mantissa_local = self.reserve_temp_local();
-        let lower_boundary_shift_local = self.reserve_temp_local();
-        let decimal_power_local = self.reserve_temp_local();
-        let decimal_exponent_local = self.reserve_temp_local();
-        let power_index_local = self.reserve_temp_local();
-        let power_bits_local = self.reserve_temp_local();
-        let product_shift_local = self.reserve_temp_local();
-        let multiplier_low_local = self.reserve_temp_local();
-        let multiplier_high_local = self.reserve_temp_local();
-        let central_local = self.reserve_temp_local();
-        let upper_local = self.reserve_temp_local();
-        let lower_local = self.reserve_temp_local();
-        let central_trailing_zeros_local = self.reserve_temp_local();
-        let lower_trailing_zeros_local = self.reserve_temp_local();
-        let removed_local = self.reserve_temp_local();
-        let last_removed_digit_local = self.reserve_temp_local();
-        let temporary_local = self.reserve_temp_local();
-        let upper_quotient_local = self.reserve_temp_local();
-        let lower_quotient_local = self.reserve_temp_local();
-        let round_up_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let ieee_mantissa_local = schema.reserve_i64_local(function);
+        let ieee_exponent_local = schema.reserve_i64_local(function);
+        let binary_exponent_local = schema.reserve_i64_local(function);
+        let binary_mantissa_local = schema.reserve_i64_local(function);
+        let accept_bounds_local = schema.reserve_i64_local(function);
+        let scaled_mantissa_local = schema.reserve_i64_local(function);
+        let lower_boundary_shift_local = schema.reserve_i64_local(function);
+        let decimal_power_local = schema.reserve_i64_local(function);
+        let decimal_exponent_local = schema.reserve_i64_local(function);
+        let power_index_local = schema.reserve_i64_local(function);
+        let power_bits_local = schema.reserve_i64_local(function);
+        let product_shift_local = schema.reserve_i64_local(function);
+        let multiplier_low_local = schema.reserve_i64_local(function);
+        let multiplier_high_local = schema.reserve_i64_local(function);
+        let central_local = schema.reserve_i64_local(function);
+        let upper_local = schema.reserve_i64_local(function);
+        let lower_local = schema.reserve_i64_local(function);
+        let central_trailing_zeros_local = schema.reserve_i64_local(function);
+        let lower_trailing_zeros_local = schema.reserve_i64_local(function);
+        let removed_local = schema.reserve_i64_local(function);
+        let last_removed_digit_local = schema.reserve_i64_local(function);
+        let temporary_local = schema.reserve_i64_local(function);
+        let upper_quotient_local = schema.reserve_i64_local(function);
+        let lower_quotient_local = schema.reserve_i64_local(function);
+        let round_up_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(absolute_bits_local));
+        absolute_bits_local.load(function);
         function.instruction(&Instruction::I64Const((1_i64 << DOUBLE_MANTISSA_BITS) - 1));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(ieee_mantissa_local));
-        function.instruction(&Instruction::LocalGet(absolute_bits_local));
+        ieee_mantissa_local.store(function);
+        absolute_bits_local.load(function);
         function.instruction(&Instruction::I64Const(DOUBLE_MANTISSA_BITS));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Const(0x7ff));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(ieee_exponent_local));
-        function.instruction(&Instruction::LocalGet(ieee_exponent_local));
+        ieee_exponent_local.store(function);
+        ieee_exponent_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             1 - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2,
         ));
-        function.instruction(&Instruction::LocalSet(binary_exponent_local));
-        function.instruction(&Instruction::LocalGet(ieee_mantissa_local));
-        function.instruction(&Instruction::LocalSet(binary_mantissa_local));
+        binary_exponent_local.store(function);
+        ieee_mantissa_local.load(function);
+        binary_mantissa_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(ieee_exponent_local));
+        ieee_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(
             DOUBLE_BIAS + DOUBLE_MANTISSA_BITS + 2,
         ));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(binary_exponent_local));
-        function.instruction(&Instruction::LocalGet(ieee_mantissa_local));
+        binary_exponent_local.store(function);
+        ieee_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(1_i64 << DOUBLE_MANTISSA_BITS));
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(binary_mantissa_local));
+        binary_mantissa_local.store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(binary_mantissa_local));
+        binary_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(accept_bounds_local));
-        function.instruction(&Instruction::LocalGet(binary_mantissa_local));
+        accept_bounds_local.store(function);
+        binary_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(scaled_mantissa_local));
-        function.instruction(&Instruction::LocalGet(ieee_mantissa_local));
+        scaled_mantissa_local.store(function);
+        ieee_mantissa_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(ieee_exponent_local));
+        ieee_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(lower_boundary_shift_local));
+        lower_boundary_shift_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(central_trailing_zeros_local));
+        central_trailing_zeros_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(lower_trailing_zeros_local));
+        lower_trailing_zeros_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(binary_exponent_local));
+        binary_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(binary_exponent_local));
+        binary_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(78_913));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Const(18));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(binary_exponent_local));
+        binary_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalTee(decimal_power_local));
-        function.instruction(&Instruction::LocalSet(decimal_exponent_local));
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_power_local.store(function);
+        decimal_power_local.load(function);
+        decimal_exponent_local.store(function);
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Const(1_217_359));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Const(19));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Const(DOUBLE_POW5_INV_BITCOUNT));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(power_bits_local));
-        function.instruction(&Instruction::LocalGet(binary_exponent_local));
+        power_bits_local.store(function);
+        binary_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(power_bits_local));
+        power_bits_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(product_shift_local));
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
-        function.instruction(&Instruction::LocalSet(power_index_local));
+        product_shift_local.store(function);
+        decimal_power_local.load(function);
+        power_index_local.store(function);
         self.emit_ryu_power_lookup(
             RyuPowerTable::InversePow5,
             power_index_local,
@@ -531,11 +536,11 @@ impl<'a> FunctionBuilder<'a> {
             lower_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Const(21));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scaled_mantissa_local));
+        scaled_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(5));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Eqz);
@@ -547,15 +552,15 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(accept_bounds_local));
+        accept_bounds_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scaled_mantissa_local));
+        scaled_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalGet(lower_boundary_shift_local));
+        lower_boundary_shift_local.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(temporary_local));
+        temporary_local.store(function);
         self.emit_multiple_of_power_of_five(
             temporary_local,
             decimal_power_local,
@@ -563,20 +568,20 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(scaled_mantissa_local));
+        scaled_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(temporary_local));
+        temporary_local.store(function);
         self.emit_multiple_of_power_of_five(
             temporary_local,
             decimal_power_local,
             temporary_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(upper_local));
-        function.instruction(&Instruction::LocalGet(temporary_local));
+        upper_local.load(function);
+        temporary_local.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(upper_local));
+        upper_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -604,11 +609,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(removed_local));
+        removed_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(last_removed_digit_local));
-        function.instruction(&Instruction::LocalGet(lower_trailing_zeros_local));
-        function.instruction(&Instruction::LocalGet(central_trailing_zeros_local));
+        last_removed_digit_local.store(function);
+        lower_trailing_zeros_local.load(function);
+        central_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -639,552 +644,57 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(decimal_exponent_local));
-        function.instruction(&Instruction::LocalGet(removed_local));
+        decimal_exponent_local.load(function);
+        removed_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(output_exponent_local));
+        output_exponent_local.store(function);
 
-        self.release_temp_local(round_up_local);
-        self.release_temp_local(lower_quotient_local);
-        self.release_temp_local(upper_quotient_local);
-        self.release_temp_local(temporary_local);
-        self.release_temp_local(last_removed_digit_local);
-        self.release_temp_local(removed_local);
-        self.release_temp_local(lower_trailing_zeros_local);
-        self.release_temp_local(central_trailing_zeros_local);
-        self.release_temp_local(lower_local);
-        self.release_temp_local(upper_local);
-        self.release_temp_local(central_local);
-        self.release_temp_local(multiplier_high_local);
-        self.release_temp_local(multiplier_low_local);
-        self.release_temp_local(product_shift_local);
-        self.release_temp_local(power_bits_local);
-        self.release_temp_local(power_index_local);
-        self.release_temp_local(decimal_exponent_local);
-        self.release_temp_local(decimal_power_local);
-        self.release_temp_local(lower_boundary_shift_local);
-        self.release_temp_local(scaled_mantissa_local);
-        self.release_temp_local(accept_bounds_local);
-        self.release_temp_local(binary_mantissa_local);
-        self.release_temp_local(binary_exponent_local);
-        self.release_temp_local(ieee_exponent_local);
-        self.release_temp_local(ieee_mantissa_local);
-    }
-
-    pub(super) fn emit_ryu_number_to_string_payload(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let output_local = self.reserve_temp_local();
-        let absolute_bits_local = self.reserve_temp_local();
-        let sign_local = self.reserve_temp_local();
-        let mantissa_local = self.reserve_temp_local();
-        let exponent_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(absolute_bits_local));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(63));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::LocalGet(absolute_bits_local));
-        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(absolute_bits_local));
-        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("NaN")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-Infinity")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("Infinity")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(absolute_bits_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("0")));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        self.emit_ryu_shortest_decimal(
-            absolute_bits_local,
-            mantissa_local,
-            exponent_local,
-            function,
-        );
-        self.emit_ecmascript_decimal_payload(
-            sign_local,
-            mantissa_local,
-            exponent_local,
-            output_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(output_local));
-
-        self.release_temp_local(exponent_local);
-        self.release_temp_local(mantissa_local);
-        self.release_temp_local(sign_local);
-        self.release_temp_local(absolute_bits_local);
-        self.release_temp_local(output_local);
-        Ok(())
-    }
-
-    fn emit_ecmascript_decimal_payload(
-        &mut self,
-        sign_local: u32,
-        mantissa_local: u32,
-        exponent_local: u32,
-        output_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let mantissa_length_local = self.reserve_temp_local();
-        let decimal_point_local = self.reserve_temp_local();
-        let total_length_local = self.reserve_temp_local();
-        let output_offset_local = self.reserve_temp_local();
-        let number_start_local = self.reserve_temp_local();
-        self.emit_count_decimal_digits_u64(mantissa_local, mantissa_length_local, function);
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::LocalGet(exponent_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(decimal_point_local));
-
-        function.instruction(&Instruction::LocalGet(exponent_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Const(21));
-        function.instruction(&Instruction::I64LeS);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_length_local));
-        self.emit_heap_alloc_from_local(total_length_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_offset_local));
-        self.emit_decimal_sign(
-            sign_local,
-            output_offset_local,
-            number_start_local,
-            function,
-        );
-        self.emit_write_decimal_u64(
-            mantissa_local,
-            number_start_local,
-            mantissa_length_local,
-            function,
-        );
-        self.emit_decimal_zero_suffix(
-            number_start_local,
-            mantissa_length_local,
-            exponent_local,
-            function,
-        );
-        self.emit_pack_string_payload(output_offset_local, total_length_local, function);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Const(21));
-        function.instruction(&Instruction::I64LeS);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_length_local));
-        self.emit_heap_alloc_from_local(total_length_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_offset_local));
-        self.emit_decimal_sign(
-            sign_local,
-            output_offset_local,
-            number_start_local,
-            function,
-        );
-        self.emit_decimal_with_internal_point(
-            mantissa_local,
-            mantissa_length_local,
-            decimal_point_local,
-            number_start_local,
-            function,
-        );
-        self.emit_pack_string_payload(output_offset_local, total_length_local, function);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Const(-6));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LeS);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(total_length_local));
-        self.emit_heap_alloc_from_local(total_length_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_offset_local));
-        self.emit_decimal_sign(
-            sign_local,
-            output_offset_local,
-            number_start_local,
-            function,
-        );
-        self.emit_decimal_with_leading_zeros(
-            mantissa_local,
-            mantissa_length_local,
-            decimal_point_local,
-            number_start_local,
-            function,
-        );
-        self.emit_pack_string_payload(output_offset_local, total_length_local, function);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        self.emit_scientific_decimal_payload(
-            sign_local,
-            mantissa_local,
-            mantissa_length_local,
-            decimal_point_local,
-            output_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(number_start_local);
-        self.release_temp_local(output_offset_local);
-        self.release_temp_local(total_length_local);
-        self.release_temp_local(decimal_point_local);
-        self.release_temp_local(mantissa_length_local);
-        Ok(())
-    }
-
-    pub(super) fn emit_decimal_sign(
-        &mut self,
-        sign_local: u32,
-        output_offset_local: u32,
-        number_start_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(output_offset_local));
-        function.instruction(&Instruction::LocalSet(number_start_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_ascii_byte_i64(output_offset_local, b'-', function);
-        function.instruction(&Instruction::LocalGet(output_offset_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(number_start_local));
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_decimal_zero_suffix(
-        &mut self,
-        number_start_local: u32,
-        mantissa_length_local: u32,
-        zero_count_local: u32,
-        function: &mut Function,
-    ) {
-        let zero_start_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(zero_start_local));
-        self.emit_repeated_ascii(zero_start_local, zero_count_local, b'0', function);
-        self.release_temp_local(zero_start_local);
-    }
-
-    pub(super) fn emit_repeated_ascii(
-        &mut self,
-        start_local: u32,
-        count_local: u32,
-        byte: u8,
-        function: &mut Function,
-    ) {
-        let index_local = self.reserve_temp_local();
-        let position_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(count_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(position_local));
-        self.store_ascii_byte_i64(position_local, byte, function);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(position_local);
-        self.release_temp_local(index_local);
-    }
-
-    fn emit_decimal_with_internal_point(
-        &mut self,
-        mantissa_local: u32,
-        mantissa_length_local: u32,
-        decimal_point_local: u32,
-        number_start_local: u32,
-        function: &mut Function,
-    ) {
-        let shifted_start_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(shifted_start_local));
-        self.emit_write_decimal_u64(
-            mantissa_local,
-            shifted_start_local,
-            mantissa_length_local,
-            function,
-        );
-        self.emit_copy_bytes(
-            shifted_start_local,
-            number_start_local,
-            decimal_point_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(shifted_start_local));
-        self.store_ascii_byte_i64(shifted_start_local, b'.', function);
-        self.release_temp_local(shifted_start_local);
-    }
-
-    fn emit_decimal_with_leading_zeros(
-        &mut self,
-        mantissa_local: u32,
-        mantissa_length_local: u32,
-        decimal_point_local: u32,
-        number_start_local: u32,
-        function: &mut Function,
-    ) {
-        let zero_start_local = self.reserve_temp_local();
-        let zero_count_local = self.reserve_temp_local();
-        let mantissa_start_local = self.reserve_temp_local();
-        self.store_ascii_byte_i64(number_start_local, b'0', function);
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(zero_start_local));
-        self.store_ascii_byte_i64(zero_start_local, b'.', function);
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(zero_start_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(zero_count_local));
-        self.emit_repeated_ascii(zero_start_local, zero_count_local, b'0', function);
-        function.instruction(&Instruction::LocalGet(zero_start_local));
-        function.instruction(&Instruction::LocalGet(zero_count_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(mantissa_start_local));
-        self.emit_write_decimal_u64(
-            mantissa_local,
-            mantissa_start_local,
-            mantissa_length_local,
-            function,
-        );
-        self.release_temp_local(mantissa_start_local);
-        self.release_temp_local(zero_count_local);
-        self.release_temp_local(zero_start_local);
-    }
-
-    pub(super) fn emit_scientific_decimal_payload(
-        &mut self,
-        sign_local: u32,
-        mantissa_local: u32,
-        mantissa_length_local: u32,
-        decimal_point_local: u32,
-        output_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let scientific_exponent_local = self.reserve_temp_local();
-        let exponent_magnitude_local = self.reserve_temp_local();
-        let exponent_digits_local = self.reserve_temp_local();
-        let significand_length_local = self.reserve_temp_local();
-        let total_length_local = self.reserve_temp_local();
-        let output_offset_local = self.reserve_temp_local();
-        let number_start_local = self.reserve_temp_local();
-        let shifted_start_local = self.reserve_temp_local();
-        let exponent_start_local = self.reserve_temp_local();
-        let first_digit_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(decimal_point_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(scientific_exponent_local));
-        function.instruction(&Instruction::LocalGet(scientific_exponent_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(scientific_exponent_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(scientific_exponent_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(exponent_magnitude_local));
-        self.emit_count_decimal_digits_u64(
-            exponent_magnitude_local,
-            exponent_digits_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(significand_length_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(significand_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(exponent_digits_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_length_local));
-        self.emit_heap_alloc_from_local(total_length_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_offset_local));
-        self.emit_decimal_sign(
-            sign_local,
-            output_offset_local,
-            number_start_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(mantissa_length_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_write_decimal_u64(
-            mantissa_local,
-            number_start_local,
-            mantissa_length_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(shifted_start_local));
-        self.emit_write_decimal_u64(
-            mantissa_local,
-            shifted_start_local,
-            mantissa_length_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(shifted_start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(first_digit_local));
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(first_digit_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
-        self.store_ascii_byte_i64(shifted_start_local, b'.', function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(number_start_local));
-        function.instruction(&Instruction::LocalGet(significand_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(exponent_start_local));
-        self.store_ascii_byte_i64(exponent_start_local, b'e', function);
-        function.instruction(&Instruction::LocalGet(exponent_start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(exponent_start_local));
-        function.instruction(&Instruction::LocalGet(scientific_exponent_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_ascii_byte_i64(exponent_start_local, b'-', function);
-        function.instruction(&Instruction::Else);
-        self.store_ascii_byte_i64(exponent_start_local, b'+', function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(exponent_start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(exponent_start_local));
-        self.emit_write_decimal_u64(
-            exponent_magnitude_local,
-            exponent_start_local,
-            exponent_digits_local,
-            function,
-        );
-        self.emit_pack_string_payload(output_offset_local, total_length_local, function);
-        function.instruction(&Instruction::LocalSet(output_local));
-
-        self.release_temp_local(first_digit_local);
-        self.release_temp_local(exponent_start_local);
-        self.release_temp_local(shifted_start_local);
-        self.release_temp_local(number_start_local);
-        self.release_temp_local(output_offset_local);
-        self.release_temp_local(total_length_local);
-        self.release_temp_local(significand_length_local);
-        self.release_temp_local(exponent_digits_local);
-        self.release_temp_local(exponent_magnitude_local);
-        self.release_temp_local(scientific_exponent_local);
-        Ok(())
+        schema.release_i64_local(round_up_local, function);
+        schema.release_i64_local(lower_quotient_local, function);
+        schema.release_i64_local(upper_quotient_local, function);
+        schema.release_i64_local(temporary_local, function);
+        schema.release_i64_local(last_removed_digit_local, function);
+        schema.release_i64_local(removed_local, function);
+        schema.release_i64_local(lower_trailing_zeros_local, function);
+        schema.release_i64_local(central_trailing_zeros_local, function);
+        schema.release_i64_local(lower_local, function);
+        schema.release_i64_local(upper_local, function);
+        schema.release_i64_local(central_local, function);
+        schema.release_i64_local(multiplier_high_local, function);
+        schema.release_i64_local(multiplier_low_local, function);
+        schema.release_i64_local(product_shift_local, function);
+        schema.release_i64_local(power_bits_local, function);
+        schema.release_i64_local(power_index_local, function);
+        schema.release_i64_local(decimal_exponent_local, function);
+        schema.release_i64_local(decimal_power_local, function);
+        schema.release_i64_local(lower_boundary_shift_local, function);
+        schema.release_i64_local(scaled_mantissa_local, function);
+        schema.release_i64_local(accept_bounds_local, function);
+        schema.release_i64_local(binary_mantissa_local, function);
+        schema.release_i64_local(binary_exponent_local, function);
+        schema.release_i64_local(ieee_exponent_local, function);
+        schema.release_i64_local(ieee_mantissa_local, function);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_ryu_interval_products(
         &mut self,
-        binary_mantissa_local: u32,
-        lower_boundary_shift_local: u32,
-        multiplier_low_local: u32,
-        multiplier_high_local: u32,
-        product_shift_local: u32,
-        central_local: u32,
-        upper_local: u32,
-        lower_local: u32,
+        binary_mantissa_local: crate::gc_types::I64Local,
+        lower_boundary_shift_local: crate::gc_types::I64Local,
+        multiplier_low_local: crate::gc_types::I64Local,
+        multiplier_high_local: crate::gc_types::I64Local,
+        product_shift_local: crate::gc_types::I64Local,
+        central_local: crate::gc_types::I64Local,
+        upper_local: crate::gc_types::I64Local,
+        lower_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
-        let boundary_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(binary_mantissa_local));
+        let schema = self.runtime_schema();
+        let boundary_local = schema.reserve_i64_local(function);
+        binary_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(boundary_local));
+        boundary_local.store(function);
         self.emit_ryu_mul_shift(
             boundary_local,
             multiplier_low_local,
@@ -1193,10 +703,10 @@ impl<'a> FunctionBuilder<'a> {
             central_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(boundary_local));
+        boundary_local.load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(boundary_local));
+        boundary_local.store(function);
         self.emit_ryu_mul_shift(
             boundary_local,
             multiplier_low_local,
@@ -1205,14 +715,14 @@ impl<'a> FunctionBuilder<'a> {
             upper_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(binary_mantissa_local));
+        binary_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalGet(lower_boundary_shift_local));
+        lower_boundary_shift_local.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(boundary_local));
+        boundary_local.store(function);
         self.emit_ryu_mul_shift(
             boundary_local,
             multiplier_low_local,
@@ -1221,56 +731,57 @@ impl<'a> FunctionBuilder<'a> {
             lower_local,
             function,
         );
-        self.release_temp_local(boundary_local);
+        schema.release_i64_local(boundary_local, function);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_ryu_negative_binary_exponent(
         &mut self,
-        binary_exponent_local: u32,
-        binary_mantissa_local: u32,
-        accept_bounds_local: u32,
-        scaled_mantissa_local: u32,
-        lower_boundary_shift_local: u32,
-        decimal_power_local: u32,
-        decimal_exponent_local: u32,
-        power_index_local: u32,
-        power_bits_local: u32,
-        product_shift_local: u32,
-        multiplier_low_local: u32,
-        multiplier_high_local: u32,
-        central_local: u32,
-        upper_local: u32,
-        lower_local: u32,
-        central_trailing_zeros_local: u32,
-        lower_trailing_zeros_local: u32,
+        binary_exponent_local: crate::gc_types::I64Local,
+        binary_mantissa_local: crate::gc_types::I64Local,
+        accept_bounds_local: crate::gc_types::I64Local,
+        scaled_mantissa_local: crate::gc_types::I64Local,
+        lower_boundary_shift_local: crate::gc_types::I64Local,
+        decimal_power_local: crate::gc_types::I64Local,
+        decimal_exponent_local: crate::gc_types::I64Local,
+        power_index_local: crate::gc_types::I64Local,
+        power_bits_local: crate::gc_types::I64Local,
+        product_shift_local: crate::gc_types::I64Local,
+        multiplier_low_local: crate::gc_types::I64Local,
+        multiplier_high_local: crate::gc_types::I64Local,
+        central_local: crate::gc_types::I64Local,
+        upper_local: crate::gc_types::I64Local,
+        lower_local: crate::gc_types::I64Local,
+        central_trailing_zeros_local: crate::gc_types::I64Local,
+        lower_trailing_zeros_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
-        let negative_exponent_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let negative_exponent_local = schema.reserve_i64_local(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(binary_exponent_local));
+        binary_exponent_local.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(negative_exponent_local));
-        function.instruction(&Instruction::LocalGet(negative_exponent_local));
+        negative_exponent_local.store(function);
+        negative_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(732_923));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Const(20));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(negative_exponent_local));
+        negative_exponent_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(decimal_power_local));
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
-        function.instruction(&Instruction::LocalGet(binary_exponent_local));
+        decimal_power_local.store(function);
+        decimal_power_local.load(function);
+        binary_exponent_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(decimal_exponent_local));
-        function.instruction(&Instruction::LocalGet(negative_exponent_local));
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_exponent_local.store(function);
+        negative_exponent_local.load(function);
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(power_index_local));
-        function.instruction(&Instruction::LocalGet(power_index_local));
+        power_index_local.store(function);
+        power_index_local.load(function);
         function.instruction(&Instruction::I64Const(1_217_359));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Const(19));
@@ -1279,11 +790,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Const(DOUBLE_POW5_BITCOUNT));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(power_bits_local));
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
-        function.instruction(&Instruction::LocalGet(power_bits_local));
+        power_bits_local.store(function);
+        decimal_power_local.load(function);
+        power_bits_local.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(product_shift_local));
+        product_shift_local.store(function);
         self.emit_ryu_power_lookup(
             RyuPowerTable::Pow5,
             power_index_local,
@@ -1302,278 +813,704 @@ impl<'a> FunctionBuilder<'a> {
             lower_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(central_trailing_zeros_local));
-        function.instruction(&Instruction::LocalGet(accept_bounds_local));
+        central_trailing_zeros_local.store(function);
+        accept_bounds_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lower_boundary_shift_local));
+        lower_boundary_shift_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(lower_trailing_zeros_local));
+        lower_trailing_zeros_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(upper_local));
+        upper_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(upper_local));
+        upper_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Const(63));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scaled_mantissa_local));
+        scaled_mantissa_local.load(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalGet(decimal_power_local));
+        decimal_power_local.load(function);
         function.instruction(&Instruction::I64Shl);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(central_trailing_zeros_local));
+        central_trailing_zeros_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(negative_exponent_local);
+        schema.release_i64_local(negative_exponent_local, function);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_ryu_common_digit_removal(
         &mut self,
-        central_local: u32,
-        upper_local: u32,
-        lower_local: u32,
-        removed_local: u32,
-        round_up_local: u32,
-        upper_quotient_local: u32,
-        lower_quotient_local: u32,
-        output_local: u32,
+        central_local: crate::gc_types::I64Local,
+        upper_local: crate::gc_types::I64Local,
+        lower_local: crate::gc_types::I64Local,
+        removed_local: crate::gc_types::I64Local,
+        round_up_local: crate::gc_types::I64Local,
+        upper_quotient_local: crate::gc_types::I64Local,
+        lower_quotient_local: crate::gc_types::I64Local,
+        output_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(round_up_local));
-        function.instruction(&Instruction::LocalGet(upper_local));
+        round_up_local.store(function);
+        upper_local.load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(upper_quotient_local));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        upper_quotient_local.store(function);
+        lower_local.load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(lower_quotient_local));
-        function.instruction(&Instruction::LocalGet(upper_quotient_local));
-        function.instruction(&Instruction::LocalGet(lower_quotient_local));
+        lower_quotient_local.store(function);
+        upper_quotient_local.load(function);
+        lower_quotient_local.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Const(50));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(round_up_local));
-        function.instruction(&Instruction::LocalGet(central_local));
+        round_up_local.store(function);
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(central_local));
-        function.instruction(&Instruction::LocalGet(upper_quotient_local));
-        function.instruction(&Instruction::LocalSet(upper_local));
-        function.instruction(&Instruction::LocalGet(lower_quotient_local));
-        function.instruction(&Instruction::LocalSet(lower_local));
+        central_local.store(function);
+        upper_quotient_local.load(function);
+        upper_local.store(function);
+        lower_quotient_local.load(function);
+        lower_local.store(function);
         function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::LocalSet(removed_local));
+        removed_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(upper_local));
+        upper_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(upper_quotient_local));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        upper_quotient_local.store(function);
+        lower_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(lower_quotient_local));
-        function.instruction(&Instruction::LocalGet(upper_quotient_local));
-        function.instruction(&Instruction::LocalGet(lower_quotient_local));
+        lower_quotient_local.store(function);
+        upper_quotient_local.load(function);
+        lower_quotient_local.load(function);
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Const(5));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(round_up_local));
-        function.instruction(&Instruction::LocalGet(central_local));
+        round_up_local.store(function);
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(central_local));
-        function.instruction(&Instruction::LocalGet(upper_quotient_local));
-        function.instruction(&Instruction::LocalSet(upper_local));
-        function.instruction(&Instruction::LocalGet(lower_quotient_local));
-        function.instruction(&Instruction::LocalSet(lower_local));
-        function.instruction(&Instruction::LocalGet(removed_local));
+        central_local.store(function);
+        upper_quotient_local.load(function);
+        upper_local.store(function);
+        lower_quotient_local.load(function);
+        lower_local.store(function);
+        removed_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(removed_local));
+        removed_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(central_local));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        central_local.load(function);
+        lower_local.load(function);
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(round_up_local));
+        round_up_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_ryu_trailing_zero_digit_removal(
         &mut self,
-        accept_bounds_local: u32,
-        central_local: u32,
-        upper_local: u32,
-        lower_local: u32,
-        central_trailing_zeros_local: u32,
-        lower_trailing_zeros_local: u32,
-        removed_local: u32,
-        last_removed_digit_local: u32,
-        upper_quotient_local: u32,
-        lower_quotient_local: u32,
-        output_local: u32,
+        accept_bounds_local: crate::gc_types::I64Local,
+        central_local: crate::gc_types::I64Local,
+        upper_local: crate::gc_types::I64Local,
+        lower_local: crate::gc_types::I64Local,
+        central_trailing_zeros_local: crate::gc_types::I64Local,
+        lower_trailing_zeros_local: crate::gc_types::I64Local,
+        removed_local: crate::gc_types::I64Local,
+        last_removed_digit_local: crate::gc_types::I64Local,
+        upper_quotient_local: crate::gc_types::I64Local,
+        lower_quotient_local: crate::gc_types::I64Local,
+        output_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(upper_local));
+        upper_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(upper_quotient_local));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        upper_quotient_local.store(function);
+        lower_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(lower_quotient_local));
-        function.instruction(&Instruction::LocalGet(upper_quotient_local));
-        function.instruction(&Instruction::LocalGet(lower_quotient_local));
+        lower_quotient_local.store(function);
+        upper_quotient_local.load(function);
+        lower_quotient_local.load(function);
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        lower_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(lower_trailing_zeros_local));
+        lower_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(lower_trailing_zeros_local));
-        function.instruction(&Instruction::LocalGet(last_removed_digit_local));
+        lower_trailing_zeros_local.store(function);
+        last_removed_digit_local.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(central_trailing_zeros_local));
+        central_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(central_trailing_zeros_local));
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_trailing_zeros_local.store(function);
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(last_removed_digit_local));
-        function.instruction(&Instruction::LocalGet(central_local));
+        last_removed_digit_local.store(function);
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(central_local));
-        function.instruction(&Instruction::LocalGet(upper_quotient_local));
-        function.instruction(&Instruction::LocalSet(upper_local));
-        function.instruction(&Instruction::LocalGet(lower_quotient_local));
-        function.instruction(&Instruction::LocalSet(lower_local));
-        function.instruction(&Instruction::LocalGet(removed_local));
+        central_local.store(function);
+        upper_quotient_local.load(function);
+        upper_local.store(function);
+        lower_quotient_local.load(function);
+        lower_local.store(function);
+        removed_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(removed_local));
+        removed_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(lower_trailing_zeros_local));
+        lower_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        lower_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(last_removed_digit_local));
+        last_removed_digit_local.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(central_trailing_zeros_local));
+        central_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(central_trailing_zeros_local));
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_trailing_zeros_local.store(function);
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(last_removed_digit_local));
-        function.instruction(&Instruction::LocalGet(central_local));
+        last_removed_digit_local.store(function);
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(central_local));
-        function.instruction(&Instruction::LocalGet(upper_local));
+        central_local.store(function);
+        upper_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(upper_local));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        upper_local.store(function);
+        lower_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(lower_local));
-        function.instruction(&Instruction::LocalGet(removed_local));
+        lower_local.store(function);
+        removed_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(removed_local));
+        removed_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(central_trailing_zeros_local));
+        central_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(last_removed_digit_local));
+        last_removed_digit_local.load(function);
         function.instruction(&Instruction::I64Const(5));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_local.load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::LocalSet(last_removed_digit_local));
+        last_removed_digit_local.store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(central_local));
-        function.instruction(&Instruction::LocalGet(lower_local));
+        central_local.load(function);
+        lower_local.load(function);
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(accept_bounds_local));
+        accept_bounds_local.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(lower_trailing_zeros_local));
+        lower_trailing_zeros_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(last_removed_digit_local));
+        last_removed_digit_local.load(function);
         function.instruction(&Instruction::I64Const(5));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(central_local));
+        central_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
+    }
+    /// Converts binary64 bits to the exact ECMAScript decimal spelling. Ryū's
+    /// interval arithmetic remains numeric; only this final publication creates
+    /// a JavaScript String, directly as immutable UTF-16 code units.
+    pub(super) fn emit_ryu_number_to_string_payload(
+        &mut self,
+        bits: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) -> Result<crate::gc_types::GcStackReference<StringValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let output = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("0", function)?,
+            function,
+        );
+        let absolute = schema.reserve_i64_local(function);
+        let sign = schema.reserve_i64_local(function);
+        let mantissa = schema.reserve_i64_local(function);
+        let exponent = schema.reserve_i64_local(function);
+        bits.load(function);
+        function.instruction(&Instruction::I64Const(i64::MAX));
+        function.instruction(&Instruction::I64And);
+        absolute.store(function);
+        bits.load(function);
+        function.instruction(&Instruction::I64Const(63));
+        function.instruction(&Instruction::I64ShrU);
+        sign.store(function);
+        absolute.load(function);
+        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        absolute.load(function);
+        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        output.replace(
+            self.emit_interned_string_reference("NaN", function)?,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        sign.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        output.replace(
+            self.emit_interned_string_reference("-Infinity", function)?,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        output.replace(
+            self.emit_interned_string_reference("Infinity", function)?,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        absolute.load(function);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_ryu_shortest_decimal(absolute, mantissa, exponent, function);
+        output.replace(
+            self.emit_ecmascript_decimal_string(sign, mantissa, exponent, function),
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(exponent, function);
+        schema.release_i64_local(mantissa, function);
+        schema.release_i64_local(sign, function);
+        schema.release_i64_local(absolute, function);
+        let result = output.load(schema, function);
+        output.clear(function);
+        Ok(result)
+    }
+
+    fn emit_decimal_digit_count(
+        &self,
+        value: crate::gc_types::I64Local,
+        output: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let remaining = schema.reserve_i64_local(function);
+        value.load(function);
+        remaining.store(function);
+        function.instruction(&Instruction::I64Const(1));
+        output.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        remaining.load(function);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::BrIf(1));
+        remaining.load(function);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64DivU);
+        remaining.store(function);
+        output.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        output.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(remaining, function);
+    }
+
+    /// Leaves one ASCII digit as I32. All inputs are numeric scalar locals;
+    /// no byte pointer or encoded String payload crosses this boundary.
+    fn emit_decimal_digit_at(
+        &self,
+        value: crate::gc_types::I64Local,
+        digits: crate::gc_types::I64Local,
+        index: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let remaining = schema.reserve_i64_local(function);
+        let shift = schema.reserve_i64_local(function);
+        value.load(function);
+        remaining.store(function);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        index.load(function);
+        function.instruction(&Instruction::I64Sub);
+        shift.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        shift.load(function);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        remaining.load(function);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64DivU);
+        remaining.store(function);
+        shift.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        shift.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        remaining.load(function);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64RemU);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Const(i32::from(b'0')));
+        function.instruction(&Instruction::I32Add);
+        schema.release_i64_local(shift, function);
+        schema.release_i64_local(remaining, function);
+    }
+
+    fn emit_ecmascript_decimal_string(
+        &self,
+        sign: crate::gc_types::I64Local,
+        mantissa: crate::gc_types::I64Local,
+        exponent: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) -> crate::gc_types::GcStackReference<StringValue> {
+        let schema = self.runtime_schema();
+        let digits = schema.reserve_i64_local(function);
+        let point = schema.reserve_i64_local(function);
+        let scientific = schema.reserve_i64_local(function);
+        let magnitude = schema.reserve_i64_local(function);
+        let exponent_digits = schema.reserve_i64_local(function);
+        let significand_length = schema.reserve_i64_local(function);
+        let length64 = schema.reserve_i64_local(function);
+        let position = schema.reserve_i64_local(function);
+        let digit_index = schema.reserve_i64_local(function);
+        let mode = schema.reserve_i32_local(function);
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        self.emit_decimal_digit_count(mantissa, digits, function);
+        digits.load(function);
+        exponent.load(function);
+        function.instruction(&Instruction::I64Add);
+        point.store(function);
+        point.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        scientific.store(function);
+        scientific.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(0));
+        scientific.load(function);
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::Else);
+        scientific.load(function);
+        function.instruction(&Instruction::End);
+        magnitude.store(function);
+        self.emit_decimal_digit_count(magnitude, exponent_digits, function);
+        digits.load(function);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Add);
+        significand_length.store(function);
+        exponent.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GeS);
+        point.load(function);
+        function.instruction(&Instruction::I64Const(21));
+        function.instruction(&Instruction::I64LeS);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Const(0));
+        mode.store(function);
+        point.load(function);
+        length64.store(function);
+        function.instruction(&Instruction::Else);
+        point.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GtS);
+        point.load(function);
+        function.instruction(&Instruction::I64Const(21));
+        function.instruction(&Instruction::I64LeS);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Const(1));
+        mode.store(function);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        length64.store(function);
+        function.instruction(&Instruction::Else);
+        point.load(function);
+        function.instruction(&Instruction::I64Const(-6));
+        function.instruction(&Instruction::I64GtS);
+        point.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LeS);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Const(2));
+        mode.store(function);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Add);
+        point.load(function);
+        function.instruction(&Instruction::I64Sub);
+        length64.store(function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(3));
+        mode.store(function);
+        significand_length.load(function);
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Add);
+        exponent_digits.load(function);
+        function.instruction(&Instruction::I64Add);
+        length64.store(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        length64.load(function);
+        sign.load(function);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I32WrapI64);
+        length.store(function);
+        let construction = crate::gc_types::StringConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            length,
+            function,
+        );
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        index.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        sign.load(function);
+        function.instruction(&Instruction::I64Sub);
+        position.store(function);
+        position.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'-')));
+        function.instruction(&Instruction::Else);
+        mode.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        position.load(function);
+        digits.load(function);
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_decimal_digit_at(mantissa, digits, position, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(i32::from(b'0')));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        mode.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        position.load(function);
+        point.load(function);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'.')));
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        position.load(function);
+        point.load(function);
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Sub);
+        digit_index.store(function);
+        self.emit_decimal_digit_at(mantissa, digits, digit_index, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        mode.load(function);
+        function.instruction(&Instruction::I32Const(2));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        position.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'.')));
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        function.instruction(&Instruction::I64Const(2));
+        point.load(function);
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'0')));
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Sub);
+        point.load(function);
+        function.instruction(&Instruction::I64Add);
+        digit_index.store(function);
+        self.emit_decimal_digit_at(mantissa, digits, digit_index, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        significand_length.load(function);
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        position.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'.')));
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        position.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Sub);
+        digit_index.store(function);
+        self.emit_decimal_digit_at(mantissa, digits, digit_index, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        significand_length.load(function);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'e')));
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        significand_length.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        scientific.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(i32::from(b'-')));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(i32::from(b'+')));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        position.load(function);
+        significand_length.load(function);
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Sub);
+        digit_index.store(function);
+        self.emit_decimal_digit_at(magnitude, exponent_digits, digit_index, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        unit.store(function);
+        construction.write(index, unit, schema, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        let result = construction.publish(schema, function);
+        schema.release_i32_local(unit, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
+        schema.release_i32_local(mode, function);
+        schema.release_i64_local(digit_index, function);
+        schema.release_i64_local(position, function);
+        schema.release_i64_local(length64, function);
+        schema.release_i64_local(significand_length, function);
+        schema.release_i64_local(exponent_digits, function);
+        schema.release_i64_local(magnitude, function);
+        schema.release_i64_local(scientific, function);
+        schema.release_i64_local(point, function);
+        schema.release_i64_local(digits, function);
+        result
     }
 }
 

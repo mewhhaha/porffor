@@ -1,6 +1,8 @@
 # Sync iterator consumer capability
 
-Status: focused verification passed on 2026-08-29.
+Status: the sixth-consumer source batch passed the ref97 combined all-target Rust
+type check on 2026-10-04; runtime checks remain pending. Earlier focused receipts
+retain their original scope.
 
 ## Specification basis
 
@@ -20,8 +22,8 @@ Array-literal spread follows
 ## Closed consumer domain
 
 `SyncIteratorConsumer::{ArrayDestructuring, ArrayAccumulation, ForOf,
-MathSumPrecise}` is the crate-closed authority for synchronous iterator
-diagnostics. The four-variant domain has no `Clone`, `Copy`, comparison,
+MathSumPrecise, ListFormat, AggregateError}` is the crate-closed authority for
+synchronous iterator diagnostics. The six-variant domain has no `Clone`, `Copy`, comparison,
 formatting, default, conversion, or representation capability. Each semantic
 owner constructs one value, and the structure guard pins the same borrow
 through acquisition and stepping.
@@ -34,7 +36,7 @@ through acquisition and stepping.
 - `NextResultNotObject`.
 
 The sole projection consumes the error and exhaustively matches its product
-with the borrowed consumer. The resulting 16 diagnostic rows are:
+with the borrowed consumer. The resulting 24 diagnostic rows are:
 
 | Consumer | Not iterable | Iterator-method result | `next` | `next` result |
 | --- | --- | --- | --- | --- |
@@ -42,13 +44,27 @@ with the borrowed consumer. The resulting 16 diagnostic rows are:
 | `ArrayAccumulation` | `array spread value is not iterable` | `array spread iterator method must return object` | `array spread iterator next must be callable` | `array spread iterator next result must be object` |
 | `ForOf` | `for-of target is not iterable` | `for-of iterator method must return object` | `for-of iterator next must be callable` | `for-of iterator next result must be object` |
 | `MathSumPrecise` | `Math.sumPrecise input is not iterable` | `Math.sumPrecise iterator method must return an object` | `Math.sumPrecise iterator next method is not callable` | `Math.sumPrecise iterator next result must be an object` |
+| `ListFormat` | `Intl.ListFormat input is not iterable` | `Intl.ListFormat iterator method result must be object` | `Intl.ListFormat iterator next must be callable` | `Intl.ListFormat iterator next result must be object` |
+| `AggregateError` | `AggregateError errors input must be iterable` | `AggregateError iterator method must return object` | `AggregateError iterator next must be callable` | `AggregateError iterator next result must be object` |
 
-The confirmed source census is 17 typed projector calls and 35
+The confirmed source census is 17 typed projector calls and 43
 `SyncIteratorProtocolError` identifiers. Those identifiers comprise the
-declaration, the typed projector parameter, 17 producers, and 16 mapping rows.
-Across the producers and mapping rows, the variants total 10 `NotIterable`, 7
-`MethodResultNotObject`, 8 `NextNotCallable`, and 8
+declaration, the typed projector parameter, 17 producers, and 24 mapping rows.
+Across the producers and mapping rows, the variants total 12 `NotIterable`, 9
+`MethodResultNotObject`, 10 `NextNotCallable`, and 10
 `NextResultNotObject` mentions.
+
+`ListFormat` adds four mapping rows and one semantic owner in
+`builtins/intl_listformat/iterable.rs`. It borrows the same consumer for
+acquisition and `IteratorStepValue`, then releases the shared iterator locals.
+Its non-string element error uses `emit_iterator_close_preserving_current_throw`;
+acquisition, `next`, `done`, and `value` abrupt completions never take that route.
+AggregateError adds four rows and one semantic owner in `builtins/errors.rs`.
+It borrows the same consumer through acquisition and stepping and consumes the
+iterator locals on release. Its IteratorToList path propagates every acquisition
+or step abrupt without IteratorClose. The source census is 34 consumer mentions
+in `control_flow.rs`, 43 across the backend, eight consumer constructions and
+22 consumer borrows.
 
 ## Realm invariant
 
@@ -68,8 +84,11 @@ iterator and `next` methods through general `IsCallable` and Proxy-aware
 `Call`; non-callable Proxy methods still select the typed consumer diagnostic.
 The callable-Proxy fixture deliberately retains 13 captured bindings and pins
 the entry `%TypeError.prototype%` for primitive and non-callable Proxy
-iterator methods. This follow-up does not change the 17-producer or
-35-identifier census.
+iterator methods. That historical follow-up did not change the 17-producer or
+35-identifier census; the later ListFormat owner changes only the mapping rows
+to its 39-identifier checkpoint. The later AggregateError owner adds four
+mapping rows to the current 43-identifier census above; all 17 producer calls
+remain unchanged.
 
 ## Destructuring and ArrayAccumulation
 
@@ -108,6 +127,20 @@ Array literal or by an Array-rest result. Those prototype-Realm questions remain
 separate work.
 
 ## Source and verification checkpoint
+
+The 2026-10-04 sixth-consumer source batch retains the four-error authority,
+17 ordered producers, exhaustive Realm projection and every old negative
+assertion. Maintained guards pin all 24 rows and the actual AggregateError
+acquisition/step/release joins. Two new paired Engine fixtures cover observable
+protocol, prefix ordering, Realm ownership and no-close abrupts. The ref97 combined
+all-target Rust type check passed; emitted-Wasm and runtime execution remain
+pending. The receipts below do not verify this newer source.
+
+The 2026-10-01 fifth-consumer structure follow-up corrects stale four-consumer
+witnesses and adds exact ListFormat ownership, diagnostics, close precedence,
+and existing Engine fixture bindings. Its focused Rust verification remains
+pending in this source-only proposal. The results below belong to the earlier
+four-consumer checkpoints and are retained without promotion.
 
 The extracted async owner is 416 method lines and 420 raw child lines with
 SHA-256

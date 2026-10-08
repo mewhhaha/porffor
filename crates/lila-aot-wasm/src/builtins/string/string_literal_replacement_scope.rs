@@ -1,489 +1,564 @@
+use super::regexp_substitution::{NamedSubstitutionCaptures, SubstitutionCaptureList};
 use super::*;
+use crate::functions::ArgumentListConstruction;
 
 enum StringLiteralReplacementScope {
     FirstOccurrence,
     AllOccurrences,
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
+    pub(super) fn emit_native_string_equal_at(
+        &mut self,
+        input: &GcLocal<StringValue>,
+        needle: &GcLocal<StringValue>,
+        input_length: I64Local,
+        needle_length: I64Local,
+        start: I64Local,
+        equal: I32Local,
+        f: &mut Function,
+    ) {
+        let s = self.runtime_schema();
+        let index = s.reserve_i64_local(f);
+        let address = s.reserve_i64_local(f);
+        let unit = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I32Const(0));
+        equal.store(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        start.load(f);
+        input_length.load(f);
+        f.instruction(&Instruction::I64GtU);
+        self.emit_branch_if_to_target(done, f);
+        needle_length.load(f);
+        input_length.load(f);
+        start.load(f);
+        f.instruction(&Instruction::I64Sub);
+        f.instruction(&Instruction::I64GtU);
+        self.emit_branch_if_to_target(done, f);
+        f.instruction(&Instruction::I64Const(0));
+        index.store(f);
+        let compared = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        needle_length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(compared, f);
+        start.load(f);
+        index.load(f);
+        f.instruction(&Instruction::I64Add);
+        address.store(f);
+        self.emit_gc_string_code_unit_i32(input, address, f);
+        unit.store(f);
+        self.emit_gc_string_code_unit_i32(needle, index, f);
+        unit.load(f);
+        f.instruction(&Instruction::I32Ne);
+        self.emit_branch_if_to_target(done, f);
+        index.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        index.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        f.instruction(&Instruction::I32Const(1));
+        equal.store(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        s.release_i32_local(unit, f);
+        s.release_i64_local(address, f);
+        s.release_i64_local(index, f);
+    }
+
+    pub(super) fn emit_native_string_index_of(
+        &mut self,
+        input: &GcLocal<StringValue>,
+        needle: &GcLocal<StringValue>,
+        input_length: I64Local,
+        needle_length: I64Local,
+        from: I64Local,
+        found: I64Local,
+        f: &mut Function,
+    ) {
+        let s = self.runtime_schema();
+        let cursor = s.reserve_i64_local(f);
+        let bound = s.reserve_i64_local(f);
+        let equal = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I64Const(-1));
+        found.store(f);
+        from.load(f);
+        cursor.store(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        needle_length.load(f);
+        input_length.load(f);
+        f.instruction(&Instruction::I64GtU);
+        self.emit_branch_if_to_target(done, f);
+        input_length.load(f);
+        needle_length.load(f);
+        f.instruction(&Instruction::I64Sub);
+        bound.store(f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        cursor.load(f);
+        bound.load(f);
+        f.instruction(&Instruction::I64GtU);
+        self.emit_branch_if_to_target(done, f);
+        self.emit_native_string_equal_at(
+            input,
+            needle,
+            input_length,
+            needle_length,
+            cursor,
+            equal,
+            f,
+        );
+        equal.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        cursor.load(f);
+        found.store(f);
+        self.emit_branch_to_target(done, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        cursor.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        cursor.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        s.release_i32_local(equal, f);
+        s.release_i64_local(bound, f);
+        s.release_i64_local(cursor, f);
+    }
+
     pub(super) fn emit_string_replace_literal_first_occurrence_from_string_locals(
         &mut self,
-        string_local: u32,
-        search_payload_local: u32,
-        search_tag_local: u32,
-        replacement_payload_local: u32,
-        replacement_tag_local: u32,
-        function: &mut Function,
+        input: &GcLocal<StringValue>,
+        search: &ValueLocals,
+        replacement: &ValueLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_string_replace_literal_from_string_locals(
+        self.emit_native_string_replace_literal(
             StringLiteralReplacementScope::FirstOccurrence,
-            string_local,
-            search_payload_local,
-            search_tag_local,
-            replacement_payload_local,
-            replacement_tag_local,
-            function,
+            input,
+            search,
+            replacement,
+            output,
+            exit,
+            f,
         )
     }
-
     pub(super) fn emit_string_replace_literal_all_occurrences_from_string_locals(
         &mut self,
-        string_local: u32,
-        search_payload_local: u32,
-        search_tag_local: u32,
-        replacement_payload_local: u32,
-        replacement_tag_local: u32,
-        function: &mut Function,
+        input: &GcLocal<StringValue>,
+        search: &ValueLocals,
+        replacement: &ValueLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_string_replace_literal_from_string_locals(
+        self.emit_native_string_replace_literal(
             StringLiteralReplacementScope::AllOccurrences,
-            string_local,
-            search_payload_local,
-            search_tag_local,
-            replacement_payload_local,
-            replacement_tag_local,
-            function,
+            input,
+            search,
+            replacement,
+            output,
+            exit,
+            f,
         )
     }
 
-    fn emit_string_replace_literal_from_string_locals(
+    fn emit_native_string_replace_literal(
         &mut self,
         scope: StringLiteralReplacementScope,
-        string_local: u32,
-        search_payload_local: u32,
-        search_tag_local: u32,
-        replacement_payload_local: u32,
-        replacement_tag_local: u32,
-        function: &mut Function,
+        input: &GcLocal<StringValue>,
+        search: &ValueLocals,
+        replacement: &ValueLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let search_string_local = self.reserve_temp_local();
-        let replacement_string_local = self.reserve_temp_local();
-        let source_offset_local = self.reserve_temp_local();
-        let source_len_local = self.reserve_temp_local();
-        let search_offset_local = self.reserve_temp_local();
-        let search_len_local = self.reserve_temp_local();
-        let replacement_offset_local = self.reserve_temp_local();
-        let replacement_len_local = self.reserve_temp_local();
-        let scan_index_local = self.reserve_temp_local();
-        let last_end_local = self.reserve_temp_local();
-        let compare_index_local = self.reserve_temp_local();
-        let match_local = self.reserve_temp_local();
-        let source_byte_local = self.reserve_temp_local();
-        let search_byte_local = self.reserve_temp_local();
-        let piece_len_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let functional_replacement_local = self.reserve_temp_local();
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-        let callback_string_local = self.reserve_temp_local();
-        let position_local = self.reserve_temp_local();
-        let position_payload_local = self.reserve_temp_local();
-        let number_tag_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        let substitution_local = self.reserve_temp_local();
-        let replacement_index_local = self.reserve_temp_local();
-        let literal_start_local = self.reserve_temp_local();
-        let next_byte_local = self.reserve_temp_local();
-        let substitution_kind_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        self.emit_value_to_string_payload(search_payload_local, search_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(search_string_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(replacement_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(functional_replacement_local));
-        function.instruction(&Instruction::LocalGet(functional_replacement_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(
-            replacement_payload_local,
-            replacement_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(replacement_string_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_unpack_string_payload(
-            string_local,
-            source_offset_local,
-            source_len_local,
-            function,
+        let s = self.runtime_schema();
+        let pending = s.reserve_completion(f);
+        let value = s.reserve_value_local(f);
+        let matched_value = s.reserve_value_local(f);
+        let position_value = s.reserve_value_local(f);
+        let input_value = s.reserve_value_local(f);
+        let undefined = s.reserve_value_local(f);
+        let input_length = s.reserve_i64_local(f);
+        let needle_length = s.reserve_i64_local(f);
+        let cursor = s.reserve_i64_local(f);
+        let position = s.reserve_i64_local(f);
+        let advance = s.reserve_i64_local(f);
+        let end_of_last_match = s.reserve_i64_local(f);
+        let count = s.reserve_i64_local(f);
+        let index = s.reserve_i64_local(f);
+        let bits = s.reserve_i64_local(f);
+        let ordinal = s.reserve_i32_local(f);
+        let functional = s.reserve_i32_local(f);
+        self.emit_value_to_string_payload(search, &pending, f)?;
+        self.emit_native_string_abrupt_exit(&pending, output, exit, f);
+        let needle = s
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
+        self.emit_is_callable_i32(replacement, f)?;
+        functional.store(f);
+        let replacement_string = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_native_string_static("", f), f);
+        functional.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_value_to_string_payload(replacement, &pending, f)?;
+        self.emit_native_string_abrupt_exit(&pending, output, exit, f);
+        replacement_string.replace(pending.value().cast_reference::<StringValue>(s, f), f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_native_gc_string_length(input, input_length, f);
+        self.emit_native_gc_string_length(&needle, needle_length, f);
+        needle_length.load(f);
+        advance.store(f);
+        advance.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(1));
+        advance.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        // Complete the position List before the first replacement callback.
+        let positions = ArgumentListConstruction::new(s, f);
+        f.instruction(&Instruction::I64Const(0));
+        cursor.store(f);
+        let positions_done = self.open_frame(ControlFrameKind::Block, f);
+        let position_next = self.open_frame(ControlFrameKind::Loop, f);
+        self.emit_native_string_index_of(
+            input,
+            &needle,
+            input_length,
+            needle_length,
+            cursor,
+            position,
+            f,
         );
-        self.emit_unpack_string_payload(
-            search_string_local,
-            search_offset_local,
-            search_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(last_end_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(string_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(number_tag_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(source_len_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(source_len_local));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(compare_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(source_offset_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(source_byte_local));
-        function.instruction(&Instruction::LocalGet(search_offset_local));
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(search_byte_local));
-        function.instruction(&Instruction::LocalGet(source_byte_local));
-        function.instruction(&Instruction::LocalGet(search_byte_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(compare_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(match_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(last_end_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            last_end_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(self.result_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-
-        function.instruction(&Instruction::LocalGet(functional_replacement_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_unpack_string_payload(
-            replacement_string_local,
-            replacement_offset_local,
-            replacement_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(literal_start_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(substitution_kind_local));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I32Const(i32::from(b'$')));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(next_byte_local));
-        for (byte, kind) in [(b'$', 1), (b'&', 2), (b'`', 3), (b'\'', 4)] {
-            function.instruction(&Instruction::LocalGet(next_byte_local));
-            function.instruction(&Instruction::I64Const(i64::from(byte)));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(kind));
-            function.instruction(&Instruction::LocalSet(substitution_kind_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(substitution_kind_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(literal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            replacement_string_local,
-            literal_start_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(substitution_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        for (kind, payload) in [
-            (1, None),
-            (2, Some(search_string_local)),
-            (3, Some(string_local)),
-            (4, Some(string_local)),
-        ] {
-            function.instruction(&Instruction::LocalGet(substitution_kind_local));
-            function.instruction(&Instruction::I64Const(kind));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            if kind == 1 {
-                function.instruction(&Instruction::I64Const(self.strings.payload("$")));
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            } else if kind == 2 {
-                function.instruction(&Instruction::LocalGet(payload.unwrap()));
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            } else if kind == 3 {
-                self.emit_string_slice_payload_from_locals(
-                    payload.unwrap(),
-                    zero_local,
-                    scan_index_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            } else {
-                function.instruction(&Instruction::LocalGet(source_len_local));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::LocalGet(search_len_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(piece_len_local));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::LocalGet(search_len_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(compare_index_local));
-                self.emit_string_slice_payload_from_locals(
-                    payload.unwrap(),
-                    compare_index_local,
-                    piece_len_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            }
-            self.emit_concat_string_payloads_local(
-                substitution_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(substitution_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalSet(literal_start_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::LocalGet(literal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            replacement_string_local,
-            literal_start_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(substitution_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        function.instruction(&Instruction::Else);
-        self.emit_utf16_code_unit_len_from_utf8_locals(
-            source_offset_local,
-            scan_index_local,
-            position_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(position_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(position_payload_local));
-        self.emit_function_handle_call(
-            replacement_payload_local,
-            replacement_tag_local,
-            Some((zero_local, Some(undefined_tag_local))),
-            &[
-                (search_string_local, string_tag_local),
-                (position_payload_local, number_tag_local),
-                (string_local, string_tag_local),
-            ],
-            callback_payload_local,
-            callback_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_value_to_string_payload(callback_payload_local, callback_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(callback_string_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(callback_string_local));
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        function.instruction(&Instruction::End);
-        self.emit_concat_string_payloads_local(self.result_local, substitution_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(last_end_local));
-        match &scope {
+        position.load(f);
+        f.instruction(&Instruction::I64Const(-1));
+        f.instruction(&Instruction::I64Eq);
+        self.emit_branch_if_to_target(positions_done, f);
+        position.load(f);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        bits.store(f);
+        value.set_number(bits, f);
+        positions.append(&value, s, f);
+        match scope {
             StringLiteralReplacementScope::FirstOccurrence => {
-                function.instruction(&Instruction::Br(2));
+                self.emit_branch_to_target(positions_done, f)
             }
             StringLiteralReplacementScope::AllOccurrences => {
-                function.instruction(&Instruction::LocalGet(last_end_local));
-                function.instruction(&Instruction::LocalSet(scan_index_local));
-                function.instruction(&Instruction::LocalGet(search_len_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(scan_index_local));
-                function.instruction(&Instruction::End);
+                position.load(f);
+                advance.load(f);
+                f.instruction(&Instruction::I64Add);
+                cursor.store(f);
+                self.emit_branch_to_target(position_next, f);
             }
         }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(source_len_local));
-        function.instruction(&Instruction::LocalGet(last_end_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            last_end_local,
-            piece_len_local,
-            function,
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        let positions = positions.finish(self, f);
+        s.array_type::<ValueArray>().length(&positions, s, f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        count.store(f);
+        let captures = SubstitutionCaptureList::new(s, f).finish(self, f);
+        let named = NamedSubstitutionCaptures::absent(s, f);
+        let accumulated = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_native_string_static("", f), f);
+        f.instruction(&Instruction::I64Const(0));
+        end_of_last_match.store(f);
+        f.instruction(&Instruction::I64Const(0));
+        index.store(f);
+        matched_value.set_reference(&needle, s, f);
+        input_value.set_reference(input, s, f);
+        undefined.set_undefined(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        count.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(done, f);
+        index.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        ordinal.store(f);
+        self.emit_argument_vector_entry_to_value(&positions, ordinal, &position_value, f);
+        position_value.scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::I64TruncSatF64U);
+        position.store(f);
+        let preserved = s.reserve_gc_local(f).initialize(
+            self.emit_gc_string_slice(input, end_of_last_match, position, f),
+            f,
+        );
+        functional.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        let arguments =
+            self.emit_pre_evaluated_arg_vector(&[&matched_value, &position_value, &input_value], f);
+        self.emit_function_or_proxy_call_with_argv(
+            replacement,
+            &undefined,
+            &arguments,
+            &pending,
+            f,
         )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(self.result_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
+        arguments.clear(f);
+        self.emit_native_string_abrupt_exit(&pending, output, exit, f);
+        value.copy_from(pending.value(), f);
+        self.emit_value_to_string_payload(&value, &pending, f)?;
+        self.emit_native_string_abrupt_exit(&pending, output, exit, f);
+        let converted = s
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
+        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &preserved, f), f);
+        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &converted, f), f);
+        converted.clear(f);
+        f.instruction(&Instruction::Else);
+        let substituted = self.emit_regexp_get_substitution(
+            &replacement_string,
+            input,
+            &needle,
+            position,
+            &captures,
+            &named,
+            output,
+            exit,
+            f,
+        )?;
+        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &preserved, f), f);
+        accumulated.replace(
+            self.emit_concat_gc_strings(&accumulated, &substituted, f),
+            f,
+        );
+        substituted.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        preserved.clear(f);
+        position.load(f);
+        needle_length.load(f);
+        f.instruction(&Instruction::I64Add);
+        end_of_last_match.store(f);
+        index.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        index.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        let tail = s.reserve_gc_local(f).initialize(
+            self.emit_gc_string_slice(input, end_of_last_match, input_length, f),
+            f,
+        );
+        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &tail, f), f);
+        tail.clear(f);
+        self.emit_native_string_normal_reference(&accumulated, output, f);
+        accumulated.clear(f);
+        named.clear(f);
+        captures.clear(f);
+        positions.clear(f);
+        replacement_string.clear(f);
+        needle.clear(f);
+        s.release_i32_local(functional, f);
+        s.release_i32_local(ordinal, f);
         for local in [
-            undefined_tag_local,
-            zero_local,
-            substitution_kind_local,
-            next_byte_local,
-            literal_start_local,
-            replacement_index_local,
-            substitution_local,
-            string_tag_local,
-            number_tag_local,
-            position_payload_local,
-            position_local,
-            callback_string_local,
-            callback_tag_local,
-            callback_payload_local,
-            functional_replacement_local,
-            piece_payload_local,
-            piece_len_local,
-            search_byte_local,
-            source_byte_local,
-            match_local,
-            compare_index_local,
-            last_end_local,
-            scan_index_local,
-            replacement_len_local,
-            replacement_offset_local,
-            search_len_local,
-            search_offset_local,
-            source_len_local,
-            source_offset_local,
-            replacement_string_local,
-            search_string_local,
+            bits,
+            index,
+            count,
+            end_of_last_match,
+            advance,
+            position,
+            cursor,
+            needle_length,
+            input_length,
         ] {
-            self.release_temp_local(local);
+            s.release_i64_local(local, f);
         }
+        undefined.clear(f);
+        input_value.clear(f);
+        position_value.clear(f);
+        matched_value.clear(f);
+        value.clear(f);
+        pending.clear(f);
+        Ok(())
+    }
+
+    pub(super) fn emit_native_string_split_literal(
+        &mut self,
+        input: &GcLocal<StringValue>,
+        separator: &ValueLocals,
+        limit: &ValueLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let pending = s.reserve_completion(f);
+        let value = s.reserve_value_local(f);
+        let input_length = s.reserve_i64_local(f);
+        let needle_length = s.reserve_i64_local(f);
+        let max = s.reserve_i64_local(f);
+        let cursor = s.reserve_i64_local(f);
+        let position = s.reserve_i64_local(f);
+        let last_end = s.reserve_i64_local(f);
+        let count = s.reserve_i64_local(f);
+        let end = s.reserve_i64_local(f);
+        limit.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        max.store(f);
+        f.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(limit, &pending, f)?;
+        self.emit_native_string_abrupt_exit(&pending, output, exit, f);
+        self.emit_to_uint32_i64_from_number_payload(pending.value().scalar(), max, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        // Separator conversion still runs when the converted limit is zero.
+        self.emit_value_to_string_payload(separator, &pending, f)?;
+        self.emit_native_string_abrupt_exit(&pending, output, exit, f);
+        let needle = s
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
+        self.emit_native_gc_string_length(input, input_length, f);
+        self.emit_native_gc_string_length(&needle, needle_length, f);
+        let list = ArgumentListConstruction::new(s, f);
+        f.instruction(&Instruction::I64Const(0));
+        count.store(f);
+        f.instruction(&Instruction::I64Const(0));
+        last_end.store(f);
+        f.instruction(&Instruction::I64Const(0));
+        cursor.store(f);
+        let list_done = self.open_frame(ControlFrameKind::Block, f);
+        max.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.emit_branch_if_to_target(list_done, f);
+        separator.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        value.set_reference(input, s, f);
+        list.append(&value, s, f);
+        self.emit_branch_to_target(list_done, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        needle_length.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let units_next = self.open_frame(ControlFrameKind::Loop, f);
+        cursor.load(f);
+        input_length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        count.load(f);
+        max.load(f);
+        f.instruction(&Instruction::I64GeU);
+        f.instruction(&Instruction::I32Or);
+        self.emit_branch_if_to_target(list_done, f);
+        cursor.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        end.store(f);
+        let unit = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_gc_string_slice(input, cursor, end, f), f);
+        value.set_reference(&unit, s, f);
+        list.append(&value, s, f);
+        unit.clear(f);
+        end.load(f);
+        cursor.store(f);
+        count.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        count.store(f);
+        self.emit_branch_to_target(units_next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let search_done = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        self.emit_native_string_index_of(
+            input,
+            &needle,
+            input_length,
+            needle_length,
+            cursor,
+            position,
+            f,
+        );
+        position.load(f);
+        f.instruction(&Instruction::I64Const(-1));
+        f.instruction(&Instruction::I64Eq);
+        self.emit_branch_if_to_target(search_done, f);
+        let part = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_gc_string_slice(input, last_end, position, f), f);
+        value.set_reference(&part, s, f);
+        list.append(&value, s, f);
+        part.clear(f);
+        count.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        count.store(f);
+        count.load(f);
+        max.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(list_done, f);
+        position.load(f);
+        needle_length.load(f);
+        f.instruction(&Instruction::I64Add);
+        cursor.store(f);
+        cursor.load(f);
+        last_end.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        let tail = s.reserve_gc_local(f).initialize(
+            self.emit_gc_string_slice(input, last_end, input_length, f),
+            f,
+        );
+        value.set_reference(&tail, s, f);
+        list.append(&value, s, f);
+        tail.clear(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        let completed = list.finish(self, f);
+        let array = self.emit_native_string_list_result_array(completed, f)?;
+        value.set_reference(&array, s, f);
+        output.set_normal(&value, f);
+        array.clear(f);
+        needle.clear(f);
+        for local in [
+            end,
+            count,
+            last_end,
+            position,
+            cursor,
+            max,
+            needle_length,
+            input_length,
+        ] {
+            s.release_i64_local(local, f);
+        }
+        value.clear(f);
+        pending.clear(f);
         Ok(())
     }
 }

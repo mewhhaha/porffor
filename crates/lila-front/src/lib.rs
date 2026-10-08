@@ -11,11 +11,16 @@ use std::rc::Rc;
 mod dynamic_function;
 mod early_error_code;
 mod eval_source;
+mod json;
 
+// Generated source uses exactly the lexer's decoded-code-point grammar.
+// Re-export the authority instead of maintaining another Unicode classifier.
+pub use boa_parser::lexer::{is_identifier_part, is_identifier_start};
 pub use dynamic_function::{prepare_dynamic_function, FunctionParseKind};
 pub use eval_source::{
     prepare_eval_source, DirectEvalParseContext, EvalInvocationContext, EvalParseContext,
 };
+pub use json::{parse_json, JsonParseError, JsonValue, ParsedJson};
 
 pub use early_error_code::{
     classify_parse_failure, EarlyErrorCode, ParseClassified, NO_EARLY_ERROR_CODE,
@@ -72,6 +77,30 @@ pub struct ParsedScript {
 struct ScriptSyntax {
     ast: Script,
     interner: Interner,
+}
+
+/// Identity of one successful Script parse, retaining its actual owned syntax
+/// allocation. Cloning a parsed Script preserves this identity; parsing equal
+/// source text again creates a different owner.
+///
+/// The erased allocation cannot expose or replace the syntax/interner pair.
+/// Its only consumer is compilation-local source ownership, never a source hash
+/// or a process-wide parser counter.
+#[derive(Clone)]
+pub struct ParsedScriptIdentity(Rc<dyn std::any::Any>);
+
+impl PartialEq for ParsedScriptIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ParsedScriptIdentity {}
+
+impl core::fmt::Debug for ParsedScriptIdentity {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ParsedScriptIdentity")
+    }
 }
 
 /// A successfully parsed Module compilation unit.
@@ -140,6 +169,14 @@ impl ParsedScript {
     #[must_use]
     pub const fn source(&self) -> &SourceUnit {
         &self.source
+    }
+
+    /// Gives compiler source ownership the identity of this AST/interner
+    /// allocation. Metadata equality deliberately remains source equality.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn syntax_identity(&self) -> ParsedScriptIdentity {
+        ParsedScriptIdentity(self.syntax.clone())
     }
 
     /// Borrows Boa's syntax implementation as one non-escaping compiler
@@ -279,8 +316,8 @@ pub enum ParseCode {
     Malformed,
     /// Boa's parser aborted; the panic was caught in [`parse`].
     UnsupportedParserFeature,
-    /// A modelled spec rejection, classified by
-    /// [`classify_parse_failure`] — the same table the dependency-module path
+    /// A modelled spec rejection, projected from a typed parser error or
+    /// classified by [`classify_parse_failure`] at the boundary every unit
     /// uses, so one source cannot report under two codes depending on whether it
     /// was the entry file or an import.
     ///
@@ -492,12 +529,13 @@ fn parse_with_boundary<T>(
     match panic::catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(parsed)) => Ok(parsed),
         Ok(Err(err)) => {
+            let typed_code = ParseClassified::from_boa_error(&err);
             let span = parse_error_span(source_text, &err);
             let err = err.to_string();
             let message = format!("parse error: {err}");
-            // `&err` is Boa's bare message. Classify before adding presentation
-            // context so the taxonomy depends only on the parser's wording.
-            if let Some(code) = classify_parse_failure(&err) {
+            // The typed condition already carries its code. Other variants use
+            // Boa's bare message before presentation context is added.
+            if let Some(code) = typed_code.or_else(|| classify_parse_failure(&err)) {
                 Err(ParseError::early_error(code, message, span))
             } else {
                 Err(ParseError::malformed(message, span))
@@ -524,6 +562,7 @@ fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<Sour
             span.start()
         }
         boa_parser::Error::General { position, .. }
+        | boa_parser::Error::ClassMethodHasDirectSuper { position }
         | boa_parser::Error::Lex {
             err: boa_parser::lexer::Error::Syntax(_, position),
         } => *position,
@@ -2122,29 +2161,226 @@ mod tests {
     }
 
     #[test]
-    fn method_owned_invalid_super_call_remains_unclassified_by_typed_contains_super_lanes() {
-        let source = "class C { method() { super(); } }";
+    fn class_method_direct_super_call_has_exact_early_identity() {
+        for source in [
+            "class C { method() { super(); } }",
+            "class C extends B { method() { super(); } }",
+            "(class { method(value = super()) {} });",
+            "class C { method(value = () => super()) {} }",
+            "class C { method() { (() => super())(); } }",
+            "class C { method() { (async () => super())(); } }",
+            "class C { get value() { super(); } }",
+            "class C { set value(value) { super(); } }",
+            "class C { set value(value = super()) {} }",
+            "class C { #method() { super(); } }",
+            "class C { get #value() { super(); } }",
+            "class C { set #value(value) { super(); } }",
+            "class C { static method() { super(); } }",
+            "class C { static constructor() { super(); } }",
+            "class C { static #method() { super(); } }",
+            "class C { static get value() { super(); } }",
+            "class C { static set value(value) { super(); } }",
+            "class C { [name]() { super(); } }",
+            "class C { ['constructor']() { super(); } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err("the method owns HasDirectSuper");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassMethodHasDirectSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the method producer carries a source position");
+                assert!(
+                    span.start < span.end && span.end <= source.len(),
+                    "{source:?}: {span:?}"
+                );
+            }
+        }
+        assert!(EarlyErrorCode::ALL.contains(&EarlyErrorCode::ClassMethodHasDirectSuper));
+    }
+
+    #[test]
+    fn class_method_direct_super_call_span_is_method_owned() {
+        let source = "class C {\n  method() {\n    super();\n  }\n}";
         for options in [ParseOptions::script(), ParseOptions::module()] {
-            let err =
-                parse(source, options).expect_err("the class-method-owned condition should fail");
+            let err = parse(source, options).expect_err("the method owns the source position");
+            let start = source
+                .find("method")
+                .expect("the witness has a method name");
             assert_eq!(
-                err.diagnostic().phase(),
-                ParseDiagnosticPhase::Parse,
-                "{source:?}: {err:?}"
+                err.diagnostic().span,
+                Some(SourceSpan {
+                    start,
+                    end: start + 1
+                })
             );
-            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
-            assert_eq!(err.diagnostic().code, ParseCode::Malformed);
-            assert_ne!(
+            assert_eq!(
                 err.diagnostic().code,
-                early(EarlyErrorCode::ScriptTopLevelSuper),
-                "{source:?}: {err:?}"
-            );
-            assert_ne!(
-                err.diagnostic().code,
-                early(EarlyErrorCode::ModuleTopLevelSuper),
-                "{source:?}: {err:?}"
+                early(EarlyErrorCode::ClassMethodHasDirectSuper)
             );
         }
+    }
+
+    #[test]
+    fn class_method_direct_super_call_respects_lexical_and_property_boundaries() {
+        for source in [
+            "class C { method(value = super.value) { return super.value; } }",
+            "class C { method() { return () => super.value; } }",
+            "class C { get value() { return super.value; } set value(value) { super.value = value; } }",
+            "class C { static method() { return super.value; } }",
+            "class C extends B { constructor() { super(); } }",
+            "class C extends B { constructor() { (() => super())(); } }",
+            "class C { method() { return class extends B { constructor() { super(); } }; } }",
+            "class C { method() { return function() { return class extends B { constructor() { super(); } }; }; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).unwrap_or_else(|err| {
+                    panic!("a different owner must remain valid: {source:?}: {err:?}")
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn class_method_direct_super_call_preserves_other_rejection_owners() {
+        for (source, code) in [
+            (
+                "class C { constructor() { super(); } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+            (
+                "class C { get constructor() { super(); } }",
+                EarlyErrorCode::ClassConstructorGetter,
+            ),
+            (
+                "class C { set constructor(value) { super(); } }",
+                EarlyErrorCode::ClassConstructorSetter,
+            ),
+            (
+                "class C { method() { function nested() { super(); } } }",
+                EarlyErrorCode::FunctionDeclarationContainsSuper,
+            ),
+            (
+                "class C { method() { (function() { super(); }); } }",
+                EarlyErrorCode::FunctionExpressionContainsSuper,
+            ),
+            (
+                "class C { method(value, value) { super(); } }",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "class C { method(value = 0) { 'use strict'; super(); } }",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err =
+                    parse(source, options).expect_err("the earlier owner rejects this source");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+            }
+        }
+        // These distinct producers are intentionally outside this diagnostic repair.
+        for source in [
+            "({ method() { super(); } });",
+            "({ get value() { super(); } });",
+            "class C { *method() { super(); } }",
+            "class C { async method() { super(); } }",
+            "class C { async *method() { super(); } }",
+            "class C { [super()]() {} }",
+            "class C { method() { super(; } }",
+            "class C { method() { super.; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the distinct parser owner rejects this source");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Parse,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    ParseCode::Malformed,
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn class_method_direct_super_call_typed_carrier_owns_phase() {
+        let source = "class C {\n  method() {} }";
+        let position = boa_ast::Position::new(2, 3);
+        let typed = boa_parser::Error::ClassMethodHasDirectSuper { position };
+        assert_eq!(
+            ParseClassified::from_boa_error(&typed).map(ParseClassified::code),
+            Some(EarlyErrorCode::ClassMethodHasDirectSuper),
+        );
+        let err = parse_with_boundary::<()>(source, || Err(typed))
+            .expect_err("the carrier owns Early independently of its display text");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ClassMethodHasDirectSuper)
+        );
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        let start = source
+            .find("method")
+            .expect("the witness has a method name");
+        assert_eq!(
+            err.diagnostic().span,
+            Some(SourceSpan {
+                start,
+                end: start + 1
+            })
+        );
+
+        for untyped in [
+            boa_parser::Error::General {
+                message: "class method cannot contain direct super call".into(),
+                position,
+            },
+            boa_parser::Error::Lex {
+                err: boa_parser::lexer::Error::Syntax(
+                    "class method cannot contain direct super call".into(),
+                    position,
+                ),
+            },
+        ] {
+            assert_eq!(ParseClassified::from_boa_error(&untyped), None);
+            let err = parse_with_boundary::<()>(source, || Err(untyped))
+                .expect_err("untyped text cannot manufacture the typed condition");
+            assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
+        }
+        for message in [
+            "class method cannot contain direct super call at line 2, col 3",
+            "invalid super call usage at line 1, col 1",
+            "invalid super call usage at line 2, col 3",
+            "unexpected token 'class method cannot contain direct super call at line', expression at line 1, col 1",
+        ] {
+            assert_eq!(classify_parse_failure(message), None);
+        }
+        let source = "const value = 0; export { value as 'class method cannot contain direct super call at line', value as 'class method cannot contain direct super call at line' };";
+        let err = parse(source, ParseOptions::module())
+            .expect_err("the user-chosen export name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport)
+        );
     }
 
     #[test]
@@ -2242,6 +2478,7 @@ mod tests {
 
         const RAW_MESSAGE: &str = "invalid super usage";
         const METHOD_MESSAGE: &str = "invalid super call usage";
+        const CLASS_METHOD_MESSAGE: &str = "class method cannot contain direct super call";
         const BASE_CONSTRUCTOR_MESSAGE: &str =
             "base class constructor cannot contain direct super call";
         const STATIC_BLOCK_MESSAGE: &str = "class static block cannot contain super call";
@@ -2348,10 +2585,9 @@ mod tests {
         const CLASS_METHOD_BODY_SUPER_BRANCH: &str = r#"if contains(m.parameters(), ContainsSymbol::SuperCall)
                         || contains(m.body(), ContainsSymbol::SuperCall)
                     {
-                        return Err(Error::lex(LexError::Syntax(
-                            "invalid super call usage".into(),
+                        return Err(Error::ClassMethodHasDirectSuper {
                             position,
-                        )));
+                        });
                     }"#;
         const OBJECT_METHOD_POSITION_SUPER_BRANCH: &str = r#"if has_direct_super_new(&params, &body) {
                     return Err(Error::lex(LexError::Syntax(
@@ -2416,6 +2652,8 @@ mod tests {
         const CLASS_SOURCE: &str = include_str!(
             "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs"
         );
+        const PARSER_ERROR_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/error/mod.rs");
         const FRONT_SOURCE: &str = include_str!("lib.rs");
 
         let boa_package_root =
@@ -2474,7 +2712,7 @@ mod tests {
             ),
             1
         );
-        assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 11);
+        assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 10);
         assert_eq!(
             count_in_rust_sources(&boa_package_root, BASE_CONSTRUCTOR_MESSAGE),
             1
@@ -2847,7 +3085,18 @@ mod tests {
 
         let compact_class = compact(CLASS_SOURCE);
         assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 0);
-        assert_eq!(CLASS_SOURCE.matches(METHOD_MESSAGE).count(), 2);
+        assert_eq!(CLASS_SOURCE.matches(METHOD_MESSAGE).count(), 1);
+        assert_eq!(CLASS_SOURCE.matches(CLASS_METHOD_MESSAGE).count(), 0);
+        assert_eq!(PARSER_ERROR_SOURCE.matches(CLASS_METHOD_MESSAGE).count(), 1);
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, "Error::ClassMethodHasDirectSuper"),
+            1,
+            "only the reviewed class-method parameters/body predicate may produce the typed error"
+        );
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, CLASS_METHOD_MESSAGE),
+            1
+        );
         assert_eq!(OBJECT_INITIALIZER_SOURCE.matches(METHOD_MESSAGE).count(), 9);
         assert_eq!(CLASS_SOURCE.matches(BASE_CONSTRUCTOR_MESSAGE).count(), 1);
         assert_eq!(CLASS_SOURCE.matches(STATIC_BLOCK_MESSAGE).count(), 1);
@@ -2934,7 +3183,7 @@ mod tests {
             CLASS_SOURCE.matches(METHOD_MESSAGE).count()
                 + OBJECT_INITIALIZER_SOURCE.matches(METHOD_MESSAGE).count(),
             count_in_rust_sources(&boa_package_root, METHOD_MESSAGE),
-            "all eleven method-message producers must remain in the two reviewed parser owners"
+            "all ten generic method-message producers must remain in the two reviewed parser owners"
         );
         assert_eq!(
             compact_class
@@ -3192,11 +3441,8 @@ mod tests {
         assert_eq!(
             all_classifier_identifier_owners,
             vec![
-                (
-                    "crates/lila-front/src/early_error_code.rs".to_string(),
-                    66,
-                ),
-                ("crates/lila-front/src/lib.rs".to_string(), 19),
+                ("crates/lila-front/src/early_error_code.rs".to_string(), 66,),
+                ("crates/lila-front/src/lib.rs".to_string(), 20),
                 ("crates/lila-ir/src/modules/early.rs".to_string(), 2),
             ],
             "every classifier identifier, including imports, re-exports and aliases, requires review"
@@ -6276,8 +6522,9 @@ mod tests {
             "class C { value = ({ arguments: 1, ['arguments']: 2 }); }",
         ] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
-                parse(source, options)
-                    .expect("nested functions, methods and property names own no lexical arguments use");
+                parse(source, options).expect(
+                    "nested functions, methods and property names own no lexical arguments use",
+                );
             }
         }
     }
@@ -6923,6 +7170,7 @@ switch (0) {
             ParseClassified::from_early(EarlyErrorCode::ClassBaseConstructorHasDirectSuper)
                 .is_some()
         );
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassMethodHasDirectSuper).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassConstructorGeneratorMethod).is_some()
         );

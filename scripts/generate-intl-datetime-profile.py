@@ -12,6 +12,7 @@ from intl_datetime_patterns import compile_interval, compile_pattern, skeleton_i
 from intl_datetime_names import field_names
 from intl_datetime_zones import canonical_zone_geography, localized_zone_names
 from intl_rbnf_fields import algorithmic_field_tables
+from intl_datetime_pool import canonical, pool_profile
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -75,11 +76,24 @@ def pattern_leaf(leaf, *, placeholders=()):
             "numbering_overrides": pattern_numbering(leaf)}
 
 
-def required_pattern(profile, locale, path):
-    return pattern_leaf(profile.resolve(locale, path))
+def endpoint_pattern(profile, range_profile, locale, path, leaf=None):
+    primary = pattern_leaf(leaf or profile.resolve(locale, path))
+    companion = pattern_leaf(range_profile.resolve(locale, path))
+    if primary != companion:
+        # An alternate selects punctuation, never a different output domain.
+        fields = lambda row: [token for token in row["tokens"] if "field" in token]
+        if (fields(primary) != fields(companion)
+                or primary["numbering_overrides"] != companion["numbering_overrides"]):
+            raise ValueError(f"range companion changes selected field/numbering domain: {locale}/{path_text(parse_path(path))}")
+        primary["range_pattern"] = companion
+    return primary
 
 
-def calendar_profile(profile, locale, calendar):
+def required_pattern(profile, range_profile, locale, path):
+    return endpoint_pattern(profile, range_profile, locale, path)
+
+
+def calendar_profile(profile, range_profile, locale, calendar):
     base = f"dates/calendars/calendar[@type='{calendar}']"
     names = []
     for branch in NAME_BRANCHES:
@@ -89,7 +103,7 @@ def calendar_profile(profile, locale, calendar):
     styles = {}
     for style in STYLES:
         styles[style] = {
-            kind: required_pattern(profile, locale, f"{base}/{kind}Formats/{kind}FormatLength[@type='{style}']/{kind}Format/pattern")
+            kind: required_pattern(profile, range_profile, locale, f"{base}/{kind}Formats/{kind}FormatLength[@type='{style}']/{kind}Format/pattern")
             for kind in ("date", "time")
         }
         for kind, element in [("standard", "dateTimeFormat"), ("atTime", "dateTimeFormat[@type='atTime']")]:
@@ -108,7 +122,7 @@ def calendar_profile(profile, locale, calendar):
             continue
         if path[-1].get("count") is not None:
             raise ValueError(f"admitted format requires unimplemented plural matching: {path_text(path)}")
-        available.append({"skeleton": skeleton, **pattern_leaf(leaf)})
+        available.append({"skeleton": skeleton, **endpoint_pattern(profile, range_profile, locale, path_text(path), leaf)})
     intervals = []
     fallback = None
     for path, leaf in profile.leaves(locale, base + "/dateTimeFormats/intervalFormats"):
@@ -128,11 +142,19 @@ def calendar_profile(profile, locale, calendar):
             raise ValueError(f"unsupported greatest-difference field: {difference}")
         intervals.append({"skeleton": skeleton, "greatest_difference": difference,
                           "source": leaf.value, "numbering_overrides": pattern_numbering(leaf),
-                          **compile_interval(leaf.value)})
+                          **compile_interval(leaf.value, skeleton=skeleton)})
     if fallback is None or not available or not intervals:
         raise ValueError(f"incomplete calendar pattern closure: {locale}/{calendar}")
     append_zone = pattern_leaf(profile.resolve(locale, base + "/dateTimeFormats/appendItems/appendItem[@request='Timezone']"), placeholders=(0, 1))
-    names = field_names(sorted(names))
+    names = field_names(sorted(names), calendar=calendar)
+    if calendar == "japanese":
+        gregorian_eras = []
+        for path, leaf in profile.leaves(locale, "dates/calendars/calendar[@type='gregorian']/eras"):
+            if selected(path):
+                gregorian_eras.append([path_text(path[3:]), plain_leaf(leaf)])
+        for record in field_names(sorted(gregorian_eras), calendar="gregorian"):
+            record["era_source_calendar"] = "gregorian"
+            names.append(record)
     append_era = None
     if any(name["kind"] == "era" for name in names):
         append_era = pattern_leaf(profile.resolve(locale, base + "/dateTimeFormats/appendItems/appendItem[@request='Era']"), placeholders=(0, 1))
@@ -214,8 +236,28 @@ def day_period_rules(profile, locale):
     raise ValueError(f"missing day period rules: {locale}")
 
 
+def first_weekday(profile, territory):
+    root = profile.documents["common/supplemental/supplementalData.xml"]
+    choices = {}
+    for node in root.findall("./weekData/firstDay"):
+        if node.get("alt") is not None:
+            continue
+        day = node.attrib["day"]
+        if day not in ("sun", "mon", "tue", "wed", "thu", "fri", "sat"):
+            raise ValueError(f"unknown genuine first weekday: {day}")
+        for region in node.attrib["territories"].split():
+            if region in choices:
+                raise ValueError(f"duplicate genuine first weekday: {region}")
+            choices[region] = day
+    for region in (territory, "001"):
+        if region in choices:
+            return choices[region]
+    raise ValueError(f"missing genuine first weekday: {territory}")
+
+
 def generate(source_directory):
     profile = CldrProfile(source_directory, pattern_alternate=PatternAlternate.ASCII)
+    range_profile = CldrProfile(source_directory, pattern_alternate=PatternAlternate.DEFAULT)
     if profile.selector["alt_selection"] != "ascii date/time patterns when supplied; default names; short territory for generic location names":
         raise ValueError("unreviewed date/time alternate selection policy")
     numberings = positional_numbering_systems(profile)
@@ -238,7 +280,7 @@ def generate(source_directory):
         for identifier in profile.selector["calendars"]:
             source = profile.selector["calendar_identifiers"][identifier]
             if source not in calendars:
-                calendars[source] = calendar_profile(profile, locale, source)
+                calendars[source] = calendar_profile(profile, range_profile, locale, source)
         names = []
         for path, leaf in profile.leaves(locale, "dates/timeZoneNames"):
             if selected(path):
@@ -259,18 +301,30 @@ def generate(source_directory):
             "day_period_rules": day_period_rules(profile, locale),
             "calendars": calendars,
             "zone_names": localized_zone_names(names, countries, zone_geography),
+            **({"first_weekday": first_weekday(profile, territory)} if profile.era_supplement else {}),
         })
     rows = {"schema_version": 1, "selector": profile.selector, "numbering_systems": numberings,
+            "numbering_supplement": profile.numbering_supplement.identity,
             "algorithmic_fields": algorithmic_field_tables(profile, locales),
             "zone_geography": zone_geography, "locales": locales}
-    encoded = json.dumps(rows, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    if profile.era_supplement is not None:
+        rows["era_supplement"] = profile.era_supplement.identity
+    rows = pool_profile(rows)
+    encoded = canonical(rows) + "\n"
     report = {
         "source_manifest_sha256": hashlib.sha256(profile.manifest_bytes).hexdigest(),
         "zone_geography_manifest_sha256": hashlib.sha256(zone_manifest).hexdigest(),
         "profile_sha256": hashlib.sha256(encoded.encode()).hexdigest(),
         "numbering_systems": len(numberings), "locales": len(locales),
+        "profile_schema_version": rows["schema_version"],
+        "calendar_associations": sum(len(row["calendar_refs"]) for row in rows["locales"]),
+        "calendar_pool_records": len(rows["calendar_pool"]),
+        "zone_name_pool_records": len(rows["zone_name_pool"]),
+        "numbering_supplement": profile.numbering_supplement.identity,
         "consumed_leaf_count": len(profile.consumed), "consumed_leaves": profile.consumed,
+        "range_default_consumed_leaves": {key: value for key, value in range_profile.consumed.items() if profile.consumed.get(key) != value},
         "publication": "private foundation only; no product capability registered",
+        **({"era_supplement": profile.era_supplement.identity} if profile.era_supplement else {}),
     }
     return encoded, json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 

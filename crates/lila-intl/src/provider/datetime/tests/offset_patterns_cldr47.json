@@ -1,0 +1,24 @@
+{
+  "en": {
+    "patterns": {
+      "fallbackFormat": "{1} ({0})",
+      "gmtFormat": "GMT{0}",
+      "gmtZeroFormat": "GMT",
+      "hourFormat": "+HH:mm;-HH:mm",
+      "regionFormat:daylight": "{0} Daylight Time",
+      "regionFormat:generic": "{0} Time",
+      "regionFormat:standard": "{0} Standard Time"
+    }
+  },
+  "fr": {
+    "patterns": {
+      "fallbackFormat": "{1} ({0})",
+      "gmtFormat": "UTC{0}",
+      "gmtZeroFormat": "UTC",
+      "hourFormat": "+HH:mm;−HH:mm",
+      "regionFormat:daylight": "{0} (heure d’été)",
+      "regionFormat:generic": "heure : {0}",
+      "regionFormat:standard": "{0} (heure standard)"
+    }
+  }
+}

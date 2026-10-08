@@ -28,14 +28,14 @@
   },
   "slowest_tests": [
     {
-      "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/temporal-zoneddatetime-not-supported.js",
-      "path": "intl402/DateTimeFormat/prototype/formatToParts/temporal-zoneddatetime-not-supported.js",
-      "duration_ms": 13757
-    },
-    {
       "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/temporal-zoneddatetime-not-supported.js",
       "path": "intl402/DateTimeFormat/prototype/formatToParts/temporal-zoneddatetime-not-supported.js",
-      "duration_ms": 11473
+      "duration_ms": 4545
+    },
+    {
+      "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/temporal-zoneddatetime-not-supported.js",
+      "path": "intl402/DateTimeFormat/prototype/formatToParts/temporal-zoneddatetime-not-supported.js",
+      "duration_ms": 4446
     }
   ],
   "timeout_test_ids": [],

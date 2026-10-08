@@ -1,0 +1,33 @@
+{
+  "domain": "lila-locale-time-zones-country-membership-v1",
+  "iana_version": "2026a",
+  "named_catalogue": {
+    "bytes": 57469,
+    "path": "crates/lila-intl/data/iana-tzdb-2026a/catalogue.tsv",
+    "sha256": "bd10c0094e5542508260bb02480f202203cc106252b692e8260070c5cec8436a"
+  },
+  "named_catalogue_rows": 598,
+  "projected_memberships": 418,
+  "projection": {
+    "bytes": 8141,
+    "path": "crates/lila-intl/data/locale-time-zones-iana2026a/regions.tsv",
+    "sha256": "c72778a1dfbf69cfb28b0c78e8c00054ea44c8ac13eaf398d82e887759044d43"
+  },
+  "region_inference": false,
+  "regions": 247,
+  "rg_sd_overrides": false,
+  "schema": 1,
+  "selection": "explicit base region only; zone.tab country rows; admitted terminal primary identity; sorted unique",
+  "source_archive": {
+    "bytes": 471812,
+    "path": "crates/lila-intl/data/iana-tzdb-2026a/tzdata2026a.tar.gz",
+    "sha256": "77b541725937bb53bd92bd484c0b43bec8545e2d3431ee01f04ef8f2203ba2b7"
+  },
+  "source_rows": 418,
+  "source_zone_tab": {
+    "bytes": 18822,
+    "path": "crates/lila-intl/data/iana-tzdb-2026a/source/zone.tab",
+    "sha256": "586b4207e6c76722de82adcda6bf49d761f668517f45a673f64da83b333eecc4"
+  },
+  "zone1970_multi_country_projection": false
+}

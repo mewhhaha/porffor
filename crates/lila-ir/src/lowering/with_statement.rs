@@ -11,6 +11,43 @@ impl<'a> ScriptLowerer<'a> {
             .get(&(with as *const boa_ast::statement::With as usize))
             .copied()
             .expect("with statement must have an analyzed Object Environment Record");
+        match self.analysis.with_object_environment_plans[&environment_id].continuation_owner {
+            crate::analysis::WithContinuationOwner::OrdinaryWhole => {
+                return self.lower_ordinary_generator_with(with);
+            }
+            crate::analysis::WithContinuationOwner::PlainAsyncWhole => {
+                return self.lower_plain_async_with(with);
+            }
+            crate::analysis::WithContinuationOwner::MixedAsyncGeneratorWhole(owner) => {
+                let Some(source) = owner.checked_source(with) else {
+                    self.unsupported("mixed With must consume its actual analyzed source owner");
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                return self.lower_async_generator_with(source);
+            }
+            crate::analysis::WithContinuationOwner::Immediate
+            | crate::analysis::WithContinuationOwner::LinearResumable => {}
+        }
+        let source_domain = self.async_generator_source_domain;
+        if self.async_generator_entry_state().is_some() {
+            self.async_generator_source_domain =
+                crate::async_generator_source::AsyncGeneratorSourceDomain::ForeignIteratorBody;
+        }
+        let result = self.lower_with_statement_legacy(with);
+        self.async_generator_source_domain = source_domain;
+        result
+    }
+
+    fn lower_with_statement_legacy(
+        &mut self,
+        with: &boa_ast::statement::With,
+    ) -> (StatementIr, ValueKind) {
+        let environment_id = self
+            .analysis
+            .with_environment_ids
+            .get(&(with as *const boa_ast::statement::With as usize))
+            .copied()
+            .expect("with statement must have an analyzed Object Environment Record");
         let owned_env_slots = self
             .analysis
             .environment_plans

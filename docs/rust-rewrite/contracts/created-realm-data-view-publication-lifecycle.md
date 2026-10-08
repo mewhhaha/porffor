@@ -1,5 +1,27 @@
 # Created-Realm DataView publication lifecycle
 
+## Current atomic GC source — 2026-10-05
+
+The common completed GC bootstrap owns DataView constructor/prototype/member
+publication for both entry and created Realms. NativeHost consumes it through
+`emit_created_realm_global_object`, rather than a separate raw DataView
+publication loop. Whole values, typed FunctionContext capture and the actual
+Realm intrinsic table supply identity, descriptors and defining-Realm errors.
+
+The maintained `created_realm_data_view_publication_structure` target retains
+the existing CLI fixture witness. Its old exact token/borrow/hash/call-count
+publication pins below are historical. Native GC binary-data controls are
+separately authored; see [DataView access](data-view-access-owner.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 Status: normative and focused-verified for the Wasm-AOT created-Realm DataView
 prototype publication plan in Batch AK.
 

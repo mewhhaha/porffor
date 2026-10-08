@@ -247,3 +247,105 @@ print('async module resource lifetime');"#,
         None,
     );
 }
+
+#[test]
+fn implicit_module_await_waits_for_statement_block_and_loop_disposal() {
+    success(
+        &[
+            (
+                "entry.js",
+                r#"import { events as statement } from './statement.js';
+import { events as block } from './block.js';
+import { events as classic } from './classic.js';
+import { events as iteration } from './iteration.js';
+if (statement.join(',') !== 'body,dispose,disposed') throw statement.join(',');
+if (block.join(',') !== 'body,dispose,disposed,after') throw block.join(',');
+if (classic.join(',') !== 'before,dispose,disposed,after') throw classic.join(',');
+if (iteration.join(',') !== 'body,dispose,disposed,after') throw iteration.join(',');
+print('implicit module disposal completes before importers');"#,
+            ),
+            (
+                "statement.js",
+                r#"export const events = [];
+await using resource = { [Symbol.asyncDispose]() { events.push('dispose'); return Promise.resolve().then(() => events.push('disposed')); } };
+events.push('body');"#,
+            ),
+            (
+                "block.js",
+                r#"export const events = [];
+{ await using resource = { [Symbol.asyncDispose]() { events.push('dispose'); return Promise.resolve().then(() => events.push('disposed')); } }; events.push('body'); }
+events.push('after');"#,
+            ),
+            (
+                "classic.js",
+                r#"export const events = ['before'];
+for (await using resource = { [Symbol.asyncDispose]() { events.push('dispose'); return Promise.resolve().then(() => events.push('disposed')); } }; false;) { throw 'unreachable'; }
+events.push('after');"#,
+            ),
+            (
+                "iteration.js",
+                r#"export const events = [];
+for (await using resource of [{ [Symbol.asyncDispose]() { events.push('dispose'); return Promise.resolve().then(() => events.push('disposed')); } }]) { events.push('body'); }
+events.push('after');"#,
+            ),
+        ],
+        &["implicit module disposal completes before importers"],
+        None,
+    );
+}
+
+#[test]
+fn nullish_module_disposal_still_has_an_asynchronous_completion() {
+    success(
+        &[
+            (
+                "entry.js",
+                "import { events } from './dependency.js'; if (events.join(',') !== 'body,queued') throw events.join(','); print('nullish disposal awaited');",
+            ),
+            (
+                "dependency.js",
+                r#"export const events = [];
+await using resource = null;
+events.push('body');
+Promise.resolve().then(() => events.push('queued'));"#,
+            ),
+        ],
+        &["nullish disposal awaited"],
+        None,
+    );
+}
+
+#[test]
+fn implicit_disposal_rejection_prevents_importer_entry_and_preserves_undefined() {
+    for policy in [
+        PromiseRejectionPolicy::Ignore,
+        PromiseRejectionPolicy::FailRun,
+    ] {
+        let observed = observe(
+            &[
+                (
+                    "entry.js",
+                    "import './dependency.js'; throw 'importer must not run';",
+                ),
+                (
+                    "dependency.js",
+                    r#"await using resource = { [Symbol.asyncDispose]() { print('dispose'); return Promise.reject(undefined); } };
+print('body');"#,
+                ),
+            ],
+            None,
+            policy,
+        );
+        assert_eq!(
+            observed.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Undefined)
+        );
+        assert_eq!(
+            observed.output_events,
+            [
+                HostOutputEvent::PrintLine("body".into()),
+                HostOutputEvent::PrintLine("dispose".into()),
+            ]
+        );
+    }
+}

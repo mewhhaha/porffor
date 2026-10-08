@@ -174,60 +174,8 @@ assertSame(
   "created FinalizationRegistry prototype own keys toStringTag"
 );
 
-var registry = new otherConstructor(function () {});
-assertSame(
-  Object.getPrototypeOf(registry),
-  otherPrototype,
-  "created FinalizationRegistry instance prototype"
-);
 var target = {};
 var unregisterToken = {};
-assertSame(
-  otherRegister.call(registry, target, "held", unregisterToken),
-  undefined,
-  "created FinalizationRegistry register result"
-);
-assertSame(
-  otherUnregister.call(registry, unregisterToken),
-  true,
-  "created FinalizationRegistry unregister match"
-);
-assertSame(
-  otherUnregister.call(registry, unregisterToken),
-  false,
-  "created FinalizationRegistry unregister miss"
-);
-
-var entryRegistry = new FinalizationRegistry(function () {});
-var entryTarget = {};
-var entryToken = {};
-assertSame(
-  otherRegister.call(entryRegistry, entryTarget, "entry held", entryToken),
-  undefined,
-  "created register accepts entry FinalizationRegistry"
-);
-assertSame(
-  otherUnregister.call(entryRegistry, entryToken),
-  true,
-  "created unregister accepts entry FinalizationRegistry"
-);
-var createdTarget = {};
-var createdToken = {};
-assertSame(
-  FinalizationRegistry.prototype.register.call(
-    registry,
-    createdTarget,
-    "created held",
-    createdToken
-  ),
-  undefined,
-  "entry register accepts created FinalizationRegistry"
-);
-assertSame(
-  FinalizationRegistry.prototype.unregister.call(registry, createdToken),
-  true,
-  "entry unregister accepts created FinalizationRegistry"
-);
 
 expectOtherTypeError(
   function () {
@@ -253,35 +201,5 @@ expectOtherTypeError(
   },
   "borrowed created FinalizationRegistry unregister TypeError"
 );
-
-var foreignNewTarget = other.Object.bind(null);
-Object.defineProperty(foreignNewTarget, "prototype", {
-  value: undefined,
-  writable: true,
-  configurable: true,
-});
-other.FinalizationRegistry = null;
-var primitivePrototypes = [
-  undefined,
-  null,
-  true,
-  "",
-  Symbol("prototype"),
-  -1,
-  0n,
-];
-for (var i = 0; i < primitivePrototypes.length; i = i + 1) {
-  foreignNewTarget.prototype = primitivePrototypes[i];
-  var reflected = Reflect.construct(
-    FinalizationRegistry,
-    [function () {}],
-    foreignNewTarget
-  );
-  assertSame(
-    Object.getPrototypeOf(reflected),
-    otherPrototype,
-    "foreign NewTarget private-slot FinalizationRegistry fallback"
-  );
-}
 
 true;

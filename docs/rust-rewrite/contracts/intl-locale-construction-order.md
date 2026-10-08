@@ -83,9 +83,10 @@ a receiver. The lifecycle reserve transition remains the sole prototype `Get`
 and result allocation for an explicit `NewTarget`; removing this classification
 makes both the recursive guard and the construction-order fixture fail.
 
-Prototype resolution continues to use the existing shared
-`emit_new_target_prototype_to_locals` route with its existing `CurrentGlobal`
-fallback policy. The reserved object local is allocated before the temporary
+Prototype resolution uses the shared `emit_new_target_prototype_to_locals`
+route. Its initial `CurrentGlobal` policy is historical: the live constructor
+now selects the required resolved-Realm Locale intrinsic through the subsequent
+Realm authority, and the unused global/snapshot variants are retired. The reserved object local is allocated before the temporary
 prototype payload/tag locals; those temporaries are released in reverse order
 while the object remains live. Allocation consumes both prototype locals, so
 Function, Array, and Arguments prototypes do not silently become Object-tagged.

@@ -1,5 +1,229 @@
 # Value, heap and garbage-collection architecture
 
+## Current atomic source — 2026-10-05
+
+The source draft now carries complete tag/scalar/reference values, completion
+records, callable contexts, captures, environments, frames, jobs and host
+boundaries through the sole typed GC schema. Its recursive declarations and
+consumed codecs own the actual records and arrays. The final heap cleanup
+retires the old passive byte-layout/root/weak inventories and representation
+mirrors; scalar domains and checked private byte transport remain.
+
+Temporal production source is sealed. Compiler-control and source-guard
+composition have finished independent source review. The complete source
+checkpoint includes types, meaningful controls and documentation. The complete
+source and integration repairs pass the whole-workspace, all-feature, all-target
+Rust type check on 2026-10-05 under the confirmed 4 GiB aggregate cap. Authored
+Rust controls typecheck; source guards, emitted Wasm validation and semantic
+execution remain pending under the verification ladder.
+The selected weak/ephemeron facility remains explicitly unavailable, without a
+strong substitute or another object model. See the current
+[record architecture](../../crates/lila-aot-wasm/docs/heap-layout.md) and
+[batch workflow](batch-workflow.md).
+
+## Historical architecture and implementation checkpoints
+
+The dated descriptions below preserve earlier source and evidence. Their
+scalar ABI, linear allocations, passive inventories and remaining migration
+claims describe those predecessors; they do not override the current source
+scope above or provide execution evidence for the atomic GC batch.
+
+## Callable body and invocation roles — 2026-10-04 dry source
+
+The actual function planner now owns callable origin, the existing source
+protocol and both function-index spaces together. User, native and prepared
+Script origins project their permitted body role from that one owner. The
+builder retains the planned entry while emitting the body; a completed body
+carries it into the joint declaration/code publisher. A runtime helper remains
+an existing closed helper identity, rather than acquiring callable parameter
+access merely because it returns multiple values.
+
+Private ordinary, generator, async, async-generator and prepared-Script input
+bundles drive the actual direct/indirect calls. Ordinary inputs contain semantic
+this/new.target; each suspended family accepts only its own activation input.
+Prepared Script inputs retain the complete lexical/variable/private environment
+and direct-eval context lifecycle. The scalar encoder preserves the existing
+seven- or ten-word shape and seventeen static signature ordinals. Internal
+activation inputs cannot be passed as semantic new.target through these bundles.
+
+Dynamic dispatch loads environment, family flags and table identity from one
+validated Function object. A private branch encloses the matching role projection
+and actual call. Resume calls consume the saved record's family-specific fields.
+New.target first follows retained direct-eval or Arrow lexical ownership; an
+activation-backed generator, async or async-generator body otherwise evaluates
+it as undefined. Async Arrows therefore retain their ordinary lexical owner's
+new.target across await rather than reading an activation word.
+
+Paired strict/sloppy semantic controls cover ordinary calls/construction,
+alternate newTarget, all suspended families, escaped lexical/direct-eval Arrows
+and prepared created-Realm entries. Only source inspection and Rust formatting
+are complete. Compilation, Wasm validation, execution and broad verification
+remain pending. This joins the current scalar ABI's semantic role authority;
+it does not move values, callable references, allocations, completions, frames,
+jobs or host roots/decoding to Wasm GC. The atomic semantic migration and full
+T05 acceptance remain open.
+
+## Function declarations follow actual bodies — 2026-10-04 dry source
+
+ModuleCode now privately owns both FunctionSection and CodeSection. Its sole
+push consumes an actual EmittedFunction, derives the declaration from that
+body's closed identity, and appends declaration, body and attribution together.
+Prepared Script bodies carry a distinct identity with the existing ten-parameter
+signature; ordinary user/builtin/host bodies retain their seven-parameter shape
+and runtime helpers retain their existing exhaustive signature authority.
+All seventeen static type ordinals and shapes are unchanged. Prepared Script
+names and the script report category are preserved.
+
+The final module package consumes both sections from this one body owner.
+Assembly can no longer accept an independent function section. The positional
+prepared-body index-range inference and second declaration list are removed,
+along with the count assertion that checked those independent lists. Actual
+main/source/prepared/builtin/shared-stub/host/helper body order and conditional
+helper selection remain unchanged. Existing package guards and unit consumers
+are maintained around the new joint lifecycle; no new test groups are added.
+
+This earlier checkpoint closed the consumed declaration/body authority. It
+left the seven-I64 semantic context/activation roles for the newer callable-role
+source above. Migration of callable/value/completion, frame/job, host roots and
+decoding to GC references remains open. Current product semantic
+allocations remain linear. Compilation, Wasm validation, focused runtime and
+complete phase3/atomic migration acceptance remain pending.
+
+## Direct-eval context and retained capture edge — 2026-10-04 dry source
+
+The central registry now includes the actual direct-eval invocation context
+and its all-present derived-binding group, raising the declaration count from
+149 to 151 while preserving every existing type and field ordinal. A completed
+context retains its nullable FunctionContext, home-object StoredValue, optional
+group and mutable this/new.target snapshots. The group holds the four original
+this/status/new.target/active-function BindingCells together, preserving the
+actual aliasing instead of independently nullable or copied cells.
+
+Environment gains a nullable mutable DIRECT_EVAL_CONTEXT strong edge. During
+the atomic migration, a direct PreparedScript root publishes incoming context
+parameter9 after its Environment allocation; escaping arrows read the exact
+owner selected by the existing lexical capture hops. Only all-Arrow ancestry
+inherits this caller context. A nearest-nonnull ancestor search would cross an
+ordinary function boundary and is forbidden. Nested direct-eval roots reuse
+the context identity; arrows read without republishing. The snapshots refresh
+on each reused invocation and derived super() observes the original shared cells.
+
+These declarations describe the existing 88-byte record and retained lexical
+capture lifecycle. The recursive encoder and generated typed field accessors
+consume them through the existing sealed registry. Actual product allocations,
+capture reads and callable parameters still use the current linear ABI: the
+internal Object-tagged hidden binding must become this typed edge during the
+atomic switch, never a StoredValue containing an internal context address.
+No early semantic GC allocation, integer/reference bridge, copied object model
+or mirrored declaration test is added. Compilation, runtime, complete phase2/3
+coverage and the semantic cutover remain open.
+
+## Function-body environment edge — 2026-10-04 dry source
+
+The Environment schema now includes the actual parameter environment's strong
+FUNCTION_BODY link. Existing environment creation initializes that link to
+absent, resumable preparation publishes the body environment later, and resume
+entry traverses parameter/parent records until it finds the retained body. The
+central registry declares it as a nullable mutable reference to Environment,
+generating concrete recursive reference storage and owner-specific accessors.
+The InvocationFrame's own environment fields do not replace this traversed edge.
+
+This corrects one concrete phase2 declaration omission within the existing
+149-owner registry. It adds no semantic allocation, integer/reference bridge,
+object model, runtime fallback or new test that mirrors the declaration.
+Existing declaration checks will run at the combined checkpoint. Compilation,
+runtime, full phase2/3 coverage and the atomic semantic switch remain open.
+
+## Current dry declaration foundation — 2026-10-03
+
+The implementation-first batch adds central GC struct/array declarations,
+recursive membership, typed indices and accessors consumed by the actual
+product type registry. The existing anchor/holder construction and reads use
+that same declaration authority. Function registration is a consumed
+singleton prefix; recursive registration freezes the type section. One
+opaque owner retains frozen types and matching rooted globals through main
+compilation and final assembly, exposing only immutable encoding views.
+
+The current host runtime-tag authority also derives its concrete enum, raw-tag
+admission and semantic-kind projection from one row domain. Both structured
+observation and human completion rendering consume it exhaustively. All twelve
+valid wire representations are preserved; compiler-only Dynamic cannot be
+constructed as a runtime tag. This closes the active host decoder domain and
+does not migrate the semantic value/call/completion/root ABI to GC references.
+Compilation and execution remain pending.
+
+Declared families include values, objects/properties, functions/environments,
+primitive records, indexed data/buffers, suspended execution/jobs,
+Realms/modules, collections, disposal, template caches and host resources.
+The consumed registry now has 151 owners, including explicit current Intl and
+Temporal configurations, RegExp program bytes, binary views, collection cursors,
+private names/elements, Promise/job payloads, module records, suspended disposal
+and Atomics waiters. Actual construction lifecycles select nullable mutable
+initial links; the FunctionContext active-function back edge is backpatched.
+Current typed-array iterators retain their owner after completion.
+Helper iterator and function protocol declarations retain concrete native
+closure captures. Mutable Promise capability executor state is separate from
+completed capability publication; async disposal retains its nullable function
+Realm context according to the actual producers.
+
+They are declarations, with no early semantic GC allocation. Protocol codecs,
+capture validity, state/value constructors, completed capability publication,
+callable/value ABIs,
+host roots and the atomic semantic migration remain open. JavaScript objects
+still use the linear heap, `gc()` is unsupported and weak reachability is
+unavailable. Validation regression sources are authored but unexecuted;
+compilation and runtime checks remain deferred. Earlier evidence below
+retains its original source scope.
+
+## Actual weak capability enforcement — 2026-10-03 dry source
+
+The actual mixed ABI audit confirms that current semantic objects, references,
+environments, callable arguments/returns, completions, Realms, suspended frames,
+jobs/modules and host decoding still use the linear identity ABI. Its complete
+producer/consumer and root migration must remain atomic; an isolated object
+family conversion would require the forbidden integer/reference bridge.
+
+The selected runtime's `WasmWeakReachabilityCapability::Unavailable` now also
+governs actual weak builtin dispatch. It rejects a successful weak construction
+or storage route through the typed, uncatchable unavailable-capability reason
+before any weak record, target retention, ephemeron or registry cell is exposed.
+Ordinary argument/prototype errors and installed intrinsic surfaces retain
+their existing owners. Strong-retaining weak producers are deleted, with no
+strong GC-reference substitute. Passive layouts remain inventory only.
+Compilation, emitted Wasm and semantic controls remain unverified. This is a
+truthful boundary correction, not a weak facility or semantic GC switch; see
+[the contract](contracts/weak-unavailable-runtime-boundary.md).
+
+## Current candidate verification
+
+Wasmtime 47.0.0 and Rust 1.94.0 are now covered by an actual complete locked
+dependency admission, verified registry archives and fresh current-tree
+offline metadata. The default CLI closure excludes lila-spec-exec. Both real
+Fast and SizeOptimized product engines pass the startup policy witness with
+a 32 MiB maximum Wasm stack and 64 MiB async/worker budgets. The explicit
+Copying collector and required Wasm features remain checked. Both engines
+also enable host shared-memory support and pass a real one-page allocation.
+JavaScript
+semantic records still use the unreclaimed linear heap; gc() is unsupported
+and weak reachability is Unavailable. T05/T21 migration criteria remain open.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
 This document is the source of truth for T05. It describes the object model
 Lila is moving to; it does not describe the current linear heap as complete.
 The migration must preserve one product object model at every commit.
@@ -10,38 +234,52 @@ The current Wasm-AOT path represents a JavaScript value as integer payload/tag
 parts. Identity-bearing values are integer addresses into a bump-allocated
 linear-memory heap. `heap.rs` contains extensive layout, root, weak-edge and
 collector tables, but those tables do not drive an executable collector. The
-current `gc()` path is unsupported, and the current weak-reference records hold
-ordinary strong integer addresses. They are useful inventory, not proof of GC
-or weak semantics.
+current `gc()` path is unsupported. Former active weak-reference records held
+ordinary strong integer addresses; those producers are now retired and actual
+weak operations enforce the unavailable capability. Remaining passive layout
+and edge declarations are inventory, not proof of GC or weak semantics.
 
-The engine is pinned to Wasmtime 38.0.4. Every product engine is now built from
-one `WasmtimeRuntimePolicy`: reference types, typed function references, Wasm
-GC and exception handling are required explicitly, and the collector is
-explicitly `Collector::DeferredReferenceCounting`. The product feature graph
-contains `gc-drc` and no longer contains `gc-null`, so there is no null-collector
-fallback. Wasmtime states that DRC cannot collect cycles; unreachable cycles
-remain until the Store is dropped. Therefore the current lower bound cannot
-meet T05's cyclic-graph acceptance criterion even though Lila emits the GC
-capability anchor.
+The isolated runtime foundation proposal requires exactly Wasmtime 47.0.0
+and Rust 1.94.0. Every product engine consumes one
+`WasmtimeRuntimePolicy`: reference types, typed function references, Wasm GC
+and exception handling are required explicitly, and
+`Collector::Copying` is selected directly. Its dependency request includes
+`gc-copying` and excludes `gc-drc` and `gc-null`; neither automatic collector
+selection nor a non-collecting fallback satisfies the policy. Engine creation
+must reject unsupported features, and the shared factory validates the actual
+engine's collector and required features before caching either native compiler
+profile. The native size-optimized retry retains this same runtime policy.
 
-The product runtime policy independently records
-`WasmWeakReachabilityCapability::Unavailable`. This is separate from DRC's
-cycle limitation: Wasm GC exposes strong references but no weak-reference or
-ephemeron operations. Both capability facts flow through runtime-policy
-reporting and typed engine-setup error context. The unavailable variant is a
-boundary truth, not a weak implementation for the current linear records.
+At foundation proposal preparation, the full product 47 dependency lock was
+pending a Root-owned offline Cargo
+resolution in an isolated workspace. The retained 38 lock has not been renamed
+or hand-edited. The cache 47 crate archive is absent from the checked local
+probe closure. A separate Root read of the official tagged source confirms
+the existing cache API; it does not authenticate that missing archive. Source API checks and authored regressions are not a
+product build or runtime pass. Those preparation facts predate the current candidate dependency and runtime
+receipts above; MAIN runtime admission is still a separate gate.
 
-This is an explicit runtime-capability blocker, not a reason to add a tracing
-collector over Lila's current linear-memory object graph. Before T05 can close,
-the lower bound must expose a cycle-capable Wasm-GC collector and the engine
-must select and require it. Until then, GC emission is architectural work, not
-an executable-GC completion claim.
+The tagged 47 collector documentation still includes an obsolete-looking
+“not yet functional” qualification. Genuine separately recorded standalone
+WAT probes exercised typed cyclic reclamation, rooted preservation and OOM
+recovery under an actual 1 MiB heap capacity; the denied 2 MiB growth request did
+not raise that capacity. Those results validate the isolated capability probe
+only. They do not establish product 47 readiness, JavaScript semantic roots,
+reclamation of the current linear heap, or weak reachability.
 
-Primary references for the pinned facts are Wasmtime 38.0.4's `Collector`
-documentation and DRC implementation, plus the WebAssembly GC proposal:
+`WasmWeakReachabilityCapability::Unavailable` remains independent of strong
+cycle collection: the selected runtime exposes no required weak-reference or
+ephemeron interface for the product. Both capabilities flow through the same
+policy reporting and typed engine-setup error context. JavaScript objects,
+closures, suspended frames, jobs and completions still use the existing linear
+representation; `gc()` remains unsupported. The complete semantic producer,
+consumer and root migration must be atomic, with no second object model.
 
-- <https://github.com/bytecodealliance/wasmtime/blob/v38.0.4/crates/wasmtime/src/config.rs>
-- <https://github.com/bytecodealliance/wasmtime/blob/v38.0.4/crates/wasmtime/src/runtime/vm/gc/enabled/drc.rs>
+Primary sources are the tagged 47 public policy and GC APIs; the local cached
+copies and genuine standalone receipts are bound by the foundation overlay:
+
+- <https://github.com/bytecodealliance/wasmtime/blob/v47.0.0/crates/wasmtime/src/config.rs>
+- <https://github.com/bytecodealliance/wasmtime/blob/v47.0.0/crates/wasmtime/src/runtime/store/gc.rs>
 - <https://github.com/WebAssembly/gc/blob/main/proposals/gc/Overview.md>
 
 ## Non-negotiable invariants
@@ -186,13 +424,13 @@ frames or pending jobs, and adds no weak edge. A Wasm trap before the shared
 main exit may retain the witness until Store teardown; Store teardown remains
 the owner of that exceptional cleanup.
 
-The matching engine seam uses the closed
-`WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` value for
-collector configuration, trace reporting and typed engine-setup failure
-context. With Wasmtime 38.0.4 the only available collecting choice is DRC, so
-this makes today's limitation explicit but cannot satisfy cyclic collection.
-T05 closure requires raising the pinned lower bound to a cycle-capable
-implementation.
+The proposed engine seam uses the closed
+`WasmGcCapability::CopyingWithCycleCollection` value for explicit collector
+selection, engine validation, trace reporting and typed setup-failure context.
+The capability concerns actual Wasm-GC values, including the anchor witness.
+It does not satisfy T05's JavaScript cyclic-graph criterion while semantic
+objects and their root inventory remain in linear memory. The dependency,
+compile and product verification boundaries remain pending for this overlay.
 
 ## GC layout families
 
@@ -385,3 +623,49 @@ T05 is complete only when phases 1–6 are implemented and verified. The schema
 and anchor are foundations. Enabling `wasm_gc`, validating `struct.new`, or
 passing acyclic allocation tests alone does not satisfy executable GC, cyclic
 collection, side-storage reclamation or weak reachability.
+
+## Segmenter retained graph
+
+The Segmenter source batch uses the current linear-memory object layout. Its
+16-byte Segmenter record stores locale; the 32-byte Segments record stores
+the Segmenter, original String and private boundary Array; the 24-byte
+iterator record stores Segments while retaining scalar cursor/done state.
+These integer payload links have pointer metadata; they are not strong
+Wasm-GC fields. This graph must migrate in the atomic semantic switch above.
+The private partition is inaccessible through mutable public properties.
+Fresh `containing` and `next` results slice the retained original UTF-16
+string without performing another native segmentation request. Required
+runtime capabilities remain the experimental Wasmtime GC lower bound.
+Focused ownership and allocation-pressure execution remains pending. See
+the [Segmenter contract](contracts/intl-segmenter-wasm.md).
+
+
+### 2026-10-03 consumed static signature authority proposal
+
+The queued source-only foundation replaces the module's seventeen handwritten
+function-type declarations and parallel type-index constants with one closed
+`StaticSignature` row domain. Each row supplies its existing ordinal, parameter
+shape and result shape; it emits the ordered domain and exhaustive definition.
+`ModuleTypeRegistry` registers those definitions before the existing runtime
+GC anchor declarations. Main, prepared Script, helper and host-import function
+sections and indirect calls consume the same domain. Function parameter counts
+are derived from those definitions. All seventeen ordinals and shapes remain
+unchanged, including equal shapes registered at distinct ordinals.
+
+This is a consumed phase-3 foundation for the atomic semantic switch. It does
+not migrate JavaScript values, closures, completions, suspended frames, jobs or
+host decoding to GC references, and it does not reclaim the current linear
+semantic heap. T05 and the URI allocation-pressure failure remain open. A new
+signature row without a complete shape fails the macro contract, and an ordinal
+that disagrees with declaration order fails the constant assertion. The
+existing package-ownership and function-state structural assertions retain
+their original lifecycle and capability purposes with signature expectations
+updated to the new authority.
+
+The proposal is authored against the approved batch-2 composition as a virtual
+future base plus unchanged protected MAIN inputs. No actual future Source
+manifest exists at preparation, and actual-base binding is deferred. Rustfmt
+and source-only checks are preparation evidence; compilation, those existing
+Rust tests, focused execution and fresh broad verification remain UNRUN.
+There is no inherited compile or runtime pass and no change to published
+conformance counts.

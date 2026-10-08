@@ -6,27 +6,29 @@ use std::{
 use lila_ir::{
     private_brand_key, private_data_key, AnnexBFunctionCopyTargetIr, ArithmeticBinaryOp,
     ArrayDestructuringElementIr, ArrayDestructuringPatternIr, BigIntBitwiseOp, BindingMode,
-    BitwiseBinaryOp, BlockIr, CallableToStringRepresentation, ClassDefinitionIr,
-    ClassElementDefinitionIr, ClassElementExecutionKind, ClassFieldKeyIr, ClassFunctionKind,
-    ClassHeritageKind, ClassInstanceElementIr, ClassInstanceElementPlanIr, ClassMethodPlacementIr,
-    ClassStaticElementIr, DestructuringPropertyKeyIr, DestructuringTargetIr, DynamicFunctionKind,
-    DynamicSourceIntrinsic, EqualityBinaryOp, ExprIr, ForInOfEnvironmentIr, ForInitIr,
-    ForLexicalEnvironmentIr, ForOfIteratorHeadIr, FunctionExecutionKind, FunctionFlavor,
-    FunctionId, FunctionIr, FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr,
-    GeneratorTryPlanIr, GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
-    IdentifierWriteDisposition, JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp,
+    BitwiseBinaryOp, BlockIr, CallableToStringRepresentation, CapturedOrdinaryPropertyWriteIr,
+    ClassDefinitionIr, ClassElementDefinitionIr, ClassElementExecutionKind, ClassFieldKeyIr,
+    ClassFieldNameIr, ClassFunctionKind, ClassHeritageKind, ClassInstanceElementIr,
+    ClassInstanceElementPlanIr, ClassMethodPlacementIr, ClassNameInferenceIr, ClassStaticElementIr,
+    DestructuringPropertyKeyIr, DestructuringTargetIr, DynamicFunctionKind, DynamicSourceIntrinsic,
+    EqualityBinaryOp, ExprIr, ForInOfEnvironmentIr, ForInitIr, ForLexicalEnvironmentIr,
+    ForOfIteratorHeadIr, FunctionExecutionKind, FunctionFlavor, FunctionId, FunctionIr,
+    FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr, GeneratorTryPlanIr,
+    GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
+    IdentifierWriteDisposition, KindSet, LexicalEnvironmentIr, LogicalBinaryOp, NativeErrorKind,
     NumericUpdateOp, NumericUpdateValueKind, ObjectPropertyIr, ObjectShapeProperty,
     OrdinaryPropertyAssignmentIr, OrdinaryPropertyEagerCompoundAssignmentIr,
-    OrdinaryPropertyLogicalAssignmentIr, OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr,
-    PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr,
-    StandardBuiltinId, StatementIr, Strictness, SuspendedPropertyReferenceIr,
-    SuspendedPropertyReferenceUse, SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint,
-    TypedExpr, UnaryBitwiseOp, UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm,
+    OrdinaryPropertyGetCaptureIr, OrdinaryPropertyLogicalAssignmentIr,
+    OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr,
+    RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr, StandardBuiltinId,
+    StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
+    UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, WellKnownSymbol, YieldForm,
     AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BOOLEAN_NAME,
-    DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME,
-    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
+    DATA_VIEW_NAME, DATE_NAME, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME, FLOAT32_ARRAY_NAME,
+    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID,
+    INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS,
+    INTL_NAMESPACE_METHODS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
     LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
     LILA_GENERATOR_THROW_SLOT, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
     PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
@@ -63,63 +65,22 @@ mod emit;
 mod emitted_function;
 mod environments;
 mod expressions;
+mod function_entry;
+mod function_layout;
 mod functions;
 mod gc_types;
+pub use gc_types::{
+    check_gc_main_completion, snapshot_descriptor_flags, snapshot_function_protocol,
+    snapshot_intrinsic_index, snapshot_symbol_index, GcHostField, GcHostFieldDefinition,
+    GcHostImport, GcHostLayout, GcHostStorage, GcHostValue, GcHostValueStorage, GcSnapshotField,
+    GcSnapshotLayout, SNAPSHOT_ENTRY_REALM_EXPORT, SNAPSHOT_REALMS_EXPORT, SNAPSHOT_SYMBOLS_EXPORT,
+};
 mod generator_delegation;
 mod generator_reference;
 mod heap;
-mod heap_async_disposable_stack_entry_layout;
-mod heap_async_disposable_stack_record_layout;
-mod heap_async_generator_object_layout;
-mod heap_atomics_async_waiter_layout;
-mod heap_bigint_layout;
-mod heap_bound_function_layout;
-mod heap_class_function_context_layout;
-mod heap_collector_phases;
-mod heap_collector_policy;
-mod heap_disposable_stack_entry_layout;
-mod heap_disposable_stack_record_layout;
-mod heap_environment_layout;
-mod heap_finalization_registry_cell_layout;
-mod heap_finalization_registry_record_layout;
-mod heap_host_boundary;
-mod heap_intl_date_time_format_layout;
-mod heap_intl_locale_layout;
-mod heap_intl_number_format_layout;
-mod heap_map_entry_layout;
-mod heap_map_iterator_layout;
-mod heap_map_record_layout;
-mod heap_object_entry_layout;
-mod heap_pending_completion_layout;
-mod heap_pending_job_layout;
-mod heap_private_element_entry_layout;
-mod heap_private_environment_layout;
-mod heap_promise_capability_layout;
-mod heap_promise_reaction_layout;
-mod heap_realm_record_layout;
-mod heap_root_sources;
-mod heap_set_entry_layout;
-mod heap_set_iterator_layout;
-mod heap_set_record_layout;
-mod heap_side_storage;
-mod heap_string_layout;
-mod heap_symbol_layout;
-mod heap_temporal_duration_layout;
-mod heap_temporal_instant_layout;
-mod heap_temporal_plain_date_layout;
-mod heap_temporal_plain_date_time_layout;
-mod heap_temporal_plain_time_layout;
-mod heap_temporal_zoned_date_time_layout;
-mod heap_typed_array_iterator_layout;
-mod heap_value_encodings;
-mod heap_weak_edges;
-mod heap_weak_map_entry_layout;
-mod heap_weak_map_record_layout;
-mod heap_weak_ref_layout;
-mod heap_weak_set_entry_layout;
-mod heap_weak_set_record_layout;
 mod intrinsics;
 mod module;
+pub use module::WasmArtifact;
 mod module_entry_completion;
 pub use module_entry_completion::{WasmModuleEvaluationStatus, MODULE_EVALUATION_STATUS_EXPORT};
 mod modules;
@@ -127,21 +88,27 @@ mod objects;
 mod operations;
 mod planning;
 mod prepared_script;
+mod program_hooks;
 mod promise_rejection_policy;
 mod runtime_abi;
+mod runtime_artifact;
+pub use runtime_artifact::{
+    runtime_artifact, RuntimeArtifact, RuntimeArtifactKey, RUNTIME_IMPORT_NAMESPACE,
+};
 mod runtime_helpers;
 use abi::*;
 use arguments_protocol::*;
 use bigint::BigIntHelperOp;
 use builtins::*;
-use code_sink::{Function, LabelDepth};
+use code_sink::{Function, LabelDepth, LocalDeclarations};
 use data::*;
 pub use emit::emit;
+pub use emit::emit_with_intl_profile;
 pub use emit::emit_with_promise_rejection_policy;
+pub use emit::emit_with_rooted_snapshot;
 pub(crate) use emit::{
-    AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder,
-    IteratorCloseOnThrowLocals, LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission,
-    PropagateCallThrow, ReturnAbi,
+    AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, ControlTarget,
+    FunctionBuilder, LabelTargets, LoopTargets, PropagateCallThrow, ReturnAbi,
 };
 pub use promise_rejection_policy::PromiseRejectionPolicy;
 // `FunctionBodySize` and `FunctionLocalCount` are part of the public face
@@ -154,13 +121,16 @@ pub(crate) use emitted_function::{
     FunctionBodyBudget, FunctionIdentity, ModuleCode,
 };
 pub use emitted_function::{EmittedFunctionSummary, FunctionBodySize, FunctionLocalCount};
+use function_layout::{FunctionIndexLayout, SourceFunctions};
+pub(crate) use functions::NonArrayRealmIntrinsicSlot;
 use heap::*;
 use intrinsics::*;
 use module::*;
 use modules::module_unit_guard_count;
 pub(crate) use operations::ToPrimitiveAbruptRoute;
 use planning::*;
-pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
+use program_hooks::ProvidedHooks;
+pub use runtime_abi::WasmRuntimeValueTag;
 pub(crate) use runtime_helpers::{RuntimeHelperEmission, RuntimeHelperFact, RuntimeHelperId};
 
 fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
@@ -193,10 +163,6 @@ mod tests {
     use lila_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
     use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
-    fn without_whitespace(source: &str) -> String {
-        source.chars().filter(|ch| !ch.is_whitespace()).collect()
-    }
-
     fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         emit(&lower_with_host_surface_policy(
@@ -206,2593 +172,56 @@ mod tests {
     }
 
     #[test]
-    fn disposable_stack_construction_and_lifecycle_are_one_intrinsic_unit() {
-        let constructor = include_str!("builtins/disposable_stack.rs");
-        let functions = include_str!("functions.rs");
-        let heap = include_str!("heap.rs");
-        let installer = include_str!("intrinsics/resource_management.rs");
-        let planning = include_str!("planning.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let catalog = include_str!("../../lila-ir/src/builtins/catalog.rs");
-        let names = include_str!("../../lila-ir/src/names.rs");
-
-        assert!(constructor.contains(
-            "#[must_use = \"a pending DisposableStack record must be consumed by the instance finalizer\"]\nstruct PendingDisposableStackRecordLocal(u32);"
-        ));
-        assert!(!constructor.contains("derive(Clone"));
-        assert!(!constructor.contains("return_now"));
-        assert_eq!(
-            constructor
-                .matches("emit_disposable_stack_return_value(")
-                .count(),
-            4,
-            "the helper definition plus its three reviewed callers close the caller map"
-        );
-        let return_disposition = constructor
-            .split_once("enum DisposableStackReturnDisposition {")
-            .expect("DisposableStack value-return disposition should exist")
-            .1
-            .split_once("}\n\nenum DisposableStackTypeError {")
-            .expect("DisposableStack value-return disposition should be bounded")
-            .0;
-        assert_eq!(
-            return_disposition
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>(),
-            ["ReturnCurrentFunction,", "LeaveInCompletion,"],
-            "the value-return route must remain a closed two-state domain"
-        );
-        let return_helper = constructor
-            .split_once("fn emit_disposable_stack_return_value(")
-            .expect("DisposableStack value-return helper")
-            .1
-            .split_once("fn emit_disposable_stack_return_undefined(")
-            .expect("DisposableStack value-return helper must be bounded")
-            .0;
-        let normalized_return_helper = without_whitespace(return_helper);
-        let exact_disposition_match = without_whitespace(
-            r#"
-            match disposition {
-                DisposableStackReturnDisposition::ReturnCurrentFunction => {
-                    self.emit_return_current_completion(function);
-                }
-                DisposableStackReturnDisposition::LeaveInCompletion => {}
-            }
-            "#,
-        );
+    fn heap_programs_link_against_one_runtime_module() {
+        let first = emit_script("print([1, 2].map(x => x + 1));").expect("first program emits");
+        let second = emit_script("class A { x = 1 } print(new A().x, /a+/.test('aa'));")
+            .expect("second program emits");
+        let runtime = first.runtime().expect("heap program links a runtime");
         assert!(
-            normalized_return_helper.contains(exact_disposition_match.as_str()),
-            "each named disposition must retain its exact emitted control flow"
+            std::sync::Arc::ptr_eq(
+                runtime,
+                second.runtime().expect("heap program links a runtime")
+            ),
+            "R is emitted once and shared"
         );
-        assert_eq!(
-            return_helper
-                .matches("emit_return_current_completion(function)")
-                .count(),
-            1,
-            "only the immediate-return disposition may emit a Wasm return"
-        );
-        assert_eq!(
-            return_helper
-                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
-                .count(),
-            1,
-            "the helper must exhaust the immediate-return route exactly once"
-        );
-        assert_eq!(
-            return_helper
-                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
-                .count(),
-            1,
-            "the helper must exhaust the leave-in-completion route exactly once"
-        );
-
-        let use_body = constructor
-            .split_once("pub(crate) fn emit_disposable_stack_use(")
-            .expect("DisposableStack use body")
-            .1
-            .split_once("pub(crate) fn emit_disposable_stack_adopt(")
-            .expect("DisposableStack use body must be bounded")
-            .0;
-        let use_nullish = use_body
-            .find("emit_disposable_stack_is_nullish_i32")
-            .expect("use must classify its nullish fast path");
-        let use_immediate = use_body
-            .find("DisposableStackReturnDisposition::ReturnCurrentFunction")
-            .expect("nullish use must return immediately");
-        let nullish_branch = use_body
-            .split_once("self.emit_disposable_stack_is_nullish_i32(value_tag_local, function);")
-            .expect("use must classify its nullish fast path")
-            .1
-            .split_once("function.instruction(&Instruction::End);")
-            .expect("use nullish branch must be bounded")
-            .0;
-        assert!(
-            nullish_branch.contains("function.instruction(&Instruction::If(BlockType::Empty));")
-        );
-        assert_eq!(
-            nullish_branch
-                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
-                .count(),
-            1,
-            "the immediate route must remain inside the nullish branch"
-        );
-        assert!(!nullish_branch.contains("DisposableStackReturnDisposition::LeaveInCompletion"));
-        let use_acquire = use_body
-            .find("emit_disposable_stack_get_method(")
-            .expect("non-nullish use must acquire the disposer");
-        let use_push = use_body
-            .find("emit_disposable_stack_push_entry(")
-            .expect("successful use must publish one entry");
-        let use_leave = use_body
-            .find("DisposableStackReturnDisposition::LeaveInCompletion")
-            .expect("successful use must leave its result in the completion");
-        assert!(
-            use_nullish < use_immediate
-                && use_immediate < use_acquire
-                && use_acquire < use_push
-                && use_push < use_leave,
-            "use must return nullish values early and publish before its normal epilogue"
-        );
-        assert_eq!(
-            use_body
-                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
-                .count(),
-            1
-        );
-        let normalized_use = without_whitespace(use_body);
-        for (disposition, expected) in [("ReturnCurrentFunction", 1), ("LeaveInCompletion", 1)] {
-            let call = without_whitespace(&format!(
-                r#"
-                self.emit_disposable_stack_return_value(
-                    value_payload_local,
-                    value_tag_local,
-                    DisposableStackReturnDisposition::{disposition},
-                    function,
-                );
-                "#
-            ));
-            assert_eq!(
-                normalized_use.matches(call.as_str()).count(),
-                expected,
-                "use must select {disposition} through the reviewed helper call"
-            );
+        assert_ne!(first.bytes, second.bytes);
+        assert!(first.bytes.len() < runtime.bytes().len() / 20);
+        let features = WasmFeatures::default()
+            | WasmFeatures::THREADS
+            | WasmFeatures::FUNCTION_REFERENCES
+            | WasmFeatures::GC
+            | WasmFeatures::EXCEPTIONS;
+        for bytes in [&first.bytes[..], &second.bytes[..], &runtime.bytes()[..]] {
+            Validator::new_with_features(features)
+                .validate_all(bytes)
+                .expect("runtime and program modules validate");
         }
-        assert_eq!(
-            use_body
-                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
-                .count(),
-            1
-        );
-
-        let adopt_body = constructor
-            .split_once("pub(crate) fn emit_disposable_stack_adopt(")
-            .expect("DisposableStack adopt body")
-            .1
-            .split_once("pub(crate) fn emit_disposable_stack_defer(")
-            .expect("DisposableStack adopt body must be bounded")
-            .0;
-        assert!(
-            adopt_body
-                .find("emit_disposable_stack_push_entry(")
-                .expect("successful adopt must publish one entry")
-                < adopt_body
-                    .find("DisposableStackReturnDisposition::LeaveInCompletion")
-                    .expect("successful adopt must leave its result in the completion"),
-            "adopt must publish before its normal epilogue"
-        );
-        assert_eq!(
-            adopt_body
-                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
-                .count(),
-            0
-        );
-        assert_eq!(
-            adopt_body
-                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
-                .count(),
-            1
-        );
-        let adopt_leave_call = without_whitespace(
-            r#"
-            self.emit_disposable_stack_return_value(
-                value_payload_local,
-                value_tag_local,
-                DisposableStackReturnDisposition::LeaveInCompletion,
-                function,
-            );
-            "#,
-        );
-        assert_eq!(
-            without_whitespace(adopt_body)
-                .matches(adopt_leave_call.as_str())
-                .count(),
-            1,
-            "adopt must select its fallthrough route through the reviewed helper call"
-        );
-        assert_eq!(
-            constructor
-                .matches("emit_alloc_pending_disposable_stack_record(function)?")
-                .count(),
-            2,
-            "the constructor and move each allocate one fresh pending record"
-        );
-        assert_eq!(
-            constructor
-                .matches("emit_new_target_prototype_to_locals(")
-                .count(),
-            1,
-            "the constructor body owns exactly one observable prototype Get"
-        );
-        assert_eq!(
-            constructor
-                .matches("emit_finalize_disposable_stack_instance(")
-                .count(),
-            3,
-            "constructor and move consume one record each through one private finalizer"
-        );
-        let finalizer = constructor
-            .split_once("fn emit_finalize_disposable_stack_instance(")
-            .expect("DisposableStack consuming finalizer")
-            .1
-            .split_once("fn emit_begin_disposable_stack_disposal(")
-            .expect("DisposableStack finalizer must be bounded")
-            .0;
-        assert_eq!(
-            finalizer
-                .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
-                .count(),
-            1,
-            "only the consuming finalizer may install the sync brand"
-        );
-        let receiver_check = constructor
-            .split_once("fn emit_disposable_stack_record_from_receiver(")
-            .expect("DisposableStack receiver checker")
-            .1
-            .split_once("fn emit_disposable_stack_require_pending(")
-            .expect("DisposableStack receiver checker must be bounded")
-            .0;
-        assert_eq!(
-            receiver_check
-                .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
-                .count(),
-            1,
-            "every lifecycle operation checks the distinct sync brand"
-        );
-        assert!(!constructor.contains("OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK"));
-        assert!(heap.contains("pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;"));
-        assert!(heap
-            .contains("pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;"));
-
-        let direct_returning = functions
-            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
-            .expect("direct-returning constructor domain should exist")
-            .1
-            .split_once("]\n        .into_iter()")
-            .expect("direct-returning constructor domain should be bounded")
-            .0;
-        assert_eq!(
-            direct_returning
-                .matches("StandardBuiltinId::DisposableStackConstructor,")
-                .count(),
-            1,
-            "the constructor body must run before generic prototype Get/allocation"
-        );
-
-        for (builtin, function_id, emitter) in [
-            (
-                "DisposableStackPrototypeUse",
-                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID",
-                "emit_disposable_stack_use(function)?",
-            ),
-            (
-                "DisposableStackPrototypeAdopt",
-                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID",
-                "emit_disposable_stack_adopt(function)?",
-            ),
-            (
-                "DisposableStackPrototypeDefer",
-                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID",
-                "emit_disposable_stack_defer(function)?",
-            ),
-            (
-                "DisposableStackPrototypeMove",
-                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID",
-                "emit_disposable_stack_move(function)?",
-            ),
-            (
-                "DisposableStackPrototypeDispose",
-                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID",
-                "emit_disposable_stack_dispose(function)?",
-            ),
-            (
-                "DisposableStackPrototypeDisposedGetter",
-                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID",
-                "emit_disposable_stack_disposed_getter(function)?",
-            ),
-        ] {
-            assert_eq!(
-                catalog.matches(&format!("\n    {builtin} {{")).count(),
-                1,
-                "the lifecycle member must have exactly one catalog row"
-            );
-            assert_eq!(
-                names.matches(&format!("pub const {function_id}:")).count(),
-                1,
-                "the lifecycle member must have exactly one function id"
-            );
-            assert_eq!(
-                standard.matches(emitter).count(),
-                1,
-                "the lifecycle member must have exactly one dispatcher arm"
-            );
-        }
-
-        let constructor_dependencies = planning
-            .split_once("if builtin == StandardBuiltinId::DisposableStackConstructor {")
-            .expect("DisposableStack constructor dependency closure")
-            .1
-            .split_once("if builtin == StandardBuiltinId::DisposableStackPrototypeDispose {")
-            .expect("constructor dependency closure must be bounded")
-            .0;
-        for builtin in ["Use", "Adopt", "Defer", "Move", "Dispose", "DisposedGetter"] {
-            assert_eq!(
-                constructor_dependencies
-                    .matches(&format!(
-                        "StandardBuiltinId::DisposableStackPrototype{builtin},"
-                    ))
-                    .count(),
-                1,
-                "constructor installation must root {builtin} exactly once"
-            );
-        }
-
-        assert_eq!(
-            installer
-                .matches("emit_object_define_function_data_with_aliases(")
-                .count(),
-            1,
-            "dispose and Symbol.dispose must share one function value"
-        );
-        assert!(installer.contains("&[\"Symbol.dispose\"]"));
-        assert!(installer.contains("Some((payload_local, tag_local)),\n            None,"));
-    }
-
-    #[test]
-    fn typed_array_accessors_use_the_closed_buffer_witness() {
-        let binary_data = include_str!("builtins/binary_data.rs");
-        let builtins = include_str!("builtins/mod.rs");
-        let objects = include_str!("objects.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let accessor_domain = binary_data
-            .split_once("pub(crate) enum TypedArrayAccessorKind {")
-            .expect("typed-array accessor domain should exist")
-            .1
-            .split_once("}\n\n/// The closed set of observation points")
-            .expect("typed-array accessor domain should be bounded")
-            .0;
-        let accessor_projection = binary_data
-            .split_once("TypedArrayWitnessUse::Accessor { kind, result_local } => match kind {")
-            .expect("typed-array accessor witness projection should exist")
-            .1
-            .split_once("        }\n\n        self.release_temp_local(data_ptr_local);")
-            .expect("typed-array accessor witness projection should be bounded")
-            .0;
-        let accessor_compiler = binary_data
-            .split_once("pub(super) fn compile_typed_array_accessor_builtin(")
-            .expect("typed-array accessor compiler should exist")
-            .1
-            .split_once("pub(crate) fn emit_initialize_array_buffer_private_state(")
-            .expect("typed-array accessor compiler should be bounded")
-            .0;
-        let delegates = standard
-            .split_once("StandardBuiltinId::TypedArrayPrototypeByteLengthGetter => {")
-            .expect("typed-array accessor delegates should exist")
-            .1
-            .split_once("StandardBuiltinId::TypedArrayPrototypeSubarray => {")
-            .expect("typed-array accessor delegates should be bounded")
-            .0;
-        let fnv1a = |source: &str| {
-            source.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-                (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        let imports = imported_function_count(&first);
+        let runtime_functions = Parser::new(0)
+            .parse_all(runtime.bytes())
+            .filter_map(|payload| match payload.expect("runtime parses") {
+                Payload::FunctionSection(reader) => Some(reader.count()),
+                _ => None,
             })
-        };
-
-        assert_eq!(
-            (accessor_domain.len(), fnv1a(accessor_domain)),
-            (45, 0x2e21_90c4_be83_8fac)
-        );
-        assert_eq!(
-            (accessor_projection.len(), fnv1a(accessor_projection)),
-            (1363, 0x531e_2ab2_51f1_5463)
-        );
-        assert_eq!(
-            (accessor_compiler.len(), fnv1a(accessor_compiler)),
-            (2860, 0x41e8_be40_7d97_cb12)
-        );
-        assert_eq!(
-            (delegates.len(), fnv1a(delegates)),
-            (686, 0x1a23_073b_921c_7c0b)
-        );
-
-        let declaration_offset = binary_data
-            .find("pub(crate) enum TypedArrayAccessorKind {")
-            .expect("typed-array accessor declaration should exist");
-        assert_eq!(
-            binary_data[..declaration_offset]
-                .lines()
-                .rev()
-                .find(|line| !line.trim().is_empty())
-                .map(str::trim),
-            Some("/// The complete result domain of the `%TypedArray%.prototype` view accessors.")
-        );
-        for capability in [
-            "Clone",
-            "Copy",
-            "Debug",
-            "Default",
-            "PartialEq",
-            "Eq",
-            "PartialOrd",
-            "Ord",
-            "Hash",
-        ] {
-            assert!(!binary_data.contains(&format!("impl {capability} for TypedArrayAccessorKind")));
-        }
-        assert_eq!(
-            [binary_data, builtins, objects, standard]
-                .iter()
-                .map(|source| source.matches("TypedArrayAccessorKind").count())
-                .sum::<usize>(),
-            12,
-            "the declaration, carrier, compiler, projection, exports and four producers own every mention"
-        );
-        assert_eq!(
-            [objects, standard]
-                .iter()
-                .map(|source| source.matches("TypedArrayAccessorKind::").count())
-                .sum::<usize>(),
-            4,
-            "three standard accessors and one generic length read are the complete producer set"
-        );
-
-        for variant in ["ByteLength", "ByteOffset", "Length"] {
-            assert_eq!(
-                accessor_domain.matches(&format!("    {variant},")).count(),
-                1,
-                "the accessor domain must contain {variant} exactly once"
-            );
-            assert_eq!(
-                accessor_projection
-                    .matches(&format!("TypedArrayAccessorKind::{variant} =>"))
-                    .count(),
-                1,
-                "the witness must project {variant} exactly once"
-            );
-            assert_eq!(
-                delegates
-                    .matches(&format!("TypedArrayAccessorKind::{variant}"))
-                    .count(),
-                1,
-                "the builtin dispatch must select {variant} explicitly"
-            );
-        }
-        assert_eq!(
-            accessor_domain
-                .lines()
-                .filter(|line| line.trim_end().ends_with(','))
-                .count(),
-            3,
-            "the accessor result domain must stay closed"
-        );
-        assert_eq!(
-            delegates
-                .matches("compile_typed_array_accessor_builtin(")
-                .count(),
-            3,
-            "all three accessors must delegate through the typed compiler"
-        );
-        assert_eq!(
-            accessor_compiler
-                .matches("emit_typed_array_witness(")
-                .count(),
-            1,
-            "the accessor compiler must make exactly one live buffer witness"
-        );
-        assert_eq!(
-            accessor_compiler
-                .matches("kind: TypedArrayAccessorKind,")
-                .count(),
-            1,
-            "the accessor compiler must own one closed selection"
-        );
-        assert_eq!(
-            accessor_compiler
-                .matches("TypedArrayWitnessUse::Accessor {\n                kind,")
-                .count(),
-            1,
-            "the accessor compiler must hand its selection to the witness exactly once"
-        );
-        for forbidden in [
-            "_ =>",
-            "matches!(kind",
-            "kind ==",
-            "kind !=",
-            "kind.clone()",
-        ] {
-            assert!(!accessor_projection.contains(forbidden));
-            assert!(!accessor_compiler.contains(forbidden));
-        }
-        for forbidden in [
-            "emit_load_array_buffer_data(",
-            "emit_load_array_buffer_byte_length(",
-            "HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET",
-            "emit_typed_array_current_byte_length(",
-        ] {
-            assert!(
-                !accessor_compiler.contains(forbidden),
-                "the accessor compiler must not bypass its witness with {forbidden}"
-            );
-            assert!(
-                !delegates.contains(forbidden),
-                "the accessor delegates must not bypass their compiler with {forbidden}"
-            );
-        }
-        assert!(accessor_projection.contains("witness.out_of_bounds_local"));
-        assert!(accessor_projection.contains("view.byte_offset_local"));
-        assert!(accessor_projection.contains("witness.element_length_local"));
-        assert!(accessor_projection.contains("view.bytes_per_element_local"));
-    }
-
-    #[test]
-    fn construct_fallback_requires_resolved_realm_intrinsics() {
-        let source = include_str!("functions.rs");
-        let string_constructor = include_str!("builtins/string/constructor.rs");
-        let ordinary_prototypes =
-            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
-        let domain = ordinary_prototypes
-            .split_once("enum OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype domain should exist")
-            .1
-            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
-            .expect("ordinary default-prototype domain should be bounded")
-            .0;
-        let offsets = ordinary_prototypes
-            .split_once("impl OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype offset map should exist")
-            .1
-            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
-            .expect("ordinary default-prototype offset map should be bounded")
-            .0;
-        let construct = source
-            .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
-            .expect("shared construct path should exist")
-            .1
-            .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
-            .expect("shared construct path should be bounded")
-            .0;
-        let required_load = ordinary_prototypes
-            .split_once("fn emit_load_required_resolved_realm_ordinary_prototype(")
-            .expect("required resolved-realm ordinary-prototype loader should exist")
-            .1
-            .split_once("fn emit_install_resolved_realm_ordinary_prototype(")
-            .expect("required resolved-realm ordinary-prototype loader should be bounded")
-            .0;
-        let install = ordinary_prototypes
-            .split_once("fn emit_install_resolved_realm_ordinary_prototype(")
-            .expect("resolved-realm ordinary-prototype consumer should exist")
-            .1
-            .rsplit_once("\n}")
-            .expect("resolved-realm ordinary-prototype consumer should be bounded")
-            .0;
-
-        for (variant, offset, constructor) in [
-            (
-                "Object",
-                "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET",
-                construct,
-            ),
-            (
-                "String",
-                "HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET",
-                string_constructor,
-            ),
-            (
-                "Number",
-                "HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET",
-                construct,
-            ),
-            (
-                "Boolean",
-                "HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET",
-                construct,
-            ),
-        ] {
-            assert_eq!(
-                domain.matches(&format!("    {variant},")).count(),
-                1,
-                "the closed ordinary default-prototype domain must contain {variant} exactly once"
-            );
-            assert_eq!(
-                offsets
-                    .matches(&format!("Self::{variant} => {offset}"))
-                    .count(),
-                1,
-                "{variant} must map exhaustively to its realm-intrinsic slot"
-            );
-            assert_eq!(
-                constructor
-                    .matches(&format!("OrdinaryDefaultPrototype::{variant}"))
-                    .count(),
-                1,
-                "the construct path must select {variant} through the closed domain once"
-            );
-        }
-        assert!(
-            !domain.contains("Array"),
-            "Array must retain its separate exotic-prototype typestate"
-        );
-        assert!(ordinary_prototypes.contains(
-            "#[must_use = \"the resolved-realm prototype must be installed with its representation tag\"]\npub(super) struct ResolvedRealmOrdinaryPrototypeLocal"
-        ));
-        assert_eq!(
-            construct
-                .matches("emit_load_required_resolved_realm_ordinary_prototype(")
-                .count(),
-            3
-        );
-        assert_eq!(
-            construct
-                .matches("emit_install_resolved_realm_ordinary_prototype(")
-                .count(),
-            3
-        );
-        assert_eq!(
-            construct
-                .matches("emit_load_required_resolved_realm_array_prototype(")
-                .count(),
-            1,
-            "Array must keep its existing required realm slot and Array tag path"
-        );
-        assert!(
-            !construct.contains("emit_load_realm_intrinsic_prototype_or_global("),
-            "resolved GetPrototypeFromConstructor results must not select entry globals"
-        );
-        for global in [
-            "OBJECT_PROTOTYPE_GLOBAL_INDEX",
-            "STRING_PROTOTYPE_GLOBAL_INDEX",
-            "NUMBER_PROTOTYPE_GLOBAL_INDEX",
-            "BOOLEAN_PROTOTYPE_GLOBAL_INDEX",
-        ] {
-            assert!(
-                !construct.contains(global),
-                "the construct fallback must not retain entry-global prototype {global}"
-            );
-        }
-
-        assert!(!required_load.contains("GlobalGet"));
-        assert!(!required_load.contains("GLOBAL_INDEX"));
-        assert_eq!(required_load.matches("Instruction::Unreachable").count(), 3);
-        assert!(required_load.contains("intrinsic.offset()"));
-        assert!(install.contains("prototype: ResolvedRealmOrdinaryPrototypeLocal"));
-        assert_eq!(install.matches("prototype.0").count(), 2);
-        assert_eq!(install.matches("ValueKind::Object.tag() as i64").count(), 1);
-    }
-
-    #[test]
-    fn ordinary_default_prototype_structural_count_tracks_message_error_and_regexp() {
-        let source = include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
-        let domain = source
-            .split_once("enum OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype domain should exist")
-            .1
-            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
-            .expect("ordinary default-prototype domain should be bounded")
-            .0;
-        let offsets = source
-            .split_once("impl OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype offset map should exist")
-            .1
-            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
-            .expect("ordinary default-prototype offset map should be bounded")
-            .0;
-
-        assert_eq!(
-            domain
-                .matches("MessageError(ErrorMessageConstructorKind),")
-                .count(),
-            1,
-            "the structural count must retain the shared message-Error variant"
-        );
-        assert_eq!(
-            offsets
-                .matches("Self::MessageError(kind) => kind.prototype_slot().offset()")
-                .count(),
-            1,
-            "the message-Error variant must retain its typed prototype-slot map"
-        );
-        assert_eq!(domain.matches("    RegExp,").count(), 1);
-        assert_eq!(
-            offsets
-                .matches("Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET")
-                .count(),
-            1
-        );
-        let normalized_offsets = offsets
-            .chars()
-            .filter(|character| !character.is_whitespace() && !matches!(*character, '{' | '}'))
-            .collect::<String>();
-        for (variant, slot) in [
-            ("DisposableStack", "DISPOSABLE_STACK"),
-            ("AggregateError", "AGGREGATE_ERROR"),
-            ("SuppressedError", "SUPPRESSED_ERROR"),
-            ("IntlLocale", "INTL_LOCALE"),
-            ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
-            ("IntlNumberFormat", "INTL_NUMBER_FORMAT"),
-            ("Generator", "GENERATOR"),
-            ("AsyncGenerator", "ASYNC_GENERATOR"),
-        ] {
-            assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
-            assert_eq!(
-                normalized_offsets
-                    .matches(&format!(
-                        "Self::{variant}=>HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
-                    ))
-                    .count(),
-                1
-            );
-        }
-        assert_eq!(
-            domain
-                .lines()
-                .filter(|line| line.trim_end().ends_with(','))
-                .count(),
-            17,
-            "the closed domain count must include disposal, aggregate errors, Intl and generator prototypes"
-        );
-    }
-
-    #[test]
-    fn iterator_constructor_realm_prototype_is_required_tagged_and_published() {
-        let functions = include_str!("functions.rs");
-        let ordinary_prototypes =
-            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let errors = include_str!("builtins/errors.rs");
-        let function_constructor = include_str!("builtins/function/constructor.rs");
-        let bootstrap = include_str!("builtins/bootstrap.rs");
-        let host = include_str!("builtins/host.rs");
-
-        let domain = ordinary_prototypes
-            .split_once("enum OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype domain should exist")
-            .1
-            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
-            .expect("ordinary default-prototype domain should be bounded")
-            .0;
-        let offsets = ordinary_prototypes
-            .split_once("impl OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype offset map should exist")
-            .1
-            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
-            .expect("ordinary default-prototype offset map should be bounded")
-            .0;
-        assert_eq!(domain.matches("    Iterator,").count(), 1);
-        assert_eq!(
-            offsets
-                .matches("Self::Iterator => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET")
-                .count(),
-            1
-        );
-
-        let constructor = standard
-            .split_once("StandardBuiltinId::IteratorConstructor => {")
-            .expect("Iterator constructor builtin should exist")
-            .1
-            .split_once("StandardBuiltinId::FunctionConstructor => {")
-            .expect("Iterator constructor builtin should be bounded")
-            .0;
-        for (operation, count) in [
-            ("emit_new_target_prototype_to_locals(", 1),
-            (
-                "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(",
-                1,
-            ),
-            ("OrdinaryDefaultPrototype::Iterator", 1),
-            ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
-        ] {
-            assert_eq!(
-                constructor.matches(operation).count(),
-                count,
-                "Iterator construction must retain exactly {count} {operation} occurrence(s)"
-            );
-        }
-        let prototype_resolution = constructor
-            .find("emit_new_target_prototype_to_locals(")
-            .unwrap();
-        let tagged_allocation = "emit_alloc_plain_object_with_prototype_and_tag(\n                    Some(prototype_payload_local),\n                    Some(prototype_tag_local),\n                    None";
-        assert_eq!(constructor.matches(tagged_allocation).count(), 1);
-        assert!(prototype_resolution < constructor.find(tagged_allocation).unwrap());
-        for forbidden in [
-            "emit_error_new_target_prototype_to_local(",
-            "NewTargetPrototypeFallback::CurrentGlobal",
-            "emit_alloc_plain_object_with_prototype(",
-        ] {
-            assert!(
-                !constructor.contains(forbidden),
-                "Iterator construction must not retain {forbidden}"
-            );
-        }
-        let temp_reservation = "let prototype_payload_local = self.reserve_temp_local();\n                let prototype_tag_local = self.reserve_temp_local();";
-        let temp_release = "self.release_temp_local(prototype_tag_local);\n                self.release_temp_local(prototype_payload_local);";
-        assert_eq!(constructor.matches(temp_reservation).count(), 1);
-        assert_eq!(constructor.matches(temp_release).count(), 1);
-
-        let prototype_operation = errors
-            .split_once("pub(crate) fn emit_new_target_prototype_to_locals(")
-            .expect("generic new-target prototype operation should exist")
-            .1
-            .split_once("pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(")
-            .expect("generic new-target prototype operation should be bounded")
-            .0;
-        let without_whitespace =
-            |source: &str| -> String { source.chars().filter(|ch| !ch.is_whitespace()).collect() };
-        let prototype_operation = without_whitespace(prototype_operation);
-        let prototype_get_wiring = without_whitespace(
-            r#"
-            function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-            function.instruction(&Instruction::LocalSet(prototype_key_local));
-            self.emit_object_read(
-                new_target_payload_local,
-                new_target_tag_local,
-                new_target_payload_local,
-                new_target_tag_local,
-                prototype_key_local,
-                prototype_payload_local,
-                prototype_tag_local,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                prototype_payload_local,
-                prototype_tag_local,
-                function,
-            )?;
-            "#,
-        );
-        assert_eq!(
-            prototype_operation
-                .matches(prototype_get_wiring.as_str())
-                .count(),
-            1
-        );
-        assert_eq!(
-            prototype_operation
-                .matches("self.emit_object_read(")
-                .count(),
-            1
-        );
-        let prototype_get = prototype_operation
-            .find(prototype_get_wiring.as_str())
-            .expect("new-target prototype operation must perform the exact observable Get");
-        let required_realm_wiring = without_whitespace(
-            r#"
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {
-                self.emit_required_new_target_realm_ordinary_prototype(
-                    new_target_payload_local,
-                    new_target_tag_local,
-                    intrinsic,
-                    prototype_payload_local,
-                    prototype_tag_local,
-                    function,
-                )?;
-            }
-            "#,
-        );
-        assert_eq!(
-            prototype_operation
-                .matches(required_realm_wiring.as_str())
-                .count(),
-            1
-        );
-        let required_realm_fallback = prototype_operation
-            .find(required_realm_wiring.as_str())
-            .expect("required resolved-realm ordinary fallback should exist");
-        assert!(
-            prototype_get < required_realm_fallback,
-            "the observable prototype Get must precede GetFunctionRealm fallback"
-        );
-        let before_prototype_get = &prototype_operation[..prototype_get];
-        assert!(!before_prototype_get.contains("emit_get_function_realm("));
-        assert!(
-            !before_prototype_get.contains("emit_required_new_target_realm_ordinary_prototype(")
-        );
-
-        let function_constructor = without_whitespace(function_constructor);
-        let active_constructor_realm_wiring = without_whitespace(
-            r#"
-            function.instruction(&Instruction::LocalGet(self.current_env_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::GlobalGet(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(self.current_env_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalSet(active_constructor_local));
-            self.load_i64_to_local_from_offset(
-                active_constructor_local,
-                HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-                active_constructor_realm_local,
-                function,
-            );
-            "#,
-        );
-        assert_eq!(
-            function_constructor
-                .matches(active_constructor_realm_wiring.as_str())
-                .count(),
-            1,
-            "a supported empty Function result must inherit the active constructor's defining Realm"
-        );
-        assert!(function_constructor.contains(&without_whitespace(
-            r#"
-            self.emit_store_function_defining_realm(
-                function_object_local,
-                active_constructor_realm_local,
-                function,
-            );
-            "#,
-        )));
-        let created_function_constructor_identity = without_whitespace(
-            r#"
-            self.store_i64_local_at_offset(
-                function_constructor_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                function_constructor_local,
-                function,
-            );
-            "#,
-        );
-        assert_eq!(
-            without_whitespace(host)
-                .matches(created_function_constructor_identity.as_str())
-                .count(),
-            1,
-            "created-Realm Function constructors must expose their active identity to the shared body"
-        );
-
-        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            ITERATOR_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::IteratorPrototype";
-        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
-        let created_realm_store = functions
-            .split_once("pub(crate) fn emit_store_realm_iterator_prototype(")
-            .expect("created-realm Iterator prototype store should exist")
-            .1
-            .split_once("pub(crate) fn emit_store_realm_iterator_from_wrapper_prototype(")
-            .expect("created-realm Iterator prototype store should be bounded")
-            .0;
-        assert_eq!(
-            created_realm_store
-                .matches("NonArrayRealmIntrinsicSlot::IteratorPrototype")
-                .count(),
-            1
-        );
-        let created_publication = "self.emit_store_realm_iterator_prototype(\n            realm_record_local,\n            iterator_prototype_local,\n            function";
-        assert_eq!(host.matches(created_publication).count(), 1);
-    }
-
-    #[test]
-    fn iterator_constructor_active_function_is_realm_local_and_closed() {
-        let functions = include_str!("functions.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let bootstrap = include_str!("builtins/bootstrap.rs");
-        let host = include_str!("builtins/host.rs");
-
-        let domain = standard
-            .split_once("enum ActiveStandardBuiltinFunction {")
-            .expect("active standard-builtin domain should exist")
-            .1
-            .split_once("}\n\nimpl ActiveStandardBuiltinFunction")
-            .expect("active standard-builtin domain should be bounded")
-            .0;
-        let mapping = standard
-            .split_once("impl ActiveStandardBuiltinFunction {")
-            .expect("active standard-builtin global map should exist")
-            .1
-            .split_once("enum ArrayBufferSliceKind")
-            .expect("active standard-builtin global map should be bounded")
-            .0;
-        assert_eq!(domain.matches("    IteratorConstructor,").count(), 1);
-        assert_eq!(
-            domain
-                .lines()
-                .filter(|line| line.trim_end().ends_with(','))
-                .count(),
-            4
-        );
-        assert_eq!(
-            mapping
-                .matches("Self::IteratorConstructor => ITERATOR_CONSTRUCTOR_GLOBAL_INDEX")
-                .count(),
-            1
-        );
-
-        let emitter = standard
-            .split_once("fn emit_active_standard_builtin_function_payload(")
-            .expect("active standard-builtin emitter should exist")
-            .1
-            .split_once("fn emit_normalize_undefined_new_target_to_active_standard_builtin(")
-            .expect("active standard-builtin emitter should be bounded")
-            .0;
-        for (operation, count) in [
-            ("LocalGet(self.current_env_local)", 2),
-            ("Instruction::I64Eqz", 1),
-            ("Instruction::If(BlockType::Result(ValType::I64))", 1),
-            ("Instruction::GlobalGet(active.entry_global_index())", 1),
-        ] {
-            assert_eq!(
-                emitter.matches(operation).count(),
-                count,
-                "active standard-builtin emission must retain exactly {count} {operation} occurrence(s)"
-            );
-        }
-        let environment_test = emitter
-            .find("LocalGet(self.current_env_local)")
-            .expect("active emitter must inspect its realm environment");
-        let entry_fallback = emitter
-            .find("Instruction::GlobalGet(active.entry_global_index())")
-            .expect("active emitter must retain the typed entry fallback");
-        let created_identity = emitter
-            .rfind("LocalGet(self.current_env_local)")
-            .expect("active emitter must select its created-realm identity");
-        assert!(environment_test < entry_fallback && entry_fallback < created_identity);
-
-        let constructor = standard
-            .split_once("StandardBuiltinId::IteratorConstructor => {")
-            .expect("Iterator constructor builtin should exist")
-            .1
-            .split_once("StandardBuiltinId::FunctionConstructor => {")
-            .expect("Iterator constructor builtin should be bounded")
-            .0;
-        let active_call = "self.emit_active_standard_builtin_function_payload(\n                    ActiveStandardBuiltinFunction::IteratorConstructor,\n                    function,\n                );";
-        assert_eq!(constructor.matches(active_call).count(), 1);
-        for (operation, count) in [
-            ("ValueKind::Undefined.tag() as i64", 1),
-            ("ValueKind::Function.tag() as i64", 1),
-            ("Instruction::I64Eq", 3),
-            ("Instruction::I32And", 1),
-            ("Instruction::I32Or", 1),
-        ] {
-            assert_eq!(
-                constructor.matches(operation).count(),
-                count,
-                "Iterator active-function rejection must retain exactly {count} {operation} occurrence(s)"
-            );
-        }
-        assert!(
-            !constructor.contains("Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX)"),
-            "Iterator construction must not compare NewTarget with the entry global directly"
-        );
-        let undefined_test = constructor
-            .find("ValueKind::Undefined.tag() as i64")
-            .expect("Iterator must reject an undefined NewTarget");
-        let function_tag_test = constructor
-            .find("ValueKind::Function.tag() as i64")
-            .expect("Iterator active identity must be gated by the Function tag");
-        let active_test = constructor.find(active_call).unwrap();
-        let undefined_equality = constructor[undefined_test..function_tag_test]
-            .find("Instruction::I64Eq")
-            .map(|offset| undefined_test + offset)
-            .expect("Iterator must compare the NewTarget tag with undefined");
-        let function_tag_equality = constructor[function_tag_test..active_test]
-            .find("Instruction::I64Eq")
-            .map(|offset| function_tag_test + offset)
-            .expect("Iterator must compare the NewTarget tag with Function");
-        let active_equality = constructor[active_test + active_call.len()..]
-            .find("Instruction::I64Eq")
-            .map(|offset| active_test + active_call.len() + offset)
-            .expect("Iterator must compare the function payload with its active identity");
-        let active_conjunction = constructor
-            .find("Instruction::I32And")
-            .expect("Iterator must conjoin the Function tag and active identity tests");
-        let rejection_disjunction = constructor
-            .find("Instruction::I32Or")
-            .expect("Iterator must reject undefined or the active function object");
-        let active_throw = constructor
-            .find("emit_throw_current_function_realm_type_error(")
-            .unwrap();
-        let prototype_resolution = constructor
-            .find("emit_new_target_prototype_to_locals(")
-            .unwrap();
-        assert!(
-            undefined_test < undefined_equality
-                && undefined_equality < function_tag_test
-                && function_tag_test < function_tag_equality
-                && function_tag_equality < active_test
-                && active_test < active_equality
-                && active_equality < active_conjunction
-                && active_conjunction < rejection_disjunction
-                && rejection_disjunction < active_throw
-                && active_throw < prototype_resolution
-        );
-
-        let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::IteratorConstructor,\n                ITERATOR_PROTOTYPE_GLOBAL_INDEX";
-        assert_eq!(bootstrap.matches(entry_identity).count(), 1);
-        let created_identity = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            iterator_constructor_local";
-        assert_eq!(host.matches(created_identity).count(), 0);
-        assert!(functions.contains(".and_then(ActiveStandardBuiltinFunction::from_builtin)"));
-        assert!(functions.contains(
-            "self.store_i64_local_at_offset(\n                object_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                object_local,"
-        ));
-        let created_type_error = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,\n            type_error_prototype_local";
-        assert_eq!(host.matches(created_type_error).count(), 1);
-
-        let construct = functions
-            .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
-            .expect("shared construct path should exist")
-            .1
-            .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
-            .expect("shared construct path should be bounded")
-            .0;
-        let direct_returning_domain = construct
-            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
-            .expect("direct-returning constructor domain should exist")
-            .1
-            .split_once("]\n        .into_iter()")
-            .expect("direct-returning constructor domain should be bounded")
-            .0;
-        assert_eq!(
-            direct_returning_domain
-                .matches("StandardBuiltinId::IteratorConstructor,")
-                .count(),
-            1,
-            "Iterator must route to its body before generic construction"
-        );
-        let direct_dispatch = construct
-            .find("for table_index in direct_returning_constructor_table_indices {")
-            .expect("direct-returning constructor dispatch should exist");
-        let generic_prototype_get = construct
-            .find("function.instruction(&Instruction::I64Const(self.strings.payload(\"prototype\")));")
-            .expect("generic construct path should read NewTarget.prototype");
-        let generic_preallocation = construct
-            .find("self.emit_alloc_plain_object_with_prototype_and_tag(")
-            .expect("generic construct path should allocate its receiver");
-        assert!(
-            direct_dispatch < generic_prototype_get
-                && generic_prototype_get < generic_preallocation,
-            "Iterator's direct-returning body must run before generic prototype Get and allocation"
-        );
-        let direct_dispatch_body = &construct[direct_dispatch..generic_prototype_get];
-        assert_eq!(
-            direct_dispatch_body
-                .matches("Instruction::CallIndirect {")
-                .count(),
-            1
-        );
-        assert_eq!(
-            direct_dispatch_body
-                .matches("function.instruction(&Instruction::Br(1));")
-                .count(),
-            1,
-            "a direct-returning constructor must leave the generic construct block"
-        );
-    }
-
-    #[test]
-    fn iterator_to_array_allocation_uses_the_active_function_realm() {
-        let functions = include_str!("functions.rs");
-        let prototype_owner = include_str!("functions/current_function_realm_array_prototype.rs");
-        let array = include_str!("builtins/array.rs");
-        let standard = include_str!("builtins/standard.rs");
-
-        assert_eq!(
-            functions
-                .matches("\nmod current_function_realm_array_prototype;\n")
-                .count(),
-            1
-        );
-        assert!(!functions.contains("current_function_realm_array_prototype::"));
-        assert!(!functions.contains("struct CurrentFunctionRealmArrayPrototypeLocal"));
-
-        let prototype_state = prototype_owner
-            .split_once("pub(crate) struct CurrentFunctionRealmArrayPrototypeLocal(")
-            .expect("current-function Realm Array prototype state should exist")
-            .1
-            .split_once(");")
-            .expect("current-function Realm Array prototype state should be bounded")
-            .0;
-        assert_eq!(prototype_state, "u32");
-        assert!(!prototype_owner.contains(
-            "#[derive(Clone, Copy)]\npub(crate) struct CurrentFunctionRealmArrayPrototypeLocal"
-        ));
-        assert_eq!(
-            prototype_owner
-                .matches("CurrentFunctionRealmArrayPrototypeLocal(prototype_local)")
-                .count(),
-            1
-        );
-        assert_eq!(prototype_owner.matches("prototype.0").count(), 2);
-
-        let factory = prototype_owner
-            .split_once("pub(crate) fn emit_load_current_function_realm_array_prototype(")
-            .expect("current-function Realm Array prototype factory should exist")
-            .1
-            .split_once("pub(crate) fn emit_install_current_function_realm_array_prototype(")
-            .expect("current-function Realm Array prototype factory should be bounded")
-            .0;
-        for marker in [
-            "self.current_env_local",
-            "ARRAY_PROTOTYPE_GLOBAL_INDEX",
-            "HEAP_FUNCTION_DEFINING_REALM_OFFSET",
-            "HEAP_REALM_INTRINSICS_OFFSET",
-            "HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET",
-        ] {
-            assert!(factory.contains(marker), "missing factory marker: {marker}");
-        }
-        assert_eq!(factory.matches("Instruction::Unreachable").count(), 3);
-        assert!(!factory.contains("CURRENT_REALM_GLOBAL_INDEX"));
-        assert!(!factory.contains("emit_load_realm_intrinsic_prototype_or_global("));
-        assert!(
-            factory.find("let prototype_local").unwrap() < factory.find("let realm_local").unwrap()
-        );
-        assert!(
-            factory.find("let realm_local").unwrap()
-                < factory.find("let intrinsics_local").unwrap()
-        );
-        assert!(
-            factory
-                .find("release_temp_local(intrinsics_local)")
-                .unwrap()
-                < factory.find("release_temp_local(realm_local)").unwrap()
-        );
-
-        let allocator = array
-            .split_once(
-                "pub(crate) fn emit_alloc_array_payload_with_length_in_current_function_realm(",
-            )
-            .expect("current-function Realm Array allocator should exist")
-            .1
-            .split_once("pub(crate) fn emit_array_like_snapshot_payload(")
-            .expect("current-function Realm Array allocator should be bounded")
-            .0;
-        assert_eq!(
-            allocator
-                .matches("emit_load_current_function_realm_array_prototype(function)")
-                .count(),
-            1
-        );
-        assert_eq!(
-            allocator
-                .matches("emit_install_current_function_realm_array_prototype(")
-                .count(),
-            1
-        );
-        assert!(
-            allocator
-                .find("emit_alloc_array_payload_with_length(len_local")
-                .unwrap()
-                < allocator
-                    .find("emit_load_current_function_realm_array_prototype(function)")
-                    .unwrap()
-        );
-
-        let to_array = standard
-            .split_once("StandardBuiltinId::IteratorPrototypeToArray => {")
-            .expect("Iterator.prototype.toArray builtin should exist")
-            .1
-            .split_once("StandardBuiltinId::IteratorPrototypeSymbolDispose => {")
-            .expect("Iterator.prototype.toArray builtin should be bounded")
-            .0;
-        assert_eq!(
-            to_array
-                .matches("emit_alloc_array_payload_with_length_in_current_function_realm(")
-                .count(),
-            1
-        );
-        assert!(!to_array.contains("emit_alloc_array_payload_with_length("));
-    }
-
-    #[test]
-    fn regexp_constructor_realm_prototype_is_active_required_tagged_direct_and_published() {
-        let functions = include_str!("functions.rs");
-        let ordinary_prototypes =
-            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let bootstrap = include_str!("builtins/bootstrap.rs");
-        let host = include_str!("builtins/host.rs");
-
-        let ordinary_domain = ordinary_prototypes
-            .split_once("enum OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype domain should exist")
-            .1
-            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
-            .expect("ordinary default-prototype domain should be bounded")
-            .0;
-        let ordinary_offsets = ordinary_prototypes
-            .split_once("impl OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype offset map should exist")
-            .1
-            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
-            .expect("ordinary default-prototype offset map should be bounded")
-            .0;
-        assert_eq!(ordinary_domain.matches("    RegExp,").count(), 1);
-        assert_eq!(
-            ordinary_offsets
-                .matches("Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET")
-                .count(),
-            1
-        );
-
-        let active_domain = standard
-            .split_once("enum ActiveStandardBuiltinFunction {")
-            .expect("active standard-builtin domain should exist")
-            .1
-            .split_once("}\n\nimpl ActiveStandardBuiltinFunction")
-            .expect("active standard-builtin domain should be bounded")
-            .0;
-        let active_mapping = standard
-            .split_once("impl ActiveStandardBuiltinFunction {")
-            .expect("active standard-builtin global map should exist")
-            .1
-            .split_once("enum ArrayBufferSliceKind")
-            .expect("active standard-builtin global map should be bounded")
-            .0;
-        assert_eq!(active_domain.matches("    RegExpConstructor,").count(), 1);
-        assert_eq!(
-            active_mapping
-                .matches("Self::RegExpConstructor => REGEXP_CONSTRUCTOR_GLOBAL_INDEX")
-                .count(),
-            1
-        );
-
-        let normalization = standard
-            .split_once("fn emit_normalize_undefined_new_target_to_active_standard_builtin(")
-            .expect("active new-target normalization should exist")
-            .1
-            .split_once("fn compile_typed_array_prototype_reverse_builtin(")
-            .expect("active new-target normalization should be bounded")
-            .0;
-        for operation in [
-            "active: ActiveStandardBuiltinFunction",
-            "ValueKind::Undefined.tag() as i64",
-            "self.emit_active_standard_builtin_function_payload(active, function)",
-            "Instruction::LocalSet(new_target_payload_local)",
-            "ValueKind::Function.tag() as i64",
-            "Instruction::LocalSet(new_target_tag_local)",
-        ] {
-            assert_eq!(
-                normalization.matches(operation).count(),
-                1,
-                "active new-target normalization must retain one {operation}"
-            );
-        }
-        let undefined_test = normalization
-            .find("ValueKind::Undefined.tag() as i64")
-            .unwrap();
-        let active_selection = normalization
-            .find("self.emit_active_standard_builtin_function_payload(active, function)")
-            .unwrap();
-        let function_tag = normalization
-            .find("ValueKind::Function.tag() as i64")
-            .unwrap();
-        assert!(undefined_test < active_selection && active_selection < function_tag);
-
-        let constructor = standard
-            .split_once("StandardBuiltinId::RegExpConstructor => {")
-            .expect("RegExp constructor builtin should exist")
-            .1
-            .split_once("StandardBuiltinId::JsonParse =>")
-            .expect("RegExp constructor builtin should be bounded")
-            .0;
-        let active_normalization = "self.emit_normalize_undefined_new_target_to_active_standard_builtin(\n                    ActiveStandardBuiltinFunction::RegExpConstructor,\n                    function,\n                );";
-        for (operation, count) in [
-            (active_normalization, 1),
-            ("emit_new_target_prototype_to_locals(", 1),
-            (
-                "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(",
-                1,
-            ),
-            ("OrdinaryDefaultPrototype::RegExp", 1),
-            ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
-            (
-                "Instruction::I64Const(OBJECT_INTERNAL_BRAND_REGEXP as i64)",
-                1,
-            ),
-            (
-                "self.store_i64_const_at_offset(\n                    object_local,\n                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,\n                    OBJECT_INTERNAL_BRAND_REGEXP,",
-                1,
-            ),
-        ] {
-            assert_eq!(
-                constructor.matches(operation).count(),
-                count,
-                "RegExp construction must retain exactly {count} {operation} occurrence(s)"
-            );
-        }
-        let prototype_resolution = constructor
-            .find("emit_new_target_prototype_to_locals(")
-            .unwrap();
-        let tagged_allocation = "emit_alloc_plain_object_with_prototype_and_tag(\n                    Some(prototype_payload_local),\n                    Some(prototype_tag_local),\n                    None";
-        assert_eq!(constructor.matches(tagged_allocation).count(), 1);
-        assert!(
-            constructor.find(active_normalization).unwrap() < prototype_resolution
-                && prototype_resolution < constructor.find(tagged_allocation).unwrap()
-        );
-        for forbidden in [
-            "emit_error_new_target_prototype_to_local(",
-            "NewTargetPrototypeFallback::CurrentGlobal",
-            "emit_alloc_plain_object_with_prototype(",
-        ] {
-            assert!(
-                !constructor.contains(forbidden),
-                "RegExp construction must not retain {forbidden}"
-            );
-        }
-        let temp_reservation = "let prototype_payload_local = self.reserve_temp_local();\n                let prototype_tag_local = self.reserve_temp_local();";
-        let temp_release = "self.release_temp_local(prototype_tag_local);\n                self.release_temp_local(prototype_payload_local);";
-        assert_eq!(constructor.matches(temp_reservation).count(), 1);
-        assert_eq!(constructor.matches(temp_release).count(), 1);
-
-        let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::RegExpConstructor,\n                REGEXP_PROTOTYPE_GLOBAL_INDEX";
-        assert_eq!(bootstrap.matches(entry_identity).count(), 1);
-        assert_eq!(
-            bootstrap
-                .matches("Instruction::GlobalSet(REGEXP_PROTOTYPE_GLOBAL_INDEX)")
-                .count(),
-            1
-        );
-        assert_eq!(
-            bootstrap
-                .matches("NonArrayRealmIntrinsicSlot::RegExpPrototype")
-                .count(),
-            1
-        );
-        assert_eq!(
-            host.matches("NonArrayRealmIntrinsicSlot::RegExpPrototype")
-                .count(),
-            1
-        );
-        let created_identity = "self.store_i64_local_at_offset(\n            regexp_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            regexp_constructor_local";
-        assert_eq!(host.matches(created_identity).count(), 0);
-        assert!(functions.contains(".and_then(ActiveStandardBuiltinFunction::from_builtin)"));
-        assert!(functions.contains(
-            "self.store_i64_local_at_offset(\n                object_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                object_local,"
-        ));
-
-        let construct = functions
-            .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
-            .expect("shared construct path should exist")
-            .1
-            .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
-            .expect("shared construct path should be bounded")
-            .0;
-        let direct_returning_domain = construct
-            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
-            .expect("direct-returning constructor domain should exist")
-            .1
-            .split_once("]\n        .into_iter()")
-            .expect("direct-returning constructor domain should be bounded")
-            .0;
-        assert_eq!(
-            direct_returning_domain
-                .matches("StandardBuiltinId::RegExpConstructor,")
-                .count(),
-            1,
-            "RegExp must route to its body before generic construction"
-        );
-        let direct_dispatch = construct
-            .find("for table_index in direct_returning_constructor_table_indices {")
-            .expect("direct-returning constructor dispatch should exist");
-        let generic_prototype_get = construct
-            .find("function.instruction(&Instruction::I64Const(self.strings.payload(\"prototype\")));")
-            .expect("generic construct path should read NewTarget.prototype");
-        let generic_preallocation = construct
-            .find("self.emit_alloc_plain_object_with_prototype_and_tag(")
-            .expect("generic construct path should allocate its receiver");
-        assert!(
-            direct_dispatch < generic_prototype_get
-                && generic_prototype_get < generic_preallocation,
-            "RegExp's direct-returning body must run before generic prototype Get and allocation"
-        );
-    }
-
-    #[test]
-    fn date_constructor_realm_prototype_is_required_and_published() {
-        let heap = include_str!("heap.rs");
-        let ordinary_prototypes =
-            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
-        let errors = include_str!("builtins/errors.rs");
-        let date = include_str!("builtins/date.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let bootstrap = include_str!("builtins/bootstrap.rs");
-        let host = include_str!("builtins/host.rs");
-
-        let domain = ordinary_prototypes
-            .split_once("enum OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype domain should exist")
-            .1
-            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
-            .expect("ordinary default-prototype domain should be bounded")
-            .0;
-        let offsets = ordinary_prototypes
-            .split_once("impl OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype offset map should exist")
-            .1
-            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
-            .expect("ordinary default-prototype offset map should be bounded")
-            .0;
-        assert_eq!(domain.matches("    Date,").count(), 1);
-        assert_eq!(
-            offsets
-                .matches("Self::Date => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET")
-                .count(),
-            1
-        );
-
-        for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
-            "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
-            "name: \"%Date.prototype%\"",
-            "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
-        ] {
-            assert!(
-                heap.contains(required),
-                "Date realm layout must contain {required}"
-            );
-        }
-
-        let generic_new_target = errors
-            .split_once("pub(crate) fn emit_new_target_prototype_to_locals(")
-            .expect("generic new-target prototype operation should exist")
-            .1
-            .split_once("pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(")
-            .expect("generic new-target prototype operation should be bounded")
-            .0;
-        assert_eq!(
-            generic_new_target.matches("self.emit_object_read(").count(),
-            1
-        );
-        assert_eq!(
-            generic_new_target
-                .matches("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic)")
-                .count(),
-            1
-        );
-        assert!(
-            generic_new_target.find("self.emit_object_read(").unwrap()
-                < generic_new_target
-                    .find("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic)")
-                    .unwrap(),
-            "the observable prototype Get must precede function-realm fallback"
-        );
-        let required_arm = generic_new_target
-            .split_once("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {")
-            .expect("required resolved-realm policy arm should exist")
-            .1
-            .split_once(
-                "NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) => {",
-            )
-            .expect("required resolved-realm policy arm should be bounded")
-            .0;
-        assert_eq!(
-            required_arm
-                .matches("emit_required_new_target_realm_ordinary_prototype(")
-                .count(),
-            1
-        );
-        assert!(!required_arm.contains("GlobalGet"));
-        assert!(!required_arm.contains("GLOBAL_INDEX"));
-
-        let required_helper = ordinary_prototypes
-            .split_once("pub(crate) fn emit_required_new_target_realm_ordinary_prototype(")
-            .expect("required new-target realm helper should exist")
-            .1
-            .split_once("/// Consume a required ordinary-object prototype")
-            .expect("required new-target realm helper should be bounded")
-            .0;
-        for call in [
-            "emit_get_function_realm(",
-            "FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn",
-            "emit_load_required_resolved_realm_ordinary_prototype(",
-            "emit_install_resolved_realm_ordinary_prototype(",
-            "release_resolved_function_realm_local(",
-        ] {
-            assert_eq!(
-                required_helper.matches(call).count(),
-                1,
-                "required Date fallback must use {call} exactly once"
-            );
-        }
-        assert!(!required_helper.contains("GlobalGet"));
-        assert!(!required_helper.contains("GLOBAL_INDEX"));
-
-        let date_wrapper = date
-            .split_once("pub(crate) fn emit_date_constructor_prototype_to_locals(")
-            .expect("Date constructor prototype wrapper should exist")
-            .1
-            .split_once("pub(crate) fn emit_date_now(")
-            .expect("Date constructor prototype wrapper should be bounded")
-            .0;
-        assert_eq!(
-            date_wrapper
-                .matches("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(")
-                .count(),
-            1
-        );
-        assert_eq!(
-            date_wrapper
-                .matches("OrdinaryDefaultPrototype::Date")
-                .count(),
-            1
-        );
-        assert!(date_wrapper.contains("prototype_tag_local: u32"));
-        assert!(!date_wrapper.contains("reserve_temp_local"));
-        assert!(!date_wrapper.contains("NewTargetPrototypeFallback::CurrentGlobal"));
-
-        let constructor = standard
-            .split_once("StandardBuiltinId::DateConstructor => {")
-            .expect("Date constructor builtin should exist")
-            .1
-            .split_once(
-                "StandardBuiltinId::DatePrototypeGetTime | StandardBuiltinId::DatePrototypeValueOf",
-            )
-            .expect("Date constructor builtin should be bounded")
-            .0;
-        for (operation, count) in [
-            ("emit_date_constructor_prototype_to_locals(", 1),
-            ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
-            ("OBJECT_INTERNAL_BRAND_DATE", 1),
-            ("ValueKind::Object.tag() as i64", 2),
-        ] {
-            assert_eq!(
-                constructor.matches(operation).count(),
-                count,
-                "Date construction must retain exactly {count} {operation} occurrence(s)"
-            );
-        }
-        let prototype_resolution = constructor
-            .find("emit_date_constructor_prototype_to_locals(")
-            .unwrap();
-        for (computation, count) in [
-            ("emit_date_current_time_payload(", 1),
-            ("emit_tagged_to_primitive_locals(", 2),
-            ("emit_value_to_number_payload(", 2),
-            ("emit_date_parse_string(", 1),
-            ("emit_date_make_day(", 1),
-            ("emit_date_time_clip(", 2),
-        ] {
-            assert_eq!(constructor.matches(computation).count(), count);
-            assert!(
-                constructor.rfind(computation).unwrap() < prototype_resolution,
-                "every Date {computation} emission must precede the observable prototype Get"
-            );
-        }
-        let tagged_allocation = "emit_alloc_plain_object_with_prototype_and_tag(\n                    Some(prototype_payload_local),\n                    Some(prototype_tag_local),\n                    None";
-        assert_eq!(constructor.matches(tagged_allocation).count(), 1);
-        assert!(prototype_resolution < constructor.find(tagged_allocation).unwrap());
-        assert!(!constructor.contains("emit_error_new_target_prototype_to_local("));
-
-        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            DATE_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::DatePrototype";
-        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
-        assert_eq!(
-            host.matches("self.emit_store_realm_date_prototype(")
-                .count(),
-            1
-        );
-
-        // The ordering above is only observable if [[Construct]] enters the
-        // Date body directly: the shared dispatcher's generic path performs
-        // its own Get(newTarget, "prototype") before any argument coercion.
-        let direct_returning_domain = include_str!("functions.rs")
-            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
-            .expect("direct-returning constructor domain should exist")
-            .1
-            .split_once("]\n        .into_iter()")
-            .expect("direct-returning constructor domain should be bounded")
-            .0;
-        assert_eq!(
-            direct_returning_domain
-                .matches("StandardBuiltinId::DateConstructor,")
-                .count(),
-            1,
-            "Date must route to its body before generic prototype Get and allocation"
-        );
-    }
-
-    /// Built-in constructors that allocate their own result (or throw before
-    /// reading NewTarget.prototype) must not pass through the dispatcher's
-    /// generic OrdinaryCreateFromConstructor: it would add an observable
-    /// Get(newTarget, "prototype") ahead of their own spec-ordered one.
-    #[test]
-    fn self_allocating_builtin_constructors_bypass_generic_construct_allocation() {
-        let direct_returning_domain = include_str!("functions.rs")
-            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
-            .expect("direct-returning constructor domain should exist")
-            .1
-            .split_once("]\n        .into_iter()")
-            .expect("direct-returning constructor domain should be bounded")
-            .0;
-        for builtin in [
-            "DateConstructor",
-            "TemporalInstantConstructor",
-            "TemporalPlainDateConstructor",
-            "TemporalPlainTimeConstructor",
-            "TemporalPlainDateTimeConstructor",
-            "TemporalPlainYearMonthConstructor",
-            "TemporalPlainMonthDayConstructor",
-            "TemporalDurationConstructor",
-            "TemporalZonedDateTimeConstructor",
-            "BigIntConstructor",
-            "SymbolConstructor",
-            "TypedArrayConstructor",
-            "BoundFunctionInvoker",
-        ] {
-            assert_eq!(
-                direct_returning_domain
-                    .matches(&format!("StandardBuiltinId::{builtin},"))
-                    .count(),
-                1,
-                "{builtin} must be entered directly by [[Construct]]"
-            );
-        }
-    }
-
-    #[test]
-    fn error_message_constructors_are_realm_typed_direct_and_tagged() {
-        let heap = include_str!("heap.rs");
-        let functions = include_str!("functions.rs");
-        let ordinary_prototypes =
-            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
-        let errors = include_str!("builtins/errors.rs");
-        let error_constructor = include_str!("builtins/errors/constructor.rs");
-        let bootstrap = include_str!("builtins/bootstrap.rs");
-        let host = include_str!("builtins/host.rs");
-
-        let kind_rows = functions
-            .split_once("error_message_constructor_kinds! {")
-            .expect("shared-message Error constructor rows should exist")
-            .1
-            .split_once("/// The fallback selected after")
-            .expect("shared-message Error constructor rows should be bounded")
-            .0;
-        for (kind, constructor, constructor_global, prototype_global, slot) in [
-            (
-                "Error",
-                "ErrorConstructor",
-                "ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "ErrorPrototype",
-            ),
-            (
-                "EvalError",
-                "EvalErrorConstructor",
-                "EVAL_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "EvalErrorPrototype",
-            ),
-            (
-                "RangeError",
-                "RangeErrorConstructor",
-                "RANGE_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "RangeErrorPrototype",
-            ),
-            (
-                "ReferenceError",
-                "ReferenceErrorConstructor",
-                "REFERENCE_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "ReferenceErrorPrototype",
-            ),
-            (
-                "SyntaxError",
-                "SyntaxErrorConstructor",
-                "SYNTAX_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "SyntaxErrorPrototype",
-            ),
-            (
-                "TypeError",
-                "TypeErrorConstructor",
-                "TYPE_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "TypeErrorPrototype",
-            ),
-            (
-                "URIError",
-                "URIErrorConstructor",
-                "URI_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
-                "URI_ERROR_PROTOTYPE_GLOBAL_INDEX",
-                "URIErrorPrototype",
-            ),
-        ] {
-            let row_start = format!("    {kind} => {{");
-            let row = kind_rows
-                .split_once(row_start.as_str())
-                .unwrap_or_else(|| panic!("{kind} row should exist"))
-                .1
-                .split_once("    };")
-                .unwrap_or_else(|| panic!("{kind} row should be bounded"))
-                .0;
-            for value in [constructor, constructor_global, prototype_global, slot] {
-                assert!(row.contains(value), "{kind} row must own {value}");
-            }
-        }
-        assert!(functions.contains("pub(crate) const ALL: [Self; 7]"));
-        assert!(functions.contains("#[repr(usize)]"));
-        assert!(functions.contains("pub(crate) const fn index(self) -> usize"));
-
-        let domain = ordinary_prototypes
-            .split_once("enum OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype domain should exist")
-            .1
-            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
-            .expect("ordinary default-prototype domain should be bounded")
-            .0;
-        let offsets = ordinary_prototypes
-            .split_once("impl OrdinaryDefaultPrototype {")
-            .expect("ordinary default-prototype offset map should exist")
-            .1
-            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
-            .expect("ordinary default-prototype offset map should be bounded")
-            .0;
-        assert_eq!(
-            domain
-                .matches("MessageError(ErrorMessageConstructorKind),")
-                .count(),
-            1
-        );
-        assert_eq!(
-            offsets
-                .matches("Self::MessageError(kind) => kind.prototype_slot().offset()")
-                .count(),
-            1
-        );
-
-        for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
-            "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
-            "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
-            "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",
-            "pub(crate) const HEAP_REALM_INTRINSICS_RANGE_ERROR_PROTOTYPE_OFFSET: u64 = 368;",
-            "pub(crate) const HEAP_REALM_INTRINSICS_REFERENCE_ERROR_PROTOTYPE_OFFSET: u64 = 376;",
-            "pub(crate) const HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET: u64 = 384;",
-            "pub(crate) const HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET: u64 = 392;",
-            "name: \"%Error.prototype%\"",
-            "name: \"TypeError.prototype\"",
-            "name: \"%EvalError.prototype%\"",
-            "name: \"%RangeError.prototype%\"",
-            "name: \"%ReferenceError.prototype%\"",
-            "name: \"%SyntaxError.prototype%\"",
-            "name: \"%URIError.prototype%\"",
-        ] {
-            assert!(
-                heap.contains(required),
-                "Error-family realm layout must contain {required}"
-            );
-        }
-
-        let witness = error_constructor
-            .split_once("struct ErrorConstructorPrototypeLocals {")
-            .expect("Error constructor prototype witness should exist")
-            .1
-            .split_once("impl<'a> FunctionBuilder<'a> {")
-            .expect("Error constructor prototype witness should be bounded")
-            .0;
-        assert!(witness.contains("payload: u32"));
-        assert!(witness.contains("tag: u32"));
-        assert!(!witness.contains("derive(Clone"));
-        assert!(!witness.contains("derive(Copy"));
-        assert!(error_constructor.contains(
-            "#[must_use = \"the resolved Error-family prototype must be used for allocation and released\"]"
-        ));
-
-        let constructor = error_constructor
-            .split_once("fn emit_error_message_constructor(")
-            .expect("shared Error message constructor body should exist")
-            .1
-            .split_once("pub(super) fn emit_alloc_error_instance_from_locals(")
-            .expect("shared Error message constructor body should be bounded")
-            .0;
-        assert_eq!(
-            constructor
-                .matches("emit_error_constructor_prototype(kind, function)")
-                .count(),
-            1
-        );
-        assert_eq!(constructor.matches("&prototype").count(), 2);
-        assert_eq!(
-            constructor
-                .matches("emit_install_error_cause_from_arg")
-                .count(),
-            2
-        );
-        assert_eq!(
-            constructor
-                .matches("release_error_constructor_prototype(prototype)")
-                .count(),
-            1
-        );
-        assert!(!constructor.contains("emit_error_new_target_prototype_to_local("));
-
-        let producer = error_constructor
-            .split_once("fn emit_error_constructor_prototype(")
-            .expect("Error prototype producer should exist")
-            .1
-            .split_once("fn release_error_constructor_prototype(")
-            .expect("Error prototype producer should be bounded")
-            .0;
-        for required in [
-            "emit_new_target_prototype_to_locals(",
-            "kind.prototype_global_index()",
-            "NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind)",
-        ] {
-            assert_eq!(producer.matches(required).count(), 1, "{required}");
-        }
-        assert!(!producer.contains("FunctionSnapshot"));
-        assert!(!producer.contains("CurrentGlobal"));
-
-        let shared_resolution = errors
-            .split_once("    pub(crate) fn emit_new_target_prototype_to_locals(")
-            .expect("shared new-target prototype resolver should exist")
-            .1
-            .split_once("    pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(")
-            .expect("shared new-target prototype resolver should be bounded")
-            .0;
-        assert_eq!(shared_resolution.matches("emit_object_read(").count(), 1);
-        let active_selection = shared_resolution
-            .find("NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) =>")
-            .expect("active Error-family fallback arm should exist");
-        let guarded_get = shared_resolution
-            .find("LocalGet(should_get_prototype_local)")
-            .expect("the common prototype Get should be guarded");
-        let common_get = shared_resolution
-            .find("emit_object_read(")
-            .expect("the common prototype Get should exist");
-        assert!(active_selection < guarded_get && guarded_get < common_get);
-        assert!(shared_resolution.contains("kind.constructor_global_index()"));
-        let active_arm = shared_resolution[active_selection..]
-            .split_once("            _ => {")
-            .expect("active Error-family selection should end before the generic arm")
-            .0;
-        assert_eq!(
-            active_arm
-                .matches("LocalGet(self.current_env_local)")
-                .count(),
-            2
-        );
-        assert_eq!(
-            active_arm
-                .matches("kind.constructor_global_index()")
-                .count(),
-            1
-        );
-        assert!(shared_resolution.contains("OrdinaryDefaultPrototype::MessageError(kind)"));
-        assert!(shared_resolution.contains("LocalSet(should_get_prototype_local)"));
-        assert!(!errors.contains("emit_native_error_constructor_wrapper"));
-        assert!(!errors.contains("Instruction::Call(error_wasm_index)"));
-
-        let allocator = error_constructor
-            .split_once("fn emit_alloc_error_instance_from_locals(")
-            .expect("Error instance allocator should exist")
-            .1
-            .split_once("fn emit_error_constructor_prototype(")
-            .expect("Error instance allocator should be bounded")
-            .0;
-        assert_eq!(
-            allocator
-                .matches("emit_alloc_plain_object_with_prototype_and_tag(")
-                .count(),
-            1
-        );
-        assert!(!allocator.contains("emit_alloc_plain_object_with_prototype("));
-        assert!(allocator.contains("Some(prototype.payload)"));
-        assert!(allocator.contains("Some(prototype.tag)"));
-
-        let direct = functions
-            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
-            .expect("direct-returning constructor domain should exist")
-            .1
-            .split_once(".filter_map(|function_id|")
-            .expect("direct-returning constructor domain should be bounded")
-            .0;
-        assert!(direct.contains("ErrorMessageConstructorKind::ALL"));
-        assert!(direct.contains(".map(ErrorMessageConstructorKind::constructor)"));
-        assert!(direct.contains(".map(StandardBuiltinId::function_id)"));
-
-        let realm_publication = functions
-            .split_once("pub(crate) fn emit_store_realm_message_error_prototype(")
-            .expect("typed created-realm Error prototype publisher should exist")
-            .1
-            .split_once("pub(crate) fn emit_store_current_realm_message_error_prototype(")
-            .expect("typed created-realm Error prototype publisher should be bounded")
-            .0;
-        assert!(realm_publication.contains("kind.prototype_slot()"));
-        assert!(realm_publication.contains("prototype_local"));
-        let entry_publication = functions
-            .split_once("pub(crate) fn emit_store_current_realm_message_error_prototype(")
-            .expect("typed entry-realm Error prototype publisher should exist")
-            .1
-            .split_once("pub(crate) fn emit_store_non_array_realm_intrinsic(")
-            .expect("typed entry-realm Error prototype publisher should be bounded")
-            .0;
-        assert!(entry_publication.contains("kind.prototype_global_index()"));
-        assert!(entry_publication.contains("kind.prototype_slot()"));
-
-        for kind in [
-            "Error",
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let kind_path = format!("ErrorMessageConstructorKind::{kind}");
-            assert_eq!(
-                bootstrap.matches(kind_path.as_str()).count(),
-                1,
-                "entry bootstrap must publish {kind} exactly once"
-            );
-        }
-        let created_publication = host
-            .split_once("for (kind, prototype_local) in [")
-            .expect("created-realm Error prototype publication should exist")
-            .1
-            .split_once("self.emit_store_realm_array_iterator_prototype(")
-            .expect("created-realm Error prototype publication should be bounded")
-            .0;
-        for kind in [
-            "Error",
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let kind_path = format!("ErrorMessageConstructorKind::{kind}");
-            assert_eq!(
-                created_publication.matches(kind_path.as_str()).count(),
-                1,
-                "created realm must publish {kind} exactly once"
-            );
-        }
-        assert_eq!(
-            created_publication
-                .matches("emit_store_realm_message_error_prototype(")
-                .count(),
-            1
-        );
-        assert!(host.contains("let error_constructor_metas = ErrorMessageConstructorKind::ALL"));
-        assert!(
-            host.contains("ErrorMessageConstructorKind::ALL.map(|_| self.reserve_temp_local())")
-        );
-        assert!(!host.contains("error_constructor_locals[0]"));
-        let created_constructors = host
-            .split_once("for index in 0..error_constructor_metas.len() {")
-            .expect("created-realm Error-family constructor loop should exist")
-            .1
-            .split_once("let error_is_error_payload_local")
-            .expect("created-realm Error constructor loop should be bounded")
-            .0;
-        assert_eq!(
-            created_constructors
-                .matches("HEAP_FUNCTION_ENV_HANDLE_OFFSET")
-                .count(),
-            1,
-            "every created-realm Error-family constructor must carry its active function identity"
-        );
-        let normalized_created_constructors = created_constructors
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        assert!(normalized_created_constructors.contains(
-            "constructor_local, HEAP_FUNCTION_ENV_HANDLE_OFFSET, constructor_local, function,"
-        ));
-        assert!(created_constructors.contains("emit_function_value_payload_in_realm("));
-    }
-
-    #[test]
-    fn created_realm_error_constructor_inheritance_is_exhaustive() {
-        let functions = include_str!("functions.rs");
-        let host = include_str!("builtins/host.rs");
-
-        let kind_declaration = functions
-            .split_once("macro_rules! error_message_constructor_kinds {")
-            .expect("shared-message Error constructor macro should exist")
-            .1
-            .split_once("impl ErrorMessageConstructorKind {")
-            .expect("shared-message Error constructor domain should be bounded")
-            .0;
-        assert_eq!(kind_declaration.matches("#[derive(").count(), 1);
-        assert!(kind_declaration.contains("#[derive(Clone, Copy, Debug)]"));
-        assert!(!kind_declaration.contains("PartialEq"));
-        assert!(!kind_declaration.contains("Eq"));
-        assert!(!functions.contains("impl PartialEq for ErrorMessageConstructorKind"));
-        assert!(!functions.contains("impl Eq for ErrorMessageConstructorKind"));
-
-        let kind_rows = functions
-            .split_once("error_message_constructor_kinds! {")
-            .expect("shared-message Error constructor rows should exist")
-            .1
-            .split_once("/// The fallback selected after")
-            .expect("shared-message Error constructor rows should be bounded")
-            .0;
-        assert_eq!(kind_rows.matches("    };").count(), 7);
-        let mut previous_row = None;
-        for kind in [
-            "Error",
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let row = format!("    {kind} => {{");
-            assert_eq!(kind_rows.matches(row.as_str()).count(), 1);
-            let row_position = kind_rows
-                .find(row.as_str())
-                .unwrap_or_else(|| panic!("{kind} row should exist"));
-            if let Some(previous_position) = previous_row {
-                assert!(previous_position < row_position);
-            }
-            previous_row = Some(row_position);
-        }
-
-        let created_constructors = host
-            .split_once("for index in 0..error_constructor_metas.len() {")
-            .expect("created-realm Error-family constructor loop should exist")
-            .1
-            .split_once("let error_is_error_payload_local")
-            .expect("created-realm Error constructor loop should be bounded")
-            .0;
-        let inheritance = created_constructors
-            .split_once("            match kind {")
-            .expect("created-realm Error constructor inheritance match should exist")
-            .1
-            .split_once(
-                "            self.store_i64_local_at_offset(\n                constructor_local,\n                HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET,",
-            )
-            .expect("created-realm Error constructor inheritance match should be bounded")
-            .0
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        assert_eq!(
-            inheritance,
-            "ErrorMessageConstructorKind::Error => {} ErrorMessageConstructorKind::EvalError | ErrorMessageConstructorKind::RangeError | ErrorMessageConstructorKind::ReferenceError | ErrorMessageConstructorKind::SyntaxError | ErrorMessageConstructorKind::TypeError | ErrorMessageConstructorKind::URIError => { self.store_i64_local_at_offset( constructor_local, HEAP_PROTOTYPE_OFFSET, error_constructor_locals[ErrorMessageConstructorKind::Error.index()], function, ); self.store_i64_const_at_offset( constructor_local, HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET, ValueKind::Function.tag() as u64, function, ); } }"
-        );
-        assert!(!inheritance.contains("=="));
-        assert!(!inheritance.contains("!="));
-        let materialization = created_constructors
-            .find("emit_function_value_payload_in_realm(")
-            .expect("created-realm Error constructor should be materialized");
-        let self_backing = created_constructors
-            .find("HEAP_FUNCTION_ENV_HANDLE_OFFSET")
-            .expect("created-realm Error constructor should be self-backed");
-        let inheritance_projection = created_constructors
-            .find("match kind {")
-            .expect("created-realm Error constructor inheritance should be projected");
-        let realm_slots = created_constructors
-            .find("HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET")
-            .expect("created-realm Error constructor realm slots should be stored");
-        let public_prototype = created_constructors
-            .find("let prototype_local = match kind {")
-            .expect("created-realm Error constructor public prototype should be selected");
-        let public_prototype_store = created_constructors
-            .find("emit_set_function_prototype_data(")
-            .expect("created-realm Error constructor public prototype should be stored");
-        assert!(
-            materialization < self_backing
-                && self_backing < inheritance_projection
-                && inheritance_projection < realm_slots
-                && realm_slots < public_prototype
-                && public_prototype < public_prototype_store
-        );
-    }
-
-    #[test]
-    fn string_empty_split_structurally_walks_utf16_code_units() {
-        let source = include_str!("builtins/string.rs");
-        let helper = source
-            .split_once("mod empty_string_split_units {")
-            .expect("empty-split local domain should exist")
-            .1
-            .split_once("mod string_code_unit_access {")
-            .expect("empty-split local domain should end before code-unit access")
-            .0;
-        let split = source
-            .split_once("pub(crate) fn emit_string_split_from_string_locals(")
-            .expect("ordinary String split emitter should exist")
-            .1
-            .split_once("pub(crate) fn emit_string_split_regexp_source_from_string_locals(")
-            .expect("ordinary String split emitter should have a bounded body")
-            .0;
-
-        assert_eq!(
-            split.matches("empty_string_split_units::emit(").count(),
-            1,
-            "the empty-separator branch must delegate to the private UTF-16 unit coordinator once"
-        );
-        for local in ["UnitIndexLocal", "UnitLengthLocal", "OneUnitLocal"] {
-            assert_eq!(
-                helper.matches(&format!("struct {local}")).count(),
-                1,
-                "the {local} domain must have one opaque definition"
-            );
-        }
-        assert!(
-            helper.contains("index: &UnitIndexLocal,"),
-            "the one-unit materializer must require a UTF-16 unit index"
-        );
-        assert!(
-            helper.contains("one: &OneUnitLocal,"),
-            "the one-unit materializer must require the one-code-unit width"
-        );
-        assert_eq!(
-            helper
-                .matches("emit_utf16_code_unit_range_payload_from_locals(")
-                .count(),
-            1,
-            "the typed one-unit boundary must use the authoritative UTF-16 range operation"
-        );
-        assert!(
-            !helper.contains("emit_decode_utf8_scalar_at_index("),
-            "the coordinator must not advance one split element per direct scalar decode; the authoritative UTF-16 helpers may decode internally"
-        );
-        assert!(
-            !helper.contains("emit_string_slice_payload_from_locals("),
-            "the coordinator must not materialize one split element as a raw byte slice"
-        );
-    }
-
-    #[test]
-    fn string_char_access_structurally_uses_typed_utf16_units() {
-        let string = include_str!("builtins/string.rs");
-        let standard = include_str!("builtins/standard.rs");
-        let array = include_str!("builtins/array.rs");
-        let helper = string
-            .split_once("mod string_code_unit_access {")
-            .expect("String code-unit access local domain should exist")
-            .1
-            .split_once("pub(crate) enum UriCodecKind")
-            .expect("String code-unit access domain should end before URI codecs")
-            .0;
-        let char_at_wrapper = string
-            .split_once("pub(crate) fn emit_string_char_at_from_locals(")
-            .expect("shared charAt locals entry point should exist")
-            .1
-            .split_once("pub(crate) fn emit_string_at_from_locals(")
-            .expect("charAt locals entry point should have a bounded body")
-            .0;
-        let at_wrapper = string
-            .split_once("pub(crate) fn emit_string_at_from_locals(")
-            .expect("shared at locals entry point should exist")
-            .1
-            .split_once("pub(crate) fn emit_string_at_method_call(")
-            .expect("at locals entry point should have a bounded body")
-            .0;
-        let direct_char_at = string
-            .split_once("pub(crate) fn emit_string_char_at_method_call(")
-            .expect("optimized direct charAt emitter should exist")
-            .1
-            .split_once("pub(crate) fn emit_string_match_method_call(")
-            .expect("optimized direct charAt emitter should have a bounded body")
-            .0;
-        let direct_builtin = array
-            .split_once("pub(crate) fn emit_array_direct_builtin_method_call(")
-            .expect("shared direct builtin caller should exist")
-            .1
-            .split_once("pub(crate) fn compile_array_prototype_join_builtin(")
-            .expect("shared direct builtin caller should have a bounded body")
-            .0;
-        let standard_char_at = standard
-            .split_once("StandardBuiltinId::StringPrototypeCharAt => {")
-            .expect("standard charAt arm should exist")
-            .1
-            .split_once("StandardBuiltinId::StringPrototypeAt => {")
-            .expect("standard charAt arm should have a bounded body")
-            .0;
-        let standard_at = standard
-            .split_once("StandardBuiltinId::StringPrototypeAt => {")
-            .expect("standard at arm should exist")
-            .1
-            .split_once("StandardBuiltinId::StringPrototypeCharCodeAt => {")
-            .expect("standard at arm should have a bounded body")
-            .0;
-
-        for local in ["UnitIndexLocal", "UnitLengthLocal", "OneUnitLocal"] {
-            assert_eq!(
-                helper.matches(&format!("struct {local}")).count(),
-                1,
-                "the char-access domain must own one opaque {local}"
-            );
-            assert!(
-                helper.contains(&format!("struct {local}(u32);")),
-                "{local} must keep its raw local handle private"
-            );
-        }
-        assert_eq!(helper.matches("#[must_use]").count(), 3);
-        assert!(!helper.contains("derive(Clone, Copy)"));
-        assert!(helper.contains("index: &UnitIndexLocal,"));
-        assert!(helper.contains("one: &OneUnitLocal,"));
-        assert_eq!(
-            helper
-                .matches("emit_utf16_code_unit_range_payload_from_locals(")
-                .count(),
-            1,
-            "the typed one-unit materializer must have one authoritative UTF-16 range call"
-        );
-        for forbidden in [
-            "emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(",
-            "emit_string_slice_payload_from_locals(",
-            "emit_decode_utf8_scalar_at_index(",
-        ] {
-            assert!(
-                !helper.contains(forbidden),
-                "the char-access coordinator must not contain alternate materialization `{forbidden}`"
-            );
-        }
-        assert_eq!(helper.matches("pub(super) fn emit_char_at(").count(), 1);
-        assert_eq!(helper.matches("pub(super) fn emit_at(").count(), 1);
-        assert!(helper.contains("Method::CharAt => {"));
-        assert!(helper.contains("Method::At => {"));
-        assert!(!helper.contains("_ =>"));
-        assert!(helper.contains("Instruction::I64TruncSatF64S"));
-
-        assert_eq!(
-            char_at_wrapper
-                .matches("string_code_unit_access::emit_char_at(")
-                .count(),
-            1
-        );
-        assert_eq!(
-            at_wrapper
-                .matches("string_code_unit_access::emit_at(")
-                .count(),
-            1
-        );
-        assert_eq!(
-            direct_char_at
-                .matches("self.emit_array_direct_builtin_method_call(")
-                .count(),
-            1
-        );
-        assert!(direct_char_at.contains("StandardBuiltinId::StringPrototypeCharAt,"));
-        let receiver_evaluation = direct_builtin
-            .find("self.compile_expr_to_locals(")
-            .expect("direct builtin caller must evaluate its receiver");
-        let argument_evaluation = direct_builtin
-            .find("self.emit_call_args_vector(args, function)")
-            .expect("direct builtin caller must evaluate its complete argument list");
-        let builtin_entry = direct_builtin
-            .find("self.emit_direct_js_call_with_argv(")
-            .expect("direct builtin caller must enter the standard builtin after evaluation");
-        assert!(
-            receiver_evaluation < argument_evaluation && argument_evaluation < builtin_entry,
-            "receiver and complete argument evaluation must precede receiver/index coercion"
-        );
-
-        assert_eq!(
-            standard_char_at
-                .matches("self.emit_string_char_at_from_locals(")
-                .count(),
-            1
-        );
-        assert_eq!(
-            standard_at
-                .matches("self.emit_string_at_from_locals(")
-                .count(),
-            1
-        );
-        for body in [direct_char_at, standard_char_at, standard_at] {
-            for forbidden in [
-                "emit_value_to_string_payload(",
-                "emit_value_to_number_payload(",
-                "emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(",
-                "emit_utf16_code_unit_range_payload_from_locals(",
-                "emit_string_slice_payload_from_locals(",
-            ] {
-                assert!(
-                    !body.contains(forbidden),
-                    "char-access call sites must delegate coercion and materialization, not call `{forbidden}`"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn error_prototype_to_string_has_typed_ordered_observable_phases() {
-        let source = concat!(
-            include_str!("builtins/errors/prototype_to_string.rs"),
-            include_str!("builtins/errors.rs")
-        );
-        let operations = include_str!("operations.rs");
-        let body = source
-            .split_once("fn emit_error_prototype_to_string(")
-            .expect("Error.prototype.toString emitter should exist")
-            .1
-            .split_once("fn emit_error_to_string_prepare_name(")
-            .expect("Error.prototype.toString body should end at its name phase")
-            .0;
-        let prepare_name = source
-            .split_once("fn emit_error_to_string_prepare_name(")
-            .expect("Error.prototype.toString name phase should exist")
-            .1
-            .split_once("fn emit_error_to_string_message_and_result(")
-            .expect("the name phase should end at the message phase")
-            .0;
-        let message_and_result = source
-            .split_once("fn emit_error_to_string_message_and_result(")
-            .expect("Error.prototype.toString message phase should exist")
-            .1
-            .split_once("fn emit_error_to_string_value_to_string_local(")
-            .expect("the message phase should have a bounded body")
-            .0;
-        let value_to_string = source
-            .split_once("fn emit_error_to_string_value_to_string_local(")
-            .expect("Error.prototype.toString conversion boundary should exist")
-            .1
-            .split_once("fn emit_install_error_cause_from_arg(")
-            .expect("the conversion boundary should have a bounded body")
-            .0;
-
-        assert_eq!(
-            body.matches("emit_is_heap_object_like_tag_i32(receiver_tag_local, function)")
-                .count(),
-            1,
-            "receiver admission must use the shared object-representation authority once"
-        );
-        for representation in ["Object", "Function", "Array", "Arguments"] {
-            assert!(
-                !body.contains(&format!("ValueKind::{representation}")),
-                "the builtin body must not maintain a second {representation} admission list"
-            );
-        }
-        let prepare_call = body
-            .find("emit_error_to_string_prepare_name(")
-            .expect("the builtin must prepare name");
-        let message_call = body
-            .find("emit_error_to_string_message_and_result(")
-            .expect("the builtin must consume name in its message phase");
-        assert!(
-            prepare_call < message_call,
-            "message lookup must be emitted only after name preparation"
-        );
-
-        assert!(
-            source.contains(
-                "#[must_use = \"the prepared Error name must be consumed before reading message\"]\nstruct PreparedErrorNameLocal"
-            ),
-            "the cross-phase name state must be private and must-use"
-        );
-        assert!(
-            prepare_name.contains("Result<PreparedErrorNameLocal, EmitError>"),
-            "the name phase must return typed prepared state"
-        );
-        assert_eq!(prepare_name.matches("self.emit_object_read(").count(), 1);
-        assert!(
-            prepare_name
-                .find("self.emit_object_read(")
-                .expect("name phase must Get name")
-                < prepare_name
-                    .find("self.emit_error_to_string_value_to_string_local(")
-                    .expect("name phase must ToString name"),
-            "name Get must precede name ToString"
-        );
-        assert_eq!(
-            prepare_name
-                .matches("self.emit_error_to_string_value_to_string_local(")
-                .count(),
-            1,
-            "name conversion must cross the routed ToString boundary once"
-        );
-        assert!(
-            message_and_result.contains("prepared_name: PreparedErrorNameLocal"),
-            "the message phase must require prepared name state"
-        );
-        assert_eq!(
-            message_and_result
-                .matches("prepared_name.into_local()")
-                .count(),
-            1
-        );
-        assert_eq!(
-            message_and_result.matches("self.emit_object_read(").count(),
-            1
-        );
-        assert_eq!(
-            message_and_result
-                .matches("self.emit_error_to_string_value_to_string_local(")
-                .count(),
-            1,
-            "message conversion must cross the routed ToString boundary once"
-        );
-        assert_eq!(
-            value_to_string
-                .matches("emit_tagged_to_primitive_locals_in_current_function_realm(")
-                .count(),
-            1,
-            "ToPrimitive must use the fixed current-function-realm wrapper"
-        );
-        assert_eq!(
-            value_to_string
-                .matches("emit_current_function_realm_primitive_to_string_local(")
-                .count(),
-            1,
-            "primitive ToString must consume the matching current-realm token"
-        );
-        assert!(
-            !value_to_string.contains("self.emit_tagged_to_primitive_locals("),
-            "the builtin must not select the existing main-Realm ToPrimitive wrapper"
-        );
-        assert!(
-            !value_to_string.contains("self.emit_primitive_to_string_payload("),
-            "the builtin must not select the existing main-Realm primitive ToString wrapper"
-        );
-
-        let current_primitive = operations
-            .split_once("pub(crate) fn emit_tagged_to_primitive_locals_in_current_function_realm(")
-            .expect("the fixed current-realm ToPrimitive wrapper should exist")
-            .1
-            .split_once("pub(crate) fn emit_current_function_realm_primitive_to_string_local(")
-            .expect("the current-realm ToPrimitive wrapper should have a bounded body")
-            .0;
-        let current_string = operations
-            .split_once("pub(crate) fn emit_current_function_realm_primitive_to_string_local(")
-            .expect("the fixed current-realm primitive ToString wrapper should exist")
-            .1
-            .split_once("fn emit_tagged_to_primitive_locals_pending(")
-            .expect("the current-realm primitive ToString wrapper should have a bounded body")
-            .0;
-        assert_eq!(
-            current_primitive
-                .matches(
-                    "ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm)",
-                )
-                .count(),
-            1,
-            "ToPrimitive must fix the Realm at its private boundary"
-        );
-        assert_eq!(
-            current_string
-                .matches(
-                    "ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm)",
-                )
-                .count(),
-            1,
-            "primitive ToString must recover the Realm proof from the token type"
-        );
-        assert!(!current_primitive.contains("error_realm,"));
-        assert!(!current_string.contains("error_realm,"));
-        assert!(current_string.contains("emit_primitive_to_string_payload_with_error_realm("));
-
-        let helper_call = operations
-            .split_once("fn emit_value_to_primitive_via_helper_if_outlined(")
-            .expect("the outlined ToPrimitive boundary should exist")
-            .1
-            .split_once("pub(crate) fn emit_tagged_to_primitive_locals(")
-            .expect("the outlined ToPrimitive boundary should have a bounded body")
-            .0;
-        assert!(helper_call.contains("self.emit_conversion_error_realm_argument(error_realm"));
-        assert!(helper_call.contains("for _ in 0..3"));
-        assert_eq!(
-            helper_call
-                .matches("self.emit_outlined_object_read_realm_argument(function)")
-                .count(),
-            1,
-            "outlined ToPrimitive must forward the typed property-read Realm argument"
-        );
-        assert!(
-            operations.contains("ConversionErrorRealmSource::RuntimeHelperArgument"),
-            "the outlined helper body must decode the forwarded closed realm word"
-        );
-        assert!(
-            operations.contains("ConversionErrorRealm::MainRealm.abi_word()")
-                && operations.contains("ConversionErrorRealm::CurrentFunctionRealm.abi_word()"),
-            "the helper decoder must cover both conversion-error realm words"
-        );
+            .sum::<u32>();
+        let host_imports = Parser::new(0)
+            .parse_all(runtime.bytes())
+            .filter_map(|payload| match payload.expect("runtime parses") {
+                Payload::ImportSection(reader) => Some(
+                    reader
+                        .into_imports()
+                        .filter(|import| {
+                            matches!(
+                                import.as_ref().expect("import parses").ty,
+                                wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                            )
+                        })
+                        .count() as u32,
+                ),
+                _ => None,
+            })
+            .sum::<u32>();
+        assert_eq!(imports, host_imports + runtime_functions);
     }
 
     #[test]
@@ -2808,7 +237,7 @@ mod tests {
     #[test]
     fn plain_async_loop_awaits_emit_a_valid_module() {
         // Each of these lowers to a `StatementIr::GeneratorLoop` that the plain
-        // async body compiles against `HEAP_ASYNC_RESUME_STATE_OFFSET`, running
+        // async body consumes its typed activation resume point, running
         // one iteration per invocation of the body.
         for source in [
             "(async function(){ let t = 0; for (let i = 0; i < 3; i++) { t += await Promise.resolve(i); } print(t); })();",
@@ -2912,7 +341,9 @@ mod tests {
             "user functions must be named: {names:?}"
         );
         assert!(
-            names.values().any(|name| name == "helper::heap_alloc"),
+            names
+                .values()
+                .any(|name| name == "helper::transient_byte_alloc"),
             "runtime helpers must be named: {names:?}"
         );
         assert!(
@@ -3038,7 +469,6 @@ mod tests {
                 "main",
                 "script",
                 "builtin",
-                "builtin-stub",
                 "host-builtin",
                 "runtime-helper"
             ]
@@ -3242,94 +672,6 @@ mod tests {
                 summary.name == reported_name && summary.body_bytes.bytes() == largest_bytes
             }),
             "the first report row names {reported_name}, which is not a largest typed summary"
-        );
-    }
-
-    #[test]
-    fn dense_literals_avoid_sparse_bookkeeping_and_sparse_writes_share_one_body() {
-        fn literal_artifact(count: usize) -> WasmArtifact {
-            let elements = (0..count)
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            emit_script(&format!(
-                "function make() {{ return [{elements}]; }} make();"
-            ))
-            .expect("ordinary array literal should emit")
-        }
-
-        fn largest_make_body(artifact: &WasmArtifact) -> u32 {
-            artifact
-                .function_sizes
-                .iter()
-                .filter(|body| body.name.starts_with("js::make#"))
-                .map(|body| body.body_bytes.bytes())
-                .max()
-                .expect("array producer must be emitted")
-        }
-
-        let small = literal_artifact(128);
-        let large = literal_artifact(1024);
-        expect_valid_module(&large, 1);
-        let added_bytes = largest_make_body(&large) - largest_make_body(&small);
-        // Each element owns evaluation and fixed stores, not another copy of
-        // the presence-list search, allocation and six-field copy loops.
-        assert!(
-            added_bytes <= (1024 - 128) * 256,
-            "896 literal elements added {added_bytes} bytes"
-        );
-        let helpers = large
-            .function_sizes
-            .iter()
-            .filter(|body| body.name == "helper::array_append_present_index")
-            .collect::<Vec<_>>();
-        assert_eq!(helpers.len(), 1, "sparse bookkeeping has one owner");
-        let helper_index = helpers[0].wasm_index;
-        let names = function_names(&large);
-        let mut function_index = imported_function_count(&large);
-        let mut producer_count = 0;
-        let mut sparse_write_calls = 0;
-        for payload in Parser::new(0).parse_all(&large.bytes) {
-            let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
-                continue;
-            };
-            let mut calls = 0;
-            for operator in body.get_operators_reader().expect("operators should parse") {
-                if matches!(
-                    operator.expect("operator should parse"),
-                    Operator::Call { function_index: callee } if callee == helper_index
-                ) {
-                    calls += 1;
-                }
-            }
-            if function_index == helper_index {
-                assert_eq!(
-                    calls, 0,
-                    "the helper cannot call its public seam recursively"
-                );
-            }
-            if names
-                .get(&function_index)
-                .is_some_and(|name| name.starts_with("js::make#"))
-            {
-                assert_eq!(calls, 0, "dense literals own their descriptors directly");
-                producer_count += 1;
-            }
-            if names
-                .get(&function_index)
-                .is_some_and(|name| name == "helper::array_write")
-            {
-                sparse_write_calls += calls;
-            }
-            function_index += 1;
-        }
-        assert!(
-            producer_count > 0,
-            "the dense producer witness is not vacuous"
-        );
-        assert!(
-            sparse_write_calls > 0,
-            "sparse writes retain the shared helper"
         );
     }
 
@@ -3937,27 +1279,16 @@ try { Reflect.construct(Set, [], revocable.proxy); } catch (error) {}"#,
     }
 
     #[test]
-    fn arbitrary_precision_bigint_literal_initializes_heap_record_and_limbs() {
+    fn arbitrary_precision_bigint_literal_emits_a_gc_module() {
         let source = parse("184467440737095516161234567890n;", ParseOptions::script())
             .expect("script should parse");
         let program = lower(&source);
         let artifact = emit(&program).expect("arbitrary precision BigInt should emit");
 
         expect_valid_module(&artifact, 0);
-        for (value, offset) in [(1_234_567_890, 0), (10_000_000_000, 8)] {
-            assert!(
-                contains_i64_const_store_at_offset(&artifact.bytes, value, offset),
-                "BigInt literal should initialize magnitude limb {offset}"
-            );
-        }
-        assert!(
-            contains_i64_const_store_at_offset(&artifact.bytes, 2, HEAP_BIGINT_LIMBS_LEN_OFFSET,),
-            "BigInt record should retain both magnitude limbs"
-        );
-        assert!(
-            contains_i64_const_store_at_offset(&artifact.bytes, 2, HEAP_BIGINT_LIMBS_CAP_OFFSET,),
-            "BigInt record capacity should cover both magnitude limbs"
-        );
+        assert!(artifact
+            .gc_host_imports()
+            .contains(&GcHostImport::CollectGc));
     }
 
     #[test]
@@ -3997,15 +1328,7 @@ try { Reflect.construct(Set, [], revocable.proxy); } catch (error) {}"#,
             script,
             StandardBuiltinId::NumberIsNaN
         ));
-        assert!(!should_stub_standard_builtin(
-            script,
-            StandardBuiltinId::NumberIsNaN
-        ));
         assert!(script_references_standard_builtin(
-            script,
-            StandardBuiltinId::NumberIsFinite
-        ));
-        assert!(!should_stub_standard_builtin(
             script,
             StandardBuiltinId::NumberIsFinite
         ));
@@ -4513,7 +1836,7 @@ pick(true);"#,
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_get_v(
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ExprIr::ExecutionGlobalObject,
             ),
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
@@ -4536,7 +1859,7 @@ pick(true);"#,
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_get(
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ExprIr::ExecutionGlobalObject,
             ),
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
@@ -4559,7 +1882,7 @@ pick(true);"#,
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_has_property(
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ExprIr::ExecutionGlobalObject,
             ),
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
@@ -4583,7 +1906,7 @@ pick(true);"#,
             StatementIr::Expression(TypedExpr::spec_create_data_property_or_throw(
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Object),
-                    ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                    ExprIr::ExecutionGlobalObject,
                 ),
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::String),
@@ -4612,7 +1935,7 @@ pick(true);"#,
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_set(
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ExprIr::ExecutionGlobalObject,
             ),
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
@@ -4641,7 +1964,7 @@ pick(true);"#,
             StatementIr::Expression(TypedExpr::spec_delete_property_or_throw(
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Object),
-                    ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                    ExprIr::ExecutionGlobalObject,
                 ),
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::String),
@@ -4665,7 +1988,7 @@ pick(true);"#,
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_has_own_property(
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ExprIr::ExecutionGlobalObject,
             ),
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
@@ -4688,7 +2011,7 @@ pick(true);"#,
         script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_get_method(
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                ExprIr::ExecutionGlobalObject,
             ),
             TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
@@ -4786,49 +2109,6 @@ pick(true);"#,
             StringPool::runtime_bytes_for_string(&encoded),
             JS_STRING_SURROGATE_SENTINEL.to_string().as_bytes().to_vec()
         );
-    }
-
-    fn contains_i64_const(bytes: &[u8], needle: i64) -> bool {
-        for payload in Parser::new(0).parse_all(bytes) {
-            if let Payload::CodeSectionEntry(body) = payload.expect("wasm parse should succeed") {
-                let mut reader = body
-                    .get_operators_reader()
-                    .expect("operators should decode");
-                while !reader.eof() {
-                    if let Operator::I64Const { value } =
-                        reader.read().expect("operator should decode")
-                    {
-                        if value == needle {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    fn contains_i64_const_store_at_offset(bytes: &[u8], value: i64, offset: u64) -> bool {
-        for payload in Parser::new(0).parse_all(bytes) {
-            if let Payload::CodeSectionEntry(body) = payload.expect("wasm parse should succeed") {
-                let mut reader = body
-                    .get_operators_reader()
-                    .expect("operators should decode");
-                let mut previous_i64_const = None;
-                while !reader.eof() {
-                    match reader.read().expect("operator should decode") {
-                        Operator::I64Const { value } => previous_i64_const = Some(value),
-                        Operator::I64Store { memarg }
-                            if previous_i64_const == Some(value) && memarg.offset == offset =>
-                        {
-                            return true;
-                        }
-                        _ => previous_i64_const = None,
-                    }
-                }
-            }
-        }
-        false
     }
 
     fn global_init_i64s(bytes: &[u8]) -> Vec<i64> {
@@ -4969,376 +2249,9 @@ pick(true);"#,
         let artifact = emit_script("let x = 40; const y = 2; x + y;").expect("emit should work");
         expect_valid_module(&artifact, 0);
         assert!(artifact.debug_dump.contains("export func: main"));
-        assert!(artifact.debug_dump.contains("export global: result_tag"));
-    }
-
-    #[test]
-    fn runtime_gc_root_follows_the_actual_fixed_and_template_globals() {
-        let cases = [
-            (
-                "runtime-free completion globals",
-                "1;",
-                THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX + 1,
-            ),
-            (
-                "heap globals without templates",
-                "({ value: 1 });",
-                GLOBAL_INDEX_REGISTRY.len() as u32,
-            ),
-            (
-                "one template-object global",
-                r#"function tag(parts) { return parts[0]; } tag`one`;"#,
-                GLOBAL_INDEX_REGISTRY.len() as u32 + 1,
-            ),
-            (
-                "two template-object globals",
-                r#"function tag(parts) { return parts[0]; } tag`one`; tag`two`;"#,
-                GLOBAL_INDEX_REGISTRY.len() as u32 + 2,
-            ),
-        ];
-
-        for (label, source, expected_root_index) in cases {
-            let artifact = emit_script(source)
-                .unwrap_or_else(|error| panic!("{label} source should emit: {error}"));
-            expect_valid_module(&artifact, 0);
-
-            let mut module_types = Vec::new();
-            let mut global_count = 0_u32;
-            let mut reference_globals = Vec::new();
-            for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                match payload.expect("module should parse") {
-                    Payload::TypeSection(reader) => {
-                        for group in reader {
-                            module_types
-                                .extend(group.expect("runtime types should decode").into_types());
-                        }
-                    }
-                    Payload::GlobalSection(reader) => {
-                        for (index, global) in reader.into_iter().enumerate() {
-                            let global = global.expect("global should decode");
-                            global_count += 1;
-                            let wasmparser::ValType::Ref(reference_type) = global.ty.content_type
-                            else {
-                                continue;
-                            };
-                            reference_globals.push(index as u32);
-                            assert!(global.ty.mutable, "{label}: root must be mutable");
-                            assert!(!global.ty.shared, "{label}: root must be per-instance");
-                            assert!(
-                                reference_type.is_nullable(),
-                                "{label}: root must clear to null"
-                            );
-                            let wasmparser::HeapType::Concrete(anchor_type) =
-                                reference_type.heap_type()
-                            else {
-                                panic!("{label}: root must retain its concrete anchor type");
-                            };
-                            let anchor_index =
-                                anchor_type.as_module_index().expect("anchor module index");
-                            let anchor = module_types[anchor_index as usize].unwrap_struct();
-                            assert_eq!(anchor.fields.len(), 1, "{label}: one anchor ABI field");
-                            assert!(
-                                !anchor.fields[0].mutable,
-                                "{label}: immutable anchor ABI field"
-                            );
-                            assert_eq!(
-                                anchor.fields[0].element_type,
-                                wasmparser::StorageType::Val(wasmparser::ValType::I32),
-                                "{label}: anchor ABI field is i32"
-                            );
-                            let mut init = global.init_expr.get_operators_reader();
-                            assert!(
-                                matches!(
-                                    init.read().expect("root initializer should decode"),
-                                    Operator::RefNull { hty: wasmparser::HeapType::Concrete(initializer_type) }
-                                        if initializer_type.as_module_index() == Some(anchor_index)
-                                ),
-                                "{label}: root initializes with the same typed null"
-                            );
-                            assert!(matches!(
-                                init.read().expect("root initializer should end"),
-                                Operator::End
-                            ));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            assert_eq!(
-                reference_globals,
-                [expected_root_index],
-                "{label} must have one typed root at the actual next global index"
-            );
-            assert_eq!(
-                global_count,
-                expected_root_index + 1,
-                "{label} must seal the global section immediately after its root"
-            );
-        }
-    }
-
-    #[test]
-    fn runtime_gc_anchor_is_rooted_across_main_and_cleared_on_exit() {
-        let artifact = emit_script(
-            "function allocate() { return { value: 1 }; } allocate(); Promise.resolve(0);",
-        )
-        .expect("root-lifecycle fixture should emit");
-        expect_valid_module(&artifact, 1);
-
-        let mut module_types = Vec::new();
-        let mut root = None;
-        let mut global_count = 0_u32;
-        for payload in Parser::new(0).parse_all(&artifact.bytes) {
-            match payload.expect("module should parse") {
-                Payload::TypeSection(reader) => {
-                    for group in reader {
-                        module_types.extend(
-                            group
-                                .expect("runtime type group should decode")
-                                .into_types(),
-                        );
-                    }
-                }
-                Payload::GlobalSection(reader) => {
-                    for (index, global) in reader.into_iter().enumerate() {
-                        let global = global.expect("global should decode");
-                        global_count += 1;
-                        let wasmparser::ValType::Ref(reference_type) = global.ty.content_type
-                        else {
-                            continue;
-                        };
-                        assert!(root.is_none(), "the capability root is the sole GC global");
-                        assert!(
-                            global.ty.mutable,
-                            "the root must support establish and clear"
-                        );
-                        assert!(!global.ty.shared, "the per-instance root is not shared");
-                        assert!(
-                            reference_type.is_nullable(),
-                            "the cleared root must be null"
-                        );
-                        let wasmparser::HeapType::Concrete(anchor_type) =
-                            reference_type.heap_type()
-                        else {
-                            panic!("the root must retain the concrete anchor type");
-                        };
-                        let anchor_type = anchor_type
-                            .as_module_index()
-                            .expect("the emitted anchor type uses a module index");
-                        let mut init = global.init_expr.get_operators_reader();
-                        assert!(matches!(
-                            init.read().expect("root initializer should decode"),
-                            Operator::RefNull {
-                                hty: wasmparser::HeapType::Concrete(initializer_type)
-                            } if initializer_type.as_module_index() == Some(anchor_type)
-                        ));
-                        assert!(matches!(
-                            init.read().expect("root initializer should end"),
-                            Operator::End
-                        ));
-                        root = Some((index as u32, anchor_type));
-                    }
-                }
-                _ => {}
-            }
-        }
-        let (root_global, anchor_type) = root.expect("module must declare the typed GC root");
-        assert_eq!(
-            root_global + 1,
-            global_count,
-            "the root must be appended after every established global index"
-        );
-
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum RootEvent {
-            HolderFieldGet,
-            AnchorFieldGet,
-            RootGet,
-            RootSet,
-            RootNull,
-            RefAsNonNull,
-            Call,
-            Return,
-        }
-
-        let mut events = Vec::new();
-        let mut holder_type = None;
-        let mut constructed_types = Vec::new();
-        for payload in Parser::new(0).parse_all(&artifact.bytes) {
-            let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
-                continue;
-            };
-            for operator in body
-                .get_operators_reader()
-                .expect("main operators should decode")
-            {
-                let event = match operator.expect("main operator should decode") {
-                    Operator::StructGet {
-                        struct_type_index,
-                        field_index,
-                    } if struct_type_index == anchor_type => {
-                        assert_eq!(field_index, 0, "the anchor ABI field is ordinal zero");
-                        Some(RootEvent::AnchorFieldGet)
-                    }
-                    Operator::StructGet {
-                        struct_type_index,
-                        field_index,
-                    } => {
-                        assert_eq!(field_index, 0, "the holder strong edge is ordinal zero");
-                        assert!(
-                            holder_type
-                                .replace(struct_type_index)
-                                .is_none_or(|existing| existing == struct_type_index),
-                            "main must not access two candidate holder layouts"
-                        );
-                        Some(RootEvent::HolderFieldGet)
-                    }
-                    Operator::StructNew { struct_type_index } => {
-                        constructed_types.push(struct_type_index);
-                        None
-                    }
-                    Operator::GlobalGet { global_index } if global_index == root_global => {
-                        Some(RootEvent::RootGet)
-                    }
-                    Operator::GlobalSet { global_index } if global_index == root_global => {
-                        Some(RootEvent::RootSet)
-                    }
-                    Operator::RefNull {
-                        hty: wasmparser::HeapType::Concrete(reference_type),
-                    } if reference_type.as_module_index() == Some(anchor_type) => {
-                        Some(RootEvent::RootNull)
-                    }
-                    Operator::RefAsNonNull => Some(RootEvent::RefAsNonNull),
-                    Operator::Call { .. } | Operator::CallIndirect { .. } => Some(RootEvent::Call),
-                    Operator::Return
-                    | Operator::ReturnCall { .. }
-                    | Operator::ReturnCallIndirect { .. } => Some(RootEvent::Return),
-                    _ => None,
-                };
-                if let Some(event) = event {
-                    events.push(event);
-                }
-            }
-            break;
-        }
-
-        let holder_type = holder_type.expect("main must traverse the typed holder field");
-        assert_eq!(
-            holder_type,
-            anchor_type + 1,
-            "the holder must be registered immediately after its anchor dependency"
-        );
-        assert_eq!(
-            constructed_types,
-            [anchor_type, holder_type],
-            "main must construct the registered anchor and then its holder"
-        );
-        let anchor = module_types
-            .get(anchor_type as usize)
-            .expect("root must name a declared anchor type")
-            .unwrap_struct();
-        assert_eq!(anchor.fields.len(), 1, "the anchor has one ABI field");
-        assert!(
-            !anchor.fields[0].mutable,
-            "the anchor ABI field is immutable"
-        );
-        assert_eq!(
-            anchor.fields[0].element_type,
-            wasmparser::StorageType::Val(wasmparser::ValType::I32),
-            "the anchor ABI field is an i32"
-        );
-        let holder = module_types
-            .get(holder_type as usize)
-            .expect("holder access must name a declared type")
-            .unwrap_struct();
-        assert_eq!(holder.fields.len(), 1, "the holder has one strong edge");
-        assert!(!holder.fields[0].mutable, "the holder edge is immutable");
-        let wasmparser::StorageType::Val(wasmparser::ValType::Ref(holder_reference)) =
-            holder.fields[0].element_type
-        else {
-            panic!("the holder field must be a typed reference");
-        };
-        assert!(
-            !holder_reference.is_nullable(),
-            "the holder's anchor edge must be non-null"
-        );
-        let wasmparser::HeapType::Concrete(holder_target) = holder_reference.heap_type() else {
-            panic!("the holder field must name the concrete anchor type");
-        };
-        assert_eq!(
-            holder_target.as_module_index(),
-            Some(anchor_type),
-            "the holder field and root must name the same anchor layout"
-        );
-
-        let initial_set = events
-            .iter()
-            .position(|event| *event == RootEvent::RootSet)
-            .expect("main must establish its root");
-        assert!(
-            events[..initial_set].contains(&RootEvent::HolderFieldGet),
-            "the holder's typed strong edge must feed the root"
-        );
-        let final_set = events
-            .iter()
-            .rposition(|event| *event == RootEvent::RootSet)
-            .expect("main must clear its root");
-        let root_null = events[..final_set]
-            .iter()
-            .rposition(|event| *event == RootEvent::RootNull)
-            .expect("root cleanup must store a typed null");
-        let anchor_get = events[..root_null]
-            .iter()
-            .rposition(|event| *event == RootEvent::AnchorFieldGet)
-            .expect("root cleanup must verify the anchor ABI");
-        let non_null = events[..anchor_get]
-            .iter()
-            .rposition(|event| *event == RootEvent::RefAsNonNull)
-            .expect("root cleanup must reject an absent root");
-        let root_get = events[..non_null]
-            .iter()
-            .rposition(|event| *event == RootEvent::RootGet)
-            .expect("root cleanup must load the typed global");
-        let call = events[..root_get]
-            .iter()
-            .rposition(|event| *event == RootEvent::Call)
-            .expect("the root must survive at least one main call");
-        assert!(
-            initial_set < call
-                && call < root_get
-                && root_get < non_null
-                && non_null < anchor_get
-                && anchor_get < root_null
-                && root_null < final_set,
-            "root lifecycle events are out of order: {events:?}"
-        );
-        for return_index in events
-            .iter()
-            .enumerate()
-            .filter_map(|(index, event)| (*event == RootEvent::Return).then_some(index))
-        {
-            let clear_set = events[..return_index]
-                .iter()
-                .rposition(|event| *event == RootEvent::RootSet)
-                .expect("every main return follows a root store");
-            assert_ne!(
-                clear_set, initial_set,
-                "a main return bypassed root verification and cleanup: {events:?}"
-            );
-            assert!(
-                clear_set >= 4
-                    && events[clear_set - 4..=clear_set]
-                        == [
-                            RootEvent::RootGet,
-                            RootEvent::RefAsNonNull,
-                            RootEvent::AnchorFieldGet,
-                            RootEvent::RootNull,
-                            RootEvent::RootSet,
-                        ],
-                "a main return did not verify and clear the typed root: {events:?}"
-            );
-        }
+        assert!(artifact
+            .debug_dump
+            .contains("main completion ABI: tag/scalar/reference/kind/target"));
     }
 
     #[test]
@@ -5389,43 +2302,6 @@ pick(true);"#,
     }
 
     #[test]
-    fn date_clock_import_access_is_centralized_in_date_builtins() {
-        let date_source = concat!(
-            include_str!("builtins/date.rs"),
-            include_str!("builtins/date/local_string.rs")
-        );
-        let standard_source = include_str!("builtins/standard.rs");
-        let date_now_dispatch = standard_source
-            .split_once("StandardBuiltinId::DateNow => {")
-            .expect("Date.now dispatch arm should exist")
-            .1
-            .split_once("StandardBuiltinId::DateParse => {")
-            .expect("Date.now dispatch arm should be bounded")
-            .0;
-        let date_constructor_dispatch = standard_source
-            .split_once("StandardBuiltinId::DateConstructor => {")
-            .expect("Date constructor dispatch arm should exist")
-            .1
-            .split_once("StandardBuiltinId::DatePrototypeGetTime")
-            .expect("Date constructor dispatch arm should be bounded")
-            .0;
-
-        assert_eq!(
-            date_source
-                .matches(".wall_clock_millis_import_function_index()")
-                .count(),
-            1,
-            "Date must have one clock-import access point"
-        );
-        for dispatch in [date_now_dispatch, date_constructor_dispatch] {
-            assert!(
-                !dispatch.contains(".wall_clock_millis_import_function_index()"),
-                "Date dispatch must route clock reads through the closed source in date.rs"
-            );
-        }
-    }
-
-    #[test]
     fn math_random_alone_imports_the_typed_host_random_capability() {
         let artifact = emit_script("Math.random();").expect("Math.random script should emit");
 
@@ -5449,10 +2325,106 @@ pick(true);"#,
     }
 
     #[test]
+    fn math_transcendentals_alone_import_their_typed_host_capabilities() {
+        for (source, import) in [
+            ("Math.acos(0.5);", "math_acos"),
+            ("Math.acosh(2);", "math_acosh"),
+            ("Math.asin(0.5);", "math_asin"),
+            ("Math.asinh(1);", "math_asinh"),
+            ("Math.atan(1);", "math_atan"),
+            ("Math.atanh(0.5);", "math_atanh"),
+            ("Math.cbrt(8);", "math_cbrt"),
+            ("Math.cos(1);", "math_cos"),
+            ("Math.cosh(1);", "math_cosh"),
+            ("Math.exp(1);", "math_exp"),
+            ("Math.expm1(1);", "math_expm1"),
+            ("Math.log(2);", "math_log"),
+            ("Math.log10(100);", "math_log10"),
+            ("Math.log1p(1);", "math_log1p"),
+            ("Math.log2(8);", "math_log2"),
+            ("Math.sin(1);", "math_sin"),
+            ("Math.sinh(1);", "math_sinh"),
+            ("Math.tan(1);", "math_tan"),
+            ("Math.tanh(1);", "math_tanh"),
+            ("Math.atan2(1, 2);", "math_atan2"),
+        ] {
+            let artifact =
+                emit_script(source).unwrap_or_else(|error| panic!("{source} should emit: {error}"));
+
+            expect_valid_module(&artifact, 0);
+            assert!(
+                artifact
+                    .debug_dump
+                    .contains(&format!("import func: lila_host.{import}")),
+                "{source} omitted its {import} import:\n{}",
+                artifact.debug_dump
+            );
+        }
+
+        let artifact = emit_script("262;").expect("constant script should emit");
+        for import in [
+            "math_acos",
+            "math_acosh",
+            "math_asin",
+            "math_asinh",
+            "math_atan",
+            "math_atanh",
+            "math_cbrt",
+            "math_cos",
+            "math_cosh",
+            "math_exp",
+            "math_expm1",
+            "math_log",
+            "math_log10",
+            "math_log1p",
+            "math_log2",
+            "math_sin",
+            "math_sinh",
+            "math_tan",
+            "math_tanh",
+            "math_atan2",
+        ] {
+            assert!(
+                !artifact
+                    .debug_dump
+                    .contains(&format!("import func: lila_host.{import}")),
+                "constant script dragged in {import}:\n{}",
+                artifact.debug_dump
+            );
+        }
+    }
+
+    #[test]
     fn canonical_locale_list_alone_imports_the_typed_intl_host_call() {
+        fn components(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+            Parser::new(0)
+                .parse_all(bytes)
+                .filter_map(|payload| {
+                    let Payload::CustomSection(section) = payload.expect("module should parse")
+                    else {
+                        return None;
+                    };
+                    matches!(
+                        section.name(),
+                        lila_intl::INTL_LOCALE_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_LIST_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_COLLATOR_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_NUMBER_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_SEGMENTER_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_DISPLAY_NAMES_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_RELATIVE_TIME_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_DURATION_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_NAMED_TIME_ZONE_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_DATETIME_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_TIME_ZONE_NAMES_DATA_CUSTOM_SECTION
+                            | lila_intl::INTL_NATIVE_LOCALE_INFORMATION_CUSTOM_SECTION
+                    )
+                    .then(|| (section.name().to_owned(), section.data().to_vec()))
+                })
+                .collect()
+        }
         let artifact = emit_script("Intl.getCanonicalLocales(['iw-IL']);")
             .expect("canonical locale list should emit");
-
         expect_valid_module(&artifact, 0);
         assert!(
             artifact
@@ -5474,12 +2446,147 @@ pick(true);"#,
                     .then(|| section.data().to_vec())
             })
             .collect::<Vec<_>>();
-        assert_eq!(identity_sections.len(), 1);
-        assert_eq!(
-            identity_sections[0].as_slice(),
-            expected_identity.as_bytes()
+        assert_eq!(identity_sections, [expected_identity.as_bytes().to_vec()]);
+        let actual = components(&artifact.bytes);
+        let expected = [
+            (
+                lila_intl::INTL_LOCALE_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_locale_data_image().unwrap().bytes(),
+            ),
+            (
+                lila_intl::INTL_LIST_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_list_data_image().unwrap().bytes(),
+            ),
+            (
+                lila_intl::INTL_COLLATOR_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_collator_data_image().unwrap().bytes(),
+            ),
+            (
+                lila_intl::INTL_NUMBER_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_number_profiles_data_image()
+                    .unwrap()
+                    .bytes(),
+            ),
+            (
+                lila_intl::INTL_SEGMENTER_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_segmenter_data_image().unwrap().bytes(),
+            ),
+            (
+                lila_intl::INTL_DISPLAY_NAMES_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_display_names_data_image()
+                    .unwrap()
+                    .bytes(),
+            ),
+            (
+                lila_intl::INTL_RELATIVE_TIME_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_relative_time_data_image()
+                    .unwrap()
+                    .bytes(),
+            ),
+            (
+                lila_intl::INTL_DURATION_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_duration_data_image().unwrap().bytes(),
+            ),
+            (
+                lila_intl::INTL_NAMED_TIME_ZONE_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_named_time_zone_data_image()
+                    .unwrap()
+                    .bytes(),
+            ),
+            (
+                lila_intl::INTL_DATETIME_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_date_time_data_image().unwrap().bytes(),
+            ),
+            (
+                lila_intl::INTL_TIME_ZONE_NAMES_DATA_CUSTOM_SECTION,
+                lila_intl::embedded_time_zone_names_data_image()
+                    .unwrap()
+                    .bytes(),
+            ),
+            (
+                lila_intl::INTL_NATIVE_LOCALE_INFORMATION_CUSTOM_SECTION,
+                lila_intl::embedded_native_locale_information_data_image()
+                    .unwrap()
+                    .bytes(),
+            ),
+        ];
+        assert_eq!(actual.len(), expected.len());
+        for (name, data) in expected {
+            assert_eq!(actual.iter().filter(|(key, _)| key == name).count(), 1);
+            assert_eq!(
+                actual
+                    .iter()
+                    .find(|(key, _)| key == name)
+                    .unwrap()
+                    .1
+                    .as_slice(),
+                data.as_ref()
+            );
+        }
+        let custom_profile = lila_intl::IntlCompilationProfile::Custom(
+            lila_intl::CustomProfileId::parse("aot-image-owner").unwrap(),
         );
-
+        let selection = lila_intl::IntlDataSelection::new(custom_profile.clone());
+        let selected = selection.selected().expect("selected data should admit");
+        let parsed = parse(
+            "Intl.getCanonicalLocales(['iw-IL']); Intl.supportedValuesOf('calendar');",
+            ParseOptions::script(),
+        )
+        .expect("selected Intl source should parse");
+        let custom = emit_with_intl_profile(
+            &lower(&parsed),
+            PromiseRejectionPolicy::default(),
+            &custom_profile,
+        )
+        .expect("selected catalogues and host images should emit together");
+        expect_valid_module(&custom, 0);
+        let custom_sections = components(&custom.bytes);
+        assert_eq!(custom_sections.len(), 12);
+        for (name, bytes) in selected.component_sections() {
+            assert_eq!(
+                custom_sections
+                    .iter()
+                    .filter(|(key, _)| key == name)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                custom_sections
+                    .iter()
+                    .find(|(key, _)| key == name)
+                    .unwrap()
+                    .1
+                    .as_slice(),
+                bytes.as_ref(),
+            );
+        }
+        let custom_identity = selected.identity().artifact_identity();
+        assert_ne!(custom_identity.as_bytes(), expected_identity.as_bytes());
+        let actual_identity = Parser::new(0)
+            .parse_all(&custom.bytes)
+            .filter_map(|payload| {
+                let Payload::CustomSection(section) = payload.expect("module should parse") else {
+                    return None;
+                };
+                (section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION)
+                    .then(|| section.data().to_vec())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual_identity, [custom_identity.as_bytes().to_vec()]);
+        let parsed = parse("262;", ParseOptions::script()).expect("constant script should parse");
+        let without_intl = emit_with_intl_profile(
+            &lower(&parsed),
+            PromiseRejectionPolicy::default(),
+            &custom_profile,
+        )
+        .expect("unused selected profile should remain inert");
+        assert!(components(&without_intl.bytes).is_empty());
+        assert!(Parser::new(0)
+            .parse_all(&without_intl.bytes)
+            .all(|payload| {
+                !matches!(payload.expect("module should parse"), Payload::CustomSection(section)
+                if section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION)
+            }));
         let artifact = emit_script("262;").expect("constant script should emit");
         assert!(
             !artifact
@@ -5488,13 +2595,22 @@ pick(true);"#,
             "{}",
             artifact.debug_dump
         );
+        assert!(components(&artifact.bytes).is_empty());
         assert!(Parser::new(0).parse_all(&artifact.bytes).all(|payload| {
-            !matches!(
-                payload.expect("module should parse"),
-                Payload::CustomSection(section)
-                    if section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION
-            )
+            !matches!(payload.expect("module should parse"), Payload::CustomSection(section)
+                if section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION)
         }));
+
+        // A compiled primitive catalogue consumes selected data even when it
+        // needs no host call. Its full image/identity binding remains visible.
+        let artifact = emit_script("Intl.supportedValuesOf('calendar');")
+            .expect("native supported-values catalogue should emit");
+        assert_eq!(components(&artifact.bytes).len(), 12);
+        let identities = Parser::new(0).parse_all(&artifact.bytes).filter(|payload| {
+            matches!(payload.as_ref().expect("module should parse"), Payload::CustomSection(section)
+                if section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION)
+        }).count();
+        assert_eq!(identities, 1);
     }
 
     #[test]
@@ -5836,153 +2952,43 @@ setterReceiver === receiver;
     }
 
     #[test]
-    fn preseeded_string_bytes_and_literal_payloads_are_stable() {
-        for (label, source, expected_heap) in [
-            ("runtime-free literal", "\",\";", false),
-            ("allocating object", "({ value: \",\" });", true),
-        ] {
+    fn preseeded_wire_data_stays_in_private_memory() {
+        for source in ["\",\";", "({ value: \",\" });"] {
             let artifact = emit_script(source).expect("emit should work");
             expect_valid_module(&artifact, 0);
             let data = data_segment_bytes(&artifact.bytes);
             let mut expected_prefix = vec![b' '; 11];
             expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
-            assert!(
-                data.starts_with(&expected_prefix),
-                "{label}: unexpected data prefix: {:?}",
-                &data[..data.len().min(32)]
-            );
-            assert!(
-                contains_i64_const(
-                    &artifact.bytes,
-                    ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
-                ),
-                "{label}: comma literal payload should be emitted as packed offset/len"
-            );
-
-            let heap_start = align_heap_start(data.len()) as i64;
+            assert!(data.starts_with(&expected_prefix));
             let mut static_segments = 0;
-            let mut pointer_slot_initializer = None;
-            let mut first_function = true;
-            let mut main_heap_start_store = false;
-            let mut pointer_reads = 0;
-            let mut pointer_writes = 0;
             for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                match payload.expect("module should parse") {
-                    Payload::DataSection(reader) => {
-                        for segment in reader {
-                            let segment = segment.expect("static segment should decode");
-                            static_segments += 1;
-                            let wasmparser::DataKind::Active {
-                                memory_index,
-                                offset_expr,
-                            } = segment.kind
-                            else {
-                                panic!("{label}: pooled strings must occupy an active segment");
-                            };
-                            assert_eq!(
-                                memory_index, 0,
-                                "{label}: pooled strings use private memory"
-                            );
-                            let mut offset = offset_expr.get_operators_reader();
-                            assert!(
-                                matches!(
-                                    offset.read().expect("static offset should decode"),
-                                    Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32
-                                ),
-                                "{label}: static segment must retain its prescribed offset"
-                            );
-                            assert!(matches!(
-                                offset.read().expect("static offset should end"),
-                                Operator::End
-                            ));
-                        }
-                    }
-                    Payload::GlobalSection(reader) => {
-                        for (index, global) in reader.into_iter().enumerate() {
-                            let global = global.expect("global should decode");
-                            if index as u32 != HEAP_PTR_GLOBAL_INDEX {
-                                continue;
-                            }
-                            assert_eq!(global.ty.content_type, wasmparser::ValType::I64);
-                            assert!(global.ty.mutable && !global.ty.shared);
-                            let mut init = global.init_expr.get_operators_reader();
-                            let Operator::I64Const { value } =
-                                init.read().expect("slot initializer should decode")
-                            else {
-                                panic!("{label}: pointer/diagnostic slot must initialize to an i64 constant");
-                            };
-                            pointer_slot_initializer = Some(value);
-                            assert!(matches!(
-                                init.read().expect("slot initializer should end"),
-                                Operator::End
-                            ));
-                        }
-                    }
-                    Payload::CodeSectionEntry(body) => {
-                        let mut previous_constant = None;
-                        for operator in body
-                            .get_operators_reader()
-                            .expect("operators should decode")
-                        {
-                            match operator.expect("operator should decode") {
-                                Operator::I64Const { value } => previous_constant = Some(value),
-                                Operator::GlobalGet { global_index }
-                                    if global_index == HEAP_PTR_GLOBAL_INDEX =>
-                                {
-                                    pointer_reads += 1;
-                                    previous_constant = None;
-                                }
-                                Operator::GlobalSet { global_index }
-                                    if global_index == HEAP_PTR_GLOBAL_INDEX =>
-                                {
-                                    pointer_writes += 1;
-                                    main_heap_start_store |=
-                                        first_function && previous_constant == Some(heap_start);
-                                    previous_constant = None;
-                                }
-                                _ => previous_constant = None,
-                            }
-                        }
-                        first_function = false;
-                    }
-                    _ => {}
+                let Payload::DataSection(reader) = payload.expect("module should parse") else {
+                    continue;
+                };
+                for segment in reader {
+                    let segment = segment.expect("static wire segment should decode");
+                    static_segments += 1;
+                    let wasmparser::DataKind::Active {
+                        memory_index,
+                        offset_expr,
+                    } = segment.kind
+                    else {
+                        panic!("wire data requires its actual active private-memory segment");
+                    };
+                    assert_eq!(memory_index, 0);
+                    let mut offset = offset_expr.get_operators_reader();
+                    assert!(matches!(offset.read().expect("wire offset"),
+                        Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32));
+                    assert!(matches!(
+                        offset.read().expect("wire offset end"),
+                        Operator::End
+                    ));
                 }
             }
-            assert_eq!(
-                static_segments, 1,
-                "{label}: one pooled static-data segment"
-            );
-            if expected_heap {
-                assert_eq!(
-                    pointer_slot_initializer,
-                    Some(heap_start),
-                    "heap pointer starts after aligned static data"
-                );
-                assert!(
-                    main_heap_start_store,
-                    "main resets its allocator after static data"
-                );
-                assert!(
-                    pointer_reads > 0 && pointer_writes > 1,
-                    "the allocating fixture retains heap allocation beyond initialization"
-                );
-            } else {
-                assert_eq!(
-                    pointer_slot_initializer,
-                    Some(0),
-                    "runtime-free slot is unused throw metadata"
-                );
-                assert_eq!(
-                    global_init_i64s(&artifact.bytes),
-                    [0],
-                    "runtime-free scalar layout has no allocator state"
-                );
-                assert_eq!(
-                    (pointer_reads, pointer_writes),
-                    (0, 0),
-                    "runtime-free code must not use the diagnostic slot as a heap pointer"
-                );
-            }
+            assert_eq!(static_segments, 1);
+            assert!(artifact
+                .gc_host_imports()
+                .contains(&GcHostImport::CollectGc));
         }
     }
 
@@ -5997,7 +3003,7 @@ setterReceiver === receiver;
     }
 
     #[test]
-    fn regexp_program_data_is_aligned_deduplicated_and_before_the_heap() {
+    fn regexp_program_wire_data_is_aligned_and_deduplicated() {
         let artifact = emit_script("\",\"; /[a-c]/; /[a-c]/g;").expect("emit should work");
         let program = lila_ir::RegExpProgram::compile("[a-c]", "").unwrap();
         let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
@@ -6010,12 +3016,7 @@ setterReceiver === receiver;
         assert_eq!(offsets.len(), 1);
         let pointer = STATIC_DATA_OFFSET as usize + offsets[0];
         assert_eq!(pointer % 8, 0);
-        let handle = ((pointer as u64) << 32) | encoded.bytes().len() as u64;
-        assert!(contains_i64_const_store_at_offset(
-            &artifact.bytes,
-            handle as i64,
-            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET
-        ));
+        expect_valid_module(&artifact, 0);
         assert!(global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)));
     }
 
@@ -6065,7 +3066,7 @@ setterReceiver === receiver;
     }
 
     #[test]
-    fn constructed_constant_regexp_installs_one_deduplicated_descriptor_handle() {
+    fn constructed_constant_regexp_retains_one_validated_program_image() {
         let artifact = emit_script(r#"/(a|b)*/; new RegExp("(a|b)*", "");"#).unwrap();
         let program = lila_ir::RegExpProgram::compile("(a|b)*", "").unwrap();
         let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
@@ -6076,13 +3077,7 @@ setterReceiver === receiver;
             .filter_map(|(offset, candidate)| (candidate == encoded.bytes()).then_some(offset))
             .collect::<Vec<_>>();
         assert_eq!(positions.len(), 1);
-        let pointer = STATIC_DATA_OFFSET as u64 + positions[0] as u64;
-        let handle = (pointer << 32) | encoded.bytes().len() as u64;
-        assert!(contains_i64_const_store_at_offset(
-            &artifact.bytes,
-            handle as i64,
-            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET
-        ));
+        expect_valid_module(&artifact, 0);
     }
 
     #[test]
@@ -6335,7 +3330,7 @@ calls;
             .contains("import func: lila_host.agent_can_suspend"));
         assert!(artifact
             .debug_dump
-            .contains("memory: exported linear memory"));
+            .contains("memory: exported private linear memory"));
         assert!(artifact.debug_dump.contains("data segments: 1"));
     }
 
@@ -6360,12 +3355,16 @@ calls;
     fn product_lowering_cannot_reauthorize_a_test262_name_in_aot() {
         let source = parse("__lilaAgentSleep;", ParseOptions::script())
             .expect("product script should parse");
-        let artifact =
-            emit(&lower(&source)).expect("an unresolved global identifier is handled at runtime");
-
-        assert!(!artifact
-            .debug_dump
-            .contains("import func: lila_host.agent_call"));
+        let program = lower(&source);
+        // Every heap-backed module compiles every host builtin body; only the
+        // script's own host surface decides which names resolve.
+        assert!(program
+            .script
+            .as_ref()
+            .expect("script should lower")
+            .host_builtins
+            .is_empty());
+        emit(&program).expect("an unresolved global identifier is handled at runtime");
     }
 
     #[test]
@@ -6410,7 +3409,7 @@ calls;
         expect_valid_module(&artifact, 0);
         assert!(artifact
             .debug_dump
-            .contains("memory: exported linear memory"));
+            .contains("memory: exported private linear memory"));
     }
 
     #[test]
@@ -6807,5 +3806,39 @@ if (!caught) throw "revoked proxy missing TypeError";"#,
     fn supports_coercive_compound_assignment() {
         let artifact = emit_script("let s = \"a\"; s += \"b\";").expect("emit should work");
         expect_valid_module(&artifact, 0);
+    }
+    #[test]
+    fn dense_literals_avoid_sparse_bookkeeping_and_sparse_writes_share_one_body() {
+        fn literal_artifact(count: usize) -> WasmArtifact {
+            let elements = (0..count)
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            emit_script(&format!(
+                "function make() {{ return [{elements}]; }} make();"
+            ))
+            .expect("ordinary array literal should emit")
+        }
+
+        fn largest_make_body(artifact: &WasmArtifact) -> u32 {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::make#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("array producer must be emitted")
+        }
+
+        let small = literal_artifact(128);
+        let large = literal_artifact(1024);
+        expect_valid_module(&large, 1);
+        let added_bytes = largest_make_body(&large) - largest_make_body(&small);
+        // Each element owns evaluation and fixed stores, not another copy of
+        // the presence-list search, allocation and six-field copy loops.
+        assert!(
+            added_bytes <= (1024 - 128) * 256,
+            "896 literal elements added {added_bytes} bytes"
+        );
     }
 }

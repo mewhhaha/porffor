@@ -2,10 +2,20 @@
 
 ## Scope
 
-This contract owns the iterative Wasm-AOT implementation of
-`InternalizeJSONProperty`, including the static-JSON specialization's final
-reviver application. It does not own JSON tokenization, primitive decoding,
-`JSON.stringify`, or the validity of the static source proof.
+This contract owns the canonical iterative Wasm-AOT implementation of
+[InternalizeJSONProperty](https://tc39.es/ecma262/2026/multipage/structured-data.html#sec-internalizejsonproperty).
+The source-only T20 batch dated 2026-10-03 retires static JSON materialization
+and its reviver specialization. All ordinary source `JSON.parse` calls retain
+callee/input/reviver evaluation through ordinary Call IR and enter the existing
+emitted runtime parser and this walk. Compilation, Wasm validation, semantic
+execution and conformance acceptance of that batch remain pending.
+
+The private static parser, static value IR, two special producer branches,
+backend materializer/walker and every exhaustive special visitor/planning/data/
+expression arm are removed together. String and callback target inference still
+serve ordinary evaluation; neither inference replaces runtime JSON text or
+materializes the parsed value. The existing canonical parser owns grammar and
+primitive decoding; `JSON.stringify` remains a separate owner.
 
 The reviver walk is depth-first postorder. For each property it observes the
 current value, recursively internalizes that value's children, calls the
@@ -17,7 +27,7 @@ positions.
 
 ## Frame state
 
-The dynamic walk stores one private frame per active property. Its state is the
+The sole walk stores one private frame per active property. Its state is the
 closed domain:
 
 - `Enter`: read the current property value and classify it;
@@ -30,6 +40,13 @@ converts `length` once, then stores that limit on the frame. For another Object
 it obtains the enumerable own string-key list once, then stores that list and
 its length. Child frames are pushed in ascending cursor order onto a LIFO
 stack, which makes their `Apply` steps run before the parent's `Apply` step.
+
+The classification guard uses the existing heap-object tag authority, covering
+Object, Array, Function and Arguments representations. Inserted Functions and
+Arguments therefore supply real descendant holders. The consumed callback
+observation uses the existing heap-coercible kind domain plus Function and
+keeps Function target knowledge open. A callback's `this()` cannot be inferred
+as a proven empty target set, undefined result or effect-free call.
 
 Every persisted state word comes from `JsonReviverFrameState`. Runtime dispatch
 is generated from its complete ordered set and reaches an exhaustive Rust
@@ -48,14 +65,13 @@ from an ordinary child property. That distinction is the closed
 - `Nested`: `undefined` requests deletion from the holder, while any other
   result requests creation or replacement of the holder property.
 
-The role is explicit at both static and dynamic reviver call sites. It is never
-derived from the key spelling: an ordinary nested property named the empty
-string is still `Nested`. Dynamic frames persist the role through its stable
-wire word, and frame creation accepts the typed role rather than a Boolean
-local. Only the shared post-call emitter in `builtins/json.rs` consumes the
-distinction. The static caller in `builtins/json/static_reviver.rs` and the
-dynamic caller in the parent therefore cannot drift into different root or
-child mutation rules.
+The role is explicit at the sole frame caller. It is never derived from the
+key spelling: an ordinary nested property named the empty string is still
+`Nested`. Frames persist the role through its stable wire word, and frame
+creation accepts the typed role rather than a Boolean local. Only the shared
+post-call emitter in `builtins/json.rs` consumes the distinction. Nested
+CreateDataProperty and deletion ignore a false Boolean result while retaining
+an abrupt completion, including Array descriptors and Proxy definitions.
 
 ## Source context and abrupt completion
 
@@ -63,6 +79,14 @@ Parse metadata may provide the third reviver argument's `source` property only
 for a primitive whose current value remains `SameValue` to the value produced
 from that source slice. Mutation clears that eligibility. Arrays and Objects
 receive an empty context object.
+
+Private Object metadata-child maps have an explicit null prototype. A newly
+inserted current key has no parse record and cannot trigger an inherited user
+getter while looking up hidden metadata. Private Array metadata reads remain
+own-element reads. Public parsed objects, root wrappers and context objects
+retain their existing prototype owners. The actual current value's Get occurs
+through ordinary operations, with source context absent for inserted values
+and present for eligible original primitives.
 
 Every observable `Get`, `IsArray`, key enumeration, length conversion, reviver
 call, deletion and property creation retains its existing abrupt-completion
@@ -73,21 +97,35 @@ JavaScript abrupt completion into a parser error or a default result.
 ## Durable evidence owner
 
 `crates/lila-aot-wasm/tests/json_reviver_frame_structure.rs` is the bounded
-source owner for this protocol. Its five tests pin:
+source owner for this protocol. Its six maintained tests pin:
 
-- the private static-reviver child boundary, exact type/function inventory,
-  sole compiler entry, two expression callers and retained shared parent
-  operations;
-- the exact four-state and two-role wire domains, including their ordered
-  words and generated `ALL` sets;
-- typed state/role persistence, exhaustive state and role dispatch, and an
-  explicit trap for each invalid persisted word;
-- one shared post-call result owner with exactly one static-specialized caller
-  and one dynamic-frame caller; and
-- the one active exact CLI registration plus non-vacuous dynamic-fixture
-  assertions for postorder traversal, collection snapshots, forward mutation,
-  source eligibility, nested empty-string versus root roles, deletion and
-  abrupt propagation.
+- the sole runtime parser/iterative owner and removal of static IR/modules;
+- ordinary acquired-callee, receiver and complete argument evaluation order;
+- the exact four-state and two-role wire domains, including ordered words and
+  generated `ALL` sets;
+- typed state/role persistence, exhaustive dispatch, actual heap-object
+  admission and explicit traps for invalid persisted words;
+- one post-call result owner with exactly one iterative-frame caller; and
+- the active exact CLI registration plus non-vacuous dynamic-fixture assertions
+  for postorder traversal, collection snapshots, forward mutation, source
+  eligibility, nested empty-string versus root roles, deletion and abrupt
+  propagation.
+
+Existing JSON IR assertions now require ordinary calls for literal/static
+input, spread arguments, repeated mutable input and scoped input. They retain
+acquired non-property callees, one materialized property receiver, argument
+positions, TDZ input effects and callback-holder observations.
+
+Seven new `aot_json_canonical_reviver` semantic sources cover nonempty same-tag
+sibling replacement and new descendants, Function/Arguments holders and a
+Function-holder call's effect/result, live snapshots and inherited indices,
+SameValue source eligibility and duplicate JSON names, `__proto__` and nested
+empty-string keys, ordinary call operands/closure callbacks, arbitrary abrupt
+identity and metadata maps insulated from inherited hooks. Each expected trace
+is authored for sloppy and strict mode. These sources have not been executed.
+Existing `aot_json_reviver_definitions` continues to own descriptor, ignored
+false result, Proxy throw, public intrinsic replacement and foreign-Realm
+controls; their earlier evidence is not new acceptance of this batch.
 
 The CLI and fixture guards mask line and block comments before resolving their
 owners and executable markers. The CLI guard also rejects attached `ignore`,
@@ -97,7 +135,11 @@ abrupt-completion order, and one final success value at end of file. It
 therefore cannot pass when an expected owner or marker survives only inside a
 line or block comment, or when an attached attribute disables the CLI test.
 
-## Recorded verification
+## Pre-retirement recorded verification
+
+The following records concern the earlier static/dynamic composition and
+source-equivalent capability changes. They are retained as historical evidence
+and do not verify the 2026-10-03 static retirement or canonical corrections.
 
 The coordinated checkpoint ran this focused ladder on 2026-08-25:
 
@@ -154,7 +196,8 @@ capability hardening.
 ## Non-claims
 
 This protocol does not close T20 or the pinned JSON tree. It does not validate
-JSON grammar, remove the static specialization, prove deep-input resource
-bounds, change non-configurable-property behavior, or cover stringify,
-replacer, cycle, BigInt or proxy semantics outside the reviver walk. Complete
+all JSON grammar, prove deep-input resource bounds, or cover stringify,
+replacer, cycle, BigInt or Proxy semantics outside the reviver walk. Static
+specialization removal and the recorded canonical corrections are source
+implementation claims pending the combined checkpoint. Complete
 current-pin Wasm-AOT evidence remains a separate verification requirement.

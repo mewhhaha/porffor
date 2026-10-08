@@ -104,7 +104,7 @@ fn the_normal_result_has_one_consuming_invariant_and_borrowed_observers() {
     let invariant = bounded(
         OBJECTS_SOURCE,
         "fn emit_proxy_get_invariant_check(",
-        "fn reserve_proxy_get_descriptor_locals(",
+        "pub(crate) fn reserve_own_descriptor_fact_locals(",
     );
     assert!(invariant.contains("trap_result: NormalProxyGetTrapResultLocals"));
     assert_eq!(
@@ -115,7 +115,7 @@ fn the_normal_result_has_one_consuming_invariant_and_borrowed_observers() {
     );
     assert_eq!(
         invariant
-            .matches("&trap_result,\n            descriptor.data_value,")
+            .matches("&trap_result,\n            descriptor.data_value(),")
             .count(),
         1
     );

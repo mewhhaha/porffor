@@ -12,7 +12,7 @@
 use crate::*;
 
 use super::evaluation_mode::ModuleEvaluationModeIr;
-use super::graph_evaluation_classification::{classify_evaluation_modes, report_unlinkable_phases};
+use super::graph_evaluation_classification::classify_evaluation_modes;
 use super::graph_evaluation_order::compute_evaluation_order;
 use super::record::ModuleEvaluationDependencyIr;
 
@@ -22,11 +22,13 @@ use super::loaded_sources::{ModuleGraphSources, ModuleParse, ModuleSourceIr};
 /// A linked module graph.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ModuleGraphIr {
+    pub realm_requests: BTreeMap<ModuleRequestKeyIr, super::RealmModuleResolutionIr>,
     /// Index of the entry module.
     pub entry: ModuleUnitId,
     /// Every module. Index is the [`ModuleUnitId`].
     pub units: Vec<ModuleUnitIr>,
-    /// Host-normalized key to unit index.
+    /// Host-normalized Module key to unit index. A Script entry is outside
+    /// the module map even when a Module has the same canonical URL.
     pub keys: BTreeMap<ModuleKey, ModuleUnitId>,
     /// `(referrer, phase-free request key) -> target`, as resolved by the host.
     pub resolutions: BTreeMap<(ModuleUnitId, ModuleRequestKeyIr), ModuleUnitId>,
@@ -66,11 +68,10 @@ pub struct ModuleGraphIr {
     ///   forced on it, no module syntax is stripped from it, and its top-level
     ///   `this` stays `globalThis`, because all three are Script semantics and
     ///   the entry really is a Script;
-    /// * every *other* unit's material is wrapped in one immediately-invoked
-    ///   strict function, so module code stays strict (16.2.1.6.1) and its
-    ///   top-level bindings stay out of the Script's scope;
-    /// * the entry's `import()` dispatchers are re-exported out of that wrapper
-    ///   through `var` bindings the Script can call.
+    /// * every other unit owns a private strict module activation and
+    ///   environment, with undefined lexical `this` and isolated bindings;
+    /// * entry import jobs reach those canonical activations through trusted
+    ///   dispatcher operations; graph instantiation never evaluates a target.
     pub entry_is_script: bool,
 }
 
@@ -189,10 +190,25 @@ impl ModuleGraphIr {
 /// Resolves every import entry, records link errors, and computes the
 /// evaluation order and its strongly-connected components.
 pub(crate) fn link(graph: &mut ModuleGraphIr) {
+    link_with_admission(graph, super::admission::GraphAdmission::LoadedClosure);
+}
+
+pub(super) fn link_with_admission(
+    graph: &mut ModuleGraphIr,
+    admission: super::admission::GraphAdmission,
+) {
     let unit_count = graph.units.len();
+    // Loading a source-phase target parses that one record without linking
+    // its dependencies or creating an environment. Fix reachability before
+    // resolving imports so inactive source-only records cannot poison linkage.
+    let components = super::dynamic::discover_components(graph, admission);
+    classify_evaluation_modes(graph, &components);
 
     for module in 0..unit_count {
         let id = ModuleUnitId::try_from(module).expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
+        if graph.materialization_mode(id).is_none() {
+            continue;
+        }
 
         // 16.2.3.1: duplicate export names are an early error.
         for export_name in graph.units[module].record.duplicate_export_names() {
@@ -235,31 +251,39 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
                 resolved.push(ResolvedBindingIr::NotFound);
                 continue;
             };
-            // A source-phase request never consults the requested module's
-            // exports: it hands out a module source object, and the module is
-            // not even instantiated. `[[ImportName]]` is `default` only because
-            // the grammar reuses `ImportedBinding`.
-            if entry.request.phase() == ImportPhaseIr::Source {
-                resolved.push(ResolvedBindingIr::Resolved {
+            // Source resolution names the record rather than an export. The
+            // loader supplies only Source Text Module Records, whose source
+            // representation is unavailable; InitializeEnvironment rejects it.
+            let binding = if entry.request.phase() == ImportPhaseIr::Source {
+                ResolvedBindingIr::Resolved {
                     module: target,
                     binding: ModuleBindingNameIr::ModuleSource,
-                });
-                continue;
-            }
-            let binding = match &entry.import_name {
-                ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
-                    module: target,
-                    binding: ModuleBindingNameIr::Namespace(
-                        entry
-                            .request
-                            .phase()
-                            .namespace_mode()
-                            .expect("source imports resolve separately"),
-                    ),
-                },
-                ImportNameIr::Name(name) => graph.resolve_export(target, name),
+                }
+            } else {
+                match &entry.import_name {
+                    ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
+                        module: target,
+                        binding: ModuleBindingNameIr::Namespace(
+                            entry
+                                .request
+                                .phase()
+                                .namespace_mode()
+                                .expect("source imports resolve separately"),
+                        ),
+                    },
+                    ImportNameIr::Name(name) => graph.resolve_export(target, name),
+                }
             };
             match &binding {
+                ResolvedBindingIr::Resolved {
+                    binding: ModuleBindingNameIr::ModuleSource,
+                    ..
+                } => graph
+                    .link_errors
+                    .push(ModuleLinkErrorIr::SourceUnavailable {
+                        referrer: id,
+                        request: entry.request.clone(),
+                    }),
                 ResolvedBindingIr::Resolved { .. } => {}
                 ResolvedBindingIr::Ambiguous => {
                     graph.link_errors.push(ModuleLinkErrorIr::AmbiguousExport {
@@ -297,6 +321,15 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
             // ambiguous, and only the local view sees that.
             let resolution = graph.resolve_export(id, &entry.export_name);
             match &resolution {
+                ResolvedBindingIr::Resolved {
+                    binding: ModuleBindingNameIr::ModuleSource,
+                    ..
+                } => graph
+                    .link_errors
+                    .push(ModuleLinkErrorIr::SourceUnavailable {
+                        referrer: id,
+                        request: entry.request.clone(),
+                    }),
                 ResolvedBindingIr::Resolved { .. } => {}
                 ResolvedBindingIr::Ambiguous => {
                     graph.link_errors.push(ModuleLinkErrorIr::AmbiguousExport {
@@ -322,9 +355,6 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
     // too, so it can make its target eager, deferred or source-only. Runtime
     // components are fixed only after that reachability fixed point; a call
     // site in a source-only referrer is link metadata, not artifact code.
-    let components = super::dynamic::discover_components(graph);
-    classify_evaluation_modes(graph, &components);
-    report_unlinkable_phases(graph, &components);
     let components: Vec<_> = components
         .into_iter()
         .filter(|component| graph.materialization_mode(component.referrer()).is_some())

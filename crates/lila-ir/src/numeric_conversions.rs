@@ -11,29 +11,10 @@
 //!   `truncate(1e300)` onto `i32::MAX`. [`IntegerOrInfinity`] is a three-variant
 //!   enum whose finite payload is a private [`FiniteInteger`], so the enum has
 //!   exactly one constructor workspace-wide.
-//! - The comparisons in 21.1.3.2 step 5, 21.1.3.3 steps 4–5 and 21.1.3.5 step 5
-//!   are evaluated **on the extended integers** (`+∞ > 100`, `−∞ < 0`). There is
-//!   deliberately no accessor returning the raw number, no `PartialOrd<i32>` and
-//!   no numeric cast: the only exits from an [`IntegerOrInfinity`] are
-//!   [`IntegerOrInfinity::fraction_digits`] and [`IntegerOrInfinity::precision`].
-//! - `[0, 100]` (21.1.3.2 / 21.1.3.3) and `[1, 100]` (21.1.3.5) are **different
-//!   intervals belonging to different clauses**, so they are two newtypes
-//!   ([`FractionDigits`], [`Precision`]) and not one `u8`. Mixing them is
-//!   `E0308`. The tree's shared `0..=100` predicate was unusable at the third
-//!   site and is deleted rather than moved.
-//! - "Out of range" is a **RangeError**, not a declined fold. [`RangeChecked`]
-//!   is therefore not an `Option`, so `?` on it does not compile, and
-//!   [`NumberFormatFold`] separates "the spec requires a throw here" from "I
-//!   could not fold this" — the two values the folding helpers conflated.
-//! - The non-finite-receiver early return sits on **either side** of the range
-//!   check depending on the clause (21.1.3.2 step 4 before step 5; 21.1.3.3
-//!   steps 4–5 before step 6). There are exactly two orders, so
-//!   [`NonFiniteReceiverOrder`] is a closed enum — and it is a per-clause
-//!   **constant** on [`NumberFormatClause`] rather than an argument the caller
-//!   names, because an argument left the wrong *choice* expressible. The clause
-//!   is the type parameter of [`fold_number_format`], its `Digits` associated
-//!   types are pairwise distinct, and its `RANGE_ERROR` message travels with
-//!   the outcome; so neither the ordering nor the message can be transposed.
+//! - Number formatting calls use their native runtime algorithms after property
+//!   acquisition and argument evaluation. The former compiler formatting folds
+//!   are removed. The fraction-digit and precision interval models below are
+//!   test-only controls for ToIntegerOrInfinity's extended-integer domain.
 //! - 7.1.6, 7.1.7 and 7.1.9 are character-for-character the same operation
 //!   through step 4 and differ only in step 5's reading of one residue.
 //!   [`residue_pow2_i64`] is that shared step, stated once, as a `const fn` over
@@ -144,7 +125,8 @@ impl IntegerOrInfinity {
     /// codomain had to include them: an implementation that has already
     /// collapsed `±∞` into `0` cannot evaluate this step, it can only
     /// approximate it.
-    pub fn fraction_digits(self) -> RangeChecked<FractionDigits> {
+    #[cfg(test)]
+    fn fraction_digits(self) -> RangeChecked<FractionDigits> {
         match self {
             Self::NegativeInfinity | Self::PositiveInfinity => RangeChecked::RangeError,
             Self::Finite(FiniteInteger(value)) => {
@@ -164,7 +146,8 @@ impl IntegerOrInfinity {
     ///
     /// The interval is `[1, 100]`, **not** `[0, 100]`. This is why the result is
     /// a [`Precision`] and not a [`FractionDigits`].
-    pub fn precision(self) -> RangeChecked<Precision> {
+    #[cfg(test)]
+    fn precision(self) -> RangeChecked<Precision> {
         match self {
             Self::NegativeInfinity | Self::PositiveInfinity => RangeChecked::RangeError,
             Self::Finite(FiniteInteger(value)) => {
@@ -178,272 +161,24 @@ impl IntegerOrInfinity {
     }
 }
 
-/// The outcome of testing an [`IntegerOrInfinity`] against one clause's closed
-/// interval, on the **extended** integers.
-///
-/// Deliberately **not** `Option`. The folding helpers in `lowering.rs` return
-/// `Option<String>`, so `?` on an `Option` there spells "decline the fold" —
-/// which is exactly the wrong answer this tree shipped: a spec-mandated
-/// RangeError silently became a runtime call. `RangeError` is not `None`, and
-/// `?` on a `RangeChecked` does not compile.
+/// Test-only interval result over ToIntegerOrInfinity's complete domain.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub enum RangeChecked<T> {
+enum RangeChecked<T> {
     InBounds(T),
     RangeError,
 }
 
-impl<T> RangeChecked<T> {
-    /// Retags an in-bounds payload without letting the `RangeError` arm be
-    /// forgotten. Used where 21.1.3.2 step 12.a needs the `undefined` case to
-    /// stay observably distinct from `f === 0`.
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> RangeChecked<U> {
-        match self {
-            Self::InBounds(value) => RangeChecked::InBounds(f(value)),
-            Self::RangeError => RangeChecked::RangeError,
-        }
-    }
-}
-
-/// 21.1.3.2 step 5 / 21.1.3.3 steps 4–5: a fraction-digit count already checked
-/// against `[0, 100]`.
-///
-/// Constructible only by [`IntegerOrInfinity::fraction_digits`].
+/// 21.1.3.2 / 21.1.3.3's `[0, 100]` interval, used by reference tests.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FractionDigits(u8);
+struct FractionDigits(u8);
 
-/// 21.1.3.5 step 5: a precision already checked against `[1, 100]`.
-///
-/// A **different type** from [`FractionDigits`], because `[0, 100]` and
-/// `[1, 100]` are different intervals belonging to different clauses. Passing
-/// one where the other is expected is `E0308`, and there is no conversion
-/// between them.
+/// 21.1.3.5's distinct `[1, 100]` interval, used by reference tests.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Precision(u8);
-
-impl FractionDigits {
-    /// 21.1.3.3 step 3's assertion: if `fractionDigits` is undefined then `f`
-    /// is 0. Naming it here keeps that step from being spelled as a bare `0`
-    /// at the call site.
-    pub const ZERO: Self = Self(0);
-
-    /// The two formatters in `lowering.rs` predate this contract and take
-    /// `usize`; their signatures are outside this area's owned regions. This is
-    /// the single narrow exit, and it cannot widen the range because the type
-    /// has one constructor.
-    pub fn as_usize(self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl Precision {
-    /// In `1..=100` by construction. `static_number_to_precision`'s body
-    /// computes `precision as usize - 1`; the lower bound is carried by this
-    /// type rather than re-tested there. Ledger **LN3**.
-    pub fn get(self) -> u8 {
-        self.0
-    }
-}
-
-/// Where 21.1.3.x puts "if x is not finite, return `Number::toString(x, 10)`"
-/// relative to the digit-count range check.
-///
-/// There are exactly two orders and the choice is **observable**, so it is a
-/// closed enum and a required argument: omitting it is `E0061`, and a third
-/// order appearing is `E0004` at every match over it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NonFiniteReceiverOrder {
-    /// 21.1.3.2 step 4 precedes step 5, and 21.1.3.5 step 4 precedes step 5.
-    /// `Infinity.toExponential(101)` is `"Infinity"`;
-    /// `Infinity.toPrecision(500)` is `"Infinity"`.
-    ReceiverFirst,
-    /// 21.1.3.3 steps 4–5 precede step 6.
-    /// `Infinity.toFixed(101)` throws a **RangeError**.
-    RangeCheckFirst,
-}
-
-/// What a static `Number.prototype` fold concluded.
-///
-/// Replaces `Option<String>` at the three folding helpers so that "the spec
-/// requires a RangeError here" and "I could not fold this" stop being the same
-/// value. Constant folding is optional, so `NotStatic` is always a legitimate
-/// answer; producing a *wrong* value never is.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use]
-pub enum NumberFormatFold {
-    /// Emit `ExprIr::String`.
-    Formatted(String),
-    /// Emit `ExprIr::RuntimeThrow` with `NativeErrorKind::RangeError` and the
-    /// carried message.
-    ///
-    /// The message travels **with** the outcome rather than being named at the
-    /// dispatch site, because the dispatch site is where it went wrong: three
-    /// adjacent arms each spelled a `&'static str` literal, so pasting
-    /// `"Number.prototype.toFixed fraction digits out of range"` into the
-    /// `toPrecision` arm compiled and shipped the wrong text. It is now
-    /// `<C as NumberFormatClause>::RANGE_ERROR` and there is no string literal
-    /// left at the call sites.
-    RangeError(&'static str),
-    /// Not statically decidable; fall through to the runtime call path.
-    NotStatic,
-}
-
-/// One of the three `Number.prototype` formatting clauses, as a **type**.
-///
-/// This is the construct that closes mistake class N4″ — "name the wrong
-/// `NonFiniteReceiverOrder`" — which a required enum argument could not: with a
-/// free argument, swapping `ReceiverFirst` and `RangeCheckFirst` at any of the
-/// three `*_call` helpers compiles and silently makes
-/// `Infinity.toFixed(101)` answer `"Infinity"` instead of throwing.
-///
-/// Two properties do the work. First, the three [`Self::Digits`] types are
-/// pairwise distinct — `Option<FractionDigits>` (21.1.3.2 step 12.a needs
-/// `undefined` to stay observably different from `f === 0`, so the `Option` is
-/// spec-mandated, not incidental), `FractionDigits` (21.1.3.3) and `Precision`
-/// (21.1.3.5) — so naming the wrong clause at a call site is `E0308` on the
-/// `digits` argument. Second, `ORDER` and `RANGE_ERROR` become properties *of
-/// the clause* rather than values the caller supplies, so neither can be
-/// transposed or copy-pasted.
-///
-/// This is **not** the typestate builder §2.3 refuses: it adds no phantom
-/// state and no step-by-step protocol, it removes two caller-supplied values,
-/// and it rejects two program classes the enum argument admitted. That is
-/// AGENTS.md's test, met.
-pub trait NumberFormatClause {
-    /// The clause's already-range-checked digit argument. Distinct per clause;
-    /// that is what makes naming the wrong clause a type error.
-    type Digits;
-    /// Where this clause's "if x is not finite" step sits relative to its range
-    /// check.
-    const ORDER: NonFiniteReceiverOrder;
-    /// The message its out-of-range step throws. Matches the message the
-    /// runtime path throws for the same clause.
-    const RANGE_ERROR: &'static str;
-}
-
-/// 21.1.3.2 `Number.prototype.toExponential ( fractionDigits )`.
-pub enum ToExponential {}
-
-/// 21.1.3.3 `Number.prototype.toFixed ( fractionDigits )`.
-pub enum ToFixed {}
-
-/// 21.1.3.5 `Number.prototype.toPrecision ( precision )`.
-pub enum ToPrecision {}
-
-impl NumberFormatClause for ToExponential {
-    /// 21.1.3.2 step 12.a: `fractionDigits === undefined` is observably
-    /// different from `f === 0`.
-    type Digits = Option<FractionDigits>;
-    /// Step 4 (non-finite receiver) precedes step 5 (the range check), so
-    /// `Infinity.toExponential(101)` is `"Infinity"`.
-    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::ReceiverFirst;
-    const RANGE_ERROR: &'static str = "Number.prototype.toExponential fraction digits out of range";
-}
-
-impl NumberFormatClause for ToFixed {
-    /// Step 3: `fractionDigits` undefined ⇒ `f` is 0, so there is no `Option`.
-    type Digits = FractionDigits;
-    /// Steps 4–5 (the range check) precede step 6, so `Infinity.toFixed(101)`
-    /// throws a **RangeError**. This is the one clause that differs, and the
-    /// difference is observable.
-    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::RangeCheckFirst;
-    const RANGE_ERROR: &'static str = "Number.prototype.toFixed fraction digits out of range";
-}
-
-impl NumberFormatClause for ToPrecision {
-    /// Step 2 returns `! ToString(x)` before step 3's coercion when `precision`
-    /// is undefined, so `undefined` never reaches 7.1.5 and there is no
-    /// `Option` here either. The interval is `[1, 100]`, not `[0, 100]`.
-    type Digits = Precision;
-    /// Step 4 precedes step 5, as in 21.1.3.2.
-    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::ReceiverFirst;
-    const RANGE_ERROR: &'static str = "Number.prototype.toPrecision precision out of range";
-}
-
-/// A receiver that has already passed 21.1.3.2 step 4 / 21.1.3.3 step 6 /
-/// 21.1.3.5 step 4, the "if `x` is not finite, return `! ToString(x)`" step.
-///
-/// The field is private and the only constructor is private to this module, so
-/// [`fold_number_format`] is the sole producer and the three formatters in
-/// `lowering.rs` are the sole consumers. That is what retires the non-finite
-/// arms those formatters used to carry: with a bare `f64` parameter each
-/// formatter had to re-handle `±∞` and `NaN` defensively, because nothing
-/// stopped a new call site from passing one — and re-handling it there is
-/// exactly how the ordering inverts, since a formatter that answers
-/// `"Infinity"` for `Infinity.toFixed(101)` has silently overruled 21.1.3.3's
-/// RangeError. A direct call now needs a `FiniteReceiver`, which cannot be
-/// built outside this module (`E0603`), so the ordering can only be decided
-/// where `C::ORDER` is in scope.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FiniteReceiver(f64);
-
-impl FiniteReceiver {
-    /// Private on purpose: the only caller is the branch of
-    /// [`fold_number_format`] that has just tested `receiver.is_finite()`. The
-    /// assertion is the in-module half of the invariant, which the type cannot
-    /// carry for the producer itself — see the contract's ledger row LN6.
-    fn assume_finite(receiver: f64) -> Self {
-        debug_assert!(receiver.is_finite());
-        Self(receiver)
-    }
-
-    /// The one reader. Formatting is real `f64` arithmetic, so the value has to
-    /// come back out; what the newtype buys is the *boundary*, not the body.
-    pub fn get(self) -> f64 {
-        self.0
-    }
-}
-
-/// The single driver for 21.1.3.2, 21.1.3.3 and 21.1.3.5.
-///
-/// All three clauses are this function with different arguments; there is no
-/// fourth spelling. Without it each call site re-derives the ordering by hand,
-/// which is what the tree did — correctly, but by convention rather than by
-/// construction, sixty lines apart, with the difference expressed as
-/// `.is_some()` versus `.is_some_and(is_finite)`.
-///
-/// `digits` arrives **already checked**. The driver cannot perform the check
-/// itself because the interval is clause-specific, and threading a bounds
-/// selector back in would re-open the very mistake this closes. The check
-/// happens where the clause is known; the driver enforces only the *ordering*,
-/// which is what it is for.
-///
-/// The clause is a **type parameter**, not a value: `C::ORDER` and
-/// `C::RANGE_ERROR` cannot be transposed or copy-pasted, and because the three
-/// `C::Digits` are pairwise distinct, naming the wrong clause is `E0308` on
-/// `digits`. See [`NumberFormatClause`] for why this is not the typestate
-/// builder this contract refuses.
-pub fn fold_number_format<C: NumberFormatClause>(
-    receiver: f64,
-    digits: RangeChecked<C::Digits>,
-    number_to_string: impl FnOnce(f64) -> String,
-    format: impl FnOnce(FiniteReceiver, C::Digits) -> Option<String>,
-) -> NumberFormatFold {
-    let finish = |digits: C::Digits| match format(FiniteReceiver::assume_finite(receiver), digits) {
-        Some(text) => NumberFormatFold::Formatted(text),
-        None => NumberFormatFold::NotStatic,
-    };
-    match C::ORDER {
-        NonFiniteReceiverOrder::ReceiverFirst => {
-            if !receiver.is_finite() {
-                return NumberFormatFold::Formatted(number_to_string(receiver));
-            }
-            match digits {
-                RangeChecked::RangeError => NumberFormatFold::RangeError(C::RANGE_ERROR),
-                RangeChecked::InBounds(digits) => finish(digits),
-            }
-        }
-        NonFiniteReceiverOrder::RangeCheckFirst => match digits {
-            RangeChecked::RangeError => NumberFormatFold::RangeError(C::RANGE_ERROR),
-            RangeChecked::InBounds(digits) => {
-                if !receiver.is_finite() {
-                    return NumberFormatFold::Formatted(number_to_string(receiver));
-                }
-                finish(digits)
-            }
-        },
-    }
-}
+struct Precision(u8);
 
 /// 7.1.7 ToUint32's codomain: `int modulo 2^32`, read unsigned.
 ///

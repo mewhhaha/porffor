@@ -1,27 +1,37 @@
 //! `Temporal.PlainMonthDay` codegen.
 //!
 //! Temporal proposal 10: a calendar month and day with a *reference* ISO year
-//! that is not observable through any accessor. The record is the
-//! `Temporal.PlainDate` one under a different brand, so every layout constant
-//! and every ISO helper is shared rather than duplicated; only the field set,
-//! the reference year and the string form differ.
+//! that is not observable through any accessor. Its concrete Wasm-GC record
+//! stores three ISO coordinates and a canonical calendar String. Calendar
+//! projection and ISO arithmetic use the same owners as `Temporal.PlainDate`;
+//! only the field set, the reference year and the string form differ.
 //!
-//! The reference year is 1972 - a leap year, so `--02-29` is representable.
+//! Non-ISO references preserve canonical month code/day and select the latest
+//! eligible date through the shared completed partial-reference owner.
+
+use crate::gc_types::*;
 
 use super::super::*;
 use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow,
 };
-use super::temporal_plain_date::{
-    MonthDayYearUse, TemporalCalendarId, TemporalResolvedIsoYear,
-    TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
-};
-use super::temporal_plain_date_methods::TemporalDateFieldReadMode;
-use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
+use super::temporal_plain_date::{TemporalMonthFieldContext, TemporalResolvedCalendarYear};
+use super::temporal_plain_year_month::TemporalPartialDateType;
+use super::temporal_zone_provider::TemporalCalendarSlotLocals;
+use crate::intrinsics::temporal::{TemporalIntrinsicFamily, TemporalPrototypeSource};
 
-/// ISO year bounds applied to a supplied non-ISO calendar year after conversion.
-const TEMPORAL_MONTH_DAY_MINIMUM_YEAR: i64 = -271_821;
-const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalPlainMonthDayField {
+    CalendarId,
+    MonthCode,
+    Day,
+}
+
+/// Formatting owns an options read only for the toString entry.
+pub(super) enum TemporalPlainMonthDayStringMode {
+    ToString,
+    ToJson,
+}
 
 /// The `[[Year]]` half of a `ParseTemporalMonthDayString` result: the parsed ISO
 /// year, plus whether the source actually carried one.
@@ -36,67 +46,51 @@ const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 /// * **`ISODateWithinLimits`** — a non-ISO calendar bounds the *parsed* date,
 ///   which is what rejects `"±999999-01-01[u-ca=gregory]"`.
 ///
-/// Only then is the year replaced with
-/// `TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR`. Both facts were previously
-/// unrecoverable by the time the reference year was stored, and both checks were
-/// simply absent; naming the pair is what stops them being droppable again.
+/// The sole consumer takes this pair by value, performs both source checks,
+/// then replaces the parsed date with the calendar's completed reference ISO
+/// carrier. Gregorian references use 1972; Indian chooses the latest matching
+/// date on or before 1972-12-31. The parsed-year fact remains distinct from the
+/// completed partial-reference owner consumed at publication.
 ///
-/// The fields are private and there is no other constructor, so
-/// `emit_temporal_parse_month_day_string` is the only thing outside this
-/// module's own body that can produce one — the `ToTemporalCalendarIdentifier`
-/// probe in `temporal.rs` shares the rewrite but cannot mint this. Be precise
-/// about the limit: Rust privacy is per module, so a *third* function added to
-/// this file could still write the literal. What the type buys is that the only
-/// consumer, `emit_temporal_month_day_string_reference_year`, takes it by value
-/// and is also the only thing that stores the reference year. A string path that
-/// skips the checks therefore also skips the reference year and produces a
-/// visibly wrong `[[ISOYear]]`, rather than a correct-looking `PlainMonthDay`
-/// built from a string the spec rejects.
-///
-/// **Be precise about the enforcement level: this is a warning, not a compile
-/// error, and the enforcing witness is a test.** `#[must_use]` fires on a
-/// *discarded expression*; it does not fire on
-/// `let parsed = self.emit_temporal_parse_month_day_string(...)?;` followed by
-/// nothing. `cargo xc` is `check --workspace --all-targets` (`.cargo/config.toml`
-/// `[alias]`) with no `-D warnings`, and this crate sets no `deny`, so a future
-/// string path that reserves this struct and never feeds it to the consumer
-/// compiles clean.
-///
-/// What actually catches that omission is
-/// `built-ins/Temporal/PlainMonthDay/from/fields-string.js`: it calls
-/// `TemporalHelpers.assertPlainMonthDay(plainMonthDay, "M10", 1, ...)` whose
-/// fifth parameter defaults to `1972` and is asserted as
-/// `Number(monthDay.toString({calendarName:"always"}).split("-")[0])`
-/// (`harness/temporalHelpers.js:302-308`). A missing reference-year store fails
-/// there, on the **ISO** path, i.e. in this lane's own target test — not only
-/// through `equals`.
-///
-/// The compile-error version, if one is wanted later: make
-/// `emit_alloc_temporal_partial_date` take a year *token* that only this
-/// checker can mint, instead of a bare `u32` local. That moves the obligation to
-/// the allocation site, which every path must reach.
+/// Fields are private and only the actual month-day parser mints this proof.
+/// `#[must_use]` warns when the parser result is discarded; the conversion's
+/// completed reference is separately required by the actual partial allocator.
 #[must_use]
 struct TemporalParsedMonthDayYear {
-    year_local: u32,
-    year_present_local: u32,
+    year_local: I64Local,
+    year_present_local: I64Local,
 }
 
 impl<'a> FunctionBuilder<'a> {
     fn emit_temporal_month_day_overflow_option(
         &mut self,
-        options_payload_local: u32,
-        options_tag_local: u32,
-        overflow_local: u32,
+        options: &ValueLocals,
+        overflow: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_temporal_string_valued_option::<TemporalOverflow>(
-            options_payload_local,
-            options_tag_local,
-            overflow_local,
-            "Temporal.PlainMonthDay options must be an object or undefined",
-            "Invalid Temporal.PlainMonthDay overflow option",
+            options,
+            overflow,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_OPTIONS_MUST_BE_AN_OBJECT_OR_UNDEFINED,
+            RuntimeErrorMessage::INVALID_TEMPORAL_PLAINMONTHDAY_OVERFLOW_OPTION,
             function,
         )
+    }
+
+    /// Recover the retained canonical calendar String as a concrete slot proof.
+    fn emit_temporal_month_day_calendar_slot(
+        &mut self,
+        value: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<TemporalCalendarSlotLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let identifier = schema.reserve_gc_local(function).initialize(
+            value.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        let calendar = self.emit_temporal_calendar_slot_from_identifier(&identifier, function)?;
+        identifier.clear(function);
+        Ok(calendar)
     }
 
     /// Temporal proposal 10.1.1:
@@ -105,107 +99,65 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
+        self.emit_temporal_require_construct_call(
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_CONSTRUCTOR_REQUIRES_NEW,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay constructor requires new",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        for (index, output_local, message) in [
-            (
-                0,
-                month_local,
-                "Temporal.PlainMonthDay month must be an integer",
-            ),
-            (
-                1,
-                day_local,
-                "Temporal.PlainMonthDay day must be an integer",
-            ),
-        ] {
-            self.emit_builtin_arg_to_locals(
-                index,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            );
-            self.emit_temporal_to_integer_with_truncation(
-                argument_payload_local,
-                argument_tag_local,
-                output_local,
-                message,
-                function,
-            )?;
-        }
-        self.emit_builtin_arg_to_locals(2, calendar_payload_local, calendar_tag_local, function);
-        self.emit_temporal_plain_date_calendar(
-            calendar_payload_local,
-            calendar_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
-        ));
-        function.instruction(&Instruction::LocalSet(year_local));
-        self.emit_builtin_arg_to_locals(3, argument_payload_local, argument_tag_local, function);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(function);
+        let fields: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        self.emit_builtin_arg_to_value(0, &input, function);
         self.emit_temporal_to_integer_with_truncation(
-            argument_payload_local,
-            argument_tag_local,
-            year_local,
-            "Temporal.PlainMonthDay reference year must be an integer",
+            &input,
+            fields[1],
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_MONTH_MUST_BE_AN_INTEGER,
             function,
         )?;
+        self.emit_builtin_arg_to_value(1, &input, function);
+        self.emit_temporal_to_integer_with_truncation(
+            &input,
+            fields[2],
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_DAY_MUST_BE_AN_INTEGER,
+            function,
+        )?;
+        self.emit_builtin_arg_to_value(2, &input, function);
+        let calendar = self.emit_temporal_plain_date_calendar(&input, function)?;
+        function.instruction(&Instruction::I64Const(1972));
+        fields[0].store(function);
+        self.emit_builtin_arg_to_value(3, &input, function);
+        input.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_to_integer_with_truncation(
+            &input,
+            fields[0],
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_REFERENCE_YEAR_MUST_BE_AN_INTEGER,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_temporal_reject_iso_date(year_local, month_local, day_local, function)?;
-        self.emit_alloc_temporal_partial_date(
+        let reference = self.emit_temporal_complete_partial_reference(
+            calendar.calendar_id(),
             TemporalPartialDateType::PlainMonthDay,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            TemporalPartialDatePrototype::FromNewTarget,
+            fields,
             function,
         )?;
-
-        for local in [
-            new_target_tag_local,
-            new_target_payload_local,
-            calendar_tag_local,
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
+        let prototype = self.emit_temporal_constructor_prototype(
+            TemporalIntrinsicFamily::PlainMonthDay,
+            function,
+        )?;
+        self.emit_alloc_temporal_partial_reference(
+            &reference,
+            TemporalPrototypeSource::Constructor(&prototype),
+            function,
+        )?;
+        prototype.release(function);
+        reference.release(self, function);
+        calendar.release(self, function);
+        input.clear(function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, function);
         }
         Ok(())
     }
@@ -213,323 +165,263 @@ impl<'a> FunctionBuilder<'a> {
     /// The `[[InitializedTemporalMonthDay]]` brand check.
     pub(crate) fn emit_temporal_plain_month_day_record_from_receiver(
         &mut self,
-        record_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_temporal_branded_record_from_receiver(
-            TemporalPartialDateType::PlainMonthDay,
-            record_local,
+    ) -> Result<GcLocal<TemporalPlainMonthDayObject>, EmitError> {
+        self.emit_temporal_record_from_receiver(function)
+    }
+
+    pub(crate) fn emit_temporal_plain_month_day_load_record(
+        &self,
+        record: &GcLocal<TemporalPlainMonthDayObject>,
+        fields: &[I64Local; 3],
+        calendar: &ValueLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let scalar = schema.reserve_i32_local(function);
+        for (field, output) in [
+            TemporalPlainMonthDayObjectSchema::REFERENCE_ISO_YEAR,
+            TemporalPlainMonthDayObjectSchema::ISO_MONTH,
+            TemporalPlainMonthDayObjectSchema::ISO_DAY,
+        ]
+        .into_iter()
+        .zip(fields)
+        {
+            schema
+                .struct_type::<TemporalPlainMonthDayObject>()
+                .field(field)
+                .read(record, schema, function)
+                .store(scalar, function);
+            scalar.load(function);
+            function.instruction(&Instruction::I64ExtendI32S);
+            output.store(function);
+        }
+        let text = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<TemporalPlainMonthDayObject>()
+                .field(TemporalPlainMonthDayObjectSchema::CALENDAR)
+                .read(record, schema, function)
+                .reference(),
             function,
-        )
+        );
+        calendar.set_reference(&text, schema, function);
+        text.clear(function);
+        schema.release_i32_local(scalar, function);
     }
 
     /// The three `Temporal.PlainMonthDay.prototype` accessors.
     pub(crate) fn emit_temporal_plain_month_day_field(
         &mut self,
-        builtin: StandardBuiltinId,
+        field: TemporalPlainMonthDayField,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
-        self.emit_temporal_partial_date_load_record(
-            record_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
+        let schema = self.runtime_schema();
+        let record =
+            self.emit_temporal_record_from_receiver::<TemporalPlainMonthDayObject>(function)?;
+        let fields = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let calendar_value = schema.reserve_value_local(function);
+        let output = schema.reserve_value_local(function);
+        self.emit_temporal_plain_month_day_load_record(&record, &fields, &calendar_value, function);
+        let identifier = schema.reserve_gc_local(function).initialize(
+            calendar_value.cast_reference::<StringValue>(schema, function),
             function,
         );
-
-        match builtin {
-            StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter => {
-                function.instruction(&Instruction::LocalGet(calendar_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        let calendar = self.emit_temporal_calendar_slot_from_identifier(&identifier, function)?;
+        let date_field = match field {
+            TemporalPlainMonthDayField::CalendarId => {
+                super::temporal_plain_date::TemporalPlainDateField::CalendarId
             }
-            StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter => {
-                self.emit_temporal_month_code_payload(month_local, function);
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            TemporalPlainMonthDayField::MonthCode => {
+                super::temporal_plain_date::TemporalPlainDateField::MonthCode
             }
-            _ => {
-                function.instruction(&Instruction::LocalGet(day_local));
-                function.instruction(&Instruction::F64ConvertI64S);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            TemporalPlainMonthDayField::Day => {
+                super::temporal_plain_date::TemporalPlainDateField::Day
             }
+        };
+        self.emit_temporal_date_field_value(date_field, &calendar, fields, &output, function)?;
+        self.completion().set_normal(&output, function);
+        calendar.release(self, function);
+        identifier.clear(function);
+        output.clear(function);
+        calendar_value.clear(function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, function);
         }
-
-        for local in [
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        record.clear(function);
         Ok(())
     }
 
     /// `RegulateISODate` without the `ISODateWithinLimits` tail. A month-day
-    /// stores the reference year 1972, so a caller-supplied `year` only ever
-    /// decides how 29 February constrains - Test262's
+    /// uses this primitive only in the Gregorian MonthDay branch. A supplied
+    /// ISO `year` decides how 29 February constrains - Test262's
     /// `from/iso-year-used-only-for-overflow.js` pins that an out-of-range year
     /// must not throw.
-    fn emit_temporal_month_day_regulate(
+    pub(crate) fn emit_temporal_month_day_regulate(
         &mut self,
-        year_local: u32,
-        month_local: u32,
-        day_local: u32,
-        overflow_local: u32,
+        year_local: I64Local,
+        month_local: I64Local,
+        day_local: I64Local,
+        overflow_local: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let maximum_day_local = self.reserve_temp_local();
+        let maximum_day_local = self.runtime_schema().reserve_i64_local(function);
         self.emit_temporal_iso_days_in_month(year_local, month_local, maximum_day_local, function);
-        function.instruction(&Instruction::LocalGet(overflow_local));
+        overflow_local.load(function);
         function.instruction(&Instruction::I64Const(TemporalOverflow::Reject.code()));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(month_local));
+        self.open_frame(ControlFrameKind::If, function);
+        month_local.load(function);
         function.instruction(&Instruction::I64Const(12));
         function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
+        day_local.load(function);
+        maximum_day_local.load(function);
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.PlainMonthDay is not a valid ISO date",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_IS_NOT_A_VALID_ISO_DATE,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(month_local));
+        month_local.load(function);
         function.instruction(&Instruction::I64Const(12));
         function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(12));
-        function.instruction(&Instruction::LocalSet(month_local));
+        month_local.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_iso_days_in_month(year_local, month_local, maximum_day_local, function);
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
+        day_local.load(function);
+        maximum_day_local.load(function);
         function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
-        function.instruction(&Instruction::LocalSet(day_local));
+        self.open_frame(ControlFrameKind::If, function);
+        maximum_day_local.load(function);
+        day_local.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(maximum_day_local);
+        self.runtime_schema()
+            .release_i64_local(maximum_day_local, function);
         Ok(())
     }
 
     /// `CalendarMonthDayToISOReferenceDate`. The supplied year, if any, decides
-    /// how 29 February is constrained; the stored year is always 1972.
+    /// overflow regulation. The stored ISO carrier is the calendar's completed
+    /// reference, which may vary by month/day for Indian.
     ///
-    /// For a calendar whose [`TemporalCalendarId::month_day_year_use`] is
-    /// [`MonthDayYearUse::RangeChecked`] the year is *also* bounded, before any
+    /// For a calendar whose [`super::temporal_plain_date::TemporalCalendarId::month_day_year_use`] is
+    /// [`super::temporal_plain_date::MonthDayYearUse::RangeChecked`] the year is *also* bounded, before any
     /// month information is computed. That fork is real: `iso8601` accepts
-    /// `year: -999999` and `gregory` rejects it. See [`MonthDayYearUse`].
+    /// `year: -999999` and `gregory` rejects it. See [`super::temporal_plain_date::MonthDayYearUse`].
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_month_day_resolve_fields(
         &mut self,
-        resolved_year: &TemporalResolvedIsoYear,
-        calendar_payload_local: u32,
-        month_local: u32,
-        month_present_local: u32,
-        month_code_payload_local: u32,
-        month_code_present_local: u32,
-        day_local: u32,
-        day_present_local: u32,
-        overflow_local: u32,
+        resolved_year: TemporalResolvedCalendarYear,
+        month: I64Local,
+        month_present: I64Local,
+        acquired_month_code: &ValueLocals,
+        encoded_month_code: I64Local,
+        month_code_present: I64Local,
+        day: I64Local,
+        day_present: I64Local,
+        overflow: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let year_local = resolved_year.year_local();
-        let year_present_local = resolved_year.year_present_local();
-        let month_from_code_local = self.reserve_temp_local();
-        let expected_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(day_present_local));
+        let calendar_id = resolved_year.calendar_id();
+        let year = resolved_year.year_local();
+        let year_present = resolved_year.year_present_local();
+        day_present.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay fields require day",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_FIELDS_REQUIRE_DAY,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(month_present_local));
+        month_present.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(month_code_present_local));
+        month_code_present.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay fields require month or monthCode",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_FIELDS_REQUIRE_MONTH_OR_MONTHCODE,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        // The non-ISO year bound, before any month information is computed:
-        // `intl402/.../PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js`.
-        // Exhaustive over the calendars, so the ISO exemption cannot be
-        // inherited by a calendar added later — `chinese` and `dangi` have no
-        // eras at all and still range-check, so "has eras" would be the wrong
-        // predicate.
-        for calendar in TemporalCalendarId::ALL {
-            match calendar.month_day_year_use() {
-                MonthDayYearUse::OverflowOnly => {}
-                MonthDayYearUse::RangeChecked => {
-                    function.instruction(&Instruction::I64Const(
-                        self.strings.payload(calendar.canonical()),
-                    ));
-                    function.instruction(&Instruction::LocalSet(expected_payload_local));
-                    self.emit_string_payload_equality_i32(
-                        calendar_payload_local,
-                        expected_payload_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(year_present_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::I32Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(year_local));
-                    function.instruction(&Instruction::I64Const(TEMPORAL_MONTH_DAY_MINIMUM_YEAR));
-                    function.instruction(&Instruction::I64LtS);
-                    function.instruction(&Instruction::LocalGet(year_local));
-                    function.instruction(&Instruction::I64Const(TEMPORAL_MONTH_DAY_MAXIMUM_YEAR));
-                    function.instruction(&Instruction::I64GtS);
-                    function.instruction(&Instruction::I32Or);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_current_function_realm_range_error(
-                        "Temporal.PlainMonthDay year is outside the supported range",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-                }
-            }
-        }
-
-        // The ISO reference year stands in when the bag carries no `year`. A
-        // supplied year is only ever used to pick how 29 February constrains -
-        // under `OverflowOnly` it is deliberately not range-checked, and it is
-        // never stored under either.
-        function.instruction(&Instruction::LocalGet(year_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
-        ));
-        function.instruction(&Instruction::LocalSet(year_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(month_code_present_local));
+        // A non-ISO numeric month needs its native year to determine the ordinal.
+        self.emit_temporal_calendar_is_default_i32(calendar_id, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        month_present.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(month_from_code_local));
-        for month in 1_i64..=12 {
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&format!("M{month:02}")),
-            ));
-            function.instruction(&Instruction::LocalSet(expected_payload_local));
-            self.emit_string_payload_equality_i32(
-                month_code_payload_local,
-                expected_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(month));
-            function.instruction(&Instruction::LocalSet(month_from_code_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(month_from_code_local));
+        year_present.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.PlainMonthDay monthCode",
-            self.result_local,
-            self.result_tag_local,
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_MONTH_REQUIRES_YEAR_FOR_A_NON_ISO_CALENDAR,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(month_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(month_local));
-        function.instruction(&Instruction::LocalGet(month_from_code_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.PlainMonthDay month and monthCode must agree",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(month_from_code_local));
-        function.instruction(&Instruction::LocalSet(month_local));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(month_local));
+        let resolved_month = self.emit_temporal_resolve_calendar_month(
+            resolved_year,
+            month,
+            month_present,
+            acquired_month_code,
+            encoded_month_code,
+            month_code_present,
+            TemporalMonthFieldContext::PlainMonthDay,
+            function,
+        )?;
+        month.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(day_local));
+        month_present.load(function);
+        year_present.load(function);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        day.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.PlainMonthDay month and day must be positive",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_MONTH_AND_DAY_MUST_BE_POSITIVE,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_temporal_month_day_regulate(
-            year_local,
-            month_local,
-            day_local,
-            overflow_local,
+        let reference = self.emit_temporal_month_day_reference_from_fields(
+            resolved_month,
+            day,
+            overflow,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
-        ));
-        function.instruction(&Instruction::LocalSet(year_local));
-
-        self.release_temp_local(expected_payload_local);
-        self.release_temp_local(month_from_code_local);
+        for (source, destination) in reference.fields().into_iter().zip([year, month, day]) {
+            source.load(function);
+            destination.store(function);
+        }
+        reference.release(self, function);
         Ok(())
     }
 
@@ -537,219 +429,165 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_temporal_to_temporal_month_day(
         &mut self,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
-        overflow_options: TemporalConversionOverflowOptions,
-        year_local: u32,
-        month_local: u32,
-        day_local: u32,
-        calendar_payload_local: u32,
+        argument: &ValueLocals,
+        overflow_options: TemporalConversionOverflowOptions<'_>,
+        fields: &[I64Local; 3],
+        calendar_out: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let calendar_tag_local = self.reserve_temp_local();
-        let overflow_local = self.reserve_temp_local();
-        let brand_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let year_present_local = self.reserve_temp_local();
-        let month_present_local = self.reserve_temp_local();
-        let month_code_payload_local = self.reserve_temp_local();
-        let month_code_present_local = self.reserve_temp_local();
-        let day_present_local = self.reserve_temp_local();
-        let handled_local = self.reserve_temp_local();
-
+        let schema = self.runtime_schema();
+        let overflow = schema.reserve_i64_local(function);
+        let present: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let month_code = schema.reserve_value_local(function);
+        let encoded_month_code = schema.reserve_i64_local(function);
+        let month_code_present = schema.reserve_i64_local(function);
+        let any_present = schema.reserve_i64_local(function);
+        let handled = schema.reserve_i64_local(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(handled_local));
+        handled.store(function);
         function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
-        function.instruction(&Instruction::LocalSet(overflow_local));
-
-        self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY as i64,
+        overflow.store(function);
+        month_code.set_undefined(function);
+        for local in fields
+            .iter()
+            .chain(present.iter())
+            .copied()
+            .chain([encoded_month_code, month_code_present])
+        {
+            function.instruction(&Instruction::I64Const(0));
+            local.store(function);
+        }
+        self.emit_is_heap_object_like_tag_i32(argument.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        argument.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<TemporalPlainMonthDayObject>(GcNullability::NonNullable)
+                .heap_type,
         ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
+        self.open_frame(ControlFrameKind::If, function);
+        let record = schema.reserve_gc_local(function).initialize(
+            argument.cast_reference::<TemporalPlainMonthDayObject>(schema, function),
             function,
         );
-        self.emit_temporal_partial_date_load_record(
-            record_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            function,
-        );
+        self.emit_temporal_plain_month_day_load_record(&record, fields, calendar_out, function);
+        record.clear(function);
         match overflow_options {
-            TemporalConversionOverflowOptions::Read {
-                payload_local,
-                tag_local,
-            } => self.emit_temporal_month_day_overflow_option(
-                payload_local,
-                tag_local,
-                overflow_local,
-                function,
-            )?,
+            TemporalConversionOverflowOptions::Read(options) => {
+                self.emit_temporal_month_day_overflow_option(options, overflow, function)?
+            }
             TemporalConversionOverflowOptions::Omit => {}
         }
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(handled_local));
-        function.instruction(&Instruction::End);
+        handled.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(handled_local));
+        handled.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
+        let calendar_value = schema.reserve_value_local(function);
+        self.emit_temporal_duration_option_get(argument, "calendar", &calendar_value, function)?;
+        let calendar = self.emit_temporal_to_temporal_calendar_identifier(
+            &calendar_value,
+            RuntimeErrorMessage::TEMPORAL_PLAINDATE_CALENDAR_MUST_BE_A_STRING,
+            function,
+        )?;
+        calendar_out.set_reference(calendar.identifier(), schema, function);
+        calendar_value.clear(function);
         let era = self.emit_temporal_plain_date_read_fields(
-            argument_payload_local,
-            argument_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            year_local,
-            year_present_local,
-            month_local,
-            month_present_local,
-            month_code_payload_local,
-            month_code_present_local,
-            day_local,
-            day_present_local,
-            TemporalDateFieldReadMode::MonthDayConversion,
+            argument,
+            &calendar,
+            fields,
+            &present,
+            &month_code,
+            month_code_present,
+            any_present,
             function,
         )?;
         match overflow_options {
-            TemporalConversionOverflowOptions::Read {
-                payload_local,
-                tag_local,
-            } => self.emit_temporal_month_day_overflow_option(
-                payload_local,
-                tag_local,
-                overflow_local,
-                function,
-            )?,
+            TemporalConversionOverflowOptions::Read(options) => {
+                self.emit_temporal_month_day_overflow_option(options, overflow, function)?
+            }
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_calendar_year(
             era,
-            calendar_payload_local,
-            year_local,
-            year_present_local,
+            calendar.calendar_id(),
+            fields[0],
+            present[0],
             function,
         )?;
         self.emit_temporal_month_day_resolve_fields(
-            &resolved_year,
-            calendar_payload_local,
-            month_local,
-            month_present_local,
-            month_code_payload_local,
-            month_code_present_local,
-            day_local,
-            day_present_local,
-            overflow_local,
+            resolved_year,
+            fields[1],
+            present[1],
+            &month_code,
+            encoded_month_code,
+            month_code_present,
+            fields[2],
+            present[2],
+            overflow,
             function,
         )?;
+        calendar.release(self, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(handled_local));
+        handled.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(handled_local));
+        handled.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay expects a string, a property bag, or a Temporal.PlainMonthDay",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.open_frame(ControlFrameKind::If, function);
+        argument.tag().load(function);
+        function.instruction(&Instruction::I32Const(ValueKind::String.tag() as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_EXPECTS_A_STRING_A_PROPERTY_BAG_OR_A_TEMPORAL_PLAINMONTHDAY, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        let string = schema.reserve_gc_local(function).initialize(
+            argument.cast_reference::<StringValue>(schema, function),
+            function,
+        );
         let parsed = self.emit_temporal_parse_month_day_string(
-            argument_payload_local,
-            year_local,
-            year_present_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            calendar_tag_local,
+            &string,
+            fields[0],
+            present[0],
+            fields[1],
+            fields[2],
+            calendar_out,
             function,
         )?;
-        // Step (f). `from/observable-get-overflow-argument-string-invalid.js`
-        // pins that a string the parser rejects reads no option at all
-        // (`from("13-34", observer)` must leave the observer log empty), so this
-        // stays after the parse. That is the only string-path ordering
-        // constraint the corpus actually observes.
-        //
-        // Its placement *before* the year-empty and ISODateWithinLimits throws
-        // follows the spec — GetTemporalOverflowOption precedes both — and is
-        // **unobserved**: no test in the 286-case corpus passes an options
-        // observer together with an input that reaches those throws. The only
-        // inputs that reach them are the three `[u-ca=gregory]` strings, and
-        // neither red test supplies an observer. Moving this read would
-        // therefore turn nothing red; do not read a green suite as confirmation
-        // that the order is right.
-        //
-        // `from/options-read-before-algorithmic-validation.js` does NOT pin
-        // this, despite what an earlier version of this comment said: its only
-        // call is `Temporal.PlainMonthDay.from({ monthCode: "M08L", day: 14 },
-        // options)`, a property bag, which `emit_temporal_to_temporal_month_day`
-        // routes through the `handled_local == 0` bag branch and which never
-        // enters this string branch at all.
-        //
-        // `equals` arrives with omitted overflow options and still owes both
-        // RangeErrors, which is why they are not inside here.
+        string.clear(function);
+        // GetTemporalOverflowOption follows parsing and precedes the source
+        // year-empty and source-date range checks, including on equals' path.
         match overflow_options {
-            TemporalConversionOverflowOptions::Read {
-                payload_local,
-                tag_local,
-            } => self.emit_temporal_month_day_overflow_option(
-                payload_local,
-                tag_local,
-                overflow_local,
-                function,
-            )?,
+            TemporalConversionOverflowOptions::Read(options) => {
+                self.emit_temporal_month_day_overflow_option(options, overflow, function)?
+            }
             TemporalConversionOverflowOptions::Omit => {}
         }
+        let calendar = self.emit_temporal_month_day_calendar_slot(calendar_out, function)?;
         self.emit_temporal_month_day_string_reference_year(
-            parsed,
-            calendar_payload_local,
-            month_local,
-            day_local,
-            function,
+            parsed, &calendar, fields[1], fields[2], function,
         )?;
+        calendar.release(self, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        for local in [
-            handled_local,
-            day_present_local,
-            month_code_present_local,
-            month_code_payload_local,
-            month_present_local,
-            year_present_local,
-            record_local,
-            brand_local,
-            overflow_local,
-            calendar_tag_local,
-        ] {
-            self.release_temp_local(local);
+        schema.release_i64_local(handled, function);
+        schema.release_i64_local(any_present, function);
+        schema.release_i64_local(month_code_present, function);
+        schema.release_i64_local(encoded_month_code, function);
+        month_code.clear(function);
+        for local in present.into_iter().rev() {
+            schema.release_i64_local(local, function);
         }
+        schema.release_i64_local(overflow, function);
         Ok(())
     }
 
@@ -758,52 +596,40 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let options = schema.reserve_value_local(function);
+        let calendar_value = schema.reserve_value_local(function);
+        let fields: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        self.emit_builtin_arg_to_value(1, &options, function);
         self.emit_temporal_to_temporal_month_day(
-            argument_payload_local,
-            argument_tag_local,
-            TemporalConversionOverflowOptions::Read {
-                payload_local: options_payload_local,
-                tag_local: options_tag_local,
-            },
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
+            &argument,
+            TemporalConversionOverflowOptions::Read(&options),
+            &fields,
+            &calendar_value,
             function,
         )?;
-        self.emit_alloc_temporal_partial_date(
+        let calendar = self.emit_temporal_month_day_calendar_slot(&calendar_value, function)?;
+        let reference = self.emit_temporal_complete_partial_reference(
+            calendar.calendar_id(),
             TemporalPartialDateType::PlainMonthDay,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            TemporalPartialDatePrototype::Intrinsic,
+            fields,
             function,
         )?;
-
-        for local in [
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            options_tag_local,
-            options_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
+        self.emit_alloc_temporal_partial_reference(
+            &reference,
+            TemporalPrototypeSource::Intrinsic,
+            function,
+        )?;
+        reference.release(self, function);
+        calendar.release(self, function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, function);
         }
+        calendar_value.clear(function);
+        options.clear(function);
+        argument.clear(function);
         Ok(())
     }
 
@@ -817,47 +643,39 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_parse_month_day_string(
         &mut self,
-        string_payload_local: u32,
-        year_local: u32,
-        year_present_local: u32,
-        month_local: u32,
-        day_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        string: &GcLocal<StringValue>,
+        year: I64Local,
+        year_present: I64Local,
+        month: I64Local,
+        day: I64Local,
+        calendar: &ValueLocals,
         function: &mut Function,
     ) -> Result<TemporalParsedMonthDayYear, EmitError> {
-        let rewritten_local = self.reserve_temp_local();
-        let year_empty_local = self.reserve_temp_local();
-
+        let schema = self.runtime_schema();
+        let rewritten = schema.reserve_value_local(function);
+        let year_empty = schema.reserve_i64_local(function);
         self.emit_temporal_month_day_rewrite_string(
-            string_payload_local,
-            rewritten_local,
-            Some(year_empty_local),
+            string,
+            &rewritten,
+            Some(year_empty),
             function,
         )?;
-        // The rewrite answers "the year is empty"; every consumer downstream
-        // asks "is the year present", the same polarity as the property-bag
-        // `*_present_local` flags. Invert once, here, so no consumer has to
-        // remember which way round the parser reports it.
-        function.instruction(&Instruction::LocalGet(year_empty_local));
+        // Convert the parser's empty flag into the field readers' presence flag.
+        year_empty.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(year_present_local));
-        self.emit_temporal_parse_plain_date_string(
-            rewritten_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            calendar_tag_local,
+        year_present.store(function);
+        let text = schema.reserve_gc_local(function).initialize(
+            rewritten.cast_reference::<StringValue>(schema, function),
             function,
-        )?;
-
-        self.release_temp_local(year_empty_local);
-        self.release_temp_local(rewritten_local);
+        );
+        self.emit_temporal_parse_plain_date_string(&text, year, month, day, calendar, function)?;
+        text.clear(function);
+        schema.release_i64_local(year_empty, function);
+        rewritten.clear(function);
         Ok(TemporalParsedMonthDayYear {
-            year_local,
-            year_present_local,
+            year_local: year,
+            year_present_local: year_present,
         })
     }
 
@@ -880,82 +698,69 @@ impl<'a> FunctionBuilder<'a> {
     ///   date. `"±999999-01-01[u-ca=gregory]"` is the case;
     ///   `"±999999-10-01[u-ca=iso8601]"` is explicitly *valid* and is the proof
     ///   that this bound must stay behind the same ISO gate.
-    /// * **reference-year store** — the stored `[[ISOYear]]` becomes
-    ///   [`TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR`].
-    ///
-    /// The shared reference-year constant requires every supported calendar to
-    /// use Gregorian month/day arithmetic. This includes Buddhist dates. A
-    /// calendar with different months needs CalendarMonthDayFromFields here:
-    /// `intl402/Temporal/PlainMonthDay/from/reference-year-1972.js` requires
-    /// ISO 1970 for Hebrew M05L and ISO 1971 for a 30-day Cheshvan.
+    /// * **calendar reference conversion** — the complete parsed ISO date
+    ///   projects to the calendar month/day, then the completed reference
+    ///   factory chooses its deterministic ISO carrier. Gregorian calendars
+    ///   use 1972; Indian uses the latest matching date before 1973.
     ///
     /// Both checks are outside the caller's overflow-options match, because
     /// `equals` reaches `ToTemporalMonthDay` with no options at all and
     /// `prototype/equals/argument-string-invalid.js` still requires both
     /// RangeErrors. That the overflow read is emitted *before* them follows the
-    /// spec (GetTemporalOverflowOption precedes both) but is **unobserved** by
-    /// the corpus — see the comment at the caller's option-read site.
+    /// spec (GetTemporalOverflowOption precedes both). The checks stay after
+    /// that read even when the source's syntax has already been accepted.
     ///
     /// Taking the [`TemporalParsedMonthDayYear`] by value is the point: this is
-    /// also the only place the reference year is stored, so a future string path
-    /// that forgets to call this fails loudly on `[[ISOYear]]` instead of
-    /// quietly accepting a string the spec rejects.
+    /// also the string path's completed reference conversion, so a future path
+    /// cannot publish the parser's supplied year as its reference carrier.
     fn emit_temporal_month_day_string_reference_year(
         &mut self,
         parsed: TemporalParsedMonthDayYear,
-        calendar_payload_local: u32,
-        month_local: u32,
-        day_local: u32,
+        calendar: &TemporalCalendarSlotLocals,
+        month: I64Local,
+        day: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let TemporalParsedMonthDayYear {
-            year_local,
-            year_present_local,
+            year_local: year,
+            year_present_local: year_present,
         } = parsed;
-
-        // Year-empty rejection — non-ISO calendar and no year in the source.
-        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        self.emit_temporal_calendar_is_default_i32(calendar.calendar_id(), function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(year_present_local));
+        year_present.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.PlainMonthDay month-day string with a non-ISO calendar requires a year",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_MONTH_DAY_STRING_WITH_A_NON_ISO_CALENDAR_REQUIRES_A_YEAR, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // `ISODateWithinLimits` — non-ISO calendar: the parsed date, not the
-        // reference date, is
-        // what has to be representable. `ISODateWithinLimits`, not
-        // `ISOYearMonthWithinLimits`: the latter is the bag path's bound and
-        // disagrees on the two boundary days.
-        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        self.emit_temporal_calendar_is_default_i32(calendar.calendar_id(), function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let days_local = self.reserve_temp_local();
+        self.open_frame(ControlFrameKind::If, function);
+        let days = self.runtime_schema().reserve_i64_local(function);
         self.emit_temporal_iso_date_within_limits(
-            year_local,
-            month_local,
-            day_local,
-            days_local,
-            "Temporal.PlainMonthDay is outside the supported date range",
+            year,
+            month,
+            day,
+            days,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_IS_OUTSIDE_THE_SUPPORTED_DATE_RANGE,
             function,
         )?;
-        self.release_temp_local(days_local);
+        self.runtime_schema().release_i64_local(days, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // Reference-year store — the parsed year is never stored. See the doc
-        // comment: the unconditional literal is a shortcut that holds only while
-        // no calendar in `TemporalCalendarId::ALL` has a leap month.
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
-        ));
-        function.instruction(&Instruction::LocalSet(year_local));
+        let reference = self.emit_temporal_calendar_partial_reference(
+            calendar.calendar_id(),
+            TemporalPartialDateType::PlainMonthDay,
+            [year, month, day],
+            function,
+        )?;
+        for (source, destination) in reference.fields().into_iter().zip([year, month, day]) {
+            source.load(function);
+            destination.store(function);
+        }
+        reference.release(self, function);
         Ok(())
     }
 
@@ -964,79 +769,63 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let other_year_local = self.reserve_temp_local();
-        let other_month_local = self.reserve_temp_local();
-        let other_day_local = self.reserve_temp_local();
-        let other_calendar_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
-        self.emit_temporal_partial_date_load_record(
-            record_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_plain_month_day_record_from_receiver(function)?;
+        let fields: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let other: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let calendar_value = schema.reserve_value_local(function);
+        let other_calendar_value = schema.reserve_value_local(function);
+        let argument = schema.reserve_value_local(function);
+        let equal = schema.reserve_i32_local(function);
+        self.emit_temporal_plain_month_day_load_record(&record, &fields, &calendar_value, function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
         self.emit_temporal_to_temporal_month_day(
-            argument_payload_local,
-            argument_tag_local,
+            &argument,
             TemporalConversionOverflowOptions::Omit,
-            other_year_local,
-            other_month_local,
-            other_day_local,
-            other_calendar_payload_local,
+            &other,
+            &other_calendar_value,
             function,
         )?;
-
-        function.instruction(&Instruction::LocalGet(year_local));
-        function.instruction(&Instruction::LocalGet(other_year_local));
+        function.instruction(&Instruction::I32Const(0));
+        equal.store(function);
+        fields[0].load(function);
+        other[0].load(function);
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(month_local));
-        function.instruction(&Instruction::LocalGet(other_month_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalGet(other_day_local));
+        fields[1].load(function);
+        other[1].load(function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_string_payload_equality_i32(
-            calendar_payload_local,
-            other_calendar_payload_local,
+        fields[2].load(function);
+        other[2].load(function);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        let calendar = schema.reserve_gc_local(function).initialize(
+            calendar_value.cast_reference::<StringValue>(schema, function),
             function,
         );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
+        let other_calendar = schema.reserve_gc_local(function).initialize(
+            other_calendar_value.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        self.emit_string_payload_equality_i32(&calendar, &other_calendar, function);
+        equal.store(function);
+        other_calendar.clear(function);
+        calendar.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            other_calendar_payload_local,
-            other_day_local,
-            other_month_local,
-            other_year_local,
-            argument_tag_local,
-            argument_payload_local,
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
+        let output = schema.reserve_value_local(function);
+        output.set_boolean(equal, function);
+        self.completion().set_normal(&output, function);
+        output.clear(function);
+        schema.release_i32_local(equal, function);
+        argument.clear(function);
+        other_calendar_value.clear(function);
+        calendar_value.clear(function);
+        for local in other.into_iter().rev().chain(fields.into_iter().rev()) {
+            schema.release_i64_local(local, function);
         }
+        record.clear(function);
         Ok(())
     }
 
@@ -1045,213 +834,168 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let overflow_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
-        let new_year_local = self.reserve_temp_local();
-        let year_present_local = self.reserve_temp_local();
-        let new_month_local = self.reserve_temp_local();
-        let month_present_local = self.reserve_temp_local();
-        let month_code_payload_local = self.reserve_temp_local();
-        let month_code_present_local = self.reserve_temp_local();
-        let new_day_local = self.reserve_temp_local();
-        let day_present_local = self.reserve_temp_local();
-
-        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
-        self.emit_temporal_partial_date_load_record(
-            record_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_plain_month_day_record_from_receiver(function)?;
+        let receiver: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let fields: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let present: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let calendar_value = schema.reserve_value_local(function);
+        let argument = schema.reserve_value_local(function);
+        let options = schema.reserve_value_local(function);
+        let probe = schema.reserve_value_local(function);
+        let receiver_month_code = schema.reserve_value_local(function);
+        let acquired_month_code = schema.reserve_value_local(function);
+        let overflow = schema.reserve_i64_local(function);
+        let encoded_month_code = schema.reserve_i64_local(function);
+        let month_code_present = schema.reserve_i64_local(function);
+        let any_present = schema.reserve_i64_local(function);
+        self.emit_temporal_plain_month_day_load_record(
+            &record,
+            &receiver,
+            &calendar_value,
             function,
         );
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
-        self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
+        let calendar = self.emit_temporal_month_day_calendar_slot(&calendar_value, function)?;
+        let projected =
+            self.emit_temporal_project_calendar_date(calendar.calendar_id(), receiver, function);
+        for (source, destination) in projected.fields().into_iter().zip(receiver) {
+            source.load(function);
+            destination.store(function);
+        }
+        self.emit_temporal_calendar_month_code_payload(&projected, &receiver_month_code, function)?;
+        projected.release(self, function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        self.emit_builtin_arg_to_value(1, &options, function);
+        self.emit_is_heap_object_like_tag_i32(argument.tag(), function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay.prototype.with requires an object",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_PROTOTYPE_WITH_REQUIRES_AN_OBJECT,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // `IsPartialTemporalObject` step 2 runs before the two `Get`s below.
-        self.emit_temporal_reject_branded_partial_object(
-            argument_payload_local,
-            argument_tag_local,
-            "Temporal.PlainMonthDay.prototype.with does not accept a Temporal object",
-            function,
-        )?;
-
-        // `RejectTemporalLikeObject` reads both keys with `Get`, not with a
-        // `HasProperty` probe, and Test262's `with/order-of-operations.js`
-        // observes the two reads.
+        self.emit_temporal_reject_branded_partial_object(&argument,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_PROTOTYPE_WITH_DOES_NOT_ACCEPT_A_TEMPORAL_OBJECT, function)?;
+        // These ordinary Gets precede the ordered native date-field sweep.
         for property in ["calendar", "timeZone"] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(property)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_read(
-                argument_payload_local,
-                argument_tag_local,
-                argument_payload_local,
-                argument_tag_local,
-                key_local,
-                present_local,
-                calendar_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            function.instruction(&Instruction::LocalGet(calendar_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_type_error(
-                "Temporal.PlainMonthDay.prototype.with does not accept calendar or timeZone",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
+            self.emit_temporal_duration_option_get(&argument, property, &probe, function)?;
+            probe.tag().load(function);
+            function.instruction(&Instruction::I32Const(ValueKind::Undefined.tag() as i32));
+            function.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::TypeError,
+                RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_PROTOTYPE_WITH_DOES_NOT_ACCEPT_CALENDAR_OR_TIMEZONE, function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-
+        acquired_month_code.set_undefined(function);
+        for local in fields
+            .iter()
+            .chain(present.iter())
+            .copied()
+            .chain([encoded_month_code, month_code_present])
+        {
+            function.instruction(&Instruction::I64Const(0));
+            local.store(function);
+        }
         let era = self.emit_temporal_plain_date_read_fields(
-            argument_payload_local,
-            argument_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            new_year_local,
-            year_present_local,
-            new_month_local,
-            month_present_local,
-            month_code_payload_local,
-            month_code_present_local,
-            new_day_local,
-            day_present_local,
-            TemporalDateFieldReadMode::MonthDayWith,
+            &argument,
+            &calendar,
+            &fields,
+            &present,
+            &acquired_month_code,
+            month_code_present,
+            any_present,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(year_present_local));
-        function.instruction(&Instruction::LocalGet(month_present_local));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(month_code_present_local));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(day_present_local));
-        function.instruction(&Instruction::I64Or);
-        for local in era.present_locals() {
-            function.instruction(&Instruction::LocalGet(local));
-            function.instruction(&Instruction::I64Or);
-        }
+        any_present.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay.prototype.with requires at least one field",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_PROTOTYPE_WITH_REQUIRES_AT_LEAST_ONE_FIELD,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_temporal_month_day_overflow_option(
-            options_payload_local,
-            options_tag_local,
-            overflow_local,
-            function,
-        )?;
-
-        // No receiver-year merge here: a `Temporal.PlainMonthDay` has no
-        // observable year, so the reference year stands in when the bag
-        // supplies neither `year` nor an era pair.
-        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
+        self.emit_temporal_month_day_overflow_option(&options, overflow, function)?;
+        // Resolve only the caller's year/era pair; a MonthDay has no year default.
+        let resolved_year = self.emit_temporal_resolve_era_to_calendar_year(
             era,
-            calendar_payload_local,
-            new_year_local,
-            year_present_local,
+            calendar.calendar_id(),
+            fields[0],
+            present[0],
             function,
         )?;
-
-        function.instruction(&Instruction::LocalGet(day_present_local));
+        present[2].load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalSet(new_day_local));
+        self.open_frame(ControlFrameKind::If, function);
+        receiver[2].load(function);
+        fields[2].store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(day_present_local));
-        function.instruction(&Instruction::LocalGet(month_present_local));
-        function.instruction(&Instruction::LocalGet(month_code_present_local));
+        present[2].store(function);
+        present[1].load(function);
+        month_code_present.load(function);
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_month_code_payload(month_local, function);
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(month_code_payload_local));
+        self.open_frame(ControlFrameKind::If, function);
+        acquired_month_code.copy_from(&receiver_month_code, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(month_code_present_local));
+        month_code_present.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
         self.emit_temporal_month_day_resolve_fields(
-            &resolved_year,
-            calendar_payload_local,
-            new_month_local,
-            month_present_local,
-            month_code_payload_local,
-            month_code_present_local,
-            new_day_local,
-            day_present_local,
-            overflow_local,
+            resolved_year,
+            fields[1],
+            present[1],
+            &acquired_month_code,
+            encoded_month_code,
+            month_code_present,
+            fields[2],
+            present[2],
+            overflow,
             function,
         )?;
-        self.emit_alloc_temporal_partial_date(
+        let reference = self.emit_temporal_complete_partial_reference(
+            calendar.calendar_id(),
             TemporalPartialDateType::PlainMonthDay,
-            new_year_local,
-            new_month_local,
-            new_day_local,
-            calendar_payload_local,
-            TemporalPartialDatePrototype::Intrinsic,
+            fields,
             function,
         )?;
-
+        self.emit_alloc_temporal_partial_reference(
+            &reference,
+            TemporalPrototypeSource::Intrinsic,
+            function,
+        )?;
+        reference.release(self, function);
+        calendar.release(self, function);
         for local in [
-            day_present_local,
-            new_day_local,
-            month_code_present_local,
-            month_code_payload_local,
-            month_present_local,
-            new_month_local,
-            year_present_local,
-            new_year_local,
-            present_local,
-            key_local,
-            overflow_local,
-            options_tag_local,
-            options_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            calendar_tag_local,
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            record_local,
+            any_present,
+            month_code_present,
+            encoded_month_code,
+            overflow,
         ] {
-            self.release_temp_local(local);
+            schema.release_i64_local(local, function);
         }
+        acquired_month_code.clear(function);
+        receiver_month_code.clear(function);
+        probe.clear(function);
+        options.clear(function);
+        argument.clear(function);
+        calendar_value.clear(function);
+        for local in present
+            .into_iter()
+            .rev()
+            .chain(fields.into_iter().rev())
+            .chain(receiver.into_iter().rev())
+        {
+            schema.release_i64_local(local, function);
+        }
+        record.clear(function);
         Ok(())
     }
 
@@ -1264,133 +1008,71 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
-        self.release_temp_local(record_local);
+        let record = self.emit_temporal_plain_month_day_record_from_receiver(function)?;
+        record.clear(function);
         self.emit_intl_dtf_temporal_to_locale_string(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            super::intl_datetimeformat::DtfTemporalKind::PlainMonthDay,
             function,
         )
     }
 
-    /// `TemporalMonthDayToString`. The reference year is prefixed only when the
-    /// calendar annotation is shown, which is the only way a round-trip could
-    /// otherwise lose it.
+    /// `TemporalMonthDayToString`. A non-ISO calendar always retains the
+    /// reference ISO year, including when its annotation is hidden.
     pub(crate) fn emit_temporal_plain_month_day_to_string(
         &mut self,
-        builtin: StandardBuiltinId,
+        mode: TemporalPlainMonthDayStringMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let show_calendar_local = self.reserve_temp_local();
-        let output_payload_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let number_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
-        self.emit_temporal_partial_date_load_record(
-            record_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            function,
-        );
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_plain_month_day_record_from_receiver(function)?;
+        let fields: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let calendar_value = schema.reserve_value_local(function);
+        let options = schema.reserve_value_local(function);
+        let output = schema.reserve_value_local(function);
+        let show_calendar = schema.reserve_i64_local(function);
+        self.emit_temporal_plain_month_day_load_record(&record, &fields, &calendar_value, function);
+        let calendar = self.emit_temporal_month_day_calendar_slot(&calendar_value, function)?;
         function.instruction(&Instruction::I64Const(ShowCalendarName::Auto.code()));
-        function.instruction(&Instruction::LocalSet(show_calendar_local));
-        if matches!(
-            builtin,
-            StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
-        ) {
-            self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
-            self.emit_temporal_string_valued_option::<ShowCalendarName>(
-                options_payload_local,
-                options_tag_local,
-                show_calendar_local,
-                "Temporal.PlainMonthDay options must be an object or undefined",
-                "Invalid Temporal.PlainMonthDay calendarName option",
-                function,
-            )?;
+        show_calendar.store(function);
+        match mode {
+            TemporalPlainMonthDayStringMode::ToString => {
+                self.emit_builtin_arg_to_value(0, &options, function);
+                self.emit_temporal_string_valued_option::<ShowCalendarName>(
+                    &options, show_calendar,
+                    RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_OPTIONS_MUST_BE_AN_OBJECT_OR_UNDEFINED,
+                    RuntimeErrorMessage::INVALID_TEMPORAL_PLAINMONTHDAY_CALENDARNAME_OPTION, function)?;
+            }
+            TemporalPlainMonthDayStringMode::ToJson => {}
         }
-
-        // `TemporalMonthDayToString` step 2: the reference year is printed
-        // under exactly the condition that prints the calendar annotation, so
-        // `--01-05[u-ca=gregory]` is never emitted without its `1972-`.
-        self.emit_temporal_show_calendar_annotation_i32(
-            show_calendar_local,
-            calendar_payload_local,
+        self.emit_temporal_show_partial_reference_i32(
+            show_calendar,
+            calendar.calendar_id(),
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_pad_iso_year(
-            year_local,
-            output_payload_local,
-            piece_payload_local,
-            number_payload_local,
-            function,
-        )?;
-        self.emit_temporal_append_separated_two_digits(
-            month_local,
-            "-",
-            output_payload_local,
-            piece_payload_local,
-            number_payload_local,
-            function,
-        )?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_pad_iso_year(fields[0], &output, function)?;
+        self.emit_temporal_append_separated_two_digits(fields[1], "-", &output, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.emit_temporal_append_separated_two_digits(
-            month_local,
-            "",
-            output_payload_local,
-            piece_payload_local,
-            number_payload_local,
-            function,
-        )?;
+        let empty = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_interned_string_reference("", function)?, function);
+        output.set_reference(&empty, schema, function);
+        empty.clear(function);
+        self.emit_temporal_append_separated_two_digits(fields[1], "", &output, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_temporal_append_separated_two_digits(
-            day_local,
-            "-",
-            output_payload_local,
-            piece_payload_local,
-            number_payload_local,
-            function,
-        )?;
-        self.emit_temporal_append_calendar_annotation(
-            show_calendar_local,
-            calendar_payload_local,
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(output_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            number_payload_local,
-            piece_payload_local,
-            output_payload_local,
-            show_calendar_local,
-            options_tag_local,
-            options_payload_local,
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
+        self.emit_temporal_append_separated_two_digits(fields[2], "-", &output, function)?;
+        self.emit_temporal_append_calendar_annotation(&calendar, show_calendar, &output, function)?;
+        self.completion().set_normal(&output, function);
+        calendar.release(self, function);
+        schema.release_i64_local(show_calendar, function);
+        output.clear(function);
+        options.clear(function);
+        calendar_value.clear(function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, function);
         }
+        record.clear(function);
         Ok(())
     }
 
@@ -1400,123 +1082,117 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
-        let overflow_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
-        self.emit_temporal_partial_date_load_record(
-            record_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_plain_month_day_record_from_receiver(function)?;
+        let fields: [I64Local; 3] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let calendar_value = schema.reserve_value_local(function);
+        let argument = schema.reserve_value_local(function);
+        let acquired_month_code = schema.reserve_value_local(function);
+        let year_present = schema.reserve_i64_local(function);
+        let overflow = schema.reserve_i64_local(function);
+        let encoded_month_code = schema.reserve_i64_local(function);
+        let month_code_present = schema.reserve_i64_local(function);
+        let month_present = schema.reserve_i64_local(function);
+        self.emit_temporal_plain_month_day_load_record(&record, &fields, &calendar_value, function);
+        let calendar = self.emit_temporal_month_day_calendar_slot(&calendar_value, function)?;
+        let projected =
+            self.emit_temporal_project_calendar_date(calendar.calendar_id(), fields, function);
+        for (source, destination) in projected.fields().into_iter().zip(fields) {
+            source.load(function);
+            destination.store(function);
+        }
+        self.emit_temporal_calendar_month_code_payload(&projected, &acquired_month_code, function)?;
+        projected.release(self, function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        self.emit_is_heap_object_like_tag_i32(argument.tag(), function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay.prototype.toPlainDate requires an object",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_PROTOTYPE_TOPLAINDATE_REQUIRES_AN_OBJECT,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        // `PrepareCalendarFields(calendar, item, « year », «», « year »)` picks
-        // up `era`/`eraYear` for a calendar that has them, and they sort before
-        // `year`. `intl402/.../PlainMonthDay/prototype/toPlainDate/infinity-throws-rangeerror.js`
-        // asserts the call log is exactly the `eraYear` coercion.
-        let era_slots = self.reserve_temporal_era_slots();
+        // era/eraYear precede year and are read only for calendars with eras.
+        let era_slots = self.reserve_temporal_era_slots(function);
         let era = self.emit_temporal_read_era_fields(
             era_slots,
-            argument_payload_local,
-            argument_tag_local,
-            calendar_payload_local,
+            &argument,
+            calendar.calendar_id(),
             function,
         )?;
         self.emit_temporal_property_bag_integer(
-            argument_payload_local,
-            argument_tag_local,
+            &argument,
             "year",
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            present_local,
-            year_local,
+            year_present,
+            fields[0],
             0,
-            "Temporal.PlainMonthDay year must be finite",
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_YEAR_MUST_BE_FINITE,
             function,
         )?;
-        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_calendar_year(
             era,
-            calendar_payload_local,
-            year_local,
-            present_local,
+            calendar.calendar_id(),
+            fields[0],
+            year_present,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(resolved_year.year_present_local()));
+        resolved_year.year_present_local().load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainMonthDay.prototype.toPlainDate requires a year",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_PLAINMONTHDAY_PROTOTYPE_TOPLAINDATE_REQUIRES_A_YEAR,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
-        function.instruction(&Instruction::LocalSet(overflow_local));
-        self.emit_temporal_plain_date_regulate(
-            year_local,
-            month_local,
-            day_local,
-            overflow_local,
+        overflow.store(function);
+        function.instruction(&Instruction::I64Const(1));
+        month_code_present.store(function);
+        function.instruction(&Instruction::I64Const(0));
+        month_present.store(function);
+        function.instruction(&Instruction::I64Const(0));
+        encoded_month_code.store(function);
+        let resolved_month = self.emit_temporal_resolve_calendar_month(
+            resolved_year,
+            fields[1],
+            month_present,
+            &acquired_month_code,
+            encoded_month_code,
+            month_code_present,
+            TemporalMonthFieldContext::PlainMonthDayToPlainDate,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        self.emit_temporal_calendar_date_to_iso(resolved_month, fields[2], overflow, function)?;
+        self.emit_temporal_reject_iso_date(fields[0], fields[1], fields[2], function)?;
         self.emit_alloc_temporal_plain_date(
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            prototype_payload_local,
+            fields[0],
+            fields[1],
+            fields[2],
+            &calendar,
+            TemporalPrototypeSource::Intrinsic,
             function,
         )?;
-
+        calendar.release(self, function);
         for local in [
-            prototype_payload_local,
-            overflow_local,
-            present_local,
-            value_tag_local,
-            value_payload_local,
-            key_local,
-            argument_tag_local,
-            argument_payload_local,
-            calendar_payload_local,
-            day_local,
-            month_local,
-            year_local,
-            record_local,
+            month_present,
+            month_code_present,
+            encoded_month_code,
+            overflow,
+            year_present,
         ] {
-            self.release_temp_local(local);
+            schema.release_i64_local(local, function);
         }
+        acquired_month_code.clear(function);
+        argument.clear(function);
+        calendar_value.clear(function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, function);
+        }
+        record.clear(function);
         Ok(())
     }
 }

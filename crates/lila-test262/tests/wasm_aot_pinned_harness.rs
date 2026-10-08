@@ -6,11 +6,10 @@ use lila_test262::{load_preludes, LocalHarnessSource, SuiteConfig};
 
 fn assert_harness(source: &str, includes: &[&str]) {
     lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
-    let config = SuiteConfig {
-        suite_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262"),
-        local_harness: LocalHarnessSource::EmbeddedWasmAot,
-        ..SuiteConfig::default()
-    };
+    let mut config = SuiteConfig::default();
+    config.suite_root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262");
+    config.local_harness = LocalHarnessSource::EmbeddedWasmAot;
     let preludes = load_preludes(&config).expect("embedded pinned harness");
     let mut program = String::new();
     for name in ["assert.js", "sta-preamble.js"]

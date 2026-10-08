@@ -122,6 +122,30 @@ def algorithmic_field_tables(profile, locales):
     inspect(locales)
     tables = []
     for identifier, field in sorted(required):
+        if (identifier, field) == ("jpanyear", "y"):
+            # The genuine pinned rules cover the entire integer year domain:
+            # 1 uses its literal name; 0 and every integer >=2 use pattern 0.
+            # Fractional x.x is not selectable by an integer calendar year.
+            if definitions[identifier]["rules"] != "ja/SpelloutRules/spellout-numbering-year-latn":
+                raise ValueError("unreviewed Japanese year numbering recipe")
+            path = "common/rbnf/ja.xml"
+            document = profile.documents.get(path)
+            if document is None:
+                raise ValueError(f"missing pinned Japanese year RBNF source: {path}")
+            matches = document.findall("./rbnf/rulesetGrouping[@type='SpelloutRules']/ruleset[@type='spellout-numbering-year-latn']")
+            if len(matches) != 1:
+                raise ValueError("missing or duplicate Japanese year ruleset")
+            rules = matches[0].findall("rbnfrule")
+            if (len(rules) != 4 or any(set(node.attrib) != {"value"} for node in rules)
+                    or [(node.get("value"), (node.text or "").strip()) for node in rules]
+                    != [("x.x", "=0.0=;"), ("0", "=0=;"), ("1", "元;"), ("2", "=0=;")]):
+                raise ValueError("unreviewed Japanese integer-year RBNF rules")
+            tables.append({"identifier": identifier, "field": field, "minimum": 1,
+                           "values": [rules[2].text.strip()[:-1]], "source": path,
+                           "ruleset": "spellout-numbering-year-latn", "positional_fallback": "latn",
+                           "consumed_rules": [["spellout-numbering-year-latn", int(node.get("value")), node.text.strip()[:-1]]
+                                              for node in rules[1:]]})
+            continue
         # A day has a finite exact domain for every admitted calendar. Other
         # algorithmic fields need their own complete domain before admission.
         if field != "d":

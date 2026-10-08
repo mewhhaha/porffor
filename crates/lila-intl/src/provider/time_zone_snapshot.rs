@@ -17,7 +17,7 @@ pub(super) const STANDARD_TIME_STABILITY_WINDOW_SECONDS: i64 = 184 * 86_400;
 
 /// Offset and variant from the same selected IANA rearguard transition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct NamedTimeZoneTransition {
+pub(crate) struct NamedTimeZoneTransition {
     offset_seconds: i32,
     variant: TimeZoneVariant,
     standard_time_stability: StandardTimeStability,
@@ -39,7 +39,7 @@ impl NamedTimeZoneTransition {
             standard_time_stability: StandardTimeStability::Stable,
         }
     }
-    pub(super) const fn offset_seconds(self) -> i32 {
+    pub(crate) const fn offset_seconds(self) -> i32 {
         self.offset_seconds
     }
     pub(super) const fn variant(self) -> TimeZoneVariant {

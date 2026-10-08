@@ -66,7 +66,24 @@ impl ScriptLowerer<'_> {
         // Source preparation may retain this possible key after an observable
         // Get erased intrinsic identity proof. It never replaces the key's
         // runtime evaluation or proves that the iterator uses this property.
-        candidate.or_else(|| self.aot_source_text(expression))
+        candidate
+            .or_else(|| self.aot_source_text(expression))
+            .or_else(|| {
+                let Expression::Identifier(identifier) =
+                    Self::unwrap_parenthesized_expr(expression)
+                else {
+                    return None;
+                };
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let mut keys = self
+                    .finite_binding_source_candidates(&name)?
+                    .iter()
+                    .filter_map(FiniteSourceValue::text);
+                let key = keys.next()?;
+                // This single-key interface must not arbitrarily select one
+                // spelling from a binding with several retained text candidates.
+                keys.next().is_none().then(|| key.to_owned())
+            })
     }
 
     pub(super) fn register_finite_source_property_assignment(

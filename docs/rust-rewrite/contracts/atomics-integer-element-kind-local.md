@@ -1,5 +1,14 @@
 # Atomics integer element-kind local
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+Only actual concrete TypedArray admission can create PendingAtomicAccess. Its runtime kind is read from the central closed TypedArrayElementKind schema, admitted through the exhaustive integer/waitable policy, and retained with the actual view. The late RevalidatedAtomicAccess consumes this retained evidence after hooks and owns current GC/native backing. No raw standalone kind/address token or copied header can mint these private states.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: invariant implemented and dry-reviewed for the T17 Wasm-AOT Atomics
 integer-operation boundary.
 

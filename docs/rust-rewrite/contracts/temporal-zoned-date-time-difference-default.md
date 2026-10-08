@@ -55,24 +55,21 @@ internal options object, second option read, or PlainDateTime difference
 builtin call in the ZonedDateTime path.
 
 `emit_temporal_difference_date_time` in `builtins/temporal_difference.rs` owns
-the shared field arithmetic, calendar rounding and expansion into larger
-units. PlainDateTime enters it with `TemporalDifferenceContext::Plain`.
-ZonedDateTime date-unit differences enter it with
-`TemporalDifferenceContext::Zoned { offset_seconds_local }`. The closed
-context selects the range authority for calendar candidates: the ISO date
-bounds used by `CalendarDateAdd` on the Plain path, or the corresponding
-instant after applying the fixed offset on the Zoned path. The Plain path
-converts a candidate directly to epoch nanoseconds; it does not impose the
-additional lower-midnight restriction of constructing a PlainDateTime.
-Operation direction remains the separate
-`TemporalPlainDifferenceOperation::{Until, Since}` domain.
+PlainDateTime field arithmetic, calendar rounding and expansion into larger
+units. `CalendarDateAdd` checks its ISO date candidates before a non-throwing
+plain epoch projection; it does not impose the additional lower-midnight
+restriction of constructing a PlainDateTime. The retired fixed-offset zoned
+context and its unused candidate validator have been removed. Plain operation
+direction remains `TemporalPlainDifferenceOperation::{Until, Since}`.
 
-ZonedDateTime still obtains trusted local date-time fields through the existing
-conversion path for date-unit arithmetic. Sharing these converted fields does
-not delegate option interpretation or rounding to a public PlainDateTime
-method. Whole seconds and subseconds remain separate in time-duration
-arithmetic; the complete difference is not multiplied into an overflowing i64
-nanosecond total.
+ZonedDateTime differences use
+`builtins/temporal_zoned_arithmetic/difference.rs`. Date-unit arithmetic retains
+the actual epoch, resolved zone and calendar and obtains exact local fields
+from provider snapshots. Compatible inverse probes resolve calendar
+candidates in that same zone. Sharing the settings reader does not delegate
+option interpretation or rounding to a public PlainDateTime method. Whole
+seconds and subseconds remain separate in time-duration arithmetic; the
+complete difference is not multiplied into an overflowing i64 nanosecond total.
 
 ## Observable order and time-zone boundary
 
@@ -85,9 +82,11 @@ that pair with `emit_temporal_round_difference_time` and balances into the
 resolved largest unit. These branch and ordering requirements follow
 [DifferenceTemporalZonedDateTime](https://tc39.es/proposal-temporal/#sec-temporal-differencetemporalzoneddatetime).
 
-The current local-calendar implementation supports UTC and fixed numeric
-offsets. The context carries that known offset into candidate validation; it
-does not introduce named-zone transition or DST arithmetic.
+The named-zone date-unit path retains the actual origin epoch, resolved zone
+and calendar. Provider snapshots and compatible inverse probes select the
+correct offset at each candidate, including explicit and POSIX-tail
+transitions. PlainDateTime retains its separate `CalendarDateAdd` range
+authority; the fixed-offset context is absent.
 
 When time-unit rounding retains calendar days, the Plain path includes those
 days in the quantity being rounded. The Zoned path rounds the time remainder
@@ -110,12 +109,14 @@ prove that every user property is consumed once. This prevents a later
 shortcut from restoring the correct numeric answer by double-reading the
 original options bag.
 
-A focused source-structure test must pin the four-state plan, exhaustive
-fallback and rounding ownership, the non-copyable witness, direct consumers,
-closed range context, and absence of the retired options transport. Runtime
-controls must also exercise wide exact differences, `since` sign ownership,
-calendar-unit rounding across boundaries, and option reads before the
-date-unit time-zone guard.
+A focused source-structure test must pin the closed receiver/direction plan,
+exhaustive fallback and rounding ownership, the non-copyable witness, direct
+consumers, and absence of the retired options transport and fixed-offset
+context. It must preserve `CalendarDateAdd` checks for plain candidates and
+actual compatible inverse probes for zoned candidates. Runtime controls must
+also exercise wide exact differences, `since` sign ownership, named-zone
+calendar rounding across transitions, and option reads before the date-unit
+time-zone guard.
 
 ## Historical composition and evidence
 

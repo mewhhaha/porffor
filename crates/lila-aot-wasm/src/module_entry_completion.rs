@@ -1,4 +1,5 @@
-//! Host status beside, rather than inside, the ECMAScript completion ABI.
+//! Closed scalar host status beside the whole ECMAScript completion ABI.
+//! The adopted evaluation Promise is retained separately by the GC root owner.
 
 /// Present only for an artifact with a compiler-owned Module entry operation.
 /// The mutable i64 export is sampled after the main job/host-work checkpoint.

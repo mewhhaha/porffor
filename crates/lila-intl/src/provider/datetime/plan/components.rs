@@ -4,10 +4,21 @@ use crate::TimeZoneNameStyle;
 use super::super::pattern::{Field, NameWidth, Pattern, PeriodKind, Token};
 
 pub(in crate::provider::datetime) fn components(pattern: &Pattern) -> DateTimeComponents {
-    from_fields(pattern.tokens.iter().filter_map(|token| match token {
+    let mut result = from_fields(pattern.tokens.iter().filter_map(|token| match token {
         Token::Field(field) => Some(*field),
         Token::Literal(_) => None,
-    }))
+    }));
+    // Numeric local weekdays exist only in checked interval output patterns.
+    // Their request width comes from the genuine textual weekday skeleton,
+    // while the output token keeps its exact e/c representation and context.
+    if pattern
+        .tokens
+        .iter()
+        .any(|token| matches!(token, Token::Field(Field::NumericWeekday { .. })))
+    {
+        result.weekday = from_fields(pattern.skeleton.iter().copied()).weekday;
+    }
+    result
 }
 pub(super) fn from_fields(fields: impl Iterator<Item = Field>) -> DateTimeComponents {
     let mut result = DateTimeComponents::default();
@@ -29,6 +40,7 @@ pub(super) fn from_fields(fields: impl Iterator<Item = Field>) -> DateTimeCompon
             }
             Field::Day(width) => result.day = Some(numeric(width)),
             Field::Weekday { width, .. } => result.weekday = Some(text(width)),
+            Field::NumericWeekday { .. } => {}
             Field::DayPeriod {
                 kind: PeriodKind::Flexible,
                 width,

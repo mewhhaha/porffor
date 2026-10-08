@@ -88,6 +88,18 @@ fn parsed_year_moves_from_the_only_parser_to_the_reference_year_step() {
         1
     );
     assert!(consumer.contains("year_local,year_present_local,}=parsed;"));
+    let reference = consumer
+        .find("letreference=self.emit_temporal_calendar_partial_reference(")
+        .expect("completed calendar reference producer");
+    let parsed_range = consumer
+        .find("self.emit_temporal_iso_date_within_limits(")
+        .expect("parsed non-ISO date range check");
+    assert!(parsed_range < reference);
+    assert!(consumer[reference..].contains("TemporalPartialDateType::PlainMonthDay"));
+    assert!(consumer[reference..]
+        .contains("reference.fields().into_iter().zip([year_local,month_local,day_local])"));
+    assert!(consumer[reference..].contains("reference.release(self);"));
+    assert!(!consumer[reference..].contains("I64Const(1972)"));
 
     let parse = MONTH_DAY_SOURCE
         .find("        let parsed = self.emit_temporal_parse_month_day_string(")

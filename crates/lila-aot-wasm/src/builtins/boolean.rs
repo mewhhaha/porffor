@@ -1,89 +1,101 @@
-use super::super::*;
+//! Boolean primitives and boxes share the completed GC primitive-data owner.
 
-enum BooleanBuiltin {
-    Constructor,
-    PrototypeToString,
-    PrototypeValueOf,
-}
+use super::super::*;
+use crate::functions::OrdinaryDefaultPrototype;
+use crate::gc_types::{GcNullability, GcOperand, PrimitiveBox, PrimitiveBoxSchema, StoredValue};
 
 enum BooleanPrototypeOperation {
     ToString,
     ValueOf,
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn emit_boolean_constructor_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_boolean_builtin(BooleanBuiltin::Constructor, function)
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let primitive = schema.reserve_value_local(function);
+        let new_target = schema.reserve_value_local(function);
+        let output = schema.reserve_completion(function);
+        let truth = schema.reserve_i32_local(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        self.emit_to_boolean_payload_from_tagged_locals(&argument, function)?;
+        function.instruction(&Instruction::I32WrapI64);
+        truth.store(function);
+        primitive.set_boolean(truth, function);
+        output.set_normal(&primitive, function);
+        self.compile_new_target_to_locals(&new_target, function)?;
+        new_target.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        let prototype = schema.reserve_completion(function);
+        self.emit_get_prototype_from_constructor(
+            &new_target,
+            OrdinaryDefaultPrototype::Boolean,
+            &prototype,
+            function,
+        )?;
+        output.copy_from(&prototype, function);
+        prototype.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(prototype.value()), function)?,
+            function,
+        );
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&primitive, function),
+            function,
+        );
+        let boxed = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PrimitiveBox>().construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::reference(&stored, schema),
+                ),
+                function,
+            ),
+            function,
+        );
+        let value = schema.reserve_value_local(function);
+        value.set_reference(&boxed, schema, function);
+        output.set_normal(&value, function);
+        value.clear(function);
+        boxed.clear(function);
+        stored.clear(function);
+        header.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        prototype.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&output, function);
+        schema.release_i32_local(truth, function);
+        output.clear(function);
+        new_target.clear(function);
+        primitive.clear(function);
+        argument.clear(function);
+        Ok(())
     }
 
     pub(super) fn emit_boolean_prototype_to_string_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_boolean_builtin(BooleanBuiltin::PrototypeToString, function)
+        self.emit_boolean_prototype_builtin(BooleanPrototypeOperation::ToString, function)
     }
 
     pub(super) fn emit_boolean_prototype_value_of_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_boolean_builtin(BooleanBuiltin::PrototypeValueOf, function)
-    }
-
-    fn emit_boolean_builtin(
-        &mut self,
-        builtin: BooleanBuiltin,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match builtin {
-            BooleanBuiltin::Constructor => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let primitive_payload_local = self.reserve_temp_local();
-                let primitive_tag_local = self.reserve_temp_local();
-                let has_arg_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64GtU);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(has_arg_local));
-                function.instruction(&Instruction::LocalGet(has_arg_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                function.instruction(&Instruction::Else);
-                self.emit_to_boolean_payload_from_tagged_locals(
-                    arg_tag_local,
-                    arg_payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                function.instruction(&Instruction::LocalGet(primitive_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(primitive_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(has_arg_local);
-                self.release_temp_local(primitive_tag_local);
-                self.release_temp_local(primitive_payload_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
-            BooleanBuiltin::PrototypeToString => {
-                self.emit_boolean_prototype_builtin(BooleanPrototypeOperation::ToString, function)?
-            }
-            BooleanBuiltin::PrototypeValueOf => {
-                self.emit_boolean_prototype_builtin(BooleanPrototypeOperation::ValueOf, function)?
-            }
-        }
-        Ok(())
+        self.emit_boolean_prototype_builtin(BooleanPrototypeOperation::ValueOf, function)
     }
 
     fn emit_boolean_prototype_builtin(
@@ -91,89 +103,80 @@ impl<'a> FunctionBuilder<'a> {
         operation: BooleanPrototypeOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Boolean prototype receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Boolean prototype receiver",
-            )
-        })?;
-        let boxed_kind_local = self.reserve_temp_local();
-        let boolean_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(receiver_payload_local));
-        function.instruction(&Instruction::LocalSet(boolean_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            boxed_kind_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let primitive = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        self.compile_this_to_locals(&receiver, function)?;
+        primitive.copy_from(&receiver, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<PrimitiveBox>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let boxed = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<PrimitiveBox>(schema, function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(boxed_kind_local));
-        function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_BOOLEAN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            boolean_payload_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrimitiveBox>()
+                .field(PrimitiveBoxSchema::PRIMITIVE)
+                .read(&boxed, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Else);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &primitive, schema, function);
+        stored.clear(function);
+        boxed.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        primitive.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Boolean.tag()));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Boolean.prototype method requires a Boolean receiver",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::BOOLEAN_PROTOTYPE_METHOD_REQUIRES_A_BOOLEAN_RECEIVER,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            "Boolean.prototype method requires a Boolean receiver",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
         match operation {
-            BooleanPrototypeOperation::ValueOf => {
-                function.instruction(&Instruction::LocalGet(boolean_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            }
+            BooleanPrototypeOperation::ValueOf => pending.set_normal(&primitive, function),
             BooleanPrototypeOperation::ToString => {
-                function.instruction(&Instruction::LocalGet(boolean_payload_local));
+                let string = schema.reserve_value_local(function);
+                primitive.scalar().load(function);
                 function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::I64Const(self.strings.payload("false")));
+                self.open_frame(ControlFrameKind::If, function);
+                let text = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference("false", function)?,
+                    function,
+                );
+                string.set_reference(&text, schema, function);
+                text.clear(function);
                 function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::I64Const(self.strings.payload("true")));
+                let text = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference("true", function)?,
+                    function,
+                );
+                string.set_reference(&text, schema, function);
+                text.clear(function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                pending.set_normal(&string, function);
+                string.clear(function);
             }
         }
-
-        self.release_temp_local(boolean_payload_local);
-        self.release_temp_local(boxed_kind_local);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&pending, function);
+        pending.clear(function);
+        primitive.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 }

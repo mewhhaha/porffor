@@ -1,12 +1,155 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — major builtin ownership bottlenecks plus the for-of, for-in, throw-value inference and static-JSON parse owner splits; broader lowering/emitter seams remain
+## Linked module ownership checkpoint — 2026-10-08
+
+The package retains main until final assembly and publishes runtime, main and
+program bodies in their planned order. Global definitions expose an opaque
+borrowed view. Literal roots, RegExp publication and function metadata have
+cohesive private children; all original parent file budgets pass. `WasmArtifact`
+is now nameable through the public emitter crate while package construction
+stays private. All 24 focused GC, linked-runtime, artifact and ownership controls
+pass, including exact canonical runtime import/export types and pooled helper
+byte independence. Full IR passes 2,166 checks, with one existing documentation
+example ignored. This does not close complete T02 acceptance; see the
+[current checkpoint](README.md#closure-audit-and-verification--2026-10-08).
+
+## Joined source owners — 2026-10-06
+
+The complete Standard generator/async-generator and Array iterator creation
+bodies now have three private consumed owners. Emitter body compilation, typed
+entry/root initialization and real module assembly have three private owners;
+assembly writes all twelve selected Intl data sections. Optional-chain,
+conditional-flow and object-literal lowering also have genuine private owners.
+Moved full bodies, dispatch order and retained semantic fixture bytes are
+recorded in source receipts. This extends the earlier 605-test IR extraction;
+the new optional-private-call control is additional authored coverage.
+
+Ordinary generator loop/conditional state handling has a separate validated IR
+and consumed backend owner. Signature/evidence, var declarations, function
+declarations and lexical declarations now have four private consumed owners;
+their 42 complete method bodies are preserved. All these changes are
+source-only. Joined compilation, semantic/artifact equivalence, workspace
+verification and measured compile-time/size acceptance remain required; source
+comparison and formatting do not close T02.
+
+## Iterator disposal family owner — 2026-10-05 source extraction
+
+`IteratorPrototypeSymbolDispose` now delegates directly to the private
+`builtins/iterators/symbol_dispose.rs` owner. Its complete ordered body retains
+GetV's boxed lookup base and raw receiver, nullish and callability checks,
+whole abrupt completions, the zero-argument call and root cleanup. The standard
+builtin match stays flat and exhaustive; the leaf adds no public API or second
+implementation. The moved body is preserved apart from indentation and
+formatting. No new behavior or mirrored test is introduced. Compilation,
+representative emitted-artifact equivalence and focused/broad verification
+remain pending for this successor.
+
+The older descriptor-table and 38,309-line inline-dispatch work descriptions
+are superseded: the builtin catalog already has one row per builtin with
+independent checked function/global ordinals, and most standard dispatch arms
+already delegate to family owners. Remaining T02 production work includes
+retained inline family bodies beyond the completed declaration/object,
+signature/conditional and emitter owners. The
+small IR/backend facades and moved test bulk do not close those seams or the
+artifact equivalence and compile-time/size acceptance obligations.
+
+## IR facade and existing test owners — 2026-10-05 source extraction
+
+The public IR facade now has 264 lines of module declarations, imports and
+reexports. Its production content already ended at line 261; the former
+21,544-line file was physically large because it held one inline test module,
+rather than because it still owned that much production lowering. The existing
+605 unit tests now have 36 coherent family source owners plus shared private test
+support, registered by an external `#[cfg(test)]` module. Whole-item includes
+inside that test-only module preserve every existing `tests::name` path without
+public helper APIs or duplicate implementations. Production roots retain their
+ban on implementation reassembly through `include!` or `#[path]`.
+
+All test bodies and literal source bytes are retained. The Annex B structure
+control reads its real relocated behavioral owner, and the module policy treats
+the exhaustive test walker separately from production consumers. This is a
+source extraction with no new tests or product behavior; formatting and source
+comparison do not establish executable equivalence. Combined type, focused and
+broad verification remain pending for the coherent successor. Broader lowering
+and emitter ownership and full T02 acceptance remain open. See the
+[ownership contract](../docs/rust-rewrite/contracts/lila-ir-module-budget-owner-splits.md).
+
+## NativeHost atomic source — 2026-10-05
+
+NativeHost now has consumed private GC owners for agent transport, numeric
+parsers, AssertThrows and created-Realm entry. The created-Realm entry calls the
+common completed intrinsic bootstrap and canonical global publisher. Nine
+host-local duplicate Realm installers are retired. Whole value/completion and
+typed Realm/function capture are the shared foundation, with no raw offset
+repair or parallel manual object model.
+
+Fifteen existing architecture targets were reconciled: obsolete duplicate/raw
+publication and passive-collector mirrors are retired; meaningful private
+lifecycle, catalog-domain, shared whitespace and retained CLI witness boundaries
+remain. Earlier source-count/hash/guard results below describe their original
+owners. The atomic source, controls and final representation/helper/guard
+composition remain uncompiled and unexecuted; T02 acceptance is open. See the
+[NativeHost contract](../docs/rust-rewrite/contracts/native-host-gc-values.md).
+
+The earlier scalar-ABI, raw-offset and duplicate-bootstrap source descriptions
+below retain their recorded predecessor scope, including sections labelled
+current at those earlier checkpoints. They are not current GC allocation or
+publication claims.
+
+
+**Status:** In progress — major builtin ownership bottlenecks plus the for-of, for-in, throw-value inference, canonical JSON and private cache owners; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
 **Blocks:** Safe parallel work in T04-T24
 
 ## Current repository state
+
+The Hebrew batch gives the existing PlainDate and PlainYearMonth difference
+emitters private `difference.rs` owners. Actual standard dispatch reaches the
+same method names with the original builtin visibility. Field/.with parents
+and rounding leaves can now be authored independently in one coherent batch.
+The module guard requires these attachments and the private Hebrew arithmetic
+leaf. Shared domain, resolved-month and projection contracts still require
+coordination. The ref87 combined whole-workspace/all-target type check passed;
+semantic verification remains pending, and this supplies no byte-equivalence or
+T02 closure. The Chinese/Dangi batch adds private native catalog, completed
+emitted year, proleptic model and MonthDay reference owners. The existing
+Temporal emission predicate is the catalog's real consumer. Field, model and
+shared arithmetic authors retain disjoint source ownership with one final
+combined checkpoint; these newer leaves remain unverified.
+
+The 2026-10-04 cleanup gives consumed IR operations private leaves:
+resumable expression-statement staging, restartable awaited-while prefix
+validation, class callable-flow finalization, exhaustive expression throw
+analysis and the existing static literal compiler. Native catalog-name
+validation is separate from callable source-text materialization, and the actual
+catalog consumes the relocated const validator. Their parent dispatcher,
+mandatory constructor validation and merge
+algebra retain ownership. Existing awaited-while unit controls have a private
+test module. The module guard follows the actual leaves, refreshes its current
+expression census and checks the emitted JSON parser after removal of the
+retired static JSON producer. Tiny source-budget changes are measured against
+actual consumed code; broader orchestration remains open. The preceding whole
+composition and the cleanup both passed the combined all-target Rust type
+check. Emitted-byte equivalence and semantic/broad verification remain pending.
+
+The 2026-10-03 dry batch replaces ten DataView preparation/address copies with
+one consumed private access owner for all 22 methods. Raw reads and writes
+require distinct validated owners. The static JSON reviver IR/producer/walkers
+are retired, leaving the emitted parser and canonical traversal. A private
+engine module cache couples positive limits, LRU entries and measured image
+accounting. These changes are independently source-reviewed and integrated;
+compilation, runtime regressions and broader acceptance remain pending. See
+[DataView access](../docs/rust-rewrite/contracts/data-view-access-owner.md),
+[canonical reviver](../docs/rust-rewrite/contracts/json-reviver-frame.md) and
+[cache ownership](../docs/rust-rewrite/contracts/module-memory-image-budget.md).
+
+The private heap allocation boundary also requires the shared HeapAlloc helper.
+The sole product builder factory supplies it whenever heap allocation is enabled,
+so the unreachable inline allocator is removed. The shared memory32 guards and
+existing allocation regression remain uncompiled and unexecuted; see
+[the allocation contract](../docs/rust-rewrite/contracts/memory32-allocation-bound.md).
 
 Both crates now expose dedicated IR, lowering, analysis, diagnostics,
 operations, ABI, heap, object, function, environment, control-flow and builtin
@@ -37,11 +180,11 @@ existing proven-safe exact returns bypass that fallback. The
 [`lila-ir` module-budget owner-split contract](../docs/rust-rewrite/contracts/lila-ir-module-budget-owner-splits.md)
 records the type and source-policy invariants.
 
-Source-call caller-flow preservation now has one 769-line private
+Source-call caller-flow preservation has one private
 `source_call_flow_proof.rs` owner. An opaque effect carrier can reach its
 proven-safe state only through a nonduplicable proof token derived by an
-exhaustive finalized-invocation walk over parameter defaults plus all 34
-statement, 83 expression and 29 spec-operation variants. Open or
+exhaustive finalized-invocation walk over parameter defaults and every current
+statement, expression and spec-operation variant. Open or
 mixed-unproved targets remain invalidating; the builtin catalog owns the exact
 13 indexed-receiver mutators. Class signatures are reset before current-pass
 element lowering, then monotonically merged; base constructors fold instance
@@ -2259,6 +2402,11 @@ required for this dispatcher-only closure. This source-equivalent boundary
 claims no new Number behavior, broader conformance or published
 conformance-count change.
 
+Historical Batch AU receipt: its setter owner is retired by the staged
+configured-zone/private-DateValue batch. The counts and passes below remain
+historical evidence; the new closed local/UTC selectors and typed storage
+require their own actual batch verification.
+
 Batch AU gives the raw Date setter family a private `DateComponentSetterOperation`
 with no derived capabilities. The fourteen
 local/UTC catalog IDs can reach it only through seven fixed Date setter entries.
@@ -2538,6 +2686,13 @@ targets pass `3/3` each, and the six substitution leaves pass all `12/12`
 Wasm-AOT variants with every failure bucket at zero. No CLI fixture or
 emitted-Wasm golden was run for the owner move.
 
+Historical Batch AC receipt: the duplicate-named-group owner and its three
+layout-only structure tests were later deleted with the T19 unreachable
+`@@match` source catalogue. The following owner census, hashes and checks retain
+their original checkpoint scope. Current object receivers use the compiled
+RegExpExec/custom-exec protocol; this retirement alone does not prove complete
+RegExpExec semantics or reduce the retained semantic fixture coverage.
+
 The complete duplicate-named-group pattern policy now has one private
 `builtins/string/duplicate_named_group_pattern.rs` owner. Its capability-free
 two-variant domain and sole raw pattern-parameterized emitter moved together;
@@ -2563,6 +2718,13 @@ exact CLI fixture passes `1/1`, and the exact String match ordinary-groups and
 indices-groups leaves pass all `4/4` variants with every failure bucket at
 zero. The semantic golden was not rerun. The bounded contract is
 [`duplicate-named-group-pattern.md`](../docs/rust-rewrite/contracts/duplicate-named-group-pattern.md).
+
+Historical Batch AD receipt: the global ASCII class owner and its three
+layout-only structure tests were later deleted with the T19 unreachable
+`@@match` source catalogue. The following owner census, hashes and checks retain
+their original checkpoint scope. Current object receivers use the compiled
+RegExpExec/custom-exec protocol; this retirement alone does not prove complete
+RegExpExec semantics or reduce the retained semantic fixture coverage.
 
 The complete global ASCII class quantifier policy now has one private
 `builtins/string/global_ascii_class_quantifier.rs` owner. Its capability-free
@@ -2591,6 +2753,13 @@ passes `1/1`. The exact `S15.5.4.10_A2_T3.js`, `S15.5.4.10_A2_T4.js` and
 `S15.5.4.10_A2_T5.js` leaves each pass `2/2`, for `6/6` total with every failure
 bucket at zero. The semantic golden was not run. The bounded contract is
 [`global-ascii-class-quantifier.md`](../docs/rust-rewrite/contracts/global-ascii-class-quantifier.md).
+
+Historical Batch AI receipt: the postal-code match-result owner and its three
+layout-only structure tests were later deleted with the T19 unreachable
+`@@match` source catalogue. The following owner census, hashes and checks retain
+their original checkpoint scope. Current object receivers use the compiled
+RegExpExec/custom-exec protocol; this retirement alone does not prove complete
+RegExpExec semantics or reduce the retained semantic fixture coverage.
 
 The complete postal-code match-result-shape policy now has one private
 `builtins/string/postal_code_match_result_shape.rs` owner. Its capability-free
@@ -3046,17 +3215,20 @@ byte-for-source identical, but no golden capture was run. Broad workspace,
 policy and Test262 gates remain deferred; no formatting or conformance change
 is claimed for this preparatory ownership move.
 
-The eight optional host import function indices and the required dynamic-source
+The twenty-nine optional host import function indices (including the twenty
+`math_*` transcendentals and configured `system_time_zone`) and the required dynamic-source
 rejection index now cross from `emit.rs` into
 `FunctionMetaRegistry` through one non-copyable
 `HostImportFunctionIndices` authority with distinct, non-derived role types.
 The sole producer can no longer transpose two raw `Option<u32>` positions while
-continuing to compile, and the registry stores the authority intact. Its nine
+continuing to compile, and the registry stores the authority intact. Its thirty
 named getters are the only raw-index projections. The robust
 Rust-lexical `host_import_function_indices_structure` target owns the exact
 domain, recursive census, one complete producer, intact storage, and sole
 projections; the focused verification record and explicit nonclaims live in
 [`host-import-function-indices-authority.md`](../docs/rust-rewrite/contracts/host-import-function-indices-authority.md).
+The configured-zone extension and updated closed-role census are authored with
+the Date local-time batch; their compilation and runtime verification are pending.
 
 The complete consume-once Wasm module package lifecycle now has one private
 `module/compiled_module_package.rs` owner. Type and global section construction,
@@ -3349,6 +3521,42 @@ conformance count. At the coordinated checkpoint, the AOT package check
 emitted-module-validation and String memory/data controls are green. No Wasm-
 golden, broad runtime or
 published-status result is claimed.
+
+The complete `Math.sumPrecise` exact reduction now has one private
+`builtins/math/sum_precise.rs` owner. Its proof constants, capability-free
+state and limb-operation domains, accumulator and nonduplicable completed
+reduction remain private to the child. The family dispatcher retains its fixed
+entry and crosses one semantic call into the child; reduction and consuming
+finalization cannot be separated by a parent caller. The exact 44-line domain
+selection and 974-line helper selection retain SHA-256
+`8b761e64f0b7ceb06e75ef4db57ebcf613fae516d2d7f542cf98cc0be6b7ce01`
+and
+`0d53490f8e90e42f614089a448f524642960155345344bcad37ab0ec34a231ef`.
+The parent is 1,625 lines and the child 1,034 lines after formatting. Existing
+runtime, limb-operation, extremum and shared sync-iterator structure guards
+follow the new owner while retaining their exact lifecycle and recursive
+capability censuses.
+
+The complete `parseFloat` decimal-prefix compiler now has one private
+`builtins/host/parse_float.rs` owner. Its three grammar helpers remain private;
+the existing crate-visible compiler entry remains the sole product surface.
+The four-method selection retains SHA-256
+`f5ffe5939e7f81a4331f4059eaa5d869ef58543a88e6f366718ad1c66c1b9e24`
+after restoring the original trailing blank separator. All method bodies,
+local allocation/release order, coercion boundaries and emitted instructions
+are unchanged. The host parent is 8,634 lines and the child 402 lines; the
+created-Realm host-hook lifecycle stays intact in the parent.
+
+The module policy requires both private child declarations, the sole semantic
+Math entry, exclusive ownership of every raw sumPrecise policy name and the
+sole parseFloat compiler entry with three private grammar helpers. Existing
+parent caps of 2,430 and 9,000 are unchanged; new child caps are 1,050 and 430.
+On 2026-09-29 both full golden captures emit all 765 CLI fixtures, and
+`diff -r target/golden/continuation-before-split
+target/golden/continuation-after-split` is empty. The seven focused structure
+targets pass all 27 tests. Source-selection hashes, workspace formatting,
+diff checks and module policy pass; broad runtime integration remains pending.
+No behavior or conformance change is claimed by this owner move.
 
 ## Objective
 

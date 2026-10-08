@@ -1,217 +1,57 @@
-//! Anonymous default export definitions retain their name and instantiation phase.
+//! Anonymous default exports retain their actual canonical activation owner.
 
+use super::record::DefaultExportFormIr;
 use crate::*;
 
-use super::evaluation_mode::ModuleMaterializationModeIr;
-use super::record::DefaultExportFormIr;
-
-/// Exact definition spans in the linked Script, measured in Boa's UTF-16 offsets.
-#[derive(Debug, Default)]
-pub(crate) struct DefaultExportDefinitions(BTreeMap<(usize, usize), DefaultExportEvaluation>);
-
-#[derive(Debug, Clone)]
-enum DefaultExportEvaluation {
-    Expression,
-    HoistedFunction { binding_name: String },
-}
-
-impl DefaultExportDefinitions {
-    pub(super) fn rewrite_body(
-        source: &str,
-        rewrite: super::source::DefaultExportRewrite<'_>,
-    ) -> Result<String, String> {
-        let declaration = if matches!(rewrite, super::source::DefaultExportRewrite::Bind { .. }) {
-            let parsed = lila_front::parse(source, lila_front::ParseOptions::module())
-                .map_err(|error| format!("default export module did not parse: {error}"))?;
-            let ParsedSource::Module(parsed) = parsed else {
-                unreachable!("Module parse options produce Module syntax")
-            };
-            parsed.with_compiler_session(|module, _| {
-                module.items().items().iter().find_map(|item| {
-                    let ModuleItem::ExportDeclaration(export) = item else {
-                        return None;
-                    };
-                    let span = match export.as_ref() {
-                        ExportDeclaration::DefaultFunctionDeclaration(function) => {
-                            function.linear_span()
-                        }
-                        ExportDeclaration::DefaultGeneratorDeclaration(function) => {
-                            function.linear_span()
-                        }
-                        ExportDeclaration::DefaultAsyncFunctionDeclaration(function) => {
-                            function.linear_span()
-                        }
-                        ExportDeclaration::DefaultAsyncGeneratorDeclaration(function) => {
-                            function.linear_span()
-                        }
-                        ExportDeclaration::DefaultClassDeclaration(class) => class.linear_span(),
-                        _ => return None,
-                    };
-                    Some(span)
-                })
-            })
-        } else {
-            None
-        };
-        let mut body =
-            super::source::strip_module_syntax(source, rewrite).map_err(|error| error.reason)?;
-        if let Some(declaration) = declaration {
-            // A declaration needs no trailing semicolon, but its rewritten
-            // variable initializer does. The scanner keeps byte offsets stable;
-            // insert only after it finishes, at the parsed definition boundary.
-            // The later dynamic-import pass rescans this resulting text.
-            let byte = source_byte_range_from_utf16_span(source, declaration).end;
-            body.insert(byte, ';');
-        }
-        Ok(body)
-    }
-
-    pub(super) fn record_body(
-        &mut self,
-        body: &str,
-        module: ModuleUnitId,
-        mode: ModuleMaterializationModeIr,
-        form: DefaultExportFormIr,
-        preceding_source: &str,
-    ) -> Result<(), String> {
-        let evaluation = match form {
-            DefaultExportFormIr::Absent | DefaultExportFormIr::Named => return Ok(()),
-            DefaultExportFormIr::Anonymous { hoisted: false } => {
-                DefaultExportEvaluation::Expression
-            }
-            DefaultExportFormIr::Anonymous { hoisted: true } => {
-                DefaultExportEvaluation::HoistedFunction {
-                    binding_name: MergedName::anonymous_default(module).as_str().to_string(),
-                }
-            }
-        };
-        // Rewrites of import.meta/import() may change offsets. Inspect the final
-        // body, and only its module scope (or the known deferred-module thunk).
-        let parsed = lila_front::parse(body, lila_front::ParseOptions::module())
-            .map_err(|error| format!("rewritten default export did not parse: {error}"))?;
+pub(super) fn rewrite_source(
+    source: super::callable_source::OriginalUnitSource,
+    rewrite: super::source::DefaultExportRewrite<'_>,
+) -> Result<super::callable_source::OriginalUnitSource, String> {
+    let text = source.text();
+    let declaration = if matches!(rewrite, super::source::DefaultExportRewrite::Bind { .. }) {
+        let parsed = lila_front::parse(text, lila_front::ParseOptions::module())
+            .map_err(|error| format!("default export module did not parse: {error}"))?;
         let ParsedSource::Module(parsed) = parsed else {
             unreachable!("Module parse options produce Module syntax")
         };
-        let span = parsed.with_compiler_session(|module_ast, interner| {
-            let binding = MergedName::anonymous_default(module);
-            let deferred = MergedName::minted(module, UnitCellRole::DeferExecute);
-            let mut initializer = None;
-            for item in module_ast.items().items() {
-                let ModuleItem::StatementListItem(statement) = item else {
-                    continue;
+        parsed.with_compiler_session(|module, _| {
+            module.items().items().iter().find_map(|item| {
+                let ModuleItem::ExportDeclaration(export) = item else {
+                    return None;
                 };
-                match mode {
-                    ModuleMaterializationModeIr::Eager => {
-                        initializer = default_initializer(statement, binding.as_str(), interner)
-                            .or(initializer);
+                let span = match export.as_ref() {
+                    ExportDeclaration::DefaultFunctionDeclaration(function) => {
+                        function.linear_span()
                     }
-                    ModuleMaterializationModeIr::Deferred => {
-                        if let StatementListItem::Declaration(declaration) = statement {
-                            if let Declaration::FunctionDeclaration(function) = declaration.as_ref()
-                            {
-                                if interner.resolve_expect(function.name().sym()).to_string()
-                                    == deferred.as_str()
-                                {
-                                    initializer =
-                                        function.body().statements().iter().find_map(|statement| {
-                                            default_initializer(
-                                                statement,
-                                                binding.as_str(),
-                                                interner,
-                                            )
-                                        });
-                                }
-                            }
-                        }
+                    ExportDeclaration::DefaultGeneratorDeclaration(function) => {
+                        function.linear_span()
                     }
-                }
-            }
-            let (binding, expression) = initializer
-                .ok_or_else(|| "rewritten default export has no module binding".to_string())?;
-            // Boa gives an anonymous initializer the declaration's Identifier,
-            // including its span. A same-spelled explicit name is distinct.
-            Ok::<_, String>(
-                definition(expression)
-                    .and_then(|(name, span, _)| (name == Some(*binding)).then_some(span)),
-            )
-        })?;
-        if let Some(span) = span {
-            let offset = preceding_source.encode_utf16().count();
-            self.0.insert(
-                (span.start().pos() + offset, span.end().pos() + offset),
-                evaluation,
-            );
-        } else if matches!(evaluation, DefaultExportEvaluation::HoistedFunction { .. }) {
-            return Err("hoistable default export must retain its anonymous definition".into());
-        }
-        Ok(())
-    }
-
-    pub(super) fn prepend(&mut self, prefix: &str) {
-        let offset = prefix.encode_utf16().count();
-        self.0 = self
-            .0
-            .iter()
-            .map(|(&(start, end), evaluation)| ((start + offset, end + offset), evaluation.clone()))
-            .collect();
-    }
-
-    pub(crate) fn apply<'a>(&self, script: &'a Script, analysis: &mut Analysis<'a>) {
-        if self.0.is_empty() {
-            return;
-        }
-        struct Definitions<'a, 'b> {
-            remaining: BTreeMap<(usize, usize), DefaultExportEvaluation>,
-            analysis: &'b mut Analysis<'a>,
-        }
-        impl<'a> Visitor<'a> for Definitions<'a, '_> {
-            type BreakTy = ();
-
-            fn visit_expression(&mut self, expression: &'a Expression) -> ControlFlow<()> {
-                if let Some((_, span, key)) = definition(expression) {
-                    if let Some(evaluation) = self
-                        .remaining
-                        .remove(&(span.start().pos(), span.end().pos()))
-                    {
-                        match key {
-                            DefinitionKey::Function(key) => {
-                                let id = self.analysis.function_expr_ids[&key].clone();
-                                self.analysis
-                                    .function_plans
-                                    .get_mut(&id)
-                                    .expect("default export function is analyzed")
-                                    .name = "default".into();
-                                if let DefaultExportEvaluation::HoistedFunction { binding_name } =
-                                    evaluation
-                                {
-                                    self.analysis
-                                        .hoist_default_export_function(id, binding_name);
-                                }
-                            }
-                            DefinitionKey::Class(key) => {
-                                assert!(
-                                    matches!(evaluation, DefaultExportEvaluation::Expression),
-                                    "class default exports initialize during evaluation"
-                                );
-                                let id = self.analysis.class_execution_ids[&key].clone();
-                                self.analysis.default_export_class_ids.insert(id);
-                            }
-                        }
+                    ExportDeclaration::DefaultAsyncFunctionDeclaration(function) => {
+                        function.linear_span()
                     }
-                }
-                expression.visit_with(self)
-            }
-        }
-        let mut definitions = Definitions {
-            remaining: self.0.clone(),
-            analysis,
-        };
-        let _ = script.visit_with(&mut definitions);
-        assert!(
-            definitions.remaining.is_empty(),
-            "linked default export definition spans must survive Script parsing"
-        );
+                    ExportDeclaration::DefaultAsyncGeneratorDeclaration(function) => {
+                        function.linear_span()
+                    }
+                    ExportDeclaration::DefaultClassDeclaration(class) => class.linear_span(),
+                    _ => return None,
+                };
+                Some(span)
+            })
+        })
+    } else {
+        None
+    };
+    let declaration_end = declaration.map(|span| source_byte_range_from_utf16_span(text, span).end);
+    let body = super::source::strip_module_syntax(text, rewrite).map_err(|error| error.reason)?;
+    let mut source = source.stable_rewrite(body);
+    if let Some(byte) = declaration_end {
+        // A declaration needs no trailing semicolon, but its rewritten
+        // variable initializer does. The scanner keeps byte offsets stable;
+        // insert only after it finishes, at the parsed definition boundary.
+        // The later dynamic-import pass rescans this resulting text.
+        source.replace(byte, byte, ";");
     }
+    Ok(source)
 }
 
 /// The owner came from an exact trusted graph span, so inspect its actual AST
@@ -343,7 +183,7 @@ fn definition(
                         .map(class_constructor_key)
                         .unwrap_or_else(|| class_default_constructor_key(class.linear_span())),
                 ),
-            ))
+            ));
         }
         _ => return None,
     };

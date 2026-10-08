@@ -7,9 +7,10 @@
 //!
 //! They stay ignored on purpose. These are timing gates, not correctness
 //! tests: a loaded or shared machine makes the measurement meaningless rather
-//! than failing it honestly, and `chunk_cases` hard-panics unless the
-//! machine-local `benchmarks/wasm-aot-20.txt` exists. The goal of the ledger
-//! rows is declaration with an owner, not execution by default. Run them
+//! than failing it honestly. The private compiled twenty-case corpus retains
+//! its existing fixture order; a missing fixture fails all-target compilation.
+//! The ledger declares these gates with an owner, rather than running them by
+//! default. Run them
 //! deliberately:
 //!
 //! ```sh
@@ -19,6 +20,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+#[path = "perf/chunk_cases.rs"]
+mod chunk_cases;
 
 const EXACT_LIMIT: Duration = Duration::from_secs(1);
 const CHUNK_LIMIT: Duration = Duration::from_secs(5);
@@ -47,26 +51,6 @@ fn run_fixture(name: &str) {
     );
 }
 
-fn chunk_cases() -> Vec<String> {
-    // `benchmarks/wasm-aot-20.txt` is machine-local (gitignored via `*.txt`), so
-    // it must be read at run time: `include_str!` made every fresh clone fail
-    // `cargo check --all-targets` even though this test is `#[ignore]`d.
-    let manifest =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/wasm-aot-20.txt");
-    let contents = std::fs::read_to_string(&manifest).unwrap_or_else(|err| {
-        panic!(
-            "benchmark manifest {} is required to run this benchmark: {err}",
-            manifest.display()
-        )
-    });
-    contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_string)
-        .collect()
-}
-
 #[test]
 #[ignore = "T25 performance acceptance benchmark; run explicitly on an idle machine"]
 fn warm_exact_wasmtime_aot_is_sub_second() {
@@ -81,13 +65,12 @@ fn warm_exact_wasmtime_aot_is_sub_second() {
 #[test]
 #[ignore = "T25 performance acceptance benchmark; warms twenty large fixtures first"]
 fn warmed_twenty_case_chunk_is_under_five_seconds() {
-    let cases = chunk_cases();
-    assert_eq!(cases.len(), 20, "benchmark manifest must stay at 20 cases");
-    for case in &cases {
+    let cases = &chunk_cases::CASES;
+    for case in cases {
         run_fixture(case);
     }
     let started = Instant::now();
-    for case in &cases {
+    for case in cases {
         run_fixture(case);
     }
     let elapsed = started.elapsed();

@@ -1,13 +1,17 @@
 use super::*;
+use crate::gc_types::{
+    BoundFunction, BoundFunctionSchema, CompletionLocals, FunctionContext, FunctionContextSchema,
+    FunctionObject, FunctionObjectSchema, GcLocal, GcNullability, I32Local, Nullable, ProxyObject,
+    ProxyObjectSchema, RealmRecord, RuntimeSchema, StoredValue, StoredValueSchema, ValueLocals,
+};
 
 enum FunctionRealmOutcome {
     Resolved,
     Revoked,
     Invalid,
 }
-
 impl FunctionRealmOutcome {
-    const fn runtime_code(&self) -> i64 {
+    const fn runtime_code(&self) -> i32 {
         match self {
             Self::Resolved => 0,
             Self::Revoked => 1,
@@ -16,263 +20,268 @@ impl FunctionRealmOutcome {
     }
 }
 
-/// The raw run-time result of `GetFunctionRealm` before its non-resolved
-/// outcomes have been routed.
-///
-/// Its fields are intentionally private. A caller can only obtain the realm
-/// local by consuming this value through
-/// [`FunctionBuilder::emit_route_function_realm_result`], which handles both
-/// `Revoked` and `Invalid` before returning a resolved witness.
+/// A realm cannot escape before both non-resolved outcomes are routed.
 #[must_use]
 pub(crate) struct FunctionRealmResultLocals {
-    realm_local: u32,
-    outcome_local: u32,
+    realm: GcLocal<RealmRecord, Nullable>,
+    outcome: I32Local,
 }
 
-/// A Wasm local whose `GetFunctionRealm` non-resolved outcomes have both been
-/// handled according to an explicit route.
-#[derive(Clone, Copy)]
 #[must_use]
-pub(crate) struct ResolvedFunctionRealmLocal(u32);
-
+pub(crate) struct ResolvedFunctionRealmLocal(GcLocal<RealmRecord>);
 impl ResolvedFunctionRealmLocal {
-    pub(crate) const fn index(self) -> u32 {
-        self.0
+    pub(crate) fn realm(&self) -> &GcLocal<RealmRecord> {
+        &self.0
     }
 }
 
-/// What a consumer does when `GetFunctionRealm` encounters a revoked Proxy.
-///
-/// `Invalid` is deliberately absent: every route traps for that internal
-/// invariant failure. Promise job creation uses the current realm for a
-/// revoked callback, while constructor/default-prototype consumers surface
-/// the required TypeError and leave their enclosing control-flow region.
-pub(crate) enum FunctionRealmRevokedRoute {
-    UseCurrentRealm,
+/// Invalid representation always traps. A revoked callback may use its
+/// captured current Realm; constructor fallback produces the required throw.
+pub(crate) enum FunctionRealmRevokedRoute<'a> {
+    UseCurrentRealm {
+        realm: &'a GcLocal<RealmRecord>,
+    },
     ThrowTypeErrorAndReturn {
-        payload_local: u32,
-        tag_local: u32,
+        result: &'a CompletionLocals,
     },
     ThrowTypeErrorAndBranch {
-        payload_local: u32,
-        tag_local: u32,
-        relative_depth: u32,
+        result: &'a CompletionLocals,
+        target: ControlTarget,
     },
 }
 
-impl<'a> FunctionBuilder<'a> {
-    /// Implements GetFunctionRealm's recursive bound/proxy traversal without
-    /// performing any user-visible property access.
-    ///
-    /// Constructor callers invoke this only after their observable
-    /// `Get(newTarget, "prototype")`; Promise jobs invoke it on the already
-    /// captured callback. The returned locals are opaque until a caller
-    /// consumes them through [`Self::emit_route_function_realm_result`].
+fn stored_into(
+    stored: GcLocal<StoredValue>,
+    value: &ValueLocals,
+    schema: &RuntimeSchema,
+    function: &mut Function,
+) {
+    schema
+        .struct_type::<StoredValue>()
+        .read_into(&stored, value, schema, function);
+    stored.clear(function);
+}
+
+impl FunctionBuilder<'_> {
+    /// Follow strong bound/proxy targets without property access. Function
+    /// identity is tested with concrete GC types; tag Function is insufficient
+    /// to distinguish an ordinary callable from a bound exotic.
     pub(crate) fn emit_get_function_realm(
-        &mut self,
-        source_payload_local: u32,
-        source_tag_local: u32,
+        &self,
+        source: &ValueLocals,
         function: &mut Function,
     ) -> FunctionRealmResultLocals {
-        let realm_local = self.reserve_temp_local();
-        let outcome_local = self.reserve_temp_local();
-        let current_payload_local = self.reserve_temp_local();
-        let current_tag_local = self.reserve_temp_local();
-        let flags_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let proxy_handler_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(source_payload_local));
-        function.instruction(&Instruction::LocalSet(current_payload_local));
-        function.instruction(&Instruction::LocalGet(source_tag_local));
-        function.instruction(&Instruction::LocalSet(current_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(realm_local));
-        function.instruction(&Instruction::I64Const(
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local::<RealmRecord, Nullable>(function)
+            .initialize_null(schema, function);
+        let outcome = schema.reserve_i32_local(function);
+        let current = schema.reserve_value_local(function);
+        current.copy_from(source, function);
+        function.instruction(&Instruction::I32Const(
             FunctionRealmOutcome::Invalid.runtime_code(),
         ));
-        function.instruction(&Instruction::LocalSet(outcome_local));
-
+        outcome.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
 
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_function_flags(current_payload_local, flags_local, function);
-        function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Const(FUNCTION_FLAG_BOUND as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET,
-            current_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET,
-            current_tag_local,
-            function,
-        );
-        // inner if, outer function-tag if, loop
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(
-            FunctionRealmOutcome::Resolved.runtime_code(),
+        current.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Function.tag()));
+        function.instruction(&Instruction::I32Eq);
+        current.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<BoundFunction>(GcNullability::NonNullable)
+                .heap_type,
         ));
-        function.instruction(&Instruction::LocalSet(outcome_local));
-        function.instruction(&Instruction::End);
-        // function-tag if, loop, exit block
-        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let bound = schema.reserve_gc_local(function).initialize(
+            current.cast_reference::<BoundFunction>(schema, function),
+            function,
+        );
+        let target = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BoundFunction>()
+                .field(BoundFunctionSchema::TARGET)
+                .read(&bound, schema, function)
+                .reference(),
+            function,
+        );
+        stored_into(target, &current, schema, function);
+        bound.clear(function);
+        function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        current.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Object.tag()));
+        function.instruction(&Instruction::I32Eq);
+        current.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<ProxyObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            proxy_handler_local,
+        let proxy = schema.reserve_gc_local(function).initialize(
+            current.cast_reference::<ProxyObject>(schema, function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(proxy_handler_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
+        let proxy_type = schema.struct_type::<ProxyObject>();
+        let handler = schema.reserve_gc_local(function).initialize(
+            proxy_type
+                .field(ProxyObjectSchema::HANDLER)
+                .read(&proxy, schema, function)
+                .reference(),
+            function,
+        );
+        let handler_tag = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .field(StoredValueSchema::TAG)
+            .read(&handler, schema, function)
+            .store(handler_tag, function);
+        handler.clear(function);
+        let target = schema.reserve_gc_local(function).initialize(
+            proxy_type
+                .field(ProxyObjectSchema::TARGET)
+                .read(&proxy, schema, function)
+                .reference(),
+            function,
+        );
+        stored_into(target, &current, schema, function);
+        proxy.clear(function);
+        handler_tag.load(function);
+        schema.release_i32_local(handler_tag, function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Null.tag()));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(proxy_handler_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
+        function.instruction(&Instruction::I32Const(
             FunctionRealmOutcome::Revoked.runtime_code(),
         ));
-        function.instruction(&Instruction::LocalSet(outcome_local));
-        // revoked if, proxy if, object-tag if, loop, exit block
-        function.instruction(&Instruction::Br(4));
+        outcome.store(function);
+        function.instruction(&Instruction::Br(3));
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            current_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            current_payload_local,
-            function,
-        );
-        // proxy if, object-tag if, loop
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
-        // Unknown/non-callable representation: retain the explicit Invalid
-        // outcome. Validated newTarget values must reach an ordinary function.
+        current.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Function.tag()));
+        function.instruction(&Instruction::I32Eq);
+        current.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<FunctionObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let callable = schema.reserve_gc_local(function).initialize(
+            current.cast_reference::<FunctionObject>(schema, function),
+            function,
+        );
+        let context = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<FunctionObject>()
+                .field(FunctionObjectSchema::CONTEXT)
+                .read(&callable, schema, function)
+                .reference(),
+            function,
+        );
+        realm.replace(
+            schema
+                .struct_type::<FunctionContext>()
+                .field(FunctionContextSchema::REALM)
+                .read(&context, schema, function)
+                .reference()
+                .nullable(),
+            function,
+        );
+        context.clear(function);
+        callable.clear(function);
+        function.instruction(&Instruction::I32Const(
+            FunctionRealmOutcome::Resolved.runtime_code(),
+        ));
+        outcome.store(function);
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(proxy_handler_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(flags_local);
-        self.release_temp_local(current_tag_local);
-        self.release_temp_local(current_payload_local);
-        FunctionRealmResultLocals {
-            realm_local,
-            outcome_local,
-        }
+        current.clear(function);
+        FunctionRealmResultLocals { realm, outcome }
     }
 
-    /// Consume a raw GetFunctionRealm result, route a revoked Proxy according
-    /// to the caller's closed policy, and trap an invalid callable
-    /// representation before exposing the realm local.
     pub(crate) fn emit_route_function_realm_result(
         &mut self,
         result: FunctionRealmResultLocals,
-        revoked_route: FunctionRealmRevokedRoute,
+        revoked_route: FunctionRealmRevokedRoute<'_>,
         function: &mut Function,
     ) -> Result<ResolvedFunctionRealmLocal, EmitError> {
-        function.instruction(&Instruction::LocalGet(result.outcome_local));
-        function.instruction(&Instruction::I64Const(
+        let schema = self.runtime_schema();
+        result.outcome.load(function);
+        function.instruction(&Instruction::I32Const(
             FunctionRealmOutcome::Revoked.runtime_code(),
         ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
         match revoked_route {
-            FunctionRealmRevokedRoute::UseCurrentRealm => {
-                function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(result.realm_local));
+            FunctionRealmRevokedRoute::UseCurrentRealm { realm } => {
+                result
+                    .realm
+                    .replace(realm.load(schema, function).nullable(), function);
             }
-            FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn {
-                payload_local,
-                tag_local,
-            } => {
+            FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn { result: completion } => {
                 self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "cannot get function realm from a revoked Proxy",
-                    payload_local,
-                    tag_local,
+                    NativeErrorKind::TypeError,
+                    RuntimeErrorMessage::CANNOT_GET_FUNCTION_REALM_FROM_A_REVOKED_PROXY,
+                    completion,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
+                completion.emit(function);
+                function.instruction(&Instruction::Return);
             }
             FunctionRealmRevokedRoute::ThrowTypeErrorAndBranch {
-                payload_local,
-                tag_local,
-                relative_depth,
+                result: completion,
+                target,
             } => {
                 self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "cannot get function realm from a revoked Proxy",
-                    payload_local,
-                    tag_local,
+                    NativeErrorKind::TypeError,
+                    RuntimeErrorMessage::CANNOT_GET_FUNCTION_REALM_FROM_A_REVOKED_PROXY,
+                    completion,
                     function,
                 )?;
-                function.instruction(&Instruction::Br(relative_depth));
+                self.emit_branch_to_target(target, function);
             }
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(result.outcome_local));
-        function.instruction(&Instruction::I64Const(
+        result.outcome.load(function);
+        function.instruction(&Instruction::I32Const(
             FunctionRealmOutcome::Invalid.runtime_code(),
         ));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(result.outcome_local);
-        Ok(ResolvedFunctionRealmLocal(result.realm_local))
+        let realm = schema.reserve_gc_local(function).initialize(
+            result
+                .realm
+                .load(schema, function)
+                .require_non_null(function),
+            function,
+        );
+        schema.release_i32_local(result.outcome, function);
+        result.realm.clear(function);
+        Ok(ResolvedFunctionRealmLocal(realm))
     }
 
     pub(crate) fn release_resolved_function_realm_local(
-        &mut self,
+        &self,
         realm: ResolvedFunctionRealmLocal,
+        function: &mut Function,
     ) {
-        self.release_temp_local(realm.index());
+        realm.0.clear(function);
     }
 }

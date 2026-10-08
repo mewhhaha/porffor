@@ -1,5 +1,97 @@
 # T04 — Shared ECMAScript operations and completion ABI
 
+## Primitive GetV effects — 2026-10-07 dry source
+
+Primitive property reads and acquired method callees now share one lowering
+owner and the same live intrinsic proof. Replacement getters invalidate caller
+facts before following arguments or expressions, including bare method reads.
+Symbol descriptions admit undefined and require the live original getter for
+narrow facts; Symbol-keyed native methods require the same prototype proof as
+named methods. BigInt user methods use ordinary lookup. IR and paired native
+regressions are authored; compilation and execution remain deferred for the
+complete source batch. See the
+[primitive GetV contract](../docs/rust-rewrite/contracts/primitive-property-read-effects.md).
+
+## GC host completion draft — 2026-10-04
+
+T05's atomic source draft makes the five-result Main tuple the sole top-level
+result authority and retires duplicate scalar result globals. A `RootScope`
+starts before the call. The compiler's actual host schema validates the
+Normal/Throw kind and zero target; private `GcObservedCompletion` checks the
+scalar/reference contract and owns lossless String, BigInt or category values.
+The non-derived `WasmTopLevelCompletionKind` still feeds the same three exhaustive
+consumers. Nullable GC diagnostic strings provide legacy thrown text, while
+structured observations preserve the original primitive throw and omit addresses.
+
+Meaningful native rooted-value/resource controls and the existing lexical guard
+are maintained against the actual GC owners. This source belongs to the complete
+atomic cutover, with no partial ABI switch or scalar/reference bridge. Current
+compilation, emitted Wasm, tests/guards, runtime and pinned acceptance remain
+unverified. Finish all remaining task source before capped serial verification.
+The historical scalar-boundary passes later in this file do not accept this draft.
+
+## Numeric native caller effects — 2026-10-04 dry source
+
+The existing native effect authority now marks exactly 62 reviewed Number,
+BigInt, coercing global predicate, Math and Atomics entries as synchronously
+invoking user code. A consumed const requires those effects and preserves the
+eight reviewed noncoercing entries. Native algorithms, ordinals, installers,
+normal-result facts, locale and randomness effects retain their actual owners.
+Existing acquired-callee/full-argument analysis therefore invalidates captured
+kind, shape and element facts after numeric hooks while retaining scalar normal
+result knowledge. Host parseInt/parseFloat already consume this effect policy.
+
+Six meaningful IR controls and three paired finite Engine cohorts are authored
+for conversion order, complete operands, direct/candidate calls, cached iteration,
+formatter/locale options, Atomics preparation, abrupt cutoffs and borrowed native
+error Realms. Normal wait/waitAsync timeouts and notify counts are zero. Existing
+object-binding and unrelated controls are retained byte-exact around the new
+numeric insertion. Wider catalog/algorithms and full-task acceptance remain open.
+Compilation, execution, guards and pinned acceptance remain unverified; finish
+all remaining task source before the confirmed 4096 MiB capped serial checkpoint.
+See the [numeric effect contract](../docs/rust-rewrite/contracts/numeric-native-caller-effects.md).
+
+## Global and Error native caller effects — 2026-10-04 dry source
+
+The reviewed URI/Annex B and Error catalog rows retain synchronous-user-code
+effects through their actual conversion, prototype/options Get and iteration
+owners. The existing caller-effect consumer invalidates captured kind, shape
+and element facts after native hooks can change them. A consumed const catalog
+validator makes a missing reviewed family flag a compile error. Native
+algorithms, result domains and original full-operand invocation owners remain.
+
+Meaningful lowering and finite paired Engine source controls are authored.
+Compilation, emitted Wasm and runtime acceptance remain unverified until the
+full-task source pass is complete and verification starts under the confirmed
+4096 MiB aggregate kernel cap. Wider effect classification, shared operation
+migration and full T04 remain open. See the
+[caller-effect contract](../docs/rust-rewrite/contracts/global-error-caller-effects.md).
+
+## Current dry descriptor migration — 2026-10-03
+
+Reflect.defineProperty consumes the shared ToPropertyDescriptor factory and its
+private validated owner. The trap-object allocator requires that owner; one
+presence-preserving projection supplies existing namespace and TypedArray
+definitions. Converted fields remain owned until target dispatch finishes, then
+release together. The existing Proxy GetOwnProperty conversion was already
+shared. Independent source review is complete; compilation and behavior remain
+unverified. See the [descriptor contract](../docs/rust-rewrite/contracts/reflect-to-property-descriptor-owner.md).
+
+## Current dry Array species migration — 2026-10-03
+
+All seven Array species-producing methods now consume the existing shared
+ArraySpeciesCreate emitter: map, filter, flatMap, slice, splice, flat and concat.
+The final two local copies are deleted, including Flat's later unused Proxy-array
+constructor Get. The shared operation accepts object-valued constructor carriers,
+uses Function/Proxy Construct, retains the real Object result and propagates
+original abrupt values. Three distinct TypedArraySpeciesCreate paths remain.
+The private snapshot/reference invocation work also shares Await/Yield staging.
+Source review and authored semantic witnesses are complete; compilation and
+runtime verification remain pending. The forward Flat traversal replacement
+also consumes these shared operations and is integrated without executable
+verification. Complete operation/completion migration remains open. See the
+[species consumer contract](../docs/rust-rewrite/contracts/array-species-consumer-ownership.md).
+
 **Status:** In progress — shared catalogs exist; migration is incomplete
 
 **Parallel group:** Foundation  
@@ -7,6 +99,14 @@
 **Blocks:** Most semantic feature tasks
 
 ## Current repository state
+
+The 2026-10-03 dry shared ToBigInt repair routes Number rejection, rejected
+primitives and invalid String errors through the existing exhaustive numeric
+Realm authority. Builtins use their defining Realm's intrinsic error prototypes;
+ordinary source bodies keep their source-Realm fallback. ToPrimitive, policy,
+completion returns and successful conversions are unchanged. Independent source
+review is complete; compilation and execution remain pending. See the
+[conversion Realm contract](../docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md).
 
 The engine's Wasm execution/output contract now carries the private,
 no-capability
@@ -184,17 +284,15 @@ reference CLI witness passes `1/1`, covering all six Number operations. The
 shared `cargo xc`, formatting, diff, module-boundary and task-plan checks are
 green.
 
-Static `typeof` selection now matches the complete `ValueKind` domain directly
-inside `compile_typeof_payload`. The deleted one-caller helper admitted Dynamic
-and defended it with `unreachable!`; Object and Dynamic now explicitly select
-the existing runtime tag path, while every statically projected kind owns its
-exact text. Function retains payload evaluation and the HTMLDDA observation.
-Adding a value kind cannot compile without a static-versus-runtime decision.
-The bounded contract is
-`docs/rust-rewrite/contracts/typeof-static-kind-domain.md`. The total-domain
-target passes `3/3`, and the exact core `typeof` engine witness passes `1/1`.
-The shared `cargo xc`, formatting, diff, module-boundary and task-plan checks
-are green.
+`typeof` now evaluates its operand once into `ValueLocals` in
+`compile_typeof_payload`, then `emit_typeof_value` observes that whole runtime
+value. Exact primitive spellings and the object default precede actual callable
+capability; HTMLDDA overrides the result last. Inferred `ValueKind` precision
+cannot discard operand effects, abrupt completions or GC identity. The bounded
+contract is `docs/rust-rewrite/contracts/typeof-static-kind-domain.md`. The
+current source guards follow this runtime owner. The earlier static-domain
+`3/3` and core engine `1/1` passes belong to the predecessor implementation;
+verification of the updated guards remains pending.
 
 The singleton strict-equality fast path now classifies the complete `ValueKind`
 domain exhaustively instead of sending every unmentioned kind through a raw

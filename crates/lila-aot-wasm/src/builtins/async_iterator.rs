@@ -1,425 +1,157 @@
+//! AsyncIterator disposal owns complete Get/Call/PromiseResolve completions.
 use super::super::*;
+use crate::emit::AccessorThrowRouting;
+use crate::gc_types::{CompletionLocals, GcLocal, PromiseCapability, ValueLocals};
 
-const ASYNC_ITERATOR_DISPOSE_STATE_SIZE: u64 = 16;
-const ASYNC_ITERATOR_DISPOSE_PROMISE_RECORD_OFFSET: u64 = 0;
-const ASYNC_ITERATOR_DISPOSE_REALM_ENV_OFFSET: u64 = 8;
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(crate) fn emit_async_iterator_prototype_async_dispose(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing AsyncIterator asyncDispose receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing AsyncIterator asyncDispose receiver tag",
-            )
-        })?;
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let receiver_object_payload_local = self.reserve_temp_local();
-        let receiver_object_tag_local = self.reserve_temp_local();
-        let return_key_local = self.reserve_temp_local();
-        let return_payload_local = self.reserve_temp_local();
-        let return_tag_local = self.reserve_temp_local();
-        let return_result_payload_local = self.reserve_temp_local();
-        let return_result_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let state_local = self.reserve_temp_local();
-        let throwaway_capability_local = self.reserve_temp_local();
-        let throwaway_promise_payload_local = self.reserve_temp_local();
-        let throwaway_promise_tag_local = self.reserve_temp_local();
-        let fulfilled_payload_local = self.reserve_temp_local();
-        let rejected_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-
-        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
-        self.emit_new_current_function_realm_intrinsic_promise_capability(
-            constructor,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            promise_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            promise_record_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let s = self.runtime_schema();
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(f);
+        let capability =
+            self.emit_new_current_function_realm_intrinsic_promise_capability(constructor, f)?;
+        let promise = s.reserve_value_local(f);
+        self.emit_read_promise_capability_promise(&capability, &promise, f);
+        let receiver = s.reserve_value_local(f);
+        let boxed_receiver = s.reserve_value_local(f);
+        let method = s.reserve_value_local(f);
+        let awaited = s.reserve_value_local(f);
+        let undefined = s.reserve_value_local(f);
+        undefined.set_undefined(f);
+        let pending = s.reserve_completion(f);
+        self.compile_this_to_locals(&receiver, f)?;
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        self.compile_nullish_tagged_i32(receiver.tag(), f)?;
+        self.open_frame(ControlFrameKind::If, f);
         self.emit_throw_current_function_realm_type_error(
-            "AsyncIterator asyncDispose receiver is null or undefined",
-            self.result_local,
-            self.result_tag_local,
-            function,
+            RuntimeErrorMessage::ASYNCITERATOR_ASYNCDISPOSE_RECEIVER_IS_NULL_OR_UNDEFINED,
+            &pending,
+            f,
         )?;
-        self.emit_async_iterator_dispose_reject_current_throw_and_return(
-            promise_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
+        self.emit_ai_dispose_reject_abrupt(&capability, &pending, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_value_to_current_function_realm_object_locals(&receiver, &pending, f)?;
+        self.emit_ai_dispose_reject_abrupt(&capability, &pending, exit, f)?;
+        boxed_receiver.copy_from(pending.value(), f);
+        let key = self.emit_function_string_key("return", f)?;
+        // GetV boxes only the lookup base and preserves the original receiver.
+        self.emit_object_read_with_throw_routing(
+            &boxed_receiver,
+            &receiver,
+            &key,
+            &pending,
+            AccessorThrowRouting::LeaveInCompletion,
+            f,
         )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_value_to_current_function_realm_object_locals(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_object_payload_local,
-            receiver_object_tag_local,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_reject_current_throw_and_return(
-            promise_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("return")));
-        function.instruction(&Instruction::LocalSet(return_key_local));
-        self.emit_object_read_without_throw_propagation(
-            receiver_object_payload_local,
-            receiver_object_tag_local,
-            receiver_object_payload_local,
-            receiver_object_tag_local,
-            return_key_local,
-            return_payload_local,
-            return_tag_local,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_reject_current_throw_and_return(
-            promise_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_async_iterator_dispose_settle_undefined(
-            promise_record_local,
+        key.clear(f);
+        self.emit_ai_dispose_reject_abrupt(&capability, &pending, exit, f)?;
+        method.copy_from(pending.value(), f);
+        self.compile_nullish_tagged_i32(method.tag(), f)?;
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_call_promise_capability(
+            &capability,
             PromiseSettlement::Fulfill,
-            function,
+            &undefined,
+            &pending,
+            f,
         )?;
-        self.emit_async_iterator_dispose_return_promise(
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        self.emit_is_callable_i32(return_tag_local, return_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_is_callable_i32(&method, f)?;
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
         self.emit_throw_current_function_realm_type_error(
-            "AsyncIterator asyncDispose return method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
+            RuntimeErrorMessage::ASYNCITERATOR_ASYNCDISPOSE_RETURN_METHOD_IS_NOT_CALLABLE,
+            &pending,
+            f,
         )?;
-        self.emit_async_iterator_dispose_reject_current_throw_and_return(
-            promise_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            return_payload_local,
-            return_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            &[(undefined_payload_local, undefined_tag_local)],
-            return_result_payload_local,
-            return_result_tag_local,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_reject_current_throw_and_return(
-            promise_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        self.emit_heap_alloc_const(ASYNC_ITERATOR_DISPOSE_STATE_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(state_local));
-        self.store_i64_local_at_offset(
-            state_local,
-            ASYNC_ITERATOR_DISPOSE_PROMISE_RECORD_OFFSET,
-            promise_record_local,
-            function,
+        self.emit_ai_dispose_reject_abrupt(&capability, &pending, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        // The normative argument List is empty, including on callable Proxies.
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], f);
+        self.emit_function_or_proxy_call_with_argv(&method, &receiver, &arguments, &pending, f)?;
+        arguments.clear(f);
+        self.emit_ai_dispose_reject_abrupt(&capability, &pending, exit, f)?;
+        awaited.copy_from(pending.value(), f);
+        let realm = self.emit_execution_realm(f);
+        let context = self.emit_realm_function_materialization_context_from_realm(&realm, f);
+        let builtin = StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled;
+        let metadata = self
+            .functions
+            .get(&builtin.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported("missing AsyncIterator asyncDispose fulfillment entry")
+            })?;
+        let callback = s.reserve_gc_local(f).initialize(
+            self.emit_function_value_payload_in_realm(&metadata, &context, f)?,
+            f,
         );
-        self.store_i64_local_at_offset(
-            state_local,
-            ASYNC_ITERATOR_DISPOSE_REALM_ENV_OFFSET,
-            self.current_env_local,
-            function,
-        );
+        let fulfilled = s.reserve_value_local(f);
+        fulfilled.set_reference(&callback, s, f);
+        // The outer capability handles both branches. Undefined rejection is
+        // the ordinary rejection passthrough; the fulfillment callback captures
+        // nothing and discards the awaited return value.
+        self.emit_intrinsic_await_with_handlers(&awaited, &fulfilled, &undefined, &capability, f)?;
+        pending.copy_from(self.completion(), f);
+        self.emit_ai_dispose_reject_abrupt(&capability, &pending, exit, f)?;
+        fulfilled.clear(f);
+        callback.clear(f);
+        self.release_realm_function_materialization_context(context, f);
+        realm.clear(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().set_normal(&promise, f);
+        pending.clear(f);
+        undefined.clear(f);
+        awaited.clear(f);
+        method.clear(f);
+        boxed_receiver.clear(f);
+        receiver.clear(f);
+        promise.clear(f);
+        capability.clear(f);
+        Ok(())
+    }
 
-        for (builtin, callback_payload_local) in [
-            (
-                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled,
-                fulfilled_payload_local,
-            ),
-            (
-                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected,
-                rejected_payload_local,
-            ),
-        ] {
-            let callback_meta = self
-                .functions
-                .get(&builtin.function_id())
-                .cloned()
-                .ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                        builtin.debug_name()
-                    ))
-                })?;
-            self.emit_function_value_payload(&callback_meta, function)?;
-            function.instruction(&Instruction::LocalSet(callback_payload_local));
-            self.store_i64_local_at_offset(
-                callback_payload_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                state_local,
-                function,
-            );
-        }
-
-        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
-        self.emit_new_current_function_realm_intrinsic_promise_capability(
-            constructor,
-            throwaway_capability_local,
-            throwaway_promise_payload_local,
-            throwaway_promise_tag_local,
-            function,
+    fn emit_ai_dispose_reject_abrupt(
+        &mut self,
+        capability: &GcLocal<PromiseCapability>,
+        pending: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        pending.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let settled = self.runtime_schema().reserve_completion(f);
+        self.emit_call_promise_capability(
+            capability,
+            PromiseSettlement::Reject,
+            pending.value(),
+            &settled,
+            f,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(callback_tag_local));
-        self.emit_intrinsic_await_with_handlers(
-            return_result_payload_local,
-            return_result_tag_local,
-            fulfilled_payload_local,
-            callback_tag_local,
-            rejected_payload_local,
-            callback_tag_local,
-            throwaway_capability_local,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_return_promise(
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        );
-
-        for local in [
-            callback_tag_local,
-            rejected_payload_local,
-            fulfilled_payload_local,
-            throwaway_promise_tag_local,
-            throwaway_promise_payload_local,
-            throwaway_capability_local,
-            state_local,
-            undefined_tag_local,
-            undefined_payload_local,
-            return_result_tag_local,
-            return_result_payload_local,
-            return_tag_local,
-            return_payload_local,
-            return_key_local,
-            receiver_object_tag_local,
-            receiver_object_payload_local,
-            promise_record_local,
-            promise_tag_local,
-            promise_payload_local,
-            capability_record_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        settled.clear(f);
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         Ok(())
     }
 
     pub(crate) fn emit_async_iterator_prototype_async_dispose_fulfilled(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let state_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalSet(state_local));
-        self.emit_async_iterator_dispose_restore_state(state_local, promise_record_local, function);
-        self.emit_async_iterator_dispose_settle_undefined(
-            promise_record_local,
-            PromiseSettlement::Fulfill,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_return_undefined(function);
-
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(state_local);
+        let undefined = self.runtime_schema().reserve_value_local(f);
+        undefined.set_undefined(f);
+        self.completion().set_normal(&undefined, f);
+        undefined.clear(f);
         Ok(())
-    }
-
-    pub(crate) fn emit_async_iterator_prototype_async_dispose_rejected(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let state_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let reason_payload_local = self.reserve_temp_local();
-        let reason_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalSet(state_local));
-        self.emit_async_iterator_dispose_restore_state(state_local, promise_record_local, function);
-        self.emit_builtin_arg_to_locals(0, reason_payload_local, reason_tag_local, function);
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Reject,
-            reason_payload_local,
-            reason_tag_local,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_return_undefined(function);
-
-        self.release_temp_local(reason_tag_local);
-        self.release_temp_local(reason_payload_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(state_local);
-        Ok(())
-    }
-
-    fn emit_async_iterator_dispose_restore_state(
-        &mut self,
-        state_local: u32,
-        promise_record_local: u32,
-        function: &mut Function,
-    ) {
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ASYNC_ITERATOR_DISPOSE_REALM_ENV_OFFSET,
-            self.current_env_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ASYNC_ITERATOR_DISPOSE_PROMISE_RECORD_OFFSET,
-            promise_record_local,
-            function,
-        );
-    }
-
-    fn emit_async_iterator_dispose_settle_undefined(
-        &mut self,
-        promise_record_local: u32,
-        settlement: PromiseSettlement,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_settle_promise_record(
-            promise_record_local,
-            settlement,
-            undefined_payload_local,
-            undefined_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        Ok(())
-    }
-
-    fn emit_async_iterator_dispose_reject_current_throw_and_return(
-        &mut self,
-        promise_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let error_payload_local = self.reserve_temp_local();
-        let error_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(error_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(error_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Reject,
-            error_payload_local,
-            error_tag_local,
-            function,
-        )?;
-        self.emit_async_iterator_dispose_return_promise(
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(error_tag_local);
-        self.release_temp_local(error_payload_local);
-        Ok(())
-    }
-
-    fn emit_async_iterator_dispose_return_promise(
-        &mut self,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_return_current_completion(function);
-    }
-
-    fn emit_async_iterator_dispose_return_undefined(&mut self, function: &mut Function) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
     }
 }

@@ -1,5 +1,19 @@
 # Contract: Numeric conversion codomains — pointer
 
+Current source amendment (2026-10-07, unverified): Number formatting calls now
+use the acquired-property/native-call path. The `lowering.rs` formatting folds,
+sparse value tables and duplicate runtime-throw builders described below have
+been removed because they discarded receiver or argument evaluation and could
+bypass live method properties. The obsolete formatting wrappers and exports are
+removed; pure interval reference controls are compiled only under `cfg(test)`.
+Native formatting remains responsible
+for coercion, range checks, non-finite ordering and exact decimal rendering.
+The ToUint32/ToUint16/ToLength/ToIndex residue owners remain in place. The current
+controls are `primitive_call_evaluation` and `aot_primitive_call_evaluation`;
+their compilation and execution are deferred to the joined verification batch.
+
+Current source status (2026-10-05): the T05 semantic Wasm-GC cutover is source-authored and unverified. Earlier source recipes, caller counts, and dated verification below describe their recorded checkpoints; they do not verify this cutover. ECMAScript requirements and retained fixtures remain acceptance criteria. Semantic values and Realm ownership now use the typed GC/compiler path described in [the GC value contract](../value-heap-gc.md). The retired representation assertions add no Test262 skips or new passing results.
+
 The contract for the area *Numeric conversion codomains: ToIntegerOrInfinity /
 ToUint32 / ToUint16 as closed types in `lila-ir`, with one const reference
 algorithm for the five divergent backend hand-rolls* lives at:

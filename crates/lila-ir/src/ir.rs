@@ -1,19 +1,33 @@
+mod async_for_of_iterator;
+pub use async_for_of_iterator::{
+    AsyncFunctionForAwaitOfIteratorIr, AsyncFunctionForOfIteratorExecutionIr,
+    AsyncFunctionForOfIteratorPlanIr, AsyncFunctionForOfSynchronousIteratorIr,
+};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use lila_front::ParseGoal;
 use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, ToPrimitive, Zero};
 
+pub use crate::generator_for_of_iterator::GeneratorForOfIteratorValueStorageIr;
 use crate::{
     ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, AsyncFunctionForOfBodyError,
-    AsyncFunctionForOfBodyIr, AsyncFunctionIfPlanIr, BindingMode, BitwiseBinaryOp,
+    AsyncFunctionForOfBodyIr, AsyncFunctionIfPlanIr, AsyncFunctionLabelledPlanIr,
+    AsyncFunctionSwitchIr, AsyncFunctionWhileConditionIr, BindingMode, BitwiseBinaryOp,
     CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
-    FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
-    IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
-    NumericUpdateOp, NumericUpdateValueKind, PreparedDynamicFunction, RegExpProgram,
-    RelationalBinaryOp, SpecOperationIr, SpreadArgumentProtocol, StandardBuiltinId,
-    ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    FunctionProtocolIr, GeneratorDelegationProtocol, GeneratorForOfIteratorPlanIr, HostBuiltinId,
+    IrDiagnostic, IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp,
+    LoweringStage, NativeErrorKind, NumericUpdateOp, NumericUpdateValueKind,
+    PreparedDynamicFunction, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
+    SpreadArgumentProtocol, StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode,
 };
+use crate::{
+    AsyncGeneratorIfIr, AsyncGeneratorLoopIr, EmptyStatementCompletionIr, GeneratorLoopKindIr,
+    OrdinaryGeneratorArrayDestructuringIr, OrdinaryGeneratorIfIr, OrdinaryGeneratorLoopIr,
+    OrdinaryGeneratorSwitchIr,
+};
+
 use crate::{
     ImportPhaseIr, ModuleEntryEvaluationIr, ModuleGraphIr, ModuleUnitId, PreparedScript,
     PreparedScriptOutcome, PreparedScriptUnit, RuntimeGlobalDeclarationPlan,
@@ -29,12 +43,13 @@ use crate::{
 pub mod reference;
 
 pub use reference::{
-    carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, OrdinaryPropertyAssignmentIr,
-    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyLogicalAssignmentIr,
-    OrdinaryPropertyNumericUpdateIr, PropertyHookTargets, PutValueFailure, Strictness,
-    SuperPropertyMutationIr, SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr,
-    SuspendedPropertyReferenceUse,
+    carried_put_value_failure, CapturedOrdinaryPropertyWriteIr, IdentifierWriteDisposition,
+    IdentifierWriteErrorIr, IdentifierWriteReferenceIr, OrdinaryPropertyAssignmentIr,
+    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyGetCaptureIr,
+    OrdinaryPropertyLogicalAssignmentIr, OrdinaryPropertyNumericUpdateIr, PropertyHookTargets,
+    PutValueFailure, Strictness, SuperPropertyCaptureMode, SuperPropertyMutationIr,
+    SuperPropertyMutationOperationIr, SuperPropertyReferenceCaptureIr,
+    SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -46,14 +61,11 @@ pub use reference::{
 #[path = "numeric_conversions.rs"]
 pub mod numeric_conversions;
 
-/// 26 names. Counted, not estimated — an earlier revision of this list said 18
-/// while carrying 19, which is the same class of drift the whole area is about.
+/// Numeric conversion and residue reference APIs shared with the backend.
 pub use numeric_conversions::{
-    fold_number_format, reference_to_index, reference_to_int32, reference_to_length,
-    reference_to_uint16, reference_to_uint32, residue_pow2_i64, ExtendedInteger, FiniteInteger,
-    FiniteReceiver, FractionDigits, IntegerOrInfinity, NonFiniteReceiverOrder, NumberFormatClause,
-    NumberFormatFold, Precision, RangeChecked, ResidueCarrier, ResidueWidth, ToExponential,
-    ToFixed, ToIndexOutcome, ToPrecision, Uint16, Uint32, MAX_SAFE_INTEGER_U64,
+    reference_to_index, reference_to_int32, reference_to_length, reference_to_uint16,
+    reference_to_uint32, residue_pow2_i64, ExtendedInteger, FiniteInteger, IntegerOrInfinity,
+    ResidueCarrier, ResidueWidth, ToIndexOutcome, Uint16, Uint32, MAX_SAFE_INTEGER_U64,
 };
 
 pub type FunctionId = String;
@@ -584,6 +596,7 @@ pub enum ObjectShapeProperty {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ObjectShape {
+    pub provenance: HeapShapeProvenance,
     pub prototype: Option<Box<HeapShape>>,
     pub properties: BTreeMap<String, ObjectShapeProperty>,
     pub private_brands: BTreeSet<PrivateNameId>,
@@ -592,9 +605,22 @@ pub struct ObjectShape {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ArrayShape {
+    pub provenance: HeapShapeProvenance,
     pub prototype: Option<Box<HeapShape>>,
     pub properties: BTreeMap<String, ObjectShapeProperty>,
     pub elements: Vec<ValueInfo>,
+}
+
+/// A catalogue describes a fresh Realm, not the mutable prototype at the
+/// current program point. Property lowering must validate catalogue facts
+/// against the live intrinsic before treating its descriptors as authoritative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HeapShapeProvenance {
+    #[default]
+    Program,
+    IntrinsicPrototype(StandardBuiltinId),
+    /// The intrinsic has no tracked constructor path in the current Realm.
+    UntrackedIntrinsicPrototype,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -619,11 +645,18 @@ pub enum ResumableSuspensionKindIr {
     ForAwaitClose,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumableResumeEnvironmentIr {
+    InvocationOuter,
+    SavedLexicalChain,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResumableSuspensionPointIr {
     pub kind: ResumableSuspensionKindIr,
     pub suspend_state: u32,
     pub resume_state: u32,
+    pub resume_environment: ResumableResumeEnvironmentIr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -631,6 +664,149 @@ pub struct ResumablePlanIr {
     pub entry_state: u32,
     pub state_count: u32,
     pub suspension_points: Vec<ResumableSuspensionPointIr>,
+    pub(crate) resume_environment_plan: AsyncGeneratorResumeEnvironmentPlanIr,
+}
+
+/// Native scope restoration consumes this checked source certificate. Its
+/// private state list cannot be assembled from backend guesses or raw flags.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncGeneratorResumeEnvironmentPlanIr {
+    invocation_resume_states: Vec<u32>,
+    enclosing_scope_resume_states: Vec<u32>,
+}
+
+impl AsyncGeneratorResumeEnvironmentPlanIr {
+    pub fn invocation_resume_states(&self) -> &[u32] {
+        &self.invocation_resume_states
+    }
+
+    pub fn enclosing_scope_resume_states(&self) -> &[u32] {
+        &self.enclosing_scope_resume_states
+    }
+}
+
+impl ResumablePlanIr {
+    pub(crate) fn from_checked_source(
+        source: crate::async_generator_source::AsyncGeneratorFunctionSource,
+    ) -> Self {
+        let (state_count, suspension_points, enclosing_scope_resume_states) = source.into_parts();
+        let invocation_resume_states = suspension_points
+            .iter()
+            .filter(|point| {
+                point.resume_environment == ResumableResumeEnvironmentIr::InvocationOuter
+            })
+            .map(|point| point.resume_state)
+            .collect();
+        Self {
+            entry_state: 0,
+            state_count,
+            suspension_points,
+            resume_environment_plan: AsyncGeneratorResumeEnvironmentPlanIr {
+                invocation_resume_states,
+                enclosing_scope_resume_states,
+            },
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            entry_state: 0,
+            state_count: 1,
+            suspension_points: Vec::new(),
+            resume_environment_plan: AsyncGeneratorResumeEnvironmentPlanIr {
+                invocation_resume_states: Vec::new(),
+                enclosing_scope_resume_states: Vec::new(),
+            },
+        }
+    }
+
+    pub fn resume_environment_plan(&self) -> &AsyncGeneratorResumeEnvironmentPlanIr {
+        &self.resume_environment_plan
+    }
+
+    pub(crate) fn matches_resume_environment_plan(&self) -> bool {
+        let source_scopes = &self.resume_environment_plan.enclosing_scope_resume_states;
+        source_scopes
+            .iter()
+            .all(|state| *state > self.entry_state && *state < self.state_count)
+            && source_scopes.windows(2).all(|pair| pair[0] < pair[1])
+            && self
+                .suspension_points
+                .iter()
+                .filter(|point| {
+                    point.resume_environment == ResumableResumeEnvironmentIr::InvocationOuter
+                })
+                .map(|point| point.resume_state)
+                .eq(self
+                    .resume_environment_plan
+                    .invocation_resume_states
+                    .iter()
+                    .copied())
+    }
+
+    pub(crate) fn insert_legacy_branch_exit(
+        &mut self,
+        next_index: usize,
+        branch_end: u32,
+    ) -> Result<(), crate::generator_loop_control::GeneratorLoopControlError> {
+        use crate::generator_loop_control::{checked_next_state, GeneratorLoopControlError};
+        if next_index > self.suspension_points.len() || !self.matches_resume_environment_plan() {
+            return Err(GeneratorLoopControlError::InvalidPhases);
+        }
+        if self.suspension_points[..next_index]
+            .iter()
+            .any(|point| point.resume_state > branch_end)
+            || self.suspension_points[next_index..]
+                .iter()
+                .any(|point| point.suspend_state < branch_end)
+        {
+            return Err(GeneratorLoopControlError::InvalidPhases);
+        }
+        let state_count = checked_next_state(self.state_count)?;
+        let consumed_invocations = self.suspension_points[..next_index]
+            .iter()
+            .filter(|point| {
+                point.resume_environment == ResumableResumeEnvironmentIr::InvocationOuter
+            })
+            .count();
+        // Preflight the complete relocation so a rejected insertion preserves
+        // both the actual source tape and its private environment certificate.
+        for point in &self.suspension_points[next_index..] {
+            checked_next_state(point.suspend_state)?;
+            checked_next_state(point.resume_state)?;
+        }
+        for state in &self.resume_environment_plan.invocation_resume_states[consumed_invocations..]
+        {
+            checked_next_state(*state)?;
+        }
+        for state in self
+            .resume_environment_plan
+            .enclosing_scope_resume_states
+            .iter()
+            .filter(|state| **state > branch_end)
+        {
+            checked_next_state(*state)?;
+        }
+        for point in &mut self.suspension_points[next_index..] {
+            point.suspend_state += 1;
+            point.resume_state += 1;
+        }
+        for state in
+            &mut self.resume_environment_plan.invocation_resume_states[consumed_invocations..]
+        {
+            *state += 1;
+        }
+        for state in self
+            .resume_environment_plan
+            .enclosing_scope_resume_states
+            .iter_mut()
+            .filter(|state| **state > branch_end)
+        {
+            *state += 1;
+        }
+        self.state_count = state_count;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1079,11 +1255,30 @@ impl ClassPrivateEnvironmentIr {
     }
 }
 
+/// The name supplied to anonymous ClassExpression NamedEvaluation.
+///
+/// A computed object property owns a temporary binding; a class field owns
+/// either its static name or one already-normalized key in the initializer's
+/// immutable class context. The alternatives cannot be combined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassNameInferenceIr {
+    None,
+    PropertyKeyBinding(String),
+    FieldInitializer(ClassFieldNameIr),
+}
+
+/// The original field name, independent of receiver properties and source text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassFieldNameIr {
+    Static(String),
+    Computed(u32),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
     pub name_binding: Option<ClassNameBindingIr>,
-    pub inferred_name_binding: Option<String>,
+    pub name_inference: ClassNameInferenceIr,
     pub constructor_function_id: FunctionId,
     pub explicit_constructor: bool,
     pub heritage_kind: ClassHeritageKind,
@@ -1228,6 +1423,12 @@ pub enum DestructuringPropertyKeyIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DestructuringTargetIr {
+    /// A var declaration still contributes its hoisted storage even when
+    /// BindingInitialization writes a Reference selected through with/eval.
+    ResolvedVarBinding {
+        name: String,
+        reference: IdentifierWriteReferenceIr,
+    },
     Binding {
         mode: BindingMode,
         name: String,
@@ -1264,6 +1465,19 @@ pub enum DestructuringTargetIr {
     AssignmentPrivate {
         target: TypedExpr,
         private_name_id: PrivateNameId,
+    },
+    /// A SuperProperty target (13.15.5.5 step 1.a / 13.15.5.6 step 1.a).
+    ///
+    /// `capture` evaluates the Reference (`this`, the home object's
+    /// `[[Prototype]]` base, the uncoerced referenced name) into its slots
+    /// when the target is prepared, i.e. before the element value is
+    /// obtained. After the value (and any default) exists, the emitter
+    /// stores it into `value_binding` and evaluates `put`, which performs
+    /// PutValue through the captured Reference.
+    AssignmentSuper {
+        capture: Box<TypedExpr>,
+        value_binding: String,
+        put: Box<TypedExpr>,
     },
     NestedArray(Box<ArrayDestructuringPatternIr>),
     NestedObject(Box<ObjectDestructuringPatternIr>),
@@ -1360,7 +1574,7 @@ impl ObjectDestructuringPatternIr {
     }
 }
 
-fn visit_destructuring_target_expressions(
+pub(crate) fn visit_destructuring_target_expressions(
     target: &DestructuringTargetIr,
     visit: &mut impl FnMut(&TypedExpr),
 ) {
@@ -1372,10 +1586,17 @@ fn visit_destructuring_target_expressions(
             }
         }
         DestructuringTargetIr::AssignmentPrivate { target, .. } => visit(target),
+        DestructuringTargetIr::AssignmentSuper { capture, put, .. } => {
+            visit(capture);
+            visit(put);
+        }
         DestructuringTargetIr::NestedArray(pattern) => pattern.visit_expressions(visit),
         DestructuringTargetIr::NestedObject(pattern) => pattern.visit_expressions(visit),
-        DestructuringTargetIr::Binding { .. } | DestructuringTargetIr::AssignmentIdentifier(..) => {
+        DestructuringTargetIr::ResolvedVarBinding { reference, .. }
+        | DestructuringTargetIr::AssignmentIdentifier(reference) => {
+            reference.visit_resolution_expressions(visit);
         }
+        DestructuringTargetIr::Binding { .. } => {}
     }
 }
 
@@ -1419,17 +1640,19 @@ impl ObjectDestructuringPatternIr {
     }
 }
 
-fn visit_destructuring_target_bindings(
+pub(crate) fn visit_destructuring_target_bindings(
     target: &DestructuringTargetIr,
     visit: &mut impl FnMut(BindingMode, &str),
 ) {
     match target {
+        DestructuringTargetIr::ResolvedVarBinding { name, .. } => visit(BindingMode::Var, name),
         DestructuringTargetIr::Binding { mode, name } => visit(*mode, name),
         DestructuringTargetIr::NestedArray(pattern) => pattern.visit_bindings(visit),
         DestructuringTargetIr::NestedObject(pattern) => pattern.visit_bindings(visit),
         DestructuringTargetIr::AssignmentIdentifier(..)
         | DestructuringTargetIr::AssignmentProperty { .. }
-        | DestructuringTargetIr::AssignmentPrivate { .. } => {}
+        | DestructuringTargetIr::AssignmentPrivate { .. }
+        | DestructuringTargetIr::AssignmentSuper { .. } => {}
     }
 }
 
@@ -2047,6 +2270,8 @@ pub enum ExprIr {
     Boolean(bool),
     Number(u64),
     BigInt(BigIntLiteralIr),
+    /// The canonical agent-wide Symbol, distinct from its description string.
+    WellKnownSymbol(crate::WellKnownSymbol),
     Symbol {
         /// Description operand for `Symbol(desc)`. `None` for `Symbol()` /
         /// `Symbol(undefined)` (spec `[[Description]]` = undefined). When
@@ -2060,7 +2285,7 @@ pub enum ExprIr {
     RegExpLiteral {
         source: String,
         flags: String,
-        program: Option<RegExpProgram>,
+        static_compilation: Option<StaticRegExpCompilation>,
     },
     FunctionValue(FunctionId),
     /// `import(specifier, options)`.
@@ -2090,6 +2315,8 @@ pub enum ExprIr {
     ModuleExecutionGraph(Box<crate::modules::ModuleExecutionGraphIr>),
     ModuleEntryEvaluation(crate::modules::ModuleEntryEvaluationIr),
     ModuleBindingRead(crate::modules::ModuleCellIr),
+    /// Native data evaluation of a genuine JSON synthetic module record.
+    JsonModuleValue(Box<crate::modules::JsonModuleValueIr>),
     ModuleEvaluate(crate::modules::ModuleEvaluationIr),
     DeferredModuleEvaluate(crate::modules::DeferredModuleEvaluationIr),
     ModuleHasAsyncDependencies(crate::modules::ModuleEvaluationIr),
@@ -2100,8 +2327,14 @@ pub enum ExprIr {
         namespace: Box<TypedExpr>,
     },
     This,
+    /// The current execution Realm's actual global object, selected by a
+    /// compiler-owned Environment Reference or a proven intact initial
+    /// `globalThis` data property. This never looks up a source binding.
+    ExecutionGlobalObject,
     Arguments,
     ObjectLiteral(Vec<ObjectPropertyIr>),
+    ObjectPropertyDefinition(Box<crate::ObjectPropertyDefinitionIr>),
+    ObjectDestructuringOperation(Box<crate::ObjectDestructuringOperationIr>),
     ArrayLiteral(Vec<TypedExpr>),
     ArrayAccumulation(ArrayAccumulationIr),
     Identifier(String),
@@ -2123,19 +2356,19 @@ pub enum ExprIr {
         /// global object, so this write may *create* a global binding.
         ///
         /// **Not** a backend input, and deliberately so: which of PutValue's
-        /// two branches applies is a runtime fact, and `strictness` alone
-        /// selects the guarded write (`emit_global_property_write_checked`)
-        /// that performs the presence test 2.a needs. Its one consumer is the
-        /// `implicit_globals` counter in this file's AST-stat visitor, which is
+        /// two branches applies is a runtime fact. The backend resolves and
+        /// retains the global Reference before evaluating `value`, then applies
+        /// its strictness through the shared Environment Record Put. This flag's
+        /// one consumer is the `implicit_globals` counter in this file's AST-stat visitor, which is
         /// what keeps it from being an unread field — check there before
         /// deleting it.
         implicit: bool,
         /// The `[[Strict]]` of the Reference this write consumes. PutValue
         /// step 2.a requires a ReferenceError when the Reference is
-        /// unresolvable and `[[Strict]]` is true, so the backend guards the
-        /// write with a runtime presence check on the global object rather
-        /// than silently creating the property; step 3.d then makes a
-        /// `[[Set]]` that answered `false` a TypeError.
+        /// unresolvable and `[[Strict]]` is true, even if the RHS creates that
+        /// property. A resolved Object Record rechecks its held binding object
+        /// after the RHS; step 3.d then makes a `[[Set]]` that answered `false`
+        /// a TypeError.
         strictness: Strictness,
     },
     PropertyRead {
@@ -2150,6 +2383,7 @@ pub enum ExprIr {
         target: Box<TypedExpr>,
         chain: Vec<OptionalChainOperationIr>,
     },
+    DeleteOptionalPropertyChain(Box<crate::DeleteOptionalPropertyChainIr>),
     PropertyWrite {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
@@ -2161,6 +2395,8 @@ pub enum ExprIr {
     },
     OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr),
     OrdinaryPropertyLogicalAssignment(OrdinaryPropertyLogicalAssignmentIr),
+    OrdinaryPropertyGetCapture(OrdinaryPropertyGetCaptureIr),
+    CapturedOrdinaryPropertyWrite(CapturedOrdinaryPropertyWriteIr),
     OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr),
     OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
@@ -2169,27 +2405,10 @@ pub enum ExprIr {
         return_mode: UpdateReturnMode,
         value_kind: NumericUpdateValueKind,
     },
-    GlobalPropertyUpdate {
-        name: String,
-        op: NumericUpdateOp,
-        return_mode: UpdateReturnMode,
-        value_kind: NumericUpdateValueKind,
-        /// PutValue steps 2.a and 3.d, for the write-back half of `++`/`--`
-        /// on a global Reference.
-        strictness: Strictness,
-    },
     CompoundAssignIdentifier {
         name: String,
         op: ArithmeticBinaryOp,
         value: Box<TypedExpr>,
-    },
-    GlobalPropertyCompoundAssign {
-        name: String,
-        op: ArithmeticBinaryOp,
-        value: Box<TypedExpr>,
-        /// PutValue steps 2.a and 3.d, for the write-back half of `op=` on a
-        /// global Reference.
-        strictness: Strictness,
     },
     UnaryPlus {
         expr: Box<TypedExpr>,
@@ -2215,10 +2434,12 @@ pub enum ExprIr {
     DeleteIdentifier {
         name: String,
     },
+    /// Identifier deletion through the current Global Environment Record.
+    /// ResolveBinding precedes DeleteBinding; an unresolvable name returns
+    /// true. Source property syntax always retains [`ExprIr::DeleteProperty`].
     DeleteGlobalProperty {
         name: String,
-        /// The `[[Strict]]` of the Reference `delete` evaluated, so a `false`
-        /// `[[Delete]]` result raises a TypeError (13.5.1.2 step 5.e).
+        /// Source identifier deletion is legal only in sloppy code.
         strictness: Strictness,
     },
     DeleteProperty {
@@ -2231,6 +2452,9 @@ pub enum ExprIr {
         expr: Box<TypedExpr>,
     },
     NewTarget,
+    /// Resolve a global identifier at execution time and complete typeof.
+    /// Only an unresolvable Reference bypasses GetValue; HasBinding hooks,
+    /// accessors, and uninitialized declarative bindings remain observable.
     TypeOfUnresolvedIdentifier {
         name: String,
     },
@@ -2262,10 +2486,6 @@ pub enum ExprIr {
     },
     StringFromCharCode {
         code: Box<TypedExpr>,
-    },
-    StringCharCodeAt {
-        target: Box<TypedExpr>,
-        index: Box<TypedExpr>,
     },
     StringConcat {
         lhs: Box<TypedExpr>,
@@ -2325,6 +2545,9 @@ pub enum ExprIr {
         args: Vec<TypedExpr>,
     },
     SpreadArgument(SpreadArgumentIr),
+    CaptureArgumentList(crate::ArgumentListCaptureIr),
+    CaptureOptionalCallReference(crate::OptionalCallReferenceCaptureIr),
+    CapturedArgumentList(crate::CapturedArgumentListIr),
     AssertSameValue {
         actual: Box<TypedExpr>,
         expected: Box<TypedExpr>,
@@ -2354,12 +2577,6 @@ pub enum ExprIr {
         /// receiver, and argument evaluation before applying the outcome.
         static_regexp_compilation: Option<StaticRegExpCompilation>,
     },
-    JsonParseStaticReviver {
-        callee: Box<TypedExpr>,
-        input: Box<TypedExpr>,
-        value: JsonStaticValueIr,
-        reviver: Box<TypedExpr>,
-    },
     Construct {
         callee: Box<TypedExpr>,
         args: Vec<TypedExpr>,
@@ -2377,6 +2594,11 @@ pub enum ExprIr {
     SuperConstruct {
         args: Vec<TypedExpr>,
     },
+    /// GetNewTarget from the original lexical derived constructor activation.
+    SuperNewTarget,
+    /// GetSuperConstructor from that same original activation.
+    SuperConstructor,
+    PreparedSuperConstruct(Box<crate::PreparedSuperConstructIr>),
     SuperPropertyRead {
         key: PropertyKeyIr,
         receiver: Box<TypedExpr>,
@@ -2390,8 +2612,8 @@ pub enum ExprIr {
         /// PutValue step 3.d.
         strictness: Strictness,
     },
-    /// One non-resumable numeric or eager compound mutation through a single
-    /// retained Super Property Reference.
+    /// Numeric/eager mutation or an activation-owned capture and consuming Put
+    /// through the original Super Property Reference.
     SuperPropertyMutation(SuperPropertyMutationIr),
     PrivateRead {
         target: Box<TypedExpr>,
@@ -2418,7 +2640,7 @@ pub enum ExprIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateObjectIr {
-    pub site_id: u64,
+    pub site_id: crate::TemplateSiteId,
     pub cooked: Vec<Option<String>>,
     pub raw: Vec<String>,
 }
@@ -2459,16 +2681,6 @@ pub enum OptionalChainCallReceiverIr {
     /// Use the surrounding function's current `this`, as required when calling
     /// a function obtained from a `super` property Reference.
     CurrentThis,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JsonStaticValueIr {
-    Null { source: String },
-    Boolean { value: bool, source: String },
-    Number { bits: u64, source: String },
-    String { value: String, source: String },
-    Array(Vec<JsonStaticValueIr>),
-    Object(Vec<(String, JsonStaticValueIr)>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2702,6 +2914,15 @@ pub enum ResumableLoopIterationEnvironmentIr {
     FreshPerIteration(LexicalEnvironmentIr),
 }
 
+#[path = "resumable_sync_for_of_binding.rs"]
+mod resumable_sync_for_of_binding;
+#[cfg(test)]
+pub(crate) use resumable_sync_for_of_binding::ResumableSyncForOfBindingError;
+pub use resumable_sync_for_of_binding::ResumableSyncForOfBindingStorageIr;
+pub(crate) use resumable_sync_for_of_binding::{
+    ValidatedResumableSyncForOfBindingIr, ValidatedResumableSyncForOfLexicalPatternIr,
+};
+
 /// The lowering-only description of the assignment performed for each value of
 /// a resumable synchronous `for-of`.
 ///
@@ -2711,7 +2932,10 @@ pub enum ResumableLoopIterationEnvironmentIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AsyncFunctionForOfIteratorHeadIr {
     /// The iterator value is the source binding's value.
-    Binding(ForOfAssignmentIr),
+    Binding {
+        source_name: String,
+        binding: ForOfAssignmentIr,
+    },
     /// The iterator value is consumed by an assignment prefix before the body
     /// can suspend.
     PreparedAssignment { value_name: String },
@@ -2805,6 +3029,13 @@ pub(crate) enum AsyncFunctionForOfIteratorInitializationError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AsyncFunctionForOfIteratorPlanError {
+    AwaitedBindingHeadRequired,
+    AwaitedEntryStateOverflow {
+        entry_state: u32,
+    },
+    AwaitedProtocolStorageAlias {
+        name: String,
+    },
     InvalidBody(AsyncFunctionForOfBodyError),
     ExitStateOverflow {
         body_exit_state: u32,
@@ -2821,6 +3052,11 @@ pub(crate) enum AsyncFunctionForOfIteratorPlanError {
     SingleBindingTdzNameCount {
         name: String,
         tdz_placeholder_names: Vec<String>,
+    },
+    SingleBindingTdzNameMismatch {
+        source_name: String,
+        expected_name: String,
+        actual_name: String,
     },
     SingleBindingIterationNamesMismatch {
         name: String,
@@ -3017,9 +3253,14 @@ fn collect_async_function_for_of_destructuring_target_bindings(
         DestructuringTargetIr::NestedObject(pattern) => {
             collect_async_function_for_of_object_bindings(pattern, bindings)
         }
+        DestructuringTargetIr::ResolvedVarBinding { name, .. } => {
+            bindings.push((BindingMode::Var, name.clone()));
+            Ok(())
+        }
         DestructuringTargetIr::AssignmentIdentifier(..)
         | DestructuringTargetIr::AssignmentProperty { .. }
-        | DestructuringTargetIr::AssignmentPrivate { .. } => Err(()),
+        | DestructuringTargetIr::AssignmentPrivate { .. }
+        | DestructuringTargetIr::AssignmentSuper { .. } => Err(()),
     }
 }
 
@@ -3158,374 +3399,6 @@ fn validate_async_function_for_of_initialization(
     Ok(())
 }
 
-/// One activation-backed synchronous Iterator Record walk in a plain async
-/// function. Its checked body owns structured await continuations; its head
-/// and Iterator Record retain the ordinary synchronous iterator protocol.
-#[must_use = "a resumable synchronous for-of plan must be attached to its statement"]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AsyncFunctionForOfIteratorPlanIr {
-    value_storage: AsyncFunctionForOfIteratorValueStorageIr,
-    value_mode: BindingMode,
-    record: IteratorRecordIr,
-    head_environment: Option<ForInOfEnvironmentIr>,
-    iteration_environment: ResumableLoopIterationEnvironmentIr,
-    body: AsyncFunctionForOfBodyIr,
-    exit_state: u32,
-}
-
-impl AsyncFunctionForOfIteratorPlanIr {
-    pub(crate) fn new(
-        head: AsyncFunctionForOfIteratorHeadIr,
-        record: IteratorRecordIr,
-        head_environment: Option<ForInOfEnvironmentIr>,
-        mut statements: Vec<StatementIr>,
-        entry_state: u32,
-    ) -> Result<Self, AsyncFunctionForOfIteratorPlanError> {
-        let (value_storage, value_mode, iteration_environment, mut initialization) = match head {
-            AsyncFunctionForOfIteratorHeadIr::Binding(binding) => {
-                let value_mode = binding.mode;
-                let binding_name = binding.name.clone();
-                match value_mode {
-                    BindingMode::Var => {
-                        if let Some(environment) = &head_environment {
-                            return Err(
-                                AsyncFunctionForOfIteratorPlanError::VarBindingHasHeadEnvironment {
-                                    name: binding_name,
-                                    tdz_placeholder_names: environment.tdz_binding_names.clone(),
-                                    iteration_storage_names: environment
-                                        .iteration_environment
-                                        .as_ref()
-                                        .map(async_function_for_of_environment_names)
-                                        .unwrap_or_default(),
-                                },
-                            );
-                        }
-                        (
-                            AsyncFunctionForOfIteratorValueStorageIr::Activation(binding),
-                            value_mode,
-                            ResumableLoopIterationEnvironmentIr::StorageOnly,
-                            Vec::new(),
-                        )
-                    }
-                    BindingMode::Let | BindingMode::Const => {
-                        let environment = head_environment.as_ref().ok_or_else(|| {
-                            AsyncFunctionForOfIteratorPlanError::BindingHeadEnvironmentRequired {
-                                mode: value_mode,
-                                name: binding_name.clone(),
-                            }
-                        })?;
-                        if let Some(name) =
-                            duplicate_async_function_for_of_name(&environment.tdz_binding_names)
-                        {
-                            return Err(
-                                AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName {
-                                    origin: "single-binding head environment",
-                                    name,
-                                },
-                            );
-                        }
-                        if environment.tdz_binding_names.len() != 1 {
-                            return Err(
-                                AsyncFunctionForOfIteratorPlanError::SingleBindingTdzNameCount {
-                                    name: binding_name.clone(),
-                                    tdz_placeholder_names: environment.tdz_binding_names.clone(),
-                                },
-                            );
-                        }
-                        if let Some(tdz_environment) = &environment.tdz_environment {
-                            validate_async_function_for_of_environment(
-                                "single-binding TDZ environment",
-                                tdz_environment,
-                                &environment.tdz_binding_names,
-                            )
-                            .map_err(
-                                AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout,
-                            )?;
-                        }
-
-                        let expected_iteration_names = vec![binding_name.clone()];
-                        if let Some(iteration_environment) = &environment.iteration_environment {
-                            let actual_names = validate_async_function_for_of_environment(
-                                "single-binding iteration environment",
-                                iteration_environment,
-                                &expected_iteration_names,
-                            )
-                            .map_err(
-                                AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout,
-                            )?;
-                            if !async_function_for_of_names_match(
-                                &expected_iteration_names,
-                                &actual_names,
-                            ) {
-                                return Err(
-                                    AsyncFunctionForOfIteratorPlanError::SingleBindingIterationNamesMismatch {
-                                        name: binding_name,
-                                        iteration_storage_names: actual_names,
-                                    },
-                                );
-                            }
-                            (
-                                AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(
-                                    binding,
-                                ),
-                                value_mode,
-                                ResumableLoopIterationEnvironmentIr::FreshPerIteration(
-                                    iteration_environment.clone(),
-                                ),
-                                Vec::new(),
-                            )
-                        } else {
-                            (
-                                AsyncFunctionForOfIteratorValueStorageIr::Activation(binding),
-                                value_mode,
-                                ResumableLoopIterationEnvironmentIr::StorageOnly,
-                                Vec::new(),
-                            )
-                        }
-                    }
-                }
-            }
-            AsyncFunctionForOfIteratorHeadIr::PreparedAssignment { value_name } => {
-                if let Some(environment) = &head_environment {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::PreparedAssignmentHasHeadEnvironment {
-                            value_name,
-                            tdz_placeholder_names: environment.tdz_binding_names.clone(),
-                            iteration_storage_names: environment
-                                .iteration_environment
-                                .as_ref()
-                                .map(async_function_for_of_environment_names)
-                                .unwrap_or_default(),
-                        },
-                    );
-                }
-                (
-                    AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name: value_name },
-                    BindingMode::Let,
-                    ResumableLoopIterationEnvironmentIr::StorageOnly,
-                    Vec::new(),
-                )
-            }
-            AsyncFunctionForOfIteratorHeadIr::LexicalPattern {
-                mode,
-                value_name,
-                iteration_storage_names,
-                tdz_placeholder_names,
-                initialization,
-            } => {
-                match mode {
-                    BindingMode::Let | BindingMode::Const => {}
-                    BindingMode::Var => {
-                        return Err(AsyncFunctionForOfIteratorPlanError::LexicalPatternMode {
-                            mode,
-                        });
-                    }
-                }
-                if let Some(name) = duplicate_async_function_for_of_name(&iteration_storage_names) {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::DuplicateLexicalPatternIterationStorageName {
-                            name,
-                        },
-                    );
-                }
-                if let Some(name) = duplicate_async_function_for_of_name(&tdz_placeholder_names) {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName {
-                            origin: "lexical-pattern input",
-                            name,
-                        },
-                    );
-                }
-                if iteration_storage_names.len() != tdz_placeholder_names.len() {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::LexicalPatternNameCountMismatch {
-                            iteration_storage_names,
-                            tdz_placeholder_names,
-                        },
-                    );
-                }
-                if iteration_storage_names
-                    .iter()
-                    .any(|name| name == &value_name)
-                {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::LexicalPatternValueNameCollision {
-                            value_name,
-                            iteration_storage_names,
-                        },
-                    );
-                }
-                let environment = head_environment.as_ref().ok_or_else(|| {
-                    AsyncFunctionForOfIteratorPlanError::LexicalPatternHeadEnvironmentRequired {
-                        iteration_storage_names: iteration_storage_names.clone(),
-                        tdz_placeholder_names: tdz_placeholder_names.clone(),
-                    }
-                })?;
-                if let Some(name) =
-                    duplicate_async_function_for_of_name(&environment.tdz_binding_names)
-                {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName {
-                            origin: "lexical-pattern head environment",
-                            name,
-                        },
-                    );
-                }
-                if !async_function_for_of_names_match(
-                    &tdz_placeholder_names,
-                    &environment.tdz_binding_names,
-                ) {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::LexicalPatternTdzNamesMismatch {
-                            expected_names: tdz_placeholder_names,
-                            actual_names: environment.tdz_binding_names.clone(),
-                        },
-                    );
-                }
-                if let Some(tdz_environment) = &environment.tdz_environment {
-                    validate_async_function_for_of_environment(
-                        "lexical-pattern TDZ environment",
-                        tdz_environment,
-                        &environment.tdz_binding_names,
-                    )
-                    .map_err(AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout)?;
-                }
-
-                let iteration_environment = if iteration_storage_names.is_empty() {
-                    if let Some(iteration_environment) = &environment.iteration_environment {
-                        let actual_names = validate_async_function_for_of_environment(
-                            "empty lexical-pattern iteration environment",
-                            iteration_environment,
-                            &iteration_storage_names,
-                        )
-                        .map_err(AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout)?;
-                        return Err(
-                            AsyncFunctionForOfIteratorPlanError::EmptyLexicalPatternHasIterationEnvironment {
-                                actual_names,
-                            },
-                        );
-                    }
-                    ResumableLoopIterationEnvironmentIr::StorageOnly
-                } else {
-                    let Some(iteration_environment) = &environment.iteration_environment else {
-                        return Err(
-                            AsyncFunctionForOfIteratorPlanError::LexicalPatternIterationNamesMismatch {
-                                expected_names: iteration_storage_names,
-                                actual_names: Vec::new(),
-                            },
-                        );
-                    };
-                    let actual_names = validate_async_function_for_of_environment(
-                        "lexical-pattern iteration environment",
-                        iteration_environment,
-                        &iteration_storage_names,
-                    )
-                    .map_err(AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout)?;
-                    if !async_function_for_of_names_match(&iteration_storage_names, &actual_names) {
-                        return Err(
-                            AsyncFunctionForOfIteratorPlanError::LexicalPatternIterationNamesMismatch {
-                                expected_names: iteration_storage_names,
-                                actual_names,
-                            },
-                        );
-                    }
-                    ResumableLoopIterationEnvironmentIr::FreshPerIteration(
-                        iteration_environment.clone(),
-                    )
-                };
-                validate_async_function_for_of_initialization(
-                    mode,
-                    &iteration_storage_names,
-                    &initialization,
-                )
-                .map_err(
-                    AsyncFunctionForOfIteratorPlanError::InvalidLexicalPatternInitialization,
-                )?;
-                (
-                    AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name: value_name },
-                    mode,
-                    iteration_environment,
-                    initialization,
-                )
-            }
-        };
-
-        if matches!(
-            &iteration_environment,
-            ResumableLoopIterationEnvironmentIr::StorageOnly
-        ) {
-            if let Some(environment) = &head_environment {
-                if environment.tdz_environment.is_some() {
-                    return Err(
-                        AsyncFunctionForOfIteratorPlanError::CapturedTdzEnvironment {
-                            tdz_placeholder_names: environment.tdz_binding_names.clone(),
-                        },
-                    );
-                }
-            }
-        }
-        initialization.append(&mut statements);
-        let body = AsyncFunctionForOfBodyIr::new(initialization, entry_state)
-            .map_err(AsyncFunctionForOfIteratorPlanError::InvalidBody)?;
-        let body_exit_state = body.exit_state();
-        let exit_state = body_exit_state
-            .checked_add(1)
-            .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { body_exit_state })?;
-
-        Ok(Self {
-            value_storage,
-            value_mode,
-            record,
-            head_environment,
-            iteration_environment,
-            body,
-            exit_state,
-        })
-    }
-
-    pub fn value_storage(&self) -> &AsyncFunctionForOfIteratorValueStorageIr {
-        &self.value_storage
-    }
-
-    pub fn value_name(&self) -> &str {
-        match &self.value_storage {
-            AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)
-            | AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding) => {
-                &binding.name
-            }
-            AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name } => name,
-        }
-    }
-
-    pub fn value_mode(&self) -> BindingMode {
-        self.value_mode
-    }
-
-    pub fn record(&self) -> &IteratorRecordIr {
-        &self.record
-    }
-
-    pub fn head_environment(&self) -> Option<&ForInOfEnvironmentIr> {
-        self.head_environment.as_ref()
-    }
-
-    pub fn iteration_environment(&self) -> &ResumableLoopIterationEnvironmentIr {
-        &self.iteration_environment
-    }
-
-    pub fn body(&self) -> &AsyncFunctionForOfBodyIr {
-        &self.body
-    }
-
-    pub fn entry_state(&self) -> u32 {
-        self.body.entry_state()
-    }
-
-    pub fn exit_state(&self) -> u32 {
-        self.exit_state
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncForOfIteratorPlanIr {
     pub entry_state: u32,
@@ -3564,6 +3437,7 @@ pub struct DerivedConstructorActivationIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionIr {
+    pub template_source: Option<crate::TemplateSourceIr>,
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
     pub id: FunctionId,
     pub name: String,
@@ -3626,6 +3500,9 @@ pub enum StatementIr {
         admission: Option<OwnedEnvBindingIr>,
     },
     LexicalBlock(Vec<StatementIr>),
+    /// The actual source declaration or empty statement owns this complete
+    /// lowered item, including staging that must not publish a temporary value.
+    EmptyStatementCompletion(Box<EmptyStatementCompletionIr>),
     /// A synchronous DisposeCapability with an explicit execution owner.
     ///
     /// `resources` is non-empty and in declaration order. Each entry owns its
@@ -3671,6 +3548,36 @@ pub enum StatementIr {
         resume_state: u32,
         resume_mode: AsyncResumeModeIr,
     },
+    /// Complete phase/control owner for an ordinary synchronous generator.
+    OrdinaryGeneratorLoop(Box<OrdinaryGeneratorLoopIr>),
+    /// Complete mixed Await/Yield classic-loop phases.
+    AsyncGeneratorLoop(Box<AsyncGeneratorLoopIr>),
+    /// Complete branch ranges within an ordinary-generator loop region.
+    OrdinaryGeneratorIf(Box<OrdinaryGeneratorIfIr>),
+    /// Complete mixed condition and selected branches.
+    AsyncGeneratorIf(Box<AsyncGeneratorIfIr>),
+    /// Complete CaseBlock selection, fallthrough and persistent completion owner.
+    OrdinaryGeneratorSwitch(Box<OrdinaryGeneratorSwitchIr>),
+    /// Complete mixed Await/Yield selection and CaseBlock lifetime.
+    AsyncGeneratorSwitch(Box<crate::AsyncGeneratorSwitchIr>),
+    OrdinaryGeneratorArrayDestructuring(Box<OrdinaryGeneratorArrayDestructuringIr>),
+    /// Mixed pattern body with its synchronous IteratorClose owner.
+    AsyncGeneratorArrayDestructuring(Box<crate::AsyncGeneratorArrayDestructuringIr>),
+    /// Plain Async pattern body with its actual synchronous IteratorClose owner.
+    AsyncFunctionArrayDestructuring(Box<crate::AsyncFunctionArrayDestructuringIr>),
+    OrdinaryGeneratorWith(Box<crate::OrdinaryGeneratorWithIr>),
+    /// Complete mixed head/body ranges with the original Object Environment.
+    AsyncGeneratorWith(Box<crate::AsyncGeneratorWithIr>),
+    AsyncFunctionWith(Box<crate::AsyncFunctionWithIr>),
+    /// Complete mixed head/enumeration/body with the original per-key initializer.
+    AsyncGeneratorForIn(Box<crate::AsyncGeneratorForInIr>),
+    /// Complete synchronous or awaited iterator head, initializer and body.
+    AsyncGeneratorForOf(Box<crate::AsyncGeneratorForOfIr>),
+    /// A complete lexical resource scope and its checked registration operations.
+    AsyncGeneratorResourceScope(Box<crate::AsyncGeneratorResourceScopeIr>),
+    AsyncGeneratorResourceRegistration(Box<crate::AsyncGeneratorResourceRegistrationIr>),
+    ArrayDestructuringOperation(Box<crate::ArrayDestructuringOperationIr>),
+    /// Existing await-loop execution, consumed only by async owners.
     GeneratorLoop {
         init: Option<ForInitIr>,
         test: Option<TypedExpr>,
@@ -3709,6 +3616,8 @@ pub enum StatementIr {
         else_branch: Option<Box<StatementIr>>,
         plan: AsyncFunctionIfPlanIr,
     },
+    AsyncFunctionWhile(AsyncFunctionWhileConditionIr),
+    AsyncFunctionSwitch(AsyncFunctionSwitchIr),
     While {
         condition: TypedExpr,
         body: Box<StatementIr>,
@@ -3733,6 +3642,10 @@ pub enum StatementIr {
     AsyncFunctionForOfIterator {
         iterable: TypedExpr,
         plan: AsyncFunctionForOfIteratorPlanIr,
+    },
+    GeneratorForOfIterator {
+        iterable: TypedExpr,
+        plan: GeneratorForOfIteratorPlanIr,
     },
     ForInArray {
         mode: BindingMode,
@@ -3764,6 +3677,7 @@ pub enum StatementIr {
     Labelled {
         labels: Vec<String>,
         statement: Box<StatementIr>,
+        async_plan: Option<AsyncFunctionLabelledPlanIr>,
     },
     Debugger,
     Throw(TypedExpr),
@@ -4010,6 +3924,21 @@ impl AsyncDisposableFinalizerPlanIr {
     /// one state beyond the scope's current entry state.
     pub(crate) const IMPLICIT_STATE_COUNT: u32 = 3;
 
+    pub(crate) fn after_source_suffix(entry_state: u32, suffix_end: u32) -> Option<Self> {
+        if entry_state > suffix_end {
+            return None;
+        }
+        let dispose_state = suffix_end.checked_add(1)?;
+        let resume_state = dispose_state.checked_add(1)?;
+        let exit_state = suffix_end.checked_add(Self::IMPLICIT_STATE_COUNT)?;
+        Some(Self::new(
+            entry_state,
+            dispose_state,
+            resume_state,
+            exit_state,
+        ))
+    }
+
     pub(crate) fn new(
         entry_state: u32,
         dispose_state: u32,
@@ -4162,6 +4091,7 @@ impl StatementIr {
             | Self::Lexical { .. }
             | Self::AnnexBFunctionCopy { .. }
             | Self::LexicalBlock(_)
+            | Self::EmptyStatementCompletion(_)
             | Self::SyncDisposableScope { .. }
             | Self::AsyncDisposableScope { .. }
             | Self::ParameterInitialization { .. }
@@ -4172,15 +4102,35 @@ impl StatementIr {
             | Self::AsyncModuleInstantiation
             | Self::AsyncAwait { .. }
             | Self::GeneratorLoop { .. }
+            | Self::AsyncGeneratorLoop(_)
+            | Self::AsyncGeneratorIf(_)
+            | Self::AsyncGeneratorWith(_)
+            | Self::AsyncGeneratorSwitch(_)
+            | Self::AsyncGeneratorArrayDestructuring(_)
+            | Self::AsyncGeneratorResourceScope(_)
+            | Self::AsyncGeneratorResourceRegistration(_)
+            | Self::AsyncGeneratorForOf(_)
+            | Self::AsyncGeneratorForIn(_)
+            | Self::OrdinaryGeneratorLoop(_)
+            | Self::OrdinaryGeneratorIf(_)
+            | Self::OrdinaryGeneratorSwitch(_)
+            | Self::OrdinaryGeneratorArrayDestructuring(_)
+            | Self::AsyncFunctionArrayDestructuring(_)
+            | Self::AsyncFunctionWith(_)
+            | Self::OrdinaryGeneratorWith(_)
+            | Self::ArrayDestructuringOperation(_)
             | Self::GeneratorIf { .. }
             | Self::Block(_)
             | Self::If { .. }
             | Self::AsyncFunctionIf { .. }
+            | Self::AsyncFunctionWhile(_)
+            | Self::AsyncFunctionSwitch(_)
             | Self::While { .. }
             | Self::DoWhile { .. }
             | Self::For { .. }
             | Self::ForOfIterator { .. }
             | Self::AsyncFunctionForOfIterator { .. }
+            | Self::GeneratorForOfIterator { .. }
             | Self::ForInArray { .. }
             | Self::ForInString { .. }
             | Self::ForInObject { .. }
@@ -4451,6 +4401,7 @@ impl<'a> IntoIterator for &'a GlobalBindingPlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
+    pub template_source: Option<crate::TemplateSourceIr>,
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
     /// A separate global Script evaluated before the Module graph.
     pub module_prelude: Option<PreparedScriptUnit>,
@@ -4503,6 +4454,28 @@ impl ScriptIr {
         std::iter::once(&self.body).chain(self.prepared_script_units().map(|unit| &unit.body))
     }
 
+    /// Number exponentiation emitted by the executable IR, including the
+    /// Number arm of coercive operators. A typed BigInt-only binary operation
+    /// uses its separate arithmetic helper.
+    pub fn has_scalar_exponentiation(&self) -> bool {
+        let mut counts = IrSummaryCounts {
+            scalar_exponentiation: Some(false),
+            ..Default::default()
+        };
+        for body in self.executable_script_bodies() {
+            counts.visit_block(body);
+        }
+        for function in &self.functions {
+            for param in &function.params {
+                if let Some(default_init) = &param.default_init {
+                    counts.visit_expr(default_init);
+                }
+            }
+            counts.visit_function(function);
+        }
+        counts.scalar_exponentiation == Some(true)
+    }
+
     pub const fn result_kind(&self) -> ValueKind {
         self.body.result_kind
     }
@@ -4545,6 +4518,32 @@ pub(crate) fn statement_contains_suspension(statement: &StatementIr) -> bool {
     counts.suspensions != 0
 }
 
+/// Inspect the current activation's statement tree. Function values name a
+/// separate function body and the exhaustive summary visitor does not enter it.
+pub(crate) fn statement_contains_async_while_condition(statement: &StatementIr) -> bool {
+    let mut counts = IrSummaryCounts::default();
+    counts.visit_statement(statement);
+    counts.async_while_conditions != 0
+}
+
+pub(crate) fn statement_contains_async_switch(statement: &StatementIr) -> bool {
+    let mut counts = IrSummaryCounts::default();
+    counts.visit_statement(statement);
+    counts.async_switch_owners != 0
+}
+
+pub(crate) fn statement_contains_async_with(statement: &StatementIr) -> bool {
+    let mut counts = IrSummaryCounts::default();
+    counts.visit_statement(statement);
+    counts.async_with_owners != 0
+}
+
+pub(crate) fn statement_contains_async_for_in(statement: &StatementIr) -> bool {
+    let mut counts = IrSummaryCounts::default();
+    counts.visit_statement(statement);
+    counts.async_for_in_owners != 0
+}
+
 impl ProgramIr {
     /// The first diagnostic that prevents this program from reaching Wasm
     /// emission.
@@ -4554,13 +4553,21 @@ impl ProgramIr {
     /// diagnostic intact lets consumers retain closed capability identities
     /// instead of reconstructing them from the display message.
     pub fn wasm_blocking_diagnostic(&self) -> Option<&IrDiagnostic> {
-        self.diagnostics.iter().find(|diagnostic| {
+        let blocking = self.diagnostics.iter().find(|diagnostic| {
             matches!(
                 diagnostic.kind(),
                 IrDiagnosticKind::Unsupported
                     | IrDiagnosticKind::EarlyError
                     | IrDiagnosticKind::LinkError
             )
+        });
+        // A program without a lowered script has no artifact to emit, so
+        // whatever diagnostic explains that blocks, whatever its kind.
+        blocking.or_else(|| {
+            self.script
+                .is_none()
+                .then(|| self.diagnostics.first())
+                .flatten()
         })
     }
 
@@ -4711,9 +4718,48 @@ impl ProgramIr {
     }
 }
 
+/// Sole consumed storage query for the checked generator entry-local head.
+/// Reuses the exhaustive summary traversal; ordinary summaries keep their
+/// existing counter traversal when no storage name is tracked.
+pub(crate) fn statements_reference_storage(statements: &[StatementIr], name: &str) -> bool {
+    let mut counts = IrSummaryCounts {
+        tracked_storage: Some(name.to_string()),
+        ..Default::default()
+    };
+    for statement in statements {
+        counts.visit_statement(statement);
+    }
+    counts.storage_seen
+}
+
+/// Validate the entry-only IteratorValue reads in a prepared eager pattern.
+/// Every retained name/write uses the same existing exhaustive storage census.
+pub(crate) fn entry_local_storage_has_only_dynamic_reads(
+    statements: &[StatementIr],
+    name: &str,
+) -> bool {
+    let mut counts = IrSummaryCounts {
+        tracked_storage: Some(name.to_string()),
+        ..Default::default()
+    };
+    for statement in statements {
+        counts.visit_statement(statement);
+    }
+    counts.storage_read_seen && !counts.storage_non_read_seen && !counts.storage_invalid_read
+}
+
 #[derive(Default)]
 struct IrSummaryCounts {
+    tracked_storage: Option<String>,
+    storage_seen: bool,
+    storage_read_seen: bool,
+    storage_non_read_seen: bool,
+    storage_invalid_read: bool,
     suspensions: usize,
+    async_while_conditions: usize,
+    async_switch_owners: usize,
+    async_with_owners: usize,
+    async_for_in_owners: usize,
     statements: usize,
     functions: usize,
     nested_functions: usize,
@@ -4784,6 +4830,7 @@ struct IrSummaryCounts {
     loose_equalities: usize,
     coercive_numeric_ops: usize,
     coercive_relational_ops: usize,
+    scalar_exponentiation: Option<bool>,
     typeof_uses: usize,
     void_uses: usize,
     deletes: usize,
@@ -4803,6 +4850,94 @@ struct IrSummaryCounts {
 }
 
 impl IrSummaryCounts {
+    fn track_storage(&mut self, name: &str) {
+        let matches = self.tracked_storage.as_deref() == Some(name);
+        self.storage_seen |= matches;
+        self.storage_non_read_seen |= matches;
+    }
+
+    fn track_environment(&mut self, environment: Option<&LexicalEnvironmentIr>) {
+        if self.tracked_storage.is_some() {
+            if let Some(environment) = environment {
+                for binding in &environment.bindings {
+                    self.track_storage(&binding.name);
+                }
+            }
+        }
+    }
+
+    fn track_for_environment(&mut self, environment: Option<&ForInOfEnvironmentIr>) {
+        if let Some(environment) = environment {
+            self.track_environment(environment.tdz_environment.as_ref());
+            self.track_environment(environment.iteration_environment.as_ref());
+            for name in &environment.tdz_binding_names {
+                self.track_storage(name);
+            }
+        }
+    }
+
+    fn track_iteration_environment(&mut self, environment: &ResumableLoopIterationEnvironmentIr) {
+        match environment {
+            ResumableLoopIterationEnvironmentIr::StorageOnly => {}
+            ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) => {
+                self.track_environment(Some(environment))
+            }
+        }
+    }
+
+    fn track_record(&mut self, record: &IteratorRecordIr) {
+        self.track_storage(record.iterator().as_str());
+        self.track_storage(record.next_method().as_str());
+        self.track_storage(record.done().as_str());
+    }
+
+    fn track_destructuring_target(&mut self, target: &DestructuringTargetIr) {
+        match target {
+            DestructuringTargetIr::Binding { name, .. } => self.track_storage(name),
+            DestructuringTargetIr::ResolvedVarBinding { name, reference } => {
+                self.track_storage(name);
+                self.track_storage(reference.name());
+            }
+            DestructuringTargetIr::AssignmentIdentifier(reference) => {
+                self.track_storage(reference.name())
+            }
+            DestructuringTargetIr::NestedArray(pattern) => self.track_array_pattern(pattern),
+            DestructuringTargetIr::NestedObject(pattern) => self.track_object_pattern(pattern),
+            DestructuringTargetIr::AssignmentSuper { value_binding, .. } => {
+                self.track_storage(value_binding)
+            }
+            DestructuringTargetIr::AssignmentProperty { .. }
+            | DestructuringTargetIr::AssignmentPrivate { .. } => {}
+        }
+    }
+
+    fn track_array_pattern(&mut self, pattern: &ArrayDestructuringPatternIr) {
+        if self.tracked_storage.is_none() {
+            return;
+        }
+        for element in &pattern.elements {
+            match element {
+                ArrayDestructuringElementIr::Elision => {}
+                ArrayDestructuringElementIr::Target { target, .. }
+                | ArrayDestructuringElementIr::Rest { target } => {
+                    self.track_destructuring_target(target)
+                }
+            }
+        }
+    }
+
+    fn track_object_pattern(&mut self, pattern: &ObjectDestructuringPatternIr) {
+        if self.tracked_storage.is_none() {
+            return;
+        }
+        for property in &pattern.properties {
+            self.track_destructuring_target(&property.target);
+        }
+        if let Some(rest) = &pattern.rest {
+            self.track_destructuring_target(rest);
+        }
+    }
+
     fn visit_function(&mut self, function: &FunctionIr) {
         if let Some(plan) = &function.class_instance_element_plan {
             self.class_fields += plan.elements.len();
@@ -4854,6 +4989,7 @@ impl IrSummaryCounts {
     }
 
     fn visit_block(&mut self, block: &BlockIr) {
+        self.track_environment(block.lexical_environment.as_ref());
         for statement in &block.statements {
             self.visit_statement(statement);
         }
@@ -4866,8 +5002,27 @@ impl IrSummaryCounts {
             StatementIr::GeneratorYield { .. }
                 | StatementIr::AsyncDisposableScope { .. }
                 | StatementIr::GeneratorLoop { .. }
+                | StatementIr::AsyncGeneratorLoop(_)
+                | StatementIr::AsyncGeneratorIf(_)
+                | StatementIr::AsyncGeneratorWith(_)
+                | StatementIr::AsyncGeneratorSwitch(_)
+                | StatementIr::AsyncGeneratorArrayDestructuring(_)
+                | StatementIr::AsyncGeneratorResourceScope(_)
+                | StatementIr::AsyncGeneratorResourceRegistration(_)
+                | StatementIr::AsyncGeneratorForOf(_)
+                | StatementIr::AsyncGeneratorForIn(_)
+                | StatementIr::OrdinaryGeneratorLoop(_)
+                | StatementIr::OrdinaryGeneratorIf(_)
+                | StatementIr::OrdinaryGeneratorSwitch(_)
+                | StatementIr::OrdinaryGeneratorArrayDestructuring(_)
+                | StatementIr::AsyncFunctionArrayDestructuring(_)
+                | StatementIr::AsyncFunctionWith(_)
+                | StatementIr::OrdinaryGeneratorWith(_)
+                | StatementIr::GeneratorForOfIterator { .. }
                 | StatementIr::GeneratorIf { .. }
                 | StatementIr::AsyncFunctionIf { .. }
+                | StatementIr::AsyncFunctionWhile(_)
+                | StatementIr::AsyncFunctionSwitch(_)
                 | StatementIr::ForOfIterator {
                     head: ForOfIteratorHeadIr::Assignment {
                         async_plan: Some(_),
@@ -4883,18 +5038,36 @@ impl IrSummaryCounts {
             self.suspensions += 1;
         }
         match statement {
+            StatementIr::EmptyStatementCompletion(item) => self.visit_statement(item.statement()),
             StatementIr::ResumableClassDefinition(plan) => {
                 self.visit_expr(plan.expression());
                 for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
                     self.visit_statement(statement);
                 }
             }
-            StatementIr::AsyncModuleInstantiation
-            | StatementIr::Empty
-            | StatementIr::AnnexBFunctionCopy { .. } => {}
-            StatementIr::ModuleImportBinding(_) => {}
+            StatementIr::AsyncModuleInstantiation | StatementIr::Empty => {}
+            StatementIr::AnnexBFunctionCopy {
+                block_storage_name,
+                target,
+                admission,
+                ..
+            } => {
+                self.track_storage(block_storage_name);
+                match target {
+                    AnnexBFunctionCopyTargetIr::OwnerBinding { storage_name } => {
+                        self.track_storage(storage_name)
+                    }
+                    AnnexBFunctionCopyTargetIr::ScriptGlobal { .. }
+                    | AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. } => {}
+                }
+                if let Some(binding) = admission {
+                    self.track_storage(&binding.name);
+                }
+            }
+            StatementIr::ModuleImportBinding(binding) => self.track_storage(&binding.name),
             StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
-            StatementIr::Lexical { mode, init, .. } => {
+            StatementIr::Lexical { mode, name, init } => {
+                self.track_storage(name);
                 match mode {
                     BindingMode::Let => self.lets += 1,
                     BindingMode::Const => self.consts += 1,
@@ -4909,17 +5082,43 @@ impl IrSummaryCounts {
                 }
             }
             StatementIr::SyncDisposableScope {
-                resources, body, ..
+                execution,
+                resources,
+                body,
             } => {
+                match execution {
+                    SyncDisposableScopeExecutionIr::Immediate => {}
+                    SyncDisposableScopeExecutionIr::PlainGenerator(capability) => {
+                        self.track_storage(capability.binding_name())
+                    }
+                    SyncDisposableScopeExecutionIr::AsyncFunction(capability) => {
+                        self.track_storage(capability.binding_name())
+                    }
+                    SyncDisposableScopeExecutionIr::AsyncGenerator(capability) => {
+                        self.track_storage(capability.binding_name())
+                    }
+                }
                 for resource in resources.iter() {
+                    self.track_storage(&resource.binding_name);
                     self.visit_expr(&resource.initializer);
                 }
                 self.visit_block(body);
             }
             StatementIr::AsyncDisposableScope {
-                resources, body, ..
+                execution,
+                resources,
+                body,
             } => {
+                match execution {
+                    AsyncDisposableScopeExecutionIr::AsyncFunction(capability) => {
+                        self.track_storage(capability.binding_name())
+                    }
+                    AsyncDisposableScopeExecutionIr::AsyncGenerator(capability) => {
+                        self.track_storage(capability.binding_name())
+                    }
+                }
                 for resource in resources.iter() {
+                    self.track_storage(resource.binding_name());
                     self.visit_expr(resource.initializer());
                 }
                 self.visit_block(body);
@@ -4927,6 +5126,7 @@ impl IrSummaryCounts {
             StatementIr::Var(declarators) => {
                 self.vars += declarators.len();
                 for declarator in declarators {
+                    self.track_storage(&declarator.name);
                     if let Some(init) = &declarator.init {
                         self.visit_expr(init);
                     }
@@ -4938,6 +5138,9 @@ impl IrSummaryCounts {
             StatementIr::GeneratorYield {
                 value, resume_mode, ..
             } => {
+                if let GeneratorResumeModeIr::AssignIdentifier(name) = resume_mode {
+                    self.track_storage(name);
+                }
                 if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
                     match reference.use_view() {
                         SuspendedPropertyReferenceUse::Ordinary {
@@ -4956,7 +5159,12 @@ impl IrSummaryCounts {
                 }
                 self.visit_expr(value);
             }
-            StatementIr::AsyncAwait { value, .. } => {
+            StatementIr::AsyncAwait {
+                value, resume_mode, ..
+            } => {
+                if let AsyncResumeModeIr::AssignIdentifier(name) = resume_mode {
+                    self.track_storage(name);
+                }
                 self.suspensions += 1;
                 self.visit_expr(value);
             }
@@ -4982,6 +5190,15 @@ impl IrSummaryCounts {
                     self.visit_statement(else_branch);
                 }
             }
+            StatementIr::AsyncFunctionWhile(plan) => {
+                self.async_while_conditions += 1;
+                self.whiles += 1;
+                for statement in plan.condition_prefix() {
+                    self.visit_statement(statement);
+                }
+                self.visit_expr(plan.condition());
+                self.visit_statement(plan.body());
+            }
             StatementIr::While { condition, body } => {
                 self.whiles += 1;
                 self.visit_expr(condition);
@@ -4997,8 +5214,13 @@ impl IrSummaryCounts {
                 test,
                 update,
                 body,
-                ..
+                lexical_environment,
             } => {
+                if let Some(environment) = lexical_environment {
+                    for binding in &environment.bindings {
+                        self.track_storage(&binding.name);
+                    }
+                }
                 self.fors += 1;
                 if let Some(init) = init {
                     self.visit_for_init(init);
@@ -5011,6 +5233,188 @@ impl IrSummaryCounts {
                 }
                 self.visit_statement(body);
             }
+            StatementIr::OrdinaryGeneratorLoop(plan) => {
+                self.track_storage(plan.value_binding_name());
+                if let Some(environment) = plan.lexical_environment() {
+                    for binding in &environment.bindings {
+                        self.track_storage(&binding.name);
+                    }
+                }
+                match plan.kind() {
+                    GeneratorLoopKindIr::For => self.fors += 1,
+                    GeneratorLoopKindIr::While => self.whiles += 1,
+                    GeneratorLoopKindIr::DoWhile => self.do_whiles += 1,
+                }
+                for region in plan.regions() {
+                    self.visit_block(region.block());
+                }
+                for expression in plan.expressions() {
+                    self.visit_expr(expression);
+                }
+            }
+            StatementIr::AsyncGeneratorLoop(plan) => {
+                self.track_storage(plan.value_binding_name());
+                if let Some(resource) = plan.resource() {
+                    self.track_storage(&resource.capability_binding().name);
+                }
+                if let Some(environment) = plan.lexical_environment() {
+                    for binding in &environment.bindings {
+                        self.track_storage(&binding.name);
+                    }
+                }
+                match plan.kind() {
+                    GeneratorLoopKindIr::For => self.fors += 1,
+                    GeneratorLoopKindIr::While => self.whiles += 1,
+                    GeneratorLoopKindIr::DoWhile => self.do_whiles += 1,
+                }
+                for region in plan.regions() {
+                    self.visit_block(region.block());
+                }
+                for expression in plan.expressions() {
+                    self.visit_expr(expression);
+                }
+            }
+            StatementIr::OrdinaryGeneratorIf(plan) => {
+                self.ifs += 1;
+                self.visit_expr(plan.condition());
+                self.visit_block(plan.then_branch().block());
+                self.visit_block(plan.else_branch().block());
+            }
+            StatementIr::AsyncGeneratorIf(plan) => {
+                self.ifs += 1;
+                self.visit_block(plan.condition().region().block());
+                self.visit_expr(plan.condition().value());
+                self.visit_block(plan.then_branch().block());
+                self.visit_block(plan.else_branch().block());
+            }
+            StatementIr::OrdinaryGeneratorSwitch(plan) => {
+                self.switches += 1;
+                self.track_storage(&plan.discriminant_binding().name);
+                self.track_storage(&plan.value_binding().name);
+                self.visit_block(plan.discriminant().region().block());
+                self.visit_expr(plan.discriminant().value());
+                self.track_environment(plan.lexical_environment());
+                for declaration in plan.lexical_declarations() {
+                    self.visit_statement(declaration);
+                }
+                for case in plan.cases() {
+                    if let Some(selector) = case.selector() {
+                        self.visit_block(selector.region().block());
+                        self.visit_expr(selector.value());
+                    }
+                    self.visit_block(case.body().block());
+                }
+            }
+            StatementIr::AsyncGeneratorSwitch(plan) => {
+                self.switches += 1;
+                if let Some(resource) = plan.resource() {
+                    self.track_storage(&resource.capability_binding().name);
+                }
+                self.track_storage(&plan.discriminant_binding().name);
+                self.track_storage(&plan.value_binding().name);
+                self.visit_block(plan.discriminant().region().block());
+                self.visit_expr(plan.discriminant().value());
+                self.track_environment(plan.lexical_environment());
+                for declaration in plan.lexical_declarations() {
+                    self.visit_statement(declaration);
+                }
+                for case in plan.cases() {
+                    if let Some(selector) = case.selector() {
+                        self.visit_block(selector.region().block());
+                        self.visit_expr(selector.value());
+                    }
+                    self.visit_block(case.body().block());
+                }
+            }
+            StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => {
+                self.track_storage(&plan.storage().binding().name);
+                self.visit_expr(plan.raw_source());
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorResourceScope(plan) => {
+                self.track_storage(&plan.capability_binding().name);
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorResourceRegistration(operation) => {
+                self.track_storage(operation.binding_name());
+                self.visit_expr(operation.initializer());
+            }
+            StatementIr::AsyncGeneratorArrayDestructuring(plan) => {
+                self.track_storage(&plan.storage().binding().name);
+                self.visit_expr(plan.raw_source());
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::AsyncFunctionArrayDestructuring(plan) => {
+                self.track_storage(&plan.storage().binding().name);
+                self.visit_expr(plan.raw_source());
+                self.visit_block(plan.body());
+            }
+            StatementIr::AsyncGeneratorForIn(plan) => {
+                self.fors += 1;
+                if plan.execution() == crate::ResumableRegionProtocolIr::Async {
+                    self.async_for_in_owners += 1;
+                }
+                for binding in [
+                    plan.head_binding(),
+                    plan.enumerator_binding(),
+                    plan.key_binding(),
+                    plan.value_binding(),
+                ] {
+                    self.track_storage(&binding.name);
+                }
+                self.visit_block(plan.head().region().block());
+                self.visit_expr(plan.head().value());
+                self.track_for_environment(plan.lexical_environment());
+                self.visit_block(plan.initialization());
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorForOf(plan) => {
+                self.fors += 1;
+                if let Some(resource) = plan.resource() {
+                    self.track_storage(&resource.capability_binding().name);
+                }
+                for binding in [
+                    plan.head_binding(),
+                    plan.incoming_binding(),
+                    plan.value_binding(),
+                ] {
+                    self.track_storage(&binding.name);
+                }
+                self.visit_block(plan.head().region().block());
+                self.visit_expr(plan.head().value());
+                self.track_for_environment(plan.lexical_environment());
+                self.visit_block(plan.initialization().block());
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::OrdinaryGeneratorWith(plan) => {
+                self.visit_block(plan.head().region().block());
+                self.visit_expr(plan.head().value());
+                self.track_environment(Some(plan.lexical_environment()));
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorWith(plan) => {
+                self.track_storage(&plan.head_binding().name);
+                self.visit_block(plan.head().region().block());
+                self.visit_expr(plan.head().value());
+                self.track_environment(Some(plan.lexical_environment()));
+                self.visit_block(plan.body().block());
+            }
+            StatementIr::AsyncFunctionWith(plan) => {
+                self.async_with_owners += 1;
+                self.track_storage(&plan.head_binding().name);
+                self.visit_block(plan.head());
+                self.visit_expr(plan.head_value());
+                self.track_environment(Some(plan.lexical_environment()));
+                self.visit_block(plan.body());
+            }
+            StatementIr::ArrayDestructuringOperation(operation) => {
+                self.track_storage(&operation.storage().binding().name);
+                match operation.use_view() {
+                    crate::ArrayDestructuringOperationView::RestArray(_) => self.arrays += 1,
+                    crate::ArrayDestructuringOperationView::StepValue(_)
+                    | crate::ArrayDestructuringOperationView::Elision(_) => {}
+                }
+            }
             StatementIr::GeneratorLoop {
                 init,
                 test,
@@ -5018,8 +5422,10 @@ impl IrSummaryCounts {
                 before_suspension,
                 suspension_statement,
                 after_suspension,
+                iteration_environment,
                 ..
             } => {
+                self.track_iteration_environment(iteration_environment);
                 self.fors += 1;
                 if let Some(init) = init {
                     self.visit_for_init(init);
@@ -5062,38 +5468,118 @@ impl IrSummaryCounts {
                 }
             }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                self.track_storage(plan.value_name());
+                self.track_record(plan.record());
+                match plan.execution() {
+                    AsyncFunctionForOfIteratorExecutionIr::Synchronous(_) => {}
+                    AsyncFunctionForOfIteratorExecutionIr::Awaited(awaited) => {
+                        self.track_storage(awaited.async_iterator_binding());
+                        self.track_storage(awaited.close_on_rejection_binding());
+                    }
+                }
+                self.track_for_environment(plan.head_environment());
+                self.track_iteration_environment(plan.iteration_environment());
                 self.fors += 1;
                 self.visit_expr(iterable);
                 for statement in plan.body().statements() {
                     self.visit_statement(statement);
                 }
             }
-            StatementIr::ForOfIterator { iterable, body, .. }
-            | StatementIr::ForInArray {
-                target: iterable,
-                body,
-                ..
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
+                self.track_storage(plan.value_name());
+                self.track_record(plan.record());
+                self.track_for_environment(plan.head_environment());
+                self.track_iteration_environment(plan.iteration_environment());
+                self.fors += 1;
+                self.visit_expr(iterable);
+                for statement in plan.body().statements() {
+                    self.visit_statement(statement);
+                }
             }
-            | StatementIr::ForInString {
-                target: iterable,
+            StatementIr::ForOfIterator {
+                head,
+                iterable,
                 body,
-                ..
-            }
-            | StatementIr::ForInObject {
-                target: iterable,
-                body,
-                ..
+                lexical_environment,
             } => {
+                self.track_for_environment(lexical_environment.as_ref());
+                match head {
+                    ForOfIteratorHeadIr::Assignment {
+                        binding,
+                        async_plan,
+                        ..
+                    } => {
+                        self.track_storage(&binding.name);
+                        if let Some(plan) = async_plan {
+                            self.track_record(&plan.record);
+                            self.track_storage(&plan.async_iterator_binding);
+                            self.track_storage(&plan.close_on_rejection_binding);
+                        }
+                    }
+                    ForOfIteratorHeadIr::SyncDisposable(head) => {
+                        self.track_storage(head.binding_name())
+                    }
+                    ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                        self.track_storage(head.binding_name());
+                        self.track_storage(head.capability().binding_name());
+                        self.track_record(head.record());
+                    }
+                }
                 self.fors += 1;
                 self.visit_expr(iterable);
                 self.visit_statement(body);
+            }
+            StatementIr::ForInArray {
+                name,
+                target,
+                body,
+                lexical_environment,
+                ..
+            }
+            | StatementIr::ForInString {
+                name,
+                target,
+                body,
+                lexical_environment,
+                ..
+            }
+            | StatementIr::ForInObject {
+                name,
+                target,
+                body,
+                lexical_environment,
+                ..
+            } => {
+                self.track_storage(name);
+                self.track_for_environment(lexical_environment.as_ref());
+                self.fors += 1;
+                self.visit_expr(target);
+                self.visit_statement(body);
+            }
+            StatementIr::AsyncFunctionSwitch(plan) => {
+                self.async_switch_owners += 1;
+                self.switches += 1;
+                self.visit_expr(plan.discriminant());
+                for declaration in plan.lexical_declarations() {
+                    self.visit_statement(declaration);
+                }
+                for case in plan.cases() {
+                    for statement in case.condition_prefix() {
+                        self.visit_statement(statement);
+                    }
+                    if let Some(condition) = case.condition() {
+                        self.visit_expr(condition);
+                    }
+                    self.visit_block(case.body());
+                }
             }
             StatementIr::Switch {
                 discriminant,
                 lexical_declarations,
                 cases,
-                ..
+                lexical_environment,
             } => {
+                self.track_environment(lexical_environment.as_ref());
                 self.switches += 1;
                 self.visit_expr(discriminant);
                 for declaration in lexical_declarations {
@@ -5106,7 +5592,9 @@ impl IrSummaryCounts {
                     self.visit_block(&case.body);
                 }
             }
-            StatementIr::Labelled { labels, statement } => {
+            StatementIr::Labelled {
+                labels, statement, ..
+            } => {
                 self.labels += labels.len();
                 self.visit_statement(statement);
             }
@@ -5118,8 +5606,12 @@ impl IrSummaryCounts {
             StatementIr::TryCatch {
                 try_block,
                 catch_block,
+                catch_name,
+                catch_parameter_environment,
                 ..
             } => {
+                self.track_storage(catch_name);
+                self.track_environment(catch_parameter_environment.as_ref());
                 self.try_catches += 1;
                 self.visit_block(try_block);
                 self.visit_block(catch_block);
@@ -5137,8 +5629,12 @@ impl IrSummaryCounts {
                 try_block,
                 catch_block,
                 finally_block,
+                catch_name,
+                catch_parameter_environment,
                 ..
             } => {
+                self.track_storage(catch_name);
+                self.track_environment(catch_parameter_environment.as_ref());
                 self.try_finallys += 1;
                 self.visit_block(try_block);
                 self.visit_block(catch_block);
@@ -5155,7 +5651,8 @@ impl IrSummaryCounts {
 
     fn visit_for_init(&mut self, init: &ForInitIr) {
         match init {
-            ForInitIr::Lexical { mode, init, .. } => {
+            ForInitIr::Lexical { mode, name, init } => {
+                self.track_storage(name);
                 match mode {
                     BindingMode::Let => self.lets += 1,
                     BindingMode::Const => self.consts += 1,
@@ -5165,6 +5662,7 @@ impl IrSummaryCounts {
             }
             ForInitIr::LexicalBlock(bindings) => {
                 for binding in bindings {
+                    self.track_storage(&binding.name);
                     match binding.mode {
                         BindingMode::Let => self.lets += 1,
                         BindingMode::Const => self.consts += 1,
@@ -5176,6 +5674,7 @@ impl IrSummaryCounts {
             ForInitIr::Var(declarators) => {
                 self.vars += declarators.len();
                 for declarator in declarators {
+                    self.track_storage(&declarator.name);
                     if let Some(init) = &declarator.init {
                         self.visit_expr(init);
                     }
@@ -5190,19 +5689,94 @@ impl IrSummaryCounts {
             ForInitIr::SyncDisposable(resources) => {
                 self.consts += resources.len();
                 for resource in resources.iter() {
+                    self.track_storage(&resource.binding_name);
                     self.visit_expr(&resource.initializer);
                 }
             }
             ForInitIr::AsyncDisposable(init) => {
                 self.consts += init.resources().len();
                 for resource in init.resources().iter() {
+                    self.track_storage(resource.binding_name());
                     self.visit_expr(resource.initializer());
                 }
             }
         }
     }
 
+    fn visit_object_property(&mut self, property: &ObjectPropertyIr) {
+        match property {
+            ObjectPropertyIr::PrototypeSetter { value }
+            | ObjectPropertyIr::Spread { source: value }
+            | ObjectPropertyIr::NonEnumerableData { value, .. } => self.visit_expr(value),
+            ObjectPropertyIr::Data {
+                value,
+                is_shorthand,
+                ..
+            } => {
+                self.object_shorthands += usize::from(*is_shorthand);
+                self.visit_expr(value);
+            }
+            ObjectPropertyIr::ComputedData { key, value, .. } => {
+                self.visit_expr(key);
+                self.visit_expr(value);
+            }
+            ObjectPropertyIr::ComputedMethod { key, .. } => {
+                self.object_methods += 1;
+                self.function_values += 1;
+                self.visit_expr(key);
+            }
+            ObjectPropertyIr::Method { .. } => {
+                self.object_methods += 1;
+                self.function_values += 1;
+            }
+            ObjectPropertyIr::ComputedGetter { key, .. } => {
+                self.object_getters += 1;
+                self.function_values += 1;
+                self.visit_expr(key);
+            }
+            ObjectPropertyIr::Getter { .. } => {
+                self.object_getters += 1;
+                self.function_values += 1;
+            }
+            ObjectPropertyIr::ComputedSetter { key, .. } => {
+                self.object_setters += 1;
+                self.function_values += 1;
+                self.visit_expr(key);
+            }
+            ObjectPropertyIr::Setter { .. } => {
+                self.object_setters += 1;
+                self.function_values += 1;
+            }
+        }
+    }
+
     fn visit_expr(&mut self, expr: &TypedExpr) {
+        if let Some(required) = &mut self.scalar_exponentiation {
+            *required |= match &expr.expr {
+                ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Exp,
+                    ..
+                } => expr.kind != ValueKind::BigInt,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Exp,
+                    ..
+                }
+                | ExprIr::CompoundAssignIdentifier {
+                    op: ArithmeticBinaryOp::Exp,
+                    ..
+                } => true,
+                ExprIr::EnvironmentIdentifier(identifier) => matches!(
+                    &identifier.operation,
+                    crate::EnvironmentIdentifierOperationIr::EagerCompound {
+                        operation: crate::EnvironmentCompoundOperationIr::Arithmetic(
+                            ArithmeticBinaryOp::Exp
+                        ),
+                        ..
+                    }
+                ),
+                _ => false,
+            };
+        }
         if expr.heap_shape.is_some() {
             self.heap_shapes += 1;
         }
@@ -5214,11 +5788,22 @@ impl IrSummaryCounts {
         }
         match &expr.expr {
             ExprIr::EnvironmentIdentifier(identifier) => {
+                self.track_storage(&identifier.name);
                 match &identifier.operation {
                     crate::EnvironmentIdentifierOperationIr::Read
                     | crate::EnvironmentIdentifierOperationIr::Typeof
+                    | crate::EnvironmentIdentifierOperationIr::CaptureCallReference { .. }
+                    | crate::EnvironmentIdentifierOperationIr::CaptureAssignmentReference {
+                        ..
+                    }
+                    | crate::EnvironmentIdentifierOperationIr::ReleaseCapturedReference {
+                        ..
+                    }
                     | crate::EnvironmentIdentifierOperationIr::Delete => {}
-                    crate::EnvironmentIdentifierOperationIr::Assign { .. } => self.assignments += 1,
+                    crate::EnvironmentIdentifierOperationIr::Assign { .. }
+                    | crate::EnvironmentIdentifierOperationIr::PutCapturedReference { .. } => {
+                        self.assignments += 1
+                    }
                     crate::EnvironmentIdentifierOperationIr::Update { return_mode, .. } => {
                         match return_mode {
                             UpdateReturnMode::Prefix => self.prefix_updates += 1,
@@ -5242,6 +5827,7 @@ impl IrSummaryCounts {
             ExprIr::ModuleEntryEvaluation(entry) => self.visit_expr(entry.evaluation()),
             ExprIr::ModuleExecutionGraph(_)
             | ExprIr::ModuleBindingRead(_)
+            | ExprIr::JsonModuleValue(_)
             | ExprIr::ModuleEvaluate(_)
             | ExprIr::DeferredModuleEvaluate(_)
             | ExprIr::ModuleHasAsyncDependencies(_)
@@ -5256,7 +5842,8 @@ impl IrSummaryCounts {
                     self.visit_expr(options);
                 }
             }
-            ExprIr::AssignIdentifier { value, .. } => {
+            ExprIr::AssignIdentifier { name, value } => {
+                self.track_storage(name);
                 self.assignments += 1;
                 self.visit_expr(value);
             }
@@ -5274,57 +5861,12 @@ impl IrSummaryCounts {
             ExprIr::ObjectLiteral(properties) => {
                 self.objects += 1;
                 for property in properties {
-                    match property {
-                        ObjectPropertyIr::PrototypeSetter { value }
-                        | ObjectPropertyIr::Spread { source: value } => {
-                            self.visit_expr(value);
-                        }
-                        ObjectPropertyIr::Data {
-                            value,
-                            is_shorthand,
-                            ..
-                        } => {
-                            if *is_shorthand {
-                                self.object_shorthands += 1;
-                            }
-                            self.visit_expr(value);
-                        }
-                        ObjectPropertyIr::NonEnumerableData { value, .. } => {
-                            self.visit_expr(value);
-                        }
-                        ObjectPropertyIr::ComputedData { key, value, .. } => {
-                            self.visit_expr(key);
-                            self.visit_expr(value);
-                        }
-                        ObjectPropertyIr::ComputedMethod { key, .. } => {
-                            self.object_methods += 1;
-                            self.function_values += 1;
-                            self.visit_expr(key);
-                        }
-                        ObjectPropertyIr::Method { .. } => {
-                            self.object_methods += 1;
-                            self.function_values += 1;
-                        }
-                        ObjectPropertyIr::ComputedGetter { key, .. } => {
-                            self.object_getters += 1;
-                            self.function_values += 1;
-                            self.visit_expr(key);
-                        }
-                        ObjectPropertyIr::Getter { .. } => {
-                            self.object_getters += 1;
-                            self.function_values += 1;
-                        }
-                        ObjectPropertyIr::ComputedSetter { key, .. } => {
-                            self.object_setters += 1;
-                            self.function_values += 1;
-                            self.visit_expr(key);
-                        }
-                        ObjectPropertyIr::Setter { .. } => {
-                            self.object_setters += 1;
-                            self.function_values += 1;
-                        }
-                    }
+                    self.visit_object_property(property);
                 }
+            }
+            ExprIr::ObjectPropertyDefinition(definition) => {
+                self.visit_expr(definition.target());
+                self.visit_object_property(definition.property());
             }
             ExprIr::RegExpLiteral { .. } => {
                 self.objects += 1;
@@ -5350,6 +5892,18 @@ impl IrSummaryCounts {
             ExprIr::TemplateObject(_) => {
                 self.arrays += 2;
             }
+            ExprIr::CaptureOptionalCallReference(capture) => {
+                for operand in capture.operands() {
+                    self.visit_expr(operand);
+                }
+            }
+            ExprIr::CaptureArgumentList(capture) => {
+                self.arrays += 1;
+                for argument in capture.arguments() {
+                    self.visit_expr(argument);
+                }
+            }
+            ExprIr::CapturedArgumentList(list) => self.visit_expr(list.binding()),
             ExprIr::SpreadArgument(spread) => {
                 self.visit_expr(&spread.value);
             }
@@ -5400,6 +5954,47 @@ impl IrSummaryCounts {
                     }
                 }
             }
+            ExprIr::DeleteOptionalPropertyChain(deletion) => {
+                let target = deletion.target();
+                let chain = deletion.prefix();
+                self.visit_expr(target);
+                let mut previous_was_property = false;
+                for operation in chain {
+                    match operation {
+                        OptionalChainOperationIr::Property { key, .. } => {
+                            self.property_reads += 1;
+                            if matches!(key, PropertyKeyIr::ArrayLength) {
+                                self.array_lengths += 1;
+                            }
+                            if matches!(key, PropertyKeyIr::StaticString(name) if name == "prototype")
+                            {
+                                self.prototype_reads += 1;
+                            }
+                            self.visit_property_key(key);
+                            previous_was_property = true;
+                        }
+                        OptionalChainOperationIr::PrivateProperty { .. } => {
+                            self.private_elements += 1;
+                            previous_was_property = true;
+                        }
+                        OptionalChainOperationIr::Call { args, receiver, .. } => {
+                            self.calls += 1;
+                            self.indirect_calls += 1;
+                            self.method_calls += usize::from(
+                                previous_was_property
+                                    || *receiver == OptionalChainCallReceiverIr::CurrentThis,
+                            );
+                            for arg in args {
+                                self.visit_expr(arg);
+                            }
+                            previous_was_property = false;
+                        }
+                    }
+                }
+
+                self.deletes += 1;
+                self.visit_property_key(deletion.key());
+            }
             ExprIr::PropertyWrite {
                 target, key, value, ..
             } => {
@@ -5433,6 +6028,25 @@ impl IrSummaryCounts {
                 self.visit_property_key(assignment.referenced_name());
                 self.visit_expr(assignment.rhs());
             }
+            ExprIr::OrdinaryPropertyGetCapture(capture) => {
+                self.track_storage(capture.receiver_storage_name());
+                self.track_storage(capture.target_storage_name());
+                self.track_storage(capture.key_storage_name());
+                self.property_reads += 1;
+                self.visit_expr(capture.base_and_receiver());
+                self.visit_property_key(capture.referenced_name());
+            }
+            ExprIr::CapturedOrdinaryPropertyWrite(write) => {
+                self.track_storage(write.receiver_storage_name());
+                self.track_storage(write.target_storage_name());
+                self.track_storage(write.key_storage_name());
+                self.property_writes += 1;
+                self.compound_assignments += 1;
+                if write.static_key() == Some("prototype") {
+                    self.prototype_writes += 1;
+                }
+                self.visit_expr(write.rhs());
+            }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.property_reads += 1;
                 self.property_writes += 1;
@@ -5444,6 +6058,7 @@ impl IrSummaryCounts {
                 self.visit_property_key(update.referenced_name());
             }
             ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+                self.track_storage(assignment.old_value_binding());
                 self.property_reads += 1;
                 self.property_writes += 1;
                 self.compound_assignments += 1;
@@ -5451,24 +6066,18 @@ impl IrSummaryCounts {
                 self.visit_property_key(assignment.referenced_name());
                 self.visit_expr(assignment.result());
             }
-            ExprIr::UpdateIdentifier { return_mode, .. } => match return_mode {
-                UpdateReturnMode::Prefix => self.prefix_updates += 1,
-                UpdateReturnMode::Postfix => self.postfix_updates += 1,
-            },
-            ExprIr::GlobalPropertyUpdate { return_mode, .. } => {
-                self.global_property_writes += 1;
+            ExprIr::UpdateIdentifier {
+                name, return_mode, ..
+            } => {
+                self.track_storage(name);
                 match return_mode {
                     UpdateReturnMode::Prefix => self.prefix_updates += 1,
                     UpdateReturnMode::Postfix => self.postfix_updates += 1,
                 }
             }
-            ExprIr::CompoundAssignIdentifier { value, .. } => {
+            ExprIr::CompoundAssignIdentifier { name, value, .. } => {
+                self.track_storage(name);
                 self.compound_assignments += 1;
-                self.visit_expr(value);
-            }
-            ExprIr::GlobalPropertyCompoundAssign { value, .. } => {
-                self.compound_assignments += 1;
-                self.global_property_writes += 1;
                 self.visit_expr(value);
             }
             ExprIr::UnaryPlus { expr }
@@ -5476,10 +6085,6 @@ impl IrSummaryCounts {
             | ExprIr::UnaryBitwiseNumeric { expr, .. }
             | ExprIr::StringFromCharCode { code: expr } => {
                 self.visit_expr(expr);
-            }
-            ExprIr::StringCharCodeAt { target, index } => {
-                self.visit_expr(target);
-                self.visit_expr(index);
             }
             ExprIr::LogicalNot { expr } => {
                 self.visit_expr(expr);
@@ -5545,7 +6150,8 @@ impl IrSummaryCounts {
                 self.deletes += 1;
                 self.visit_expr(expr);
             }
-            ExprIr::DeleteIdentifier { .. } => {
+            ExprIr::DeleteIdentifier { name, .. } => {
+                self.track_storage(name);
                 self.deletes += 1;
                 self.identifier_deletes += 1;
             }
@@ -5630,19 +6236,35 @@ impl IrSummaryCounts {
                 self.visit_expr(lhs);
                 self.visit_expr(rhs);
             }
-            ExprIr::MaterializeBinding { value, body, .. } => {
+            ExprIr::MaterializeBinding { name, value, body } => {
+                self.track_storage(name);
                 self.visit_expr(value);
                 self.visit_expr(body);
             }
             ExprIr::ArrayDestructure { value, pattern, .. } => {
+                self.track_array_pattern(pattern);
                 self.assignments += 1;
                 self.visit_expr(value);
                 pattern.visit_expressions(&mut |expr| self.visit_expr(expr));
             }
             ExprIr::ObjectDestructure { value, pattern } => {
+                self.track_object_pattern(pattern);
                 self.assignments += 1;
                 self.visit_expr(value);
                 pattern.visit_expressions(&mut |expr| self.visit_expr(expr));
+            }
+            ExprIr::ObjectDestructuringOperation(operation) => {
+                match operation.use_view() {
+                    crate::ObjectDestructuringOperationView::GetV { .. } => {
+                        self.property_reads += 1
+                    }
+                    crate::ObjectDestructuringOperationView::Rest { .. } => self.objects += 1,
+                    crate::ObjectDestructuringOperationView::PutTarget { target, .. } => {
+                        self.track_destructuring_target(target);
+                        self.assignments += 1;
+                    }
+                }
+                operation.visit_expressions(&mut |expr| self.visit_expr(expr));
             }
             ExprIr::Conditional {
                 condition,
@@ -5664,7 +6286,20 @@ impl IrSummaryCounts {
             ExprIr::Arguments => {
                 self.arguments_uses += 1;
             }
-            ExprIr::CallIndirect { callee, args, .. } => {
+            ExprIr::CallIndirect {
+                callee,
+                this_arg,
+                args,
+                ..
+            } => {
+                // The summary historically counts callee/arguments only; the
+                // storage and scalar-exponentiation queries also inspect the
+                // retained receiver without changing historical summary counts.
+                if self.tracked_storage.is_some() || self.scalar_exponentiation.is_some() {
+                    if let Some(receiver) = this_arg {
+                        self.visit_expr(receiver);
+                    }
+                }
                 self.calls += 1;
                 self.indirect_calls += 1;
                 self.global_default_this_calls += 1;
@@ -5672,18 +6307,6 @@ impl IrSummaryCounts {
                 for arg in args {
                     self.visit_expr(arg);
                 }
-            }
-            ExprIr::JsonParseStaticReviver {
-                callee,
-                input,
-                reviver,
-                ..
-            } => {
-                self.calls += 1;
-                self.indirect_calls += 1;
-                self.visit_expr(callee);
-                self.visit_expr(input);
-                self.visit_expr(reviver);
             }
             ExprIr::Construct { callee, args, .. } => {
                 self.calls += 1;
@@ -5695,6 +6318,14 @@ impl IrSummaryCounts {
                 }
             }
             ExprIr::ClassDefinition(class) => {
+                if let Some(binding) = &class.name_binding {
+                    self.track_storage(&binding.storage_name);
+                    self.track_environment(Some(&binding.environment));
+                }
+                match &class.name_inference {
+                    ClassNameInferenceIr::PropertyKeyBinding(name) => self.track_storage(name),
+                    ClassNameInferenceIr::None | ClassNameInferenceIr::FieldInitializer(_) => {}
+                }
                 self.constructs += 1;
                 self.classes += 1;
                 self.class_exprs += 1;
@@ -5738,8 +6369,12 @@ impl IrSummaryCounts {
                             self.private_elements +=
                                 usize::from(matches!(accessor.key, ClassFieldKeyIr::Private(_)));
                         }
-                        ClassElementDefinitionIr::PrivateMethod(_)
-                        | ClassElementDefinitionIr::ComputedFieldKey { .. } => {}
+                        ClassElementDefinitionIr::ComputedFieldKey { key, .. } => {
+                            if self.scalar_exponentiation.is_some() {
+                                self.visit_property_key(key);
+                            }
+                        }
+                        ClassElementDefinitionIr::PrivateMethod(_) => {}
                     }
                 }
             }
@@ -5760,6 +6395,9 @@ impl IrSummaryCounts {
             ExprIr::This => {
                 self.this_reads += 1;
             }
+            ExprIr::ExecutionGlobalObject => {
+                self.global_this_uses += 1;
+            }
             ExprIr::NewTarget => {
                 self.new_target_uses += 1;
             }
@@ -5769,6 +6407,17 @@ impl IrSummaryCounts {
                 self.indirect_calls += 1;
                 for arg in args {
                     self.visit_expr(arg);
+                }
+            }
+            ExprIr::SuperNewTarget | ExprIr::SuperConstructor => {
+                self.super_uses += 1;
+            }
+            ExprIr::PreparedSuperConstruct(prepared) => {
+                self.super_uses += 1;
+                self.calls += 1;
+                self.indirect_calls += 1;
+                for operand in prepared.operands() {
+                    self.visit_expr(operand);
                 }
             }
             ExprIr::SuperPropertyRead { key, receiver } => {
@@ -5789,18 +6438,39 @@ impl IrSummaryCounts {
             }
             ExprIr::SuperPropertyMutation(mutation) => {
                 self.super_uses += 1;
-                self.property_reads += 1;
-                self.property_writes += 1;
                 self.visit_property_key(mutation.referenced_name());
                 self.visit_expr(mutation.receiver());
                 match mutation.operation() {
+                    SuperPropertyMutationOperationIr::Capture(capture) => {
+                        if capture.mode() == SuperPropertyCaptureMode::ReadBeforeRhs {
+                            self.property_reads += 1;
+                        }
+                        self.track_storage(capture.receiver_storage_name());
+                        self.track_storage(capture.base_storage_name());
+                        self.track_storage(capture.referenced_name_storage_name());
+                    }
+                    SuperPropertyMutationOperationIr::PutCaptured { capture, value } => {
+                        self.property_writes += 1;
+                        self.track_storage(capture.receiver_storage_name());
+                        self.track_storage(capture.base_storage_name());
+                        self.track_storage(capture.referenced_name_storage_name());
+                        self.visit_expr(value);
+                    }
                     SuperPropertyMutationOperationIr::NumericUpdate { return_mode, .. } => {
+                        self.property_reads += 1;
+                        self.property_writes += 1;
                         match return_mode {
                             UpdateReturnMode::Prefix => self.prefix_updates += 1,
                             UpdateReturnMode::Postfix => self.postfix_updates += 1,
                         }
                     }
-                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    SuperPropertyMutationOperationIr::EagerCompound {
+                        old_value_binding,
+                        result,
+                    } => {
+                        self.property_reads += 1;
+                        self.property_writes += 1;
+                        self.track_storage(old_value_binding);
                         self.compound_assignments += 1;
                         self.visit_expr(result);
                     }
@@ -5850,11 +6520,17 @@ impl IrSummaryCounts {
             | ExprIr::Boolean(_)
             | ExprIr::Number(_)
             | ExprIr::BigInt(_)
+            | ExprIr::WellKnownSymbol(_)
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::Identifier(_) => {
-                if matches!(&expr.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME) {
-                    self.global_this_uses += 1;
+                if let ExprIr::Identifier(name) = &expr.expr {
+                    let matches = self.tracked_storage.as_deref() == Some(name);
+                    self.storage_seen |= matches;
+                    self.storage_read_seen |= matches;
+                    self.storage_invalid_read |= matches
+                        && (expr.kind != ValueKind::Dynamic
+                            || expr.possible_kinds != KindSet::all_runtime_tags());
                 }
             }
         }
@@ -6184,7 +6860,7 @@ mod tests {
     fn operations_spec_to_primitive_expr_records_hint_and_operand() {
         let operand = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let expr = TypedExpr::spec_to_primitive(operand.clone(), ToPrimitiveHint::String);
 
@@ -6501,7 +7177,7 @@ mod tests {
     fn operations_spec_get_v_expr_records_target_and_key_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6526,7 +7202,7 @@ mod tests {
     fn operations_spec_get_expr_records_target_and_key_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6551,7 +7227,7 @@ mod tests {
     fn operations_spec_has_property_expr_records_target_and_key_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6577,7 +7253,7 @@ mod tests {
     fn operations_spec_create_data_property_or_throw_expr_records_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6610,7 +7286,7 @@ mod tests {
     fn operations_spec_set_expr_records_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6639,7 +7315,7 @@ mod tests {
     fn operations_spec_delete_property_or_throw_expr_records_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6664,7 +7340,7 @@ mod tests {
     fn operations_spec_has_own_property_expr_records_target_and_key_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),
@@ -6689,7 +7365,7 @@ mod tests {
     fn operations_spec_get_method_expr_records_target_and_key_operands() {
         let target = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+            ExprIr::ExecutionGlobalObject,
         );
         let key = TypedExpr::from_info(
             ValueInfo::new(ValueKind::String),

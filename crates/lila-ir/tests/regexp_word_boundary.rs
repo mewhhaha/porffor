@@ -1,6 +1,8 @@
 use lila_ir::{
-    RegExpCompileErrorKind, RegExpInstruction, RegExpProgram, REGEXP_OPCODE_LITERAL_ASCII,
-    REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_WORD_BOUNDARY,
+    RegExpCompileErrorKind, RegExpInstruction, RegExpProgram, RegExpRepeatMaximum,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
+    REGEXP_OPCODE_REPEAT_BEGIN, REGEXP_OPCODE_REPEAT_END, REGEXP_OPCODE_REPEAT_EXIT,
+    REGEXP_OPCODE_REPEAT_GUARD, REGEXP_OPCODE_WORD_BOUNDARY,
 };
 
 fn boundaries(program: &RegExpProgram) -> Vec<&RegExpInstruction> {
@@ -76,7 +78,7 @@ fn bare_assertions_reject_quantifiers_in_every_grammar() {
 
 #[test]
 fn grouped_assertions_use_nullable_repeat_progress_guards() {
-    for pattern in [r"(?:\b)*", r"(\B)+", r"(?:(\b)|x)+"] {
+    for pattern in [r"(?:\b)*", r"(\B)*", r"(?:(\b)|x)*"] {
         let program = RegExpProgram::compile(pattern, "").unwrap();
         assert!(program
             .instructions
@@ -86,6 +88,32 @@ fn grouped_assertions_use_nullable_repeat_progress_guards() {
             .instructions
             .iter()
             .any(|instruction| { instruction.opcode == REGEXP_OPCODE_PROGRESS_CHECK }));
+    }
+    for pattern in [r"(\B)+", r"(?:(\b)|x)+"] {
+        let program = RegExpProgram::compile(pattern, "").unwrap();
+        assert_eq!(program.repeat_bounds.len(), 1);
+        assert!(program.repeat_bounds[0].minimum().is_one());
+        assert_eq!(
+            program.repeat_bounds[0].maximum(),
+            &RegExpRepeatMaximum::Unbounded
+        );
+        for opcode in [
+            REGEXP_OPCODE_REPEAT_BEGIN,
+            REGEXP_OPCODE_REPEAT_GUARD,
+            REGEXP_OPCODE_REPEAT_END,
+            REGEXP_OPCODE_REPEAT_EXIT,
+        ] {
+            assert_eq!(
+                program
+                    .instructions
+                    .iter()
+                    .filter(|instruction| instruction.opcode == opcode)
+                    .count(),
+                1,
+                "one nullable required/optional continuation owner: {pattern}"
+            );
+        }
+        assert!(!boundaries(&program).is_empty());
     }
 }
 

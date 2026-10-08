@@ -20,6 +20,11 @@ table (1,512 mappings); legacy mode uppercases one UTF-16 unit using Rust's Unic
 are unchanged. This is simple canonicalization, so neither mode expands `ß` into
 `SS`, and default Unicode folding does not use Turkic mappings.
 
+The Unicode inventory enumerates the pinned simple-fold ranges directly, applying
+the same range transform as scalar canonicalization. Legacy construction scans
+only its UTF-16 domain. An exhaustive control compares both complete sorted
+inventories with the previous full-codepoint scan, preserving every emitted row.
+
 The string pool emits one shared table for each required mode, with aligned
 8-byte `(source: u32, canonical: u32)` rows. A module without case-insensitive
 backreferences emits neither table. Requirements are recorded before program

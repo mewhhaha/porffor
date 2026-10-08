@@ -1,6 +1,17 @@
+use super::resumable_operand::ResumableOperandProtocol;
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
+    pub(super) fn lower_staged_class_expression(
+        &mut self,
+        class: &ClassExpression,
+    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
+        let enclosing = self.async_expression_prefix.replace(Vec::new());
+        let value = self.lower_class_expression(class);
+        let prefix = std::mem::replace(&mut self.async_expression_prefix, enclosing)
+            .expect("class expression owns its original evaluation prefix");
+        Some((prefix, value))
+    }
     pub(super) fn class_heritage_prototype_get_may_call_user_code(
         &self,
         heritage: &TypedExpr,
@@ -46,16 +57,9 @@ impl<'a> ScriptLowerer<'a> {
         expression: &Expression,
     ) -> (ClassEvaluationPrefixIr, TypedExpr) {
         let entry_state = self.class_evaluation_state().unwrap_or(0);
-        let staged = if self.current_generator_resume_state.is_some()
-            && contains(expression, ContainsSymbol::YieldExpression)
-        {
-            self.lower_staged_generator_expression(expression)
-        } else if self.current_async_resume_state.is_some()
-            && contains(expression, ContainsSymbol::AwaitExpression)
-        {
-            self.lower_async_prefixed_expression(expression)
-        } else {
-            Some((Vec::new(), self.lower_expression(expression)))
+        let staged = match ResumableOperandProtocol::for_source(self, expression) {
+            Some(protocol) => protocol.lower(self, expression),
+            None => Some((Vec::new(), self.lower_expression(expression))),
         };
         let (statements, value) = staged.unwrap_or_else(|| {
             (

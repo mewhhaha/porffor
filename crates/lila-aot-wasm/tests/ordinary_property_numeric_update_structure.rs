@@ -242,7 +242,7 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
         sealed
             .matches("impl OrdinaryPropertyReferenceSource for ")
             .count(),
-        4
+        5
     );
     assert!(
         sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyAssignmentIr")
@@ -255,6 +255,9 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
     );
     assert!(sealed
         .contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyLogicalAssignmentIr"));
+    assert!(
+        sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyGetCaptureIr")
+    );
 
     let get_numeric = bounded(
         EXPRESSIONS_SOURCE,
@@ -309,7 +312,7 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
             "self.emit_ordinary_set_result_via_helper(",
             "if update.strictness().throws_on_failed_set() {",
             "self.emit_throw_runtime_error_to_active_handler(",
-            "\"Cannot assign to property\"",
+            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY",
             "match update.return_mode() {",
             "UpdateReturnMode::Prefix => (new_value_payload, new_value_tag)",
             "UpdateReturnMode::Postfix => (old_value_payload, old_value_tag)",

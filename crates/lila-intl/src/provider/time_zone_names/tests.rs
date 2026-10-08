@@ -2,6 +2,42 @@ use super::*;
 use crate::provider::time_zone_snapshot::NamedTimeZoneTransition;
 use crate::{FixedTimeZoneOffset, NamedTimeZoneIdentity, TimeZoneEpochSeconds};
 
+#[test]
+fn complete_native_constructor_rejects_broken_periods_aliases_and_patterns() {
+    let named = crate::embedded_named_time_zone_data_image().unwrap();
+    let source: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../data/zone-names-cldr-47/native-profile.json"
+    ))
+    .unwrap();
+    for broken in 0..4 {
+        let mut value = source.clone();
+        match broken {
+            0 => value["rows"]["aliases"][0][1] = "Missing/Native_Target".into(),
+            1 => {
+                value["rows"]["zones"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|zone| !zone["periods"].as_array().unwrap().is_empty())
+                    .unwrap()["periods"][0][1] = i64::MIN.into()
+            }
+            2 => {
+                value["rows"]["patterns"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|pattern| pattern[0] == "fallbackFormat")
+                    .unwrap()[2] = "{0} {0} {1}".into()
+            }
+            3 => value["rows"]["metazones"][0]["preferred"][0][1] = "Missing/Golden_Zone".into(),
+            _ => unreachable!(),
+        }
+        assert!(
+            TimeZoneNames::from_json(&serde_json::to_vec(&value).unwrap(), named.zones()).is_err()
+        );
+    }
+}
+
 fn named(
     identifier: &str,
     primary: &str,
@@ -10,8 +46,9 @@ fn named(
     style: TimeZoneNameStyle,
 ) -> String {
     let identity = NamedTimeZoneIdentity::from_data(identifier, primary).unwrap();
-    TimeZoneNames::from_pinned_data()
+    crate::time_zone_names_image::embedded_time_zone_names_data_image_ref()
         .unwrap()
+        .names_ref()
         .format(
             TimeZoneNameInput::Named {
                 identity: &identity,
@@ -400,7 +437,9 @@ fn historical_seconds_and_full_fixed_offset_domain_are_not_truncated() {
             );
         }
     }
-    let names = TimeZoneNames::from_pinned_data().unwrap();
+    let names = crate::time_zone_names_image::embedded_time_zone_names_data_image_ref()
+        .unwrap()
+        .names_ref();
     let locale = CanonicalLocaleId::from_data("en").unwrap();
     for seconds in [-86_340, 86_340] {
         let input =
@@ -420,7 +459,9 @@ fn historical_seconds_and_full_fixed_offset_domain_are_not_truncated() {
 
 #[test]
 fn numeric_zero_and_named_utc_retain_distinct_non_offset_names() {
-    let names = TimeZoneNames::from_pinned_data().unwrap();
+    let names = crate::time_zone_names_image::embedded_time_zone_names_data_image_ref()
+        .unwrap()
+        .names_ref();
     let locale = CanonicalLocaleId::from_data("en-US").unwrap();
     for style in TimeZoneNameStyle::ALL {
         assert_eq!(
@@ -455,7 +496,9 @@ fn numeric_zero_and_named_utc_retain_distinct_non_offset_names() {
 
 #[test]
 fn name_locale_matches_formatter_inventory_and_keeps_latin_digit_skeletons() {
-    let names = TimeZoneNames::from_pinned_data().unwrap();
+    let names = crate::time_zone_names_image::embedded_time_zone_names_data_image_ref()
+        .unwrap()
+        .names_ref();
     let input = TimeZoneNameInput::FixedOffset(FixedTimeZoneOffset::from_seconds(19_800).unwrap());
     for locale in [
         "en",

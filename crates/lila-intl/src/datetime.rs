@@ -14,6 +14,19 @@ pub enum DateTimeCalendar {
     Gregorian,
     Iso8601,
     Chinese,
+    Buddhist,
+    Coptic,
+    Dangi,
+    Ethioaa,
+    Ethiopic,
+    Hebrew,
+    Indian,
+    IslamicCivil,
+    IslamicTbla,
+    IslamicUmalqura,
+    Japanese,
+    Persian,
+    Roc,
 }
 
 impl DateTimeCalendar {
@@ -22,6 +35,19 @@ impl DateTimeCalendar {
             Self::Gregorian => "gregory",
             Self::Iso8601 => "iso8601",
             Self::Chinese => "chinese",
+            Self::Buddhist => "buddhist",
+            Self::Coptic => "coptic",
+            Self::Dangi => "dangi",
+            Self::Ethioaa => "ethioaa",
+            Self::Ethiopic => "ethiopic",
+            Self::Hebrew => "hebrew",
+            Self::Indian => "indian",
+            Self::IslamicCivil => "islamic-civil",
+            Self::IslamicTbla => "islamic-tbla",
+            Self::IslamicUmalqura => "islamic-umalqura",
+            Self::Japanese => "japanese",
+            Self::Persian => "persian",
+            Self::Roc => "roc",
         }
     }
     pub(crate) fn parse(value: &str) -> Option<Self> {
@@ -29,6 +55,19 @@ impl DateTimeCalendar {
             "gregory" => Some(Self::Gregorian),
             "iso8601" => Some(Self::Iso8601),
             "chinese" => Some(Self::Chinese),
+            "buddhist" => Some(Self::Buddhist),
+            "coptic" => Some(Self::Coptic),
+            "dangi" => Some(Self::Dangi),
+            "ethioaa" => Some(Self::Ethioaa),
+            "ethiopic" => Some(Self::Ethiopic),
+            "hebrew" => Some(Self::Hebrew),
+            "indian" => Some(Self::Indian),
+            "islamic-civil" => Some(Self::IslamicCivil),
+            "islamic-tbla" => Some(Self::IslamicTbla),
+            "islamic-umalqura" => Some(Self::IslamicUmalqura),
+            "japanese" => Some(Self::Japanese),
+            "persian" => Some(Self::Persian),
+            "roc" => Some(Self::Roc),
             _ => None,
         }
     }
@@ -406,15 +445,18 @@ impl DateTimeRangeParts {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DateTimeFormatError {
+    UnavailableService(crate::IntlService),
     InvalidRequest(&'static str),
     InvalidPlan(&'static str),
     InvalidProfile(String),
     UnavailableFormat,
+    UnavailableTimeZone(crate::TimeZoneId),
     InputKindMismatch,
 }
 impl fmt::Display for DateTimeFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnavailableService(service) => crate::UnavailableIntlService(*service).fmt(f),
             Self::InvalidRequest(reason) => write!(f, "invalid date/time request: {reason}"),
             Self::InvalidPlan(reason) => write!(f, "invalid date/time plan: {reason}"),
             Self::InvalidProfile(reason) => write!(f, "invalid pinned date/time profile: {reason}"),
@@ -422,6 +464,11 @@ impl fmt::Display for DateTimeFormatError {
                 f.write_str("the formatter has no format for this Temporal kind")
             }
             Self::InputKindMismatch => f.write_str("date/time range inputs have different kinds"),
+            Self::UnavailableTimeZone(name) => write!(
+                f,
+                "named time zone {:?} is unavailable in the selected Custom data",
+                name.as_str()
+            ),
         }
     }
 }

@@ -1,25 +1,30 @@
+//! A retained direct-eval invocation never enters the JavaScript value domain.
+
 use super::*;
+use crate::gc_types::{
+    BindingCell, BindingCellSchema, DirectEvalDerivedBindings, DirectEvalDerivedBindingsSchema,
+    DirectEvalExecutionContext, DirectEvalExecutionContextSchema, Environment, EnvironmentSchema,
+    FunctionContext, FunctionContextSchema, GcLocal, GcOperand, NonNullable, Nullable, StoredValue,
+    ValueLocals,
+};
 
-pub(crate) const DIRECT_EVAL_CLASS_CONTEXT_OFFSET: u64 = 0;
-pub(crate) const DIRECT_EVAL_HOME_OBJECT_PAYLOAD_OFFSET: u64 = 8;
-pub(crate) const DIRECT_EVAL_HOME_OBJECT_TAG_OFFSET: u64 = 16;
-pub(crate) const DIRECT_EVAL_THIS_CELL_OFFSET: u64 = 24;
-pub(crate) const DIRECT_EVAL_THIS_STATUS_CELL_OFFSET: u64 = 32;
-pub(crate) const DIRECT_EVAL_NEW_TARGET_CELL_OFFSET: u64 = 40;
-pub(crate) const DIRECT_EVAL_ACTIVE_FUNCTION_CELL_OFFSET: u64 = 48;
-pub(crate) const DIRECT_EVAL_THIS_PAYLOAD_OFFSET: u64 = 56;
-pub(crate) const DIRECT_EVAL_THIS_TAG_OFFSET: u64 = 64;
-pub(crate) const DIRECT_EVAL_NEW_TARGET_PAYLOAD_OFFSET: u64 = 72;
-pub(crate) const DIRECT_EVAL_NEW_TARGET_TAG_OFFSET: u64 = 80;
-const DIRECT_EVAL_EXECUTION_CONTEXT_SIZE: u64 = 88;
-
-#[must_use = "captured direct-eval invocation locals must be passed and released"]
+#[must_use = "direct-eval invocation roots must reach the prepared entry and be cleared"]
 pub(crate) struct DirectEvalInvocationLocals {
-    pub(crate) this_payload: u32,
-    pub(crate) this_tag: u32,
-    pub(crate) new_target_payload: u32,
-    pub(crate) new_target_tag: u32,
-    pub(crate) execution_context: u32,
+    this_value: ValueLocals,
+    new_target: ValueLocals,
+    context: GcLocal<DirectEvalExecutionContext, Nullable>,
+}
+
+impl DirectEvalInvocationLocals {
+    pub(super) fn this_value(&self) -> &ValueLocals {
+        &self.this_value
+    }
+    pub(super) fn new_target(&self) -> &ValueLocals {
+        &self.new_target
+    }
+    pub(super) fn context(&self) -> &GcLocal<DirectEvalExecutionContext, Nullable> {
+        &self.context
+    }
 }
 
 impl FunctionBuilder<'_> {
@@ -27,265 +32,263 @@ impl FunctionBuilder<'_> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let Some(context) = self.direct_eval_execution_context_local() else {
+        let Some(cached) = self.direct_eval_execution_context_local() else {
             return Ok(());
         };
-        if self.captured_direct_eval_execution_context_local.is_some() {
-            let capture = self
-                .captured_bindings
-                .iter()
-                .find(|binding| binding.name == lila_ir::DIRECT_EVAL_EXECUTION_CONTEXT_NAME)
-                .expect("captured context local is derived from the capture plan");
-            self.read_env_slot_to_locals(
-                capture.slot,
-                capture.hops,
-                context,
-                self.scratch_local,
+        let schema = self.runtime_schema();
+        let context = schema
+            .reserve_gc_local(function)
+            .initialize(cached.load(schema, function), function);
+        // Entry initialization acquires this edge before a resumed frame restores
+        // its retained lexical depth. Capture hops must not be interpreted again
+        // from that deeper Environment. Prepared entries supply the same typed edge.
+        // Never store the context as a JavaScript value.
+        let required = schema
+            .reserve_gc_local::<DirectEvalExecutionContext, NonNullable>(function)
+            .initialize(
+                context.load(schema, function).require_non_null(function),
                 function,
             );
-        } else {
-            let slot = self
-                .owned_env_slot(lila_ir::DIRECT_EVAL_EXECUTION_CONTEXT_NAME)
-                .expect("direct Script owns its source-unspellable context cell");
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.write_env_slot_from_locals(slot, 0, context, self.scratch_local, function);
-        }
-        self.load_i64_to_local_from_offset(
-            context,
-            DIRECT_EVAL_CLASS_CONTEXT_OFFSET,
-            self.class_function_context_local,
-            function,
-        );
+        schema
+            .struct_type::<Environment>()
+            .field(EnvironmentSchema::DIRECT_EVAL_CONTEXT)
+            .write(
+                self.current_environment(),
+                GcOperand::nullable_reference(&required, schema),
+                schema,
+                function,
+            );
+        required.clear(function);
+        context.clear(function);
         Ok(())
+    }
+
+    fn emit_direct_eval_binding_cell(
+        &mut self,
+        storage: BindingStorage,
+        function: &mut Function,
+    ) -> Result<GcLocal<BindingCell>, EmitError> {
+        let BindingStorage::EnvSlot { slot, hops } = storage else {
+            return Err(EmitError::unsupported(
+                "derived direct-eval state requires validated environment cells",
+            ));
+        };
+        let environment = self.resolve_env_handle_local(hops, function);
+        let cell = self.emit_environment_cell_local(&environment, slot, function);
+        environment.clear(function);
+        Ok(cell)
     }
 
     pub(crate) fn emit_capture_direct_eval_invocation(
         &mut self,
         function: &mut Function,
     ) -> Result<DirectEvalInvocationLocals, EmitError> {
-        let invocation = DirectEvalInvocationLocals {
-            this_payload: self.reserve_temp_local(),
-            this_tag: self.reserve_temp_local(),
-            new_target_payload: self.reserve_temp_local(),
-            new_target_tag: self.reserve_temp_local(),
-            execution_context: self.reserve_temp_local(),
-        };
-        if let Some(context) = self.direct_eval_execution_context_local() {
-            function.instruction(&Instruction::LocalGet(context));
-            function.instruction(&Instruction::LocalSet(invocation.execution_context));
-        } else {
-            self.emit_heap_alloc_const(DIRECT_EVAL_EXECUTION_CONTEXT_SIZE, function)?;
-            function.instruction(&Instruction::LocalSet(invocation.execution_context));
-            self.store_i64_local_at_offset(
-                invocation.execution_context,
-                DIRECT_EVAL_CLASS_CONTEXT_OFFSET,
-                self.class_function_context_local,
+        let schema = self.runtime_schema();
+        let this_value = schema.reserve_value_local(function);
+        this_value.set_undefined(function);
+        let new_target = schema.reserve_value_local(function);
+        new_target.set_undefined(function);
+        let context = schema
+            .reserve_gc_local::<DirectEvalExecutionContext, Nullable>(function)
+            .initialize_null(schema, function);
+        if let Some(existing) = self.direct_eval_execution_context_local() {
+            context.replace(
+                existing
+                    .load(schema, function)
+                    .require_non_null(function)
+                    .nullable(),
                 function,
             );
-            for offset in [
-                DIRECT_EVAL_THIS_CELL_OFFSET,
-                DIRECT_EVAL_THIS_STATUS_CELL_OFFSET,
-                DIRECT_EVAL_NEW_TARGET_CELL_OFFSET,
-                DIRECT_EVAL_ACTIVE_FUNCTION_CELL_OFFSET,
-            ] {
-                self.store_i64_const_at_offset(invocation.execution_context, offset, 0, function);
+        } else {
+            let class_context = schema
+                .reserve_gc_local::<FunctionContext, Nullable>(function)
+                .initialize_null(schema, function);
+            if let Some(callable) = self
+                .body_entry_locals()
+                .and_then(|entry| entry.function_context())
+            {
+                class_context.replace(callable.load(schema, function).nullable(), function);
             }
-            if let Some(activation) = self.lexical_derived_activation.cloned() {
-                let cell = self.reserve_temp_local();
-                for (name, offset) in [
-                    (&activation.this_binding, DIRECT_EVAL_THIS_CELL_OFFSET),
-                    (
-                        &activation.this_status_binding,
-                        DIRECT_EVAL_THIS_STATUS_CELL_OFFSET,
-                    ),
-                    (
-                        &activation.new_target_binding,
-                        DIRECT_EVAL_NEW_TARGET_CELL_OFFSET,
-                    ),
-                    (
-                        &activation.active_function_binding,
-                        DIRECT_EVAL_ACTIVE_FUNCTION_CELL_OFFSET,
-                    ),
-                ] {
-                    let storage = self.derived_activation_storage(name)?;
-                    self.emit_direct_eval_binding_cell(storage, cell, function);
-                    self.store_i64_local_at_offset(
-                        invocation.execution_context,
-                        offset,
-                        cell,
-                        function,
-                    );
-                }
-                self.emit_get_derived_active_function_to_locals(
-                    invocation.this_payload,
-                    invocation.this_tag,
-                    function,
-                )?;
-                self.load_i64_to_local_from_offset(
-                    invocation.this_payload,
-                    HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                    cell,
-                    function,
-                );
-                self.store_i64_local_at_offset(
-                    invocation.execution_context,
-                    DIRECT_EVAL_CLASS_CONTEXT_OFFSET,
-                    cell,
-                    function,
-                );
-                self.release_temp_local(cell);
-            }
-            let home_payload = self.reserve_temp_local();
-            let home_tag = self.reserve_temp_local();
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(home_payload));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(home_tag));
+            let home = schema.reserve_value_local(function);
+            home.set_undefined(function);
             if self.function_flavor == FunctionFlavor::Arrow {
                 if let Some(storage) = self.lookup_binding(LEXICAL_HOME_OBJECT_NAME) {
-                    self.read_binding_to_locals(storage, home_payload, home_tag, function)?;
+                    self.read_binding_to_locals(storage, &home, function)?;
                 }
-            } else {
-                let class_context = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
-                    invocation.execution_context,
-                    DIRECT_EVAL_CLASS_CONTEXT_OFFSET,
-                    class_context,
+            } else if self
+                .current_function_meta()
+                .is_some_and(WasmFunctionMeta::has_home_object_execution_context)
+            {
+                let stored = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<FunctionContext>()
+                        .field(FunctionContextSchema::HOME_OBJECT)
+                        .read(&class_context, schema, function)
+                        .reference(),
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(class_context));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    class_context,
-                    HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
-                    home_payload,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    class_context,
-                    HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
-                    home_tag,
-                    function,
-                );
-                function.instruction(&Instruction::End);
-                self.release_temp_local(class_context);
+                schema
+                    .struct_type::<StoredValue>()
+                    .read_into(&stored, &home, schema, function);
+                stored.clear(function);
             }
-            self.store_i64_local_at_offset(
-                invocation.execution_context,
-                DIRECT_EVAL_HOME_OBJECT_PAYLOAD_OFFSET,
-                home_payload,
+            let derived = schema
+                .reserve_gc_local::<DirectEvalDerivedBindings, Nullable>(function)
+                .initialize_null(schema, function);
+            if let Some(activation) = self.lexical_derived_activation.cloned() {
+                let this_storage = self.derived_activation_storage(&activation.this_binding)?;
+                let status_storage =
+                    self.derived_activation_storage(&activation.this_status_binding)?;
+                let target_storage =
+                    self.derived_activation_storage(&activation.new_target_binding)?;
+                let active_storage =
+                    self.derived_activation_storage(&activation.active_function_binding)?;
+                let this_cell = self.emit_direct_eval_binding_cell(this_storage, function)?;
+                let status_cell = self.emit_direct_eval_binding_cell(status_storage, function)?;
+                let target_cell = self.emit_direct_eval_binding_cell(target_storage, function)?;
+                let active_cell = self.emit_direct_eval_binding_cell(active_storage, function)?;
+                derived.replace(
+                    schema
+                        .struct_type::<DirectEvalDerivedBindings>()
+                        .construct(
+                            (
+                                GcOperand::reference(&this_cell, schema),
+                                GcOperand::reference(&status_cell, schema),
+                                GcOperand::reference(&target_cell, schema),
+                                GcOperand::reference(&active_cell, schema),
+                            ),
+                            function,
+                        )
+                        .nullable(),
+                    function,
+                );
+                active_cell.clear(function);
+                target_cell.clear(function);
+                status_cell.clear(function);
+                this_cell.clear(function);
+            }
+            let stored_home = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(&home, function),
                 function,
             );
-            self.store_i64_local_at_offset(
-                invocation.execution_context,
-                DIRECT_EVAL_HOME_OBJECT_TAG_OFFSET,
-                home_tag,
+            let undefined = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(&this_value, function),
                 function,
             );
-            self.release_temp_local(home_tag);
-            self.release_temp_local(home_payload);
-        }
-        let this_cell = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            invocation.execution_context,
-            DIRECT_EVAL_THIS_CELL_OFFSET,
-            this_cell,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(this_cell));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if self.lexical_derived_activation.is_none() {
-            self.compile_this_to_locals(invocation.this_payload, invocation.this_tag, function)?;
-            self.compile_new_target_to_locals(
-                invocation.new_target_payload,
-                invocation.new_target_tag,
+            context.replace(
+                schema
+                    .struct_type::<DirectEvalExecutionContext>()
+                    .construct(
+                        (
+                            GcOperand::reference(&class_context, schema),
+                            GcOperand::reference(&stored_home, schema),
+                            GcOperand::reference(&derived, schema),
+                            GcOperand::reference(&undefined, schema),
+                            GcOperand::reference(&undefined, schema),
+                        ),
+                        function,
+                    )
+                    .nullable(),
                 function,
-            )?;
-        } else {
-            // A derived activation always published a shared cell above.
-            function.instruction(&Instruction::Unreachable);
+            );
+            undefined.clear(function);
+            stored_home.clear(function);
+            derived.clear(function);
+            home.clear(function);
+            class_context.clear(function);
         }
+        let derived = schema
+            .reserve_gc_local::<DirectEvalDerivedBindings, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<DirectEvalExecutionContext>()
+                    .field(DirectEvalExecutionContextSchema::DERIVED_BINDINGS)
+                    .read(&context, schema, function)
+                    .reference(),
+                function,
+            );
+        derived.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.compile_this_to_locals(&this_value, function)?;
+        self.compile_new_target_to_locals(&new_target, function)?;
         function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            this_cell,
-            ENV_SLOT_PAYLOAD_OFFSET,
-            invocation.this_payload,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            this_cell,
-            ENV_SLOT_TAG_OFFSET,
-            invocation.this_tag,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            invocation.execution_context,
-            DIRECT_EVAL_NEW_TARGET_CELL_OFFSET,
-            this_cell,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            this_cell,
-            ENV_SLOT_PAYLOAD_OFFSET,
-            invocation.new_target_payload,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            this_cell,
-            ENV_SLOT_TAG_OFFSET,
-            invocation.new_target_tag,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        self.release_temp_local(this_cell);
-        for (offset, value) in [
-            (DIRECT_EVAL_THIS_PAYLOAD_OFFSET, invocation.this_payload),
-            (DIRECT_EVAL_THIS_TAG_OFFSET, invocation.this_tag),
+        // Capture the cell value without GetThisBinding's uninitialized-this
+        // check: eval("super()") is legal before the constructor binds this.
+        for (field, output) in [
+            (DirectEvalDerivedBindingsSchema::THIS_CELL, &this_value),
             (
-                DIRECT_EVAL_NEW_TARGET_PAYLOAD_OFFSET,
-                invocation.new_target_payload,
+                DirectEvalDerivedBindingsSchema::NEW_TARGET_CELL,
+                &new_target,
             ),
-            (DIRECT_EVAL_NEW_TARGET_TAG_OFFSET, invocation.new_target_tag),
         ] {
-            self.store_i64_local_at_offset(invocation.execution_context, offset, value, function);
+            let cell = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<DirectEvalDerivedBindings>()
+                    .field(field)
+                    .read(&derived, schema, function)
+                    .reference(),
+                function,
+            );
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<BindingCell>()
+                    .field(BindingCellSchema::VALUE)
+                    .read(&cell, schema, function)
+                    .reference(),
+                function,
+            );
+            schema
+                .struct_type::<StoredValue>()
+                .read_into(&stored, output, schema, function);
+            stored.clear(function);
+            cell.clear(function);
         }
-        Ok(invocation)
-    }
-
-    fn emit_direct_eval_binding_cell(
-        &self,
-        storage: BindingStorage,
-        cell: u32,
-        function: &mut Function,
-    ) {
-        let BindingStorage::EnvSlot { slot, hops } = storage else {
-            panic!("shared derived-constructor state must have an environment cell");
-        };
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(cell));
-        for _ in 0..hops {
-            self.load_i64_to_local_from_offset(cell, ENV_PARENT_OFFSET, cell, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        for (field, value) in [
+            (DirectEvalExecutionContextSchema::THIS_SNAPSHOT, &this_value),
+            (
+                DirectEvalExecutionContextSchema::NEW_TARGET_SNAPSHOT,
+                &new_target,
+            ),
+        ] {
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(value, function),
+                function,
+            );
+            schema
+                .struct_type::<DirectEvalExecutionContext>()
+                .field(field)
+                .write(
+                    &context,
+                    GcOperand::reference(&stored, schema),
+                    schema,
+                    function,
+                );
+            stored.clear(function);
         }
-        function.instruction(&Instruction::LocalGet(cell));
-        function.instruction(&Instruction::I64Const(
-            (ENV_SLOT_BASE_OFFSET + u64::from(slot) * ENV_SLOT_SIZE) as i64,
-        ));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cell));
+        derived.clear(function);
+        Ok(DirectEvalInvocationLocals {
+            this_value,
+            new_target,
+            context,
+        })
     }
 
     pub(crate) fn release_direct_eval_invocation(
         &mut self,
         invocation: DirectEvalInvocationLocals,
+        function: &mut Function,
     ) {
-        self.release_temp_local(invocation.execution_context);
-        self.release_temp_local(invocation.new_target_tag);
-        self.release_temp_local(invocation.new_target_payload);
-        self.release_temp_local(invocation.this_tag);
-        self.release_temp_local(invocation.this_payload);
+        invocation.context.clear(function);
+        invocation.new_target.clear(function);
+        invocation.this_value.clear(function);
     }
 }

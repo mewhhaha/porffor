@@ -184,8 +184,6 @@ impl<'a> ScriptLowerer<'a> {
         self.mark_host_builtin_from_function_id(&function_id);
         self.host_builtin_calls +=
             usize::from(HostBuiltinId::from_function_id(&function_id).is_some());
-        let prepared_static_json_parse_reviver =
-            self.prepare_static_json_parse_reviver(&function_id, args);
         let (effective_function_id, args, info, invocation_effects) = self
             .lower_call_args_with_target(
                 &function_id,
@@ -193,11 +191,6 @@ impl<'a> ScriptLowerer<'a> {
                 BuiltinCallContext::Call,
                 InvocationThisObservation::Default,
             );
-        if let Some(builtin) = StandardBuiltinId::from_function_id(&effective_function_id) {
-            if let Some(folded) = Self::fold_standard_builtin_literal_call(builtin, &args) {
-                return folded;
-            }
-        }
         // A context-specialized body is only safe to materialize directly when
         // the source expression already creates that function object here.
         // Replacing an identifier/property callee would discard the original
@@ -209,11 +202,6 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             callee
         };
-        if let Some(static_json_parse_reviver) = prepared_static_json_parse_reviver
-            .and_then(|prepared| self.finish_static_json_parse_reviver(prepared, &callee, &args))
-        {
-            return invocation_effects.attach_to_emitted_call(static_json_parse_reviver);
-        }
         let static_regexp_compilation =
             self.static_regexp_compilation_for_direct_call(&callee, &effective_function_id, &args);
         let call = TypedExpr::from_info(

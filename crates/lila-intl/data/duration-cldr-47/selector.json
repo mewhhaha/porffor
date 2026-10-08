@@ -1,0 +1,24 @@
+{
+  "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "default_locale": "en-US",
+  "locales": [
+    "ar",
+    "ar-EG",
+    "de",
+    "en",
+    "en-US",
+    "es",
+    "fr",
+    "hi",
+    "it",
+    "ja",
+    "ko",
+    "sr",
+    "zh",
+    "zh-Hans",
+    "zh-Hans-CN"
+  ],
+  "minimum_draft": "contributed",
+  "release": "47.0.0",
+  "schema_version": 1
+}

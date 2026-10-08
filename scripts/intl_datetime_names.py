@@ -10,13 +10,14 @@ PERIODS = {"am", "pm", "midnight", "noon", "morning1", "morning2", "afternoon1",
            "afternoon2", "evening1", "evening2", "night1", "night2"}
 
 
-def field_names(leaves):
+def field_names(leaves, *, calendar=None):
     records = []
     keys = set()
     for source, value in leaves:
         path = parse_path(source)
         tags = tuple(segment.tag for segment in path)
         context, width, index, period = None, None, None, None
+        year_type = None
         if tags == ("eras", "eraAbbr", "era"):
             kind, width = "era", "abbreviated"
             index = int(path[-1].get("type"))
@@ -35,6 +36,9 @@ def field_names(leaves):
                 index = DAYS[path[-1].get("type")]
             elif kind == "month":
                 index = int(path[-1].get("type"))
+                year_type = path[-1].get("yeartype")
+                if year_type is not None and not (calendar == "hebrew" and index == 7 and year_type == "leap"):
+                    raise ValueError(f"unreviewed month year-type: {source}")
             else:
                 period = path[-1].get("type")
                 if period not in PERIODS:
@@ -57,12 +61,20 @@ def field_names(leaves):
         if (context is not None and context not in CONTEXTS) or (width is not None and width not in WIDTHS):
             raise ValueError(f"unknown name context or width: {source}")
         if index is not None:
-            bounds = {"era": (0, 1), "month": (1, 12), "weekday": (0, 6), "cyclic_year": (1, 60)}[kind]
+            era_max = 236 if calendar == "japanese" else 1
+            month_max = 13 if calendar in ("coptic", "ethiopic", "ethiopic-amete-alem", "hebrew") else 12
+            bounds = {"era": (0, era_max), "month": (1, month_max), "weekday": (0, 6), "cyclic_year": (1, 60)}[kind]
             if not bounds[0] <= index <= bounds[1]:
                 raise ValueError(f"name index outside selected calendar: {source}")
-        key = kind, context, width, index, period
+        if kind == "era" and calendar == "japanese" and index < 232:
+            # The projection uses Gregorian eras before1873, then modern five.
+            continue
+        key = kind, context, width, index, period, year_type
         if key in keys:
             raise ValueError(f"duplicate typed name key: {source}")
         keys.add(key)
-        records.append(dict(kind=kind, context=context, width=width, index=index, period=period, value=value))
+        record = dict(kind=kind, context=context, width=width, index=index, period=period, value=value)
+        if year_type is not None:
+            record["year_type"] = year_type
+        records.append(record)
     return records

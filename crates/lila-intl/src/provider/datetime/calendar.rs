@@ -1,21 +1,28 @@
-use icu_calendar::{
-    cal::{Chinese, Gregorian, Iso},
-    types::RataDie,
-    Date,
-};
+use icu_calendar::{cal::Iso, types::RataDie, Date};
 
 use crate::datetime::{DateTimeCalendar, DateTimeFormatError, DateTimeIsoFields};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Year {
-    Era { era: u8, year: i32 },
-    Cyclic { year: u8, related: i32 },
-}
+mod kernels;
+mod kind;
+mod month;
+mod names;
+mod projection;
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+pub(super) use kernels::pinned as pinned_kernels;
+pub(super) use kernels::CalendarKernels;
+pub(super) use kind::{CalendarId, EraName};
+pub(super) use month::Month;
+use projection::CalendarProjection;
+pub(super) use projection::CalendarYear;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Fields {
-    pub(super) year: Year,
-    pub(super) month: u8,
-    pub(super) leap_month: bool,
+    pub(super) calendar: CalendarId,
+    pub(super) year: CalendarYear,
+    pub(super) month: Month,
     pub(super) day: u8,
     pub(super) weekday: u8,
     pub(super) hour: u8,
@@ -49,56 +56,45 @@ pub(super) fn local_iso(
 pub(super) fn convert(
     calendar: DateTimeCalendar,
     fields: DateTimeIsoFields,
+    kernels: &CalendarKernels,
 ) -> Result<Fields, DateTimeFormatError> {
-    let iso = Date::try_new_iso(fields.year, fields.month, fields.day)
-        .map_err(|_| DateTimeFormatError::InvalidRequest("invalid local ISO date"))?;
-    let weekday = iso.day_of_week() as u8 % 7;
-    let (year, month, leap_month, day) = match calendar {
-        DateTimeCalendar::Gregorian | DateTimeCalendar::Iso8601 => {
-            let date = iso.to_calendar(Gregorian);
-            let year = date.era_year();
-            let era = match year.era.as_str() {
-                "bce" => 0,
-                "ce" => 1,
-                _ => return Err(super::profile::invalid("unexpected Gregorian era")),
-            };
-            (
-                Year::Era {
-                    era,
-                    year: year.year,
-                },
-                date.month().month_number(),
-                false,
-                date.day_of_month().0,
-            )
-        }
-        DateTimeCalendar::Chinese => {
-            let date = iso.to_calendar(Chinese::new());
-            let year = date.cyclic_year();
-            let (month, leap) =
-                date.month().formatting_code.parsed().ok_or_else(|| {
-                    super::profile::invalid("invalid converted Chinese month code")
-                })?;
-            (
-                Year::Cyclic {
-                    year: year.year,
-                    related: year.related_iso,
-                },
-                month,
-                leap,
-                date.day_of_month().0,
-            )
-        }
-    };
+    convert_with_kernels(CalendarId::from_admitted(calendar), fields, kernels)
+}
+
+/// Native calculation and formatting identity remain closed independently of
+/// the public request domain, which is admitted separately with genuine data.
+fn convert_with_kernels(
+    calendar: CalendarId,
+    fields: DateTimeIsoFields,
+    kernels: &CalendarKernels,
+) -> Result<Fields, DateTimeFormatError> {
+    if fields.hour > 23
+        || fields.minute > 59
+        || fields.second > 59
+        || fields.nanosecond >= 1_000_000_000
+    {
+        return Err(DateTimeFormatError::InvalidRequest(
+            "invalid local ISO clock",
+        ));
+    }
+    let converted = CalendarProjection::from_iso(calendar, fields, kernels)?;
     Ok(Fields {
-        year,
-        month,
-        leap_month,
-        day,
-        weekday,
+        calendar,
+        year: converted.year(),
+        month: converted.month(),
+        day: converted.day(),
+        weekday: converted.weekday(),
         hour: fields.hour,
         minute: fields.minute,
         second: fields.second,
         nanosecond: fields.nanosecond,
     })
+}
+
+#[cfg(test)]
+pub(super) fn convert_kind(
+    calendar: CalendarId,
+    fields: DateTimeIsoFields,
+) -> Result<Fields, DateTimeFormatError> {
+    convert_with_kernels(calendar, fields, pinned_kernels())
 }

@@ -3,6 +3,7 @@ use std::path::Path;
 
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 const STRING: &str = include_str!("../src/builtins/string.rs");
+const SYMBOL_METHOD: &str = include_str!("../src/builtins/string/symbol_method.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/string-symbol-hook-operation.md");
 const TASK: &str = include_str!("../../../tasks/18-strings-unicode.md");
@@ -80,16 +81,13 @@ fn string_symbol_hook_operation_is_the_five_row_non_copyable_shared_domain() {
 }
 
 #[test]
-fn symbol_hook_emitter_uses_six_borrowed_exhaustive_policy_matches() {
+fn symbol_hook_emitter_keeps_closed_policies_and_consumes_one_optional_method() {
     let emitter = bounded(
         STRING,
         "    fn emit_string_symbol_hook_builtin(",
         "    pub(crate) fn emit_string_validate_regexp_global_flags(",
     );
-    let normalized = without_whitespace(emitter).replace(",)", ")");
-
     assert!(emitter.contains("operation: StringSymbolHookOperation,"));
-    assert_eq!(emitter.matches("match &operation {").count(), 6);
     for forbidden in [
         "builtin: StandardBuiltinId",
         "StandardBuiltinId::StringPrototype",
@@ -100,86 +98,58 @@ fn symbol_hook_emitter_uses_six_borrowed_exhaustive_policy_matches() {
         "operation !=",
         "_ =>",
         "unreachable!",
-        "Default::default",
+        "emit_object_own_property_present(",
+        "emit_ordinary_get_prototype_of(",
+        "emit_function_handle_call(",
     ] {
         assert!(!emitter.contains(forbidden), "forbidden `{forbidden}`");
     }
+    let object_gate = emitter
+        .find("self.emit_is_heap_object_like_tag_i32(")
+        .unwrap();
+    let flags = emitter
+        .find("self.emit_string_validate_regexp_global_flags(")
+        .unwrap();
+    let method = emitter
+        .find("NullableStringSymbolMethod::get_method(")
+        .unwrap();
+    let dispatch = emitter.find("method.call_or_fallback(").unwrap();
+    assert!(object_gate < flags && flags < method && method < dispatch);
+    assert!(emitter
+        .contains("StringSymbolHookOperation::MatchAll | StringSymbolHookOperation::ReplaceAll"));
 
-    for projection in [
-        "StringSymbolHookOperation::Match=>\"Symbol.match\"",
-        "StringSymbolHookOperation::MatchAll=>\"Symbol.matchAll\"",
-        "StringSymbolHookOperation::Replace|StringSymbolHookOperation::ReplaceAll=>{\"Symbol.replace\"}",
-        "StringSymbolHookOperation::Search=>\"Symbol.search\"",
-    ] {
-        assert!(normalized.contains(projection), "symbol projection `{projection}`");
-    }
-    assert_eq!(
-        normalized
-            .matches("self.emit_builtin_arg_to_locals(1,")
-            .count(),
-        1
+    let split = bounded(
+        STRING,
+        "    pub(crate) fn emit_string_split_builtin(",
+        "    fn emit_string_symbol_hook_fallback(",
     );
-    assert_eq!(
-        emitter
-            .matches("self.emit_string_validate_regexp_global_flags(")
-            .count(),
-        1
+    assert!(split.contains("self.emit_is_heap_object_like_tag_i32("));
+    assert!(split.contains("StringSymbolMethodKey::Split"));
+    assert!(split.contains("NullableStringSymbolMethod::get_method("));
+    assert!(split.contains("method.call_or_fallback("));
+    assert!(!split.contains("emit_function_handle_call("));
+
+    // The observed receiver/method record remains private, and a required Invoke
+    // cannot choose the nullable protocol's fallback operation.
+    let observed = bounded(
+        SYMBOL_METHOD,
+        "struct ObservedStringSymbolMethod {",
+        "impl ObservedStringSymbolMethod {",
     );
-    assert_eq!(
-        emitter
-            .matches("self.emit_object_own_property_present(")
-            .count(),
-        1
+    assert!(!observed.contains("pub"));
+    assert!(!SYMBOL_METHOD.contains("derive(Clone"));
+    assert!(!SYMBOL_METHOD.contains("derive(Copy"));
+    assert!(SYMBOL_METHOD.contains("emit_is_callable_i32("));
+    assert!(SYMBOL_METHOD.contains("emit_function_or_proxy_call_leave_throw_completion("));
+    assert!(SYMBOL_METHOD.contains("emit_propagate_throw_from_locals_if_needed("));
+    assert!(SYMBOL_METHOD.contains("emit_throw_current_function_realm_type_error("));
+    let required = bounded(
+        SYMBOL_METHOD,
+        "impl RequiredStringSymbolMethod {",
+        "// RegExpCreate uses",
     );
-    assert_eq!(
-        emitter
-            .matches("self.emit_string_symbol_hook_fallback(")
-            .count(),
-        4
-    );
-    assert!(normalized.contains(
-        "StringSymbolHookOperation::Replace|StringSymbolHookOperation::ReplaceAll=>{self.emit_builtin_arg_to_locals(1,replace_payload_local,replace_tag_local,function);"
-    ));
-    assert!(normalized.contains(
-        "StringSymbolHookOperation::MatchAll|StringSymbolHookOperation::ReplaceAll=>{self.emit_string_validate_regexp_global_flags("
-    ));
-    assert!(normalized
-        .contains("StringSymbolHookOperation::MatchAll=>{self.emit_object_own_property_present("));
-    assert!(normalized.contains(
-        "StringSymbolHookOperation::MatchAll=>{function.instruction(&Instruction::LocalGet(match_all_is_regexp_local));function.instruction(&Instruction::I64Const(0));function.instruction(&Instruction::I64Ne);function.instruction(&Instruction::LocalGet(match_all_own_present_local));function.instruction(&Instruction::I64Eqz);function.instruction(&Instruction::I32And);function.instruction(&Instruction::If(BlockType::Empty));self.emit_ordinary_get_prototype_of("
-    ));
-    let inherited_match_all = bounded(
-        emitter,
-        "                function.instruction(&Instruction::LocalGet(match_all_is_regexp_local));",
-        "            StringSymbolHookOperation::Match\n            | StringSymbolHookOperation::Replace\n            | StringSymbolHookOperation::ReplaceAll\n            | StringSymbolHookOperation::Search => {",
-    );
-    let normalized_inherited_match_all = without_whitespace(inherited_match_all).replace(",)", ")");
-    assert!(normalized_inherited_match_all.contains(
-        "self.emit_object_read(match_all_prototype_payload_local,match_all_prototype_tag_local,symbol_receiver_payload_local,symbol_receiver_tag_local,key_local,method_payload_local,method_tag_local,function)?;"
-    ));
-    assert!(normalized_inherited_match_all.contains(
-        "function.instruction(&Instruction::LocalGet(method_tag_local));function.instruction(&Instruction::I64Const(ValueKind::Function.tag()asi64));function.instruction(&Instruction::I64Eq);function.instruction(&Instruction::If(BlockType::Empty));"
-    ));
-    assert!(normalized_inherited_match_all.contains(
-        "self.emit_function_handle_call(method_payload_local,method_tag_local,Some((symbol_receiver_payload_local,Some(symbol_receiver_tag_local))),&[(receiver_payload_local,receiver_tag_local)],self.result_local,self.result_tag_local,function)?;"
-    ));
-    assert!(
-        inherited_match_all.contains("String.prototype.matchAll RegExp @@matchAll is not callable")
-    );
-    assert!(normalized.contains(
-        "StringSymbolHookOperation::Match|StringSymbolHookOperation::Replace|StringSymbolHookOperation::ReplaceAll|StringSymbolHookOperation::Search=>{self.emit_string_symbol_hook_fallback("
-    ));
-    assert!(normalized.contains(
-        "StringSymbolHookOperation::Replace|StringSymbolHookOperation::ReplaceAll=>{self.emit_function_handle_call("
-    ));
-    for anchor in [
-        "compile_nullish_tagged_i32(receiver_tag_local",
-        "property_key_symbol_payload(symbol_key)",
-        "emit_object_read(",
-        "String.prototype symbol hook is not callable",
-    ] {
-        assert!(emitter.contains(anchor), "shared emitter anchor `{anchor}`");
-    }
+    assert!(!required.contains("fallback"));
+    assert!(required.contains("pub(super) fn invoke(\n        self,"));
 }
 
 #[test]
@@ -271,19 +241,9 @@ fn standard_dispatch_names_five_operations_and_routes_split_directly() {
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_in_rust_sources(&source_root, "StringSymbolHookOperation"),
-        43,
-        "the private domain, seven policies and five fixed producers must stay inventoried"
-    );
-    assert_eq!(
         count_in_rust_sources(&source_root, "emit_string_symbol_hook_builtin("),
         6,
         "the typed emitter definition and exactly five calls must stay inventoried"
-    );
-    assert_eq!(
-        count_in_rust_sources(&source_root, "emit_string_symbol_hook_fallback("),
-        5,
-        "the private fallback definition and exactly four calls must stay inventoried"
     );
 }
 

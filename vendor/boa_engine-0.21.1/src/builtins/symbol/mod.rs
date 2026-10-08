@@ -41,6 +41,16 @@ use super::{BuiltInBuilder, BuiltInConstructor, IntrinsicObject};
 static GLOBAL_SYMBOL_REGISTRY: LazyLock<GlobalSymbolRegistry> =
     LazyLock::new(GlobalSymbolRegistry::new);
 
+/// Raw host inspection of an existing registry entry. It performs no JavaScript
+/// coercion, property lookup or call and does not create a registry entry.
+#[must_use]
+pub fn with_registry_key_for_symbol<R>(symbol: &JsSymbol, inspect: impl FnOnce(Option<&[u16]>) -> R) -> R {
+    match GLOBAL_SYMBOL_REGISTRY.symbols.get(symbol) {
+        Some(key) => inspect(Some(&key[..])),
+        None => inspect(None),
+    }
+}
+
 type FxDashMap<K, V> = DashMap<K, V, BuildHasherDefault<FxHasher>>;
 
 // We previously used `JsString` instead of `Box<[u16]>` for this, but since the glocal symbol

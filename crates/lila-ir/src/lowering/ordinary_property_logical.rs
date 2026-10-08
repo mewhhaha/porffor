@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn joined_conditional_receiver_carries_each_builtin_getter() {
+    fn joined_conditional_receiver_retains_its_live_reference_and_unknown_hooks() {
         for source in [
             "function readSize(flag, map, set) { return (flag ? map : set).size ||= 1; } readSize(true, new Map(), new Set());",
             "function readSize(flag, map, set) { return (flag ? map : set).size ||= 1; } readSize(true, new Map(null), new Set(undefined));",
@@ -321,17 +321,24 @@ mod tests {
             let script = program.script.as_ref().expect("script IR should exist");
             let assignment = returned_assignment(script, "readSize");
 
-            for getter in [
-                StandardBuiltinId::MapPrototypeSizeGetter,
-                StandardBuiltinId::SetPrototypeSizeGetter,
-            ] {
-                assert!(
-                    assignment
-                        .possible_getters()
-                        .contains(&getter.function_id()),
-                    "joined conditional receiver lost {getter:?} for {source}: {assignment:?}"
-                );
-            }
+            assert!(matches!(&assignment.base_and_receiver().expr,
+                ExprIr::Conditional { condition, then_expr, else_expr }
+                    if matches!(&condition.expr, ExprIr::Identifier(name) if name == "flag")
+                        && matches!(&then_expr.expr, ExprIr::Identifier(name) if name == "map")
+                        && matches!(&else_expr.expr, ExprIr::Identifier(name) if name == "set")));
+            assert_eq!(
+                assignment.referenced_name(),
+                &PropertyKeyIr::StaticString("size".into())
+            );
+            assert!(matches!(assignment.rhs().expr,
+                ExprIr::Number(bits) if bits == 1.0_f64.to_bits()));
+            assert_eq!(assignment.op(), LogicalBinaryOp::Or);
+            assert_eq!(assignment.strictness(), Strictness::Sloppy);
+            // Unknown descriptor hooks widen the reusable function's
+            // parameters. Keep that open source-call closure in the carrier;
+            // native size accessors are rooted by collection bootstrap.
+            assert!(assignment.possible_getters().includes_all_planned_source());
+            assert!(assignment.possible_setters().includes_all_planned_source());
         }
     }
 

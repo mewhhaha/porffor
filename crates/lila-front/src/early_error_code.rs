@@ -33,12 +33,15 @@
 //!
 //! # What this buys, and what it does not
 //!
-//! `boa_parser` reports every static-semantics failure as a generic
-//! `Error::general` / `Error::lex` with no machine-readable kind, so the only
-//! oracle available is the message text. The types here buy **single-sourcing**
+//! Most pinned `boa_parser` static-semantics failures use generic
+//! `Error::general` / `Error::lex`, whose oracle is message text. The class-method
+//! `HasDirectSuper` condition instead uses a dedicated typed error carrier and
+//! exhaustive projection, so its phase is independent of presentation text.
+//! The types here buy **single-sourcing**
 //! (one spelling authority, one table, one classifier) and **exhaustiveness** (a
 //! new code fails to build at every consumer). They do **not** buy oracle
-//! robustness: if boa rewords a message, one row goes dead and no compile error
+//! robustness for message-owned conditions: if boa rewords a message, one row
+//! goes dead and no compile error
 //! fires. The `witnesses` column is the mitigation — it keeps the byte strings
 //! boa actually emits beside the patterns that are supposed to select them, in
 //! one place, so a `vendor/` bump has exactly one file to re-read. See ledger
@@ -153,7 +156,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 74] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 75] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -276,6 +279,10 @@ early_error_codes! {
     /// `HasDirectSuper` of that constructor is true. A present heritage,
     /// including `extends null`, is deliberately excluded.
     ClassBaseConstructorHasDirectSuper => "E_CLASS_BASE_CONSTRUCTOR_HAS_DIRECT_SUPER";
+    /// ClassElement MethodDefinition parameters or body `Contains SuperCall`.
+    /// Actual constructors and computed names have separate parser owners.
+    /// Only Boa's dedicated typed error variant produces this code.
+    ClassMethodHasDirectSuper => "E_CLASS_METHOD_HAS_DIRECT_SUPER";
     /// ClassElement early errors: a non-static generator or async-generator
     /// method has the literal property name `"constructor"`. Static and
     /// computed generator methods named `constructor` remain excluded.
@@ -466,15 +473,13 @@ early_error_codes! {
     ModuleUnresolved => "E_MODULE_UNRESOLVED";
     /// `ResolveExport` returned **null**.
     ModuleMissingExport => "E_MODULE_MISSING_EXPORT";
+    /// Source-phase imports cannot obtain a source representation from an
+    /// ECMAScript Source Text Module Record.
+    ModuleSourceUnavailable => "E_MODULE_SOURCE_UNAVAILABLE";
     /// `ResolveExport` returned **ambiguous**.
     ModuleAmbiguousExport => "E_MODULE_AMBIGUOUS_EXPORT";
     /// Host invariant: one key loaded twice with different source text.
     ModuleInconsistentLoad => "E_MODULE_INCONSISTENT_LOAD";
-    /// An implementation limit, **not** a spec condition. Claiming `SyntaxError`
-    /// for it is a recorded defect (ledger L4), deliberately not fixed by the
-    /// lane that introduced this enum: the fix changes which diagnostics reach
-    /// the backend and belongs to whoever owns `modules/graph.rs` and `emit.rs`.
-    ModuleUnsupportedPhase => "E_MODULE_UNSUPPORTED_PHASE";
     /// An implementation limit, **not** a spec condition. See ledger L4.
     ModuleTooManyUnits => "E_MODULE_TOO_MANY_UNITS";
 }
@@ -1280,8 +1285,29 @@ pub const NO_EARLY_ERROR_CODE: &str = "E_IR_DIAGNOSTIC";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ParseClassified(EarlyErrorCode);
 
+// The sole typed parser owner is separate from the message-pattern table.
+// It cannot be acquired by text classification, even when another parser
+// error carries the same presentation text.
+const TYPED_CLASS_METHOD_SUPER_CODE: ParseClassified =
+    ParseClassified(EarlyErrorCode::ClassMethodHasDirectSuper);
+
 impl ParseClassified {
-    /// The gate. `None` for a code no row of the message-pattern table carries — i.e.
+    /// Project Boa's closed error carrier before its presentation text is made.
+    /// A new Boa error variant requires this match to be reviewed at compile time.
+    pub(crate) const fn from_boa_error(error: &boa_parser::Error) -> Option<Self> {
+        match error {
+            boa_parser::Error::ClassMethodHasDirectSuper { .. } => {
+                Some(TYPED_CLASS_METHOD_SUPER_CODE)
+            }
+            boa_parser::Error::Expected { .. }
+            | boa_parser::Error::Unexpected { .. }
+            | boa_parser::Error::AbruptEnd
+            | boa_parser::Error::Lex { .. }
+            | boa_parser::Error::General { .. } => None,
+        }
+    }
+
+    /// The gate. `None` for a code neither the message-pattern table nor the typed parser owner carries — i.e.
     /// for a link-only condition, which a parse-stage producer must not claim.
     #[must_use]
     pub const fn from_early(code: EarlyErrorCode) -> Option<Self> {
@@ -1295,6 +1321,7 @@ impl ParseClassified {
     /// [`Self::from_early`] for a code named as a literal, with `None` turned
     /// into a **compile error**.
     ///
+    /// The historical name also admits the dedicated typed parser owner.
     /// Only meaningful in a `const` initializer; that is the point. The two
     /// parse-stage producers in `lila_ir::modules::early` bind their codes to
     /// `const` items built with this, so naming a link-only code there fails to
@@ -1304,7 +1331,7 @@ impl ParseClassified {
         match Self::from_early(code) {
             Some(classified) => classified,
             None => panic!(
-                "this EarlyErrorCode is not producible by PARSE_FAILURE_RULES, so a parse-stage \
+                "this EarlyErrorCode is not producible by the parser owners, so a parse-stage \
                  producer must not name it"
             ),
         }
@@ -1381,7 +1408,8 @@ pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
 }
 
 impl EarlyErrorCode {
-    /// True iff some row of the one message-pattern table can produce this code — i.e.
+    /// True iff the one message-pattern table or dedicated typed parser owner
+    /// can produce this code — i.e.
     /// iff a boa **parse** failure can be classified as this condition.
     ///
     /// `pub` because its consumer is `lila_ir::early_error_code`'s assertion
@@ -1390,6 +1418,9 @@ impl EarlyErrorCode {
     /// doc comment that used to ask, in words, that the two tables agree.
     #[must_use]
     pub const fn is_parse_classified(self) -> bool {
+        if code_eq(self, TYPED_CLASS_METHOD_SUPER_CODE.code()) {
+            return true;
+        }
         let mut i = 0;
         while i < PARSE_FAILURE_RULES.len() {
             if code_eq(PARSE_FAILURE_RULES[i].code, self) {
@@ -1515,6 +1546,25 @@ const fn code_is_owned_twice_by_exact_starts_with(
     owners == 2 && first_owners == 1 && second_owners == 1
 }
 
+const fn typed_class_method_owner_has_no_message_row() -> bool {
+    let mut i = 0;
+    while i < PARSE_FAILURE_RULES.len() {
+        if code_eq(
+            PARSE_FAILURE_RULES[i].code,
+            TYPED_CLASS_METHOD_SUPER_CODE.code(),
+        ) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+const _: () = assert!(
+    typed_class_method_owner_has_no_message_row(),
+    "the typed class-method condition must not have a text-classified owner"
+);
+
 // These conditions are intentionally parse-owned. Deleting any table row while
 // leaving its enum variant must fail during `cargo check`, not merely change a
 // retained dependency rejection from EarlyError back to Unsupported at run time.
@@ -1536,6 +1586,8 @@ const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::Lex
 const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::ScriptTopLevelSuper);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ClassBaseConstructorHasDirectSuper);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ClassMethodHasDirectSuper);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ClassStaticBlockContainsSuperCall);
 const _: ParseClassified =

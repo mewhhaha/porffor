@@ -104,15 +104,17 @@ mutate the fallback to any value and then either select the `with` object, or
 miss and reach a ToNumeric which itself throws before write-back; neither path
 justifies a Number-or-BigInt-only postcondition.
 
-A global fallback also performs a run-time HasProperty check immediately
-before its Dynamic `GlobalPropertyUpdate`. Initial Object Environment
-HasBinding may delete a statically proven global before returning false; an
-absent fallback must throw ReferenceError from GetValue in both sloppy and
-strict code, never coerce `undefined` and recreate the property. Conversely,
-if the same observation creates a formerly unresolvable global before
-returning false, the run-time check admits the ordinary Dynamic update. A
-configurable tracked global also loses its static `proven_present` fact because
-the missing path can throw, be caught, and leave the property absent.
+A global fallback starts at the actual Global Environment and retains that
+Record through GetValue, ToNumeric and PutValue. Initial Object Environment
+HasBinding may delete a statically proven global before returning false;
+ResolveBinding must then leave an unresolvable Reference, so GetValue throws
+in both strictness modes without reading a prototype getter. Conversely, a
+binding created during With selection participates in the later global
+resolution. Global Get and Put each recheck the retained Record's current
+lexical delegate. A configurable tracked global loses its static
+`proven_present` fact because a throwing path can leave the property absent.
+The retired raw-global update/compound IR variants and their backend arms
+have been removed; source globals share the EnvironmentIdentifier lifecycle.
 
 Consequently an empty resolution chain, a second consumption of the same
 Reference plan, a fallback target substituted after GetValue, a return before

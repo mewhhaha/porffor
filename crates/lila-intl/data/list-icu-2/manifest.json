@@ -1,0 +1,335 @@
+{
+  "conditional_projection": "valid UTF16 pairs decode normally; isolated surrogates become U+FFFD only for ICU template selection; output uses indexed original strings",
+  "files": [
+    {
+      "bytes": 80996,
+      "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+    },
+    {
+      "bytes": 80091,
+      "path": "crates/lila-aot-wasm/src/emit.rs",
+      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+    },
+    {
+      "bytes": 33617,
+      "path": "crates/lila-engine/src/intl_data_images.rs",
+      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+    },
+    {
+      "bytes": 3217,
+      "path": "crates/lila-engine/src/intl_list_host.rs",
+      "sha256": "174532cfd7cbc169b8bc2238d153eac23159de2d12f0b5ac650635e27755dd38"
+    },
+    {
+      "bytes": 3178,
+      "path": "crates/lila-intl/Cargo.toml",
+      "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+    },
+    {
+      "bytes": 2580,
+      "path": "crates/lila-intl/build.rs",
+      "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+    },
+    {
+      "bytes": 2953,
+      "path": "crates/lila-intl/data/cldr-47-bcp47/manifest.json",
+      "sha256": "71a427fdc899544cb7ff29bc84c0c0f1fb5c29cbd80a35336ace332004235ff7"
+    },
+    {
+      "bytes": 3359,
+      "path": "crates/lila-intl/data/list-icu-2/source-inputs.json",
+      "sha256": "ed7d4cc28a9fe9e1e798f0c540b12b4b2c43d789f274d9915cef0fbe999da9f8"
+    },
+    {
+      "bytes": 136434,
+      "path": "crates/lila-intl/src/duration_format/generated/profile.json",
+      "sha256": "351c8447d4df24ce6ea8d50d24829e467fdedc3c19fe5cbd1ef3759959122fea"
+    },
+    {
+      "bytes": 14132,
+      "path": "crates/lila-intl/src/duration_format/profiles.rs",
+      "sha256": "c5e2504f21f04e8ac2b4aa13e01cb8a9b44821653d7e3fa9d3bdf0e2dff8cf70"
+    },
+    {
+      "bytes": 1006,
+      "path": "crates/lila-intl/src/duration_format/raw.rs",
+      "sha256": "e0f3eb0796a34a44a70f19e32a543ac98de1afc165833ecbba93122a5351da7d"
+    },
+    {
+      "bytes": 10333,
+      "path": "crates/lila-intl/src/image.rs",
+      "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+    },
+    {
+      "bytes": 1366,
+      "path": "crates/lila-intl/src/image_build/keyword.rs",
+      "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+    },
+    {
+      "bytes": 2390,
+      "path": "crates/lila-intl/src/image_build/list.rs",
+      "sha256": "c6765e874a7ed37d7aada8db72df0b4971dc3aed0889e8338ee664877ad8d553"
+    },
+    {
+      "bytes": 1473,
+      "path": "crates/lila-intl/src/image_build/locale.rs",
+      "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+    },
+    {
+      "bytes": 41350,
+      "path": "crates/lila-intl/src/lib.rs",
+      "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+    },
+    {
+      "bytes": 5033,
+      "path": "crates/lila-intl/src/list_format/partition.rs",
+      "sha256": "c2fa55c1f5f3fa566850110e3af06b9a79b6e70dd5bdee820180fda222f0cec7"
+    },
+    {
+      "bytes": 11444,
+      "path": "crates/lila-intl/src/list_format/profiles.rs",
+      "sha256": "41e42b15d02e68cc379684030b35fcf52bbeedaa75a83e2393ba54eeb3cd374c"
+    },
+    {
+      "bytes": 7480,
+      "path": "crates/lila-intl/src/list_format.rs",
+      "sha256": "bc1e0c0763d27e453df2b10986c16e4b4a3a2485334dce159f0c1701d0441f09"
+    },
+    {
+      "bytes": 1919,
+      "path": "crates/lila-intl/src/list_image/projection/export.rs",
+      "sha256": "81c2d9d07b26499120dcaa9dc01fc12cbc5afa5f1ef998832842d4a406aef6d4"
+    },
+    {
+      "bytes": 14965,
+      "path": "crates/lila-intl/src/list_image/projection.rs",
+      "sha256": "d8e60efd579e6579fefe090ecf9717b49e308957428197f2b5c22e149d307f9b"
+    },
+    {
+      "bytes": 8641,
+      "path": "crates/lila-intl/src/list_image.rs",
+      "sha256": "27ae18a3c5b7ce886915f1fe772f25c69029e66d678412510780fc784482850c"
+    },
+    {
+      "bytes": 6871,
+      "path": "crates/lila-intl/src/list_protocol.rs",
+      "sha256": "e7fb47cfbb23dc0b0a293dc374fc56ea7f96b9b80b1deed99bf73a499f301234"
+    },
+    {
+      "bytes": 6504,
+      "path": "crates/lila-intl/src/locale_image.rs",
+      "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+    },
+    {
+      "bytes": 10218,
+      "path": "crates/lila-intl/src/number_protocol/primitives.rs",
+      "sha256": "460e3525e74891438c1351798610a6be57fca65278ab7709767f53890a798e95"
+    },
+    {
+      "bytes": 2393,
+      "path": "crates/lila-intl/src/number_protocol.rs",
+      "sha256": "d1b639456ee28338b959c9e176178dfbc1f097deddbb05c0d6b8a203df0dd695"
+    },
+    {
+      "bytes": 49955,
+      "path": "crates/lila-intl/src/protocol.rs",
+      "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+    },
+    {
+      "bytes": 2251,
+      "path": "crates/lila-intl/src/provider/conformance.rs",
+      "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
+    },
+    {
+      "bytes": 4101,
+      "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+      "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+    },
+    {
+      "bytes": 17530,
+      "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+    },
+    {
+      "bytes": 21618,
+      "path": "crates/lila-intl/src/provider/language_domain.rs",
+      "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+    },
+    {
+      "bytes": 80443,
+      "path": "crates/lila-intl/src/provider.rs",
+      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+    },
+    {
+      "bytes": 21454,
+      "path": "crates/lila-intl/src/selection/export.rs",
+      "sha256": "1ff9becaa320301f1ae1f1dcc85d468b4546d1aa86f33c31db9f35418408d97e"
+    },
+    {
+      "bytes": 35819,
+      "path": "crates/lila-intl/src/selection/manifest.rs",
+      "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
+    },
+    {
+      "bytes": 54634,
+      "path": "crates/lila-intl/src/selection.rs",
+      "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+    },
+    {
+      "bytes": 7999,
+      "path": "crates/lila-intl/src/service_selection.rs",
+      "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
+    },
+    {
+      "bytes": 10414,
+      "path": "scripts/generate-intl-list-identity.py",
+      "sha256": "2306fd7ca9e73abc9b20002d12e42c14296c2c549df1a8c7f676ca3ed9fd71d5"
+    }
+  ],
+  "packages": [
+    {
+      "checksum": "f67934757bda073a8e358550100d70edb4689c2acc216f51d023233b84b39d41",
+      "name": "icu_list",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.1"
+    },
+    {
+      "checksum": "5a456a2412458ca45e181d9d51c5090ef8cd90f5692e11d34bafab3b3be1c76b",
+      "name": "icu_list_data",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "6ae5921528335e91da1b6c695dbf1ec37df5ac13faa3f91e5640be93aa2fbefd",
+      "name": "icu_locale",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "93cca704c2d63cf8a91f5c2c5f88e027940dede132319b85a52939db9758f7e5",
+      "name": "icu_locale_core",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.1"
+    },
+    {
+      "checksum": "4fdef0c124749d06a743c69e938350816554eb63ac979166590e2b4ee4252765",
+      "name": "icu_locale_data",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "03c80da27b5f4187909049ee2d72f276f0d9f99a42c306bd0131ecfe04d8e5af",
+      "name": "icu_provider",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "85c260e90e962088d46a1605687f78d3293cc3a34ba66b08ff7361084bc7895e",
+      "name": "icu_provider_adapters",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "cf5dd612b781cc4aa75b270f3c9f36fd42139a54b24fae7f077163ee6c322f85",
+      "name": "icu_provider_blob",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4",
+      "name": "writeable",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.6.3"
+    },
+    {
+      "checksum": "90f911cbc359ab6af17377d242225f4d75119aec87ea711a880987b18cd7b239",
+      "name": "zerovec",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.11.6"
+    }
+  ],
+  "pattern_census": {
+    "actual_available_locale_count": "only the native constructor/runtime controls establish this count",
+    "distinct_condition_dfa_pairs": [
+      [
+        "297dd53223785e72ca52cb5d25d160f84b47e6a248f436723ccc2dfe8b17c9be",
+        "89b5b5a8dade282351ef3c3e6b946af472f5d88275b755f778b4a70350be0485"
+      ],
+      [
+        "29a472253521ed500e44b1bd70d07525319947e2eb903583e3c9795109b17263",
+        "4610f294867a79ad9a2a0a326d83edffe1bd326c45038bc41095729ad9887582"
+      ],
+      [
+        "9c7201806e72fa2206dff56e8ab1c115770253bc5130341c1965d047df59a5b4",
+        "39b6402b46c0952da1694424a769a3d868358040c41c0e0e4408baa088a22f9d"
+      ]
+    ],
+    "rows": [
+      {
+        "conditional_occurrences": [
+          {
+            "big_endian_sha256": "39b6402b46c0952da1694424a769a3d868358040c41c0e0e4408baa088a22f9d",
+            "bytes": 1000,
+            "little_endian_sha256": "9c7201806e72fa2206dff56e8ab1c115770253bc5130341c1965d047df59a5b4"
+          },
+          {
+            "big_endian_sha256": "4610f294867a79ad9a2a0a326d83edffe1bd326c45038bc41095729ad9887582",
+            "bytes": 1081,
+            "little_endian_sha256": "29a472253521ed500e44b1bd70d07525319947e2eb903583e3c9795109b17263"
+          }
+        ],
+        "joiner_patterns": 340,
+        "joiner_utf8_boundaries_valid": true,
+        "marker": "and",
+        "pooled_patterns": 138,
+        "source_sha256": "3d39feda34d9076e74a631ced0c1e21f17973a766a7773b20125f62485bd9d3a",
+        "start_suffixes_empty": true
+      },
+      {
+        "conditional_occurrences": [
+          {
+            "big_endian_sha256": "89b5b5a8dade282351ef3c3e6b946af472f5d88275b755f778b4a70350be0485",
+            "bytes": 1293,
+            "little_endian_sha256": "297dd53223785e72ca52cb5d25d160f84b47e6a248f436723ccc2dfe8b17c9be"
+          }
+        ],
+        "joiner_patterns": 259,
+        "joiner_utf8_boundaries_valid": true,
+        "marker": "or",
+        "pooled_patterns": 110,
+        "source_sha256": "e7c30644b391dde478e25c1a6d0eb5a26bacb5345ba2209706d4480600e55579",
+        "start_suffixes_empty": true
+      },
+      {
+        "conditional_occurrences": [
+          {
+            "big_endian_sha256": "39b6402b46c0952da1694424a769a3d868358040c41c0e0e4408baa088a22f9d",
+            "bytes": 1000,
+            "little_endian_sha256": "9c7201806e72fa2206dff56e8ab1c115770253bc5130341c1965d047df59a5b4"
+          },
+          {
+            "big_endian_sha256": "39b6402b46c0952da1694424a769a3d868358040c41c0e0e4408baa088a22f9d",
+            "bytes": 1000,
+            "little_endian_sha256": "9c7201806e72fa2206dff56e8ab1c115770253bc5130341c1965d047df59a5b4"
+          },
+          {
+            "big_endian_sha256": "39b6402b46c0952da1694424a769a3d868358040c41c0e0e4408baa088a22f9d",
+            "bytes": 1000,
+            "little_endian_sha256": "9c7201806e72fa2206dff56e8ab1c115770253bc5130341c1965d047df59a5b4"
+          }
+        ],
+        "joiner_patterns": 240,
+        "joiner_utf8_boundaries_valid": true,
+        "marker": "unit",
+        "pooled_patterns": 95,
+        "source_sha256": "44c6555cb04e59144b8fa9964405eb0db7225eb672876ce267e5b8960fe1551e",
+        "start_suffixes_empty": true
+      }
+    ]
+  },
+  "provider_data_sha256": "93814be2b99bd01434a3b3c7e737e539704a218325106e2bc57d35c16382d608",
+  "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
+  "schema_version": 1,
+  "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"
+}

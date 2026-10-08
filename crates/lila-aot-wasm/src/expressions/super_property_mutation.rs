@@ -1,270 +1,339 @@
 use super::*;
 
-#[derive(Debug)]
-#[must_use = "a raw Super Property Reference must be consumed by GetValue"]
+#[must_use = "raw Super Reference operands must enter GetValue or PutValue"]
 struct EvaluatedRawSuperPropertyReferenceLocals {
-    base_payload: u32,
-    base_tag: u32,
-    receiver_payload: u32,
-    receiver_tag: u32,
-    referenced_name_payload: u32,
-    referenced_name_tag: u32,
+    base: ValueLocals,
+    receiver: ValueLocals,
+    referenced_name: ValueLocals,
 }
 
-#[derive(Debug)]
-#[must_use = "a coerced Super Property Reference must be consumed by PutValue"]
+#[must_use = "a canonical Super Reference must be consumed by PutValue"]
 struct CoercedSuperPropertyReferenceLocals {
-    base_payload: u32,
-    base_tag: u32,
-    receiver_payload: u32,
-    receiver_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
+    base: ValueLocals,
+    receiver: ValueLocals,
+    property_key: PropertyKeyLocals,
+}
+impl CoercedSuperPropertyReferenceLocals {
+    fn clear(self, function: &mut Function) {
+        self.property_key.clear(function);
+        self.receiver.clear(function);
+        self.base.clear(function);
+    }
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     fn evaluate_raw_super_property_reference(
         &mut self,
         receiver: &TypedExpr,
         referenced_name: &PropertyKeyIr,
         function: &mut Function,
     ) -> Result<EvaluatedRawSuperPropertyReferenceLocals, EmitError> {
-        let base_payload = self.reserve_temp_local();
-        let base_tag = self.reserve_temp_local();
-        let receiver_payload = self.reserve_temp_local();
-        let receiver_tag = self.reserve_temp_local();
-        let referenced_name_payload = self.reserve_temp_local();
-        let referenced_name_tag = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(receiver, receiver_payload, receiver_tag, function)?;
-        self.compile_raw_property_key_expression_to_locals(
-            referenced_name,
-            referenced_name_payload,
-            referenced_name_tag,
-            function,
-        )?;
-        self.emit_load_super_base(base_payload, base_tag, function)?;
-        self.emit_throw_if_null_super_base(base_payload, base_tag, function)?;
-
+        let schema = self.runtime_schema();
+        let base = schema.reserve_value_local(function);
+        let receiver_value = schema.reserve_value_local(function);
+        let name = schema.reserve_value_local(function);
+        self.compile_expr_to_value(receiver, &receiver_value, function)?;
+        self.compile_raw_property_key_expression_to_value(referenced_name, &name, function)?;
+        self.emit_load_super_base(&base, function)?;
         Ok(EvaluatedRawSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            referenced_name_payload,
-            referenced_name_tag,
+            base,
+            receiver: receiver_value,
+            referenced_name: name,
+        })
+    }
+
+    fn canonicalize_super_property_reference(
+        &mut self,
+        raw: EvaluatedRawSuperPropertyReferenceLocals,
+        function: &mut Function,
+    ) -> Result<CoercedSuperPropertyReferenceLocals, EmitError> {
+        let EvaluatedRawSuperPropertyReferenceLocals {
+            base,
+            receiver,
+            referenced_name,
+        } = raw;
+        self.emit_throw_if_null_super_base(&base, function)?;
+        let property_key = self.emit_value_to_property_key_locals(&referenced_name, function)?;
+        referenced_name.clear(function);
+        Ok(CoercedSuperPropertyReferenceLocals {
+            base,
+            receiver,
+            property_key,
         })
     }
 
     fn emit_get_value_from_raw_super_property_reference(
         &mut self,
-        reference: EvaluatedRawSuperPropertyReferenceLocals,
-        value_payload: u32,
-        value_tag: u32,
+        raw: EvaluatedRawSuperPropertyReferenceLocals,
+        old: &ValueLocals,
         function: &mut Function,
     ) -> Result<CoercedSuperPropertyReferenceLocals, EmitError> {
-        let EvaluatedRawSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            referenced_name_payload: property_key_payload,
-            referenced_name_tag: property_key_tag,
-        } = reference;
-
-        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
-        self.emit_object_read_with_key_tag(
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            Some(property_key_tag),
-            value_payload,
-            value_tag,
-            function,
-        )?;
-
-        Ok(CoercedSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            property_key_tag,
-        })
+        let reference = self.canonicalize_super_property_reference(raw, function)?;
+        let schema = self.runtime_schema();
+        schema
+            .call_helper(
+                crate::runtime_helpers::ObjectReadArguments::new(
+                    &reference.base,
+                    &reference.receiver,
+                    &reference.property_key,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(self.completion(), function);
+        self.emit_propagate_current_throw_if_needed(function);
+        old.copy_from(self.completion().value(), function);
+        Ok(reference)
     }
 
     fn emit_put_value_from_coerced_super_property_reference(
         &mut self,
         reference: CoercedSuperPropertyReferenceLocals,
-        value_payload: u32,
-        value_tag: u32,
-        set_result: u32,
+        value: &ValueLocals,
         strictness: Strictness,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let CoercedSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            property_key_tag,
-        } = reference;
-
-        self.emit_ordinary_set_result_via_helper(
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            property_key_tag,
-            value_payload,
-            value_tag,
-            set_result,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(set_result));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.with_reference_strictness(strictness, function, |emitter, function| {
-            emitter.emit_object_write_set_failure_else("Cannot assign to super property", function)
-        })?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(property_key_tag);
-        self.release_temp_local(property_key_payload);
-        self.release_temp_local(receiver_tag);
-        self.release_temp_local(receiver_payload);
-        self.release_temp_local(base_tag);
-        self.release_temp_local(base_payload);
+        let schema = self.runtime_schema();
+        schema
+            .call_helper(
+                crate::runtime_helpers::OrdinarySetArguments::new(
+                    &reference.base,
+                    &reference.receiver,
+                    &reference.property_key,
+                    value,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(self.completion(), function);
+        self.emit_propagate_current_throw_if_needed(function);
+        if strictness.throws_on_failed_set() {
+            self.completion().value().scalar().load(function);
+            function.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_expression_native_error(
+                NativeErrorKind::TypeError,
+                RuntimeErrorMessage::CANNOT_ASSIGN_TO_SUPER_PROPERTY,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        reference.clear(function);
         Ok(())
     }
 
-    pub(super) fn compile_super_property_mutation_to_locals(
+    pub(super) fn compile_super_property_read_to_value(
         &mut self,
-        mutation: &SuperPropertyMutationIr,
-        payload_local: u32,
-        tag_local: u32,
+        key: &PropertyKeyIr,
+        receiver: &TypedExpr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // These result locals sit below the reference carrier so PutValue can
-        // consume and release the carrier while retaining both numeric values
-        // until a successful Set selects the prefix/postfix result.
-        let old_value_payload = self.reserve_temp_local();
-        let old_value_tag = self.reserve_temp_local();
-        let new_value_payload = self.reserve_temp_local();
-        let new_value_tag = self.reserve_temp_local();
-        let set_result = self.reserve_temp_local();
+        let raw = self.evaluate_raw_super_property_reference(receiver, key, function)?;
+        let reference =
+            self.emit_get_value_from_raw_super_property_reference(raw, output, function)?;
+        reference.clear(function);
+        Ok(())
+    }
 
-        let raw_reference = self.evaluate_raw_super_property_reference(
+    pub(super) fn compile_super_property_write_to_value(
+        &mut self,
+        key: &PropertyKeyIr,
+        receiver: &TypedExpr,
+        value: &TypedExpr,
+        strictness: Strictness,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let raw = self.evaluate_raw_super_property_reference(receiver, key, function)?;
+        let rhs = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(value, &rhs, function)?;
+        // A null Super base is permitted while evaluating the Reference. Plain
+        // assignment completes the RHS before PutValue rejects that base.
+        let reference = self.canonicalize_super_property_reference(raw, function)?;
+        self.emit_put_value_from_coerced_super_property_reference(
+            reference, &rhs, strictness, function,
+        )?;
+        output.copy_from(&rhs, function);
+        rhs.clear(function);
+        Ok(())
+    }
+
+    pub(super) fn compile_super_property_mutation_to_value(
+        &mut self,
+        mutation: &SuperPropertyMutationIr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match mutation.operation() {
+            SuperPropertyMutationOperationIr::Capture(capture) => {
+                return self.compile_super_property_capture(mutation, capture, output, function);
+            }
+            SuperPropertyMutationOperationIr::PutCaptured { capture, value } => {
+                return self.compile_captured_super_property_put(
+                    capture,
+                    value,
+                    mutation.strictness(),
+                    output,
+                    function,
+                );
+            }
+            SuperPropertyMutationOperationIr::NumericUpdate { .. }
+            | SuperPropertyMutationOperationIr::EagerCompound { .. } => {}
+        }
+        let schema = self.runtime_schema();
+        let old = schema.reserve_value_local(function);
+        let new = schema.reserve_value_local(function);
+        let raw = self.evaluate_raw_super_property_reference(
             mutation.receiver(),
             mutation.referenced_name(),
             function,
         )?;
-        let coerced_reference = self.emit_get_value_from_raw_super_property_reference(
-            raw_reference,
-            old_value_payload,
-            old_value_tag,
-            function,
-        )?;
-
+        let reference =
+            self.emit_get_value_from_raw_super_property_reference(raw, &old, function)?;
         match mutation.operation() {
+            SuperPropertyMutationOperationIr::Capture(_)
+            | SuperPropertyMutationOperationIr::PutCaptured { .. } => {
+                unreachable!("captured Super operations have already consumed their owner")
+            }
             SuperPropertyMutationOperationIr::NumericUpdate {
                 op,
                 return_mode,
                 value_kind,
             } => {
-                match value_kind {
-                    NumericUpdateValueKind::Dynamic => self.emit_value_to_numeric_locals(
-                        old_value_payload,
-                        old_value_tag,
-                        function,
-                    )?,
-                    NumericUpdateValueKind::Number => {
-                        self.emit_value_to_number_payload(
-                            old_value_tag,
-                            old_value_payload,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalSet(old_value_payload));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(old_value_tag));
-                        self.emit_return_current_completion_if_throw(function);
-                    }
-                    NumericUpdateValueKind::BigInt => {}
-                }
-                self.emit_numeric_update_to_locals(
-                    *op,
-                    *value_kind,
-                    old_value_payload,
-                    old_value_tag,
-                    new_value_payload,
-                    new_value_tag,
-                    function,
-                )?;
-
+                self.emit_numeric_reference_old_value(*value_kind, &old, function)?;
+                self.emit_numeric_update_to_locals(*op, *value_kind, &old, &new, function)?;
                 self.emit_put_value_from_coerced_super_property_reference(
-                    coerced_reference,
-                    new_value_payload,
-                    new_value_tag,
-                    set_result,
+                    reference,
+                    &new,
                     mutation.strictness(),
                     function,
                 )?;
-
-                let (result_payload, result_tag) = match return_mode {
-                    UpdateReturnMode::Prefix => (new_value_payload, new_value_tag),
-                    UpdateReturnMode::Postfix => (old_value_payload, old_value_tag),
-                };
-                function.instruction(&Instruction::LocalGet(result_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(result_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
+                output.copy_from(
+                    match return_mode {
+                        UpdateReturnMode::Prefix => &new,
+                        UpdateReturnMode::Postfix => &old,
+                    },
+                    function,
+                );
             }
             SuperPropertyMutationOperationIr::EagerCompound {
                 old_value_binding,
                 result,
             } => {
                 self.push_scope();
-                self.binding_scopes
-                    .last_mut()
-                    .expect("binding scope stack must exist")
-                    .insert(
-                        old_value_binding.clone(),
-                        BindingStorage::Dynamic {
-                            tag_local: old_value_tag,
-                            payload_local: old_value_payload,
-                        },
-                    );
-                let compile_result =
-                    self.compile_expr_to_locals(result, new_value_payload, new_value_tag, function);
+                let (_, id) = self.retain_expression_operand(old_value_binding, &old, function);
+                let compiled = self.compile_expr_to_value(result, &new, function);
                 self.pop_scope();
-                compile_result?;
-
+                self.release_local_binding(id, function);
+                compiled?;
                 self.emit_put_value_from_coerced_super_property_reference(
-                    coerced_reference,
-                    new_value_payload,
-                    new_value_tag,
-                    set_result,
+                    reference,
+                    &new,
                     mutation.strictness(),
                     function,
                 )?;
-                function.instruction(&Instruction::LocalGet(new_value_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(new_value_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
+                output.copy_from(&new, function);
             }
         }
+        new.clear(function);
+        old.clear(function);
+        Ok(())
+    }
 
-        self.release_temp_local(set_result);
-        self.release_temp_local(new_value_tag);
-        self.release_temp_local(new_value_payload);
-        self.release_temp_local(old_value_tag);
-        self.release_temp_local(old_value_payload);
+    fn compile_super_property_capture(
+        &mut self,
+        mutation: &SuperPropertyMutationIr,
+        capture: &lila_ir::SuperPropertyReferenceCaptureIr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let raw = self.evaluate_raw_super_property_reference(
+            mutation.receiver(),
+            mutation.referenced_name(),
+            function,
+        )?;
+        match capture.mode() {
+            lila_ir::SuperPropertyCaptureMode::ReadBeforeRhs => {
+                let reference =
+                    self.emit_get_value_from_raw_super_property_reference(raw, output, function)?;
+                for (name, value) in [
+                    (capture.receiver_storage_name(), &reference.receiver),
+                    (capture.base_storage_name(), &reference.base),
+                    (
+                        capture.referenced_name_storage_name(),
+                        reference.property_key.value(),
+                    ),
+                ] {
+                    let storage = self
+                        .lookup_binding(name)
+                        .expect("Super Get capture owns its activation cell");
+                    self.write_binding_from_locals(storage, value, function);
+                }
+                reference.clear(function);
+            }
+            lila_ir::SuperPropertyCaptureMode::WriteOnly => {
+                for (name, value) in [
+                    (capture.receiver_storage_name(), &raw.receiver),
+                    (capture.base_storage_name(), &raw.base),
+                    (capture.referenced_name_storage_name(), &raw.referenced_name),
+                ] {
+                    let storage = self
+                        .lookup_binding(name)
+                        .expect("raw Super capture owns its activation cell");
+                    self.write_binding_from_locals(storage, value, function);
+                }
+                raw.receiver.clear(function);
+                raw.base.clear(function);
+                raw.referenced_name.clear(function);
+                output.set_undefined(function);
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_captured_super_property_put(
+        &mut self,
+        capture: &lila_ir::SuperPropertyReferenceCaptureIr,
+        value: &TypedExpr,
+        strictness: Strictness,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let base = schema.reserve_value_local(function);
+        let receiver = schema.reserve_value_local(function);
+        let referenced_name = schema.reserve_value_local(function);
+        for (name, value) in [
+            (capture.receiver_storage_name(), &receiver),
+            (capture.base_storage_name(), &base),
+            (capture.referenced_name_storage_name(), &referenced_name),
+        ] {
+            let storage = self
+                .lookup_binding(name)
+                .expect("captured Super Put owns its activation cell");
+            self.read_binding_to_locals(storage, value, function)?;
+        }
+        let rhs = schema.reserve_value_local(function);
+        self.compile_expr_to_value(value, &rhs, function)?;
+        // Plain assignment first finishes its RHS. A preceding Get has already
+        // stored a String/Symbol name, so this fast path cannot re-run coercion.
+        let reference = self.canonicalize_super_property_reference(
+            EvaluatedRawSuperPropertyReferenceLocals {
+                base,
+                receiver,
+                referenced_name,
+            },
+            function,
+        )?;
+        self.emit_put_value_from_coerced_super_property_reference(
+            reference, &rhs, strictness, function,
+        )?;
+        output.copy_from(&rhs, function);
+        rhs.clear(function);
         Ok(())
     }
 }

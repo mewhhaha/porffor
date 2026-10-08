@@ -36,13 +36,13 @@
 use std::num::NonZeroU32;
 
 use lila_ir::{FunctionId, HostBuiltinId, StandardBuiltinId};
-use wasm_encoder::{CodeSection, NameMap, NameSection};
+use wasm_encoder::{CodeSection, FunctionSection, NameMap, NameSection};
 
 // The body handed to `EmittedFunction::new` is the label-counting sink, not the
 // raw encoder type: `Function::into_body` is what asserts the body closed every
 // frame it opened. See `code_sink.rs`.
 use crate::code_sink::Function;
-use crate::module::EmitError;
+use crate::module::{EmitError, StaticSignature};
 use crate::runtime_helpers::RuntimeHelperId;
 
 /// Environment variable that turns on the full per-function size report in
@@ -88,11 +88,10 @@ pub(crate) enum FunctionIdentity {
     Main,
     /// A function declared by the user program.
     Script { id: FunctionId, name: String },
+    /// An independently prepared Script body with its distinct typed entry.
+    PreparedScript { id: FunctionId, name: String },
     /// A standard builtin compiled with its real body.
     StandardBuiltin(StandardBuiltinId),
-    /// The single shared "this builtin was not emitted" stub body. The builtin
-    /// it carries is only the representative the stub was built from.
-    StandardBuiltinStub(StandardBuiltinId),
     /// A host builtin (`print`, the `$262.agent` surface, ...).
     HostBuiltin(HostBuiltinId),
     /// One of the shared runtime helpers.
@@ -108,16 +107,13 @@ impl FunctionIdentity {
     pub(crate) fn wasm_name(&self) -> String {
         match self {
             Self::Main => "lila::main".to_string(),
-            Self::Script { id, name } if name.is_empty() => format!("js::{id}"),
-            Self::Script { id, name } => format!("js::{name}#{id}"),
+            Self::Script { id, name } | Self::PreparedScript { id, name } if name.is_empty() => {
+                format!("js::{id}")
+            }
+            Self::Script { id, name } | Self::PreparedScript { id, name } => {
+                format!("js::{name}#{id}")
+            }
             Self::StandardBuiltin(builtin) => format!("builtin::{}", builtin.debug_name()),
-            // Deliberately not named after the representative builtin. One
-            // body is shared by *every* stubbed builtin in the module, so
-            // `builtin_stub::Math.max` would send a reader who saw it in
-            // wasmtime's `wasm[0]::function[N]::…` symbol to look at `Math.max`
-            // for a body `Math.max` has nothing to do with. The representative
-            // stays in `report_lines`, where there is room to say so.
-            Self::StandardBuiltinStub(_) => "builtin_stub::shared".to_string(),
             Self::HostBuiltin(builtin) => format!("host::{}", builtin.as_str()),
             Self::RuntimeHelper(helper) => format!("helper::{}", helper.debug_name()),
         }
@@ -128,9 +124,8 @@ impl FunctionIdentity {
     pub(crate) fn category(&self) -> &'static str {
         match self {
             Self::Main => "main",
-            Self::Script { .. } => "script",
+            Self::Script { .. } | Self::PreparedScript { .. } => "script",
             Self::StandardBuiltin(_) => "builtin",
-            Self::StandardBuiltinStub(_) => "builtin-stub",
             Self::HostBuiltin(_) => "host-builtin",
             Self::RuntimeHelper(_) => "runtime-helper",
         }
@@ -138,6 +133,20 @@ impl FunctionIdentity {
 
     pub(crate) fn is_runtime_helper(&self) -> bool {
         matches!(self, Self::RuntimeHelper(_))
+    }
+
+    /// The declaration is derived from the same identity that owns the body.
+    /// Prepared Scripts have a distinct entry shape; runtime helpers retain
+    /// their existing exhaustive signature authority.
+    fn type_index(&self) -> u32 {
+        match self {
+            Self::Main => StaticSignature::Main.type_index(),
+            Self::Script { .. } | Self::StandardBuiltin(_) | Self::HostBuiltin(_) => {
+                StaticSignature::JavaScriptFunction.type_index()
+            }
+            Self::PreparedScript { .. } => StaticSignature::PreparedScript.type_index(),
+            Self::RuntimeHelper(helper) => helper.type_index(),
+        }
     }
 }
 
@@ -174,81 +183,14 @@ impl FunctionBodySize {
 pub struct FunctionLocalCount(u32);
 
 impl FunctionLocalCount {
-    /// Every value type this decoder will step over, as its single-byte
-    /// encoding.
-    ///
-    /// The list is a *validation* set, not documentation. Wasm's GC and typed
-    /// reference types (`(ref null $t)` = `0x63`, `(ref $t)` = `0x64`) encode as
-    /// more than one byte, so stepping over exactly one byte for such a type
-    /// would leave the cursor mid-heap-type and the loop would then read
-    /// instruction bytes as group counts — producing a wrong but entirely
-    /// plausible local count. Rejecting anything not listed here is what makes
-    /// [`Self::decode`]'s "cannot decode" answer honest.
-    const SINGLE_BYTE_VALUE_TYPES: [u8; 7] = [
-        0x7F, // i32
-        0x7E, // i64
-        0x7D, // f32
-        0x7C, // f64
-        0x7B, // v128
-        0x70, // funcref
-        0x6F, // externref
-    ];
-
-    /// Decodes the local declaration that prefixes an encoded function body:
-    /// a LEB128 group count, then that many `(LEB128 count, value type)` pairs.
-    ///
-    /// `None` means "this body's local declaration did not decode", which the
-    /// report prints as `unknown` rather than as a number. Every body here is
-    /// produced by `wasm_encoder`, so `None` means the encoder started emitting
-    /// a value type shape this does not know — and the declared-local count is
-    /// the figure that predicts `CodeTooLarge`, so a wrong-but-plausible value
-    /// is worse than an absent one.
-    fn decode(raw_body: &[u8]) -> Option<Self> {
-        fn read_u32(bytes: &[u8], cursor: &mut usize) -> Option<u32> {
-            let mut value: u32 = 0;
-            let mut shift = 0;
-            loop {
-                let byte = *bytes.get(*cursor)?;
-                *cursor += 1;
-                value |= u32::from(byte & 0x7f).checked_shl(shift)?;
-                if byte & 0x80 == 0 {
-                    return Some(value);
-                }
-                shift += 7;
-                if shift >= 32 {
-                    return None;
-                }
-            }
-        }
-
-        let mut cursor = 0usize;
-        let groups = read_u32(raw_body, &mut cursor)?;
-        let mut total: u32 = 0;
-        for _ in 0..groups {
-            let count = read_u32(raw_body, &mut cursor)?;
-            let value_type = *raw_body.get(cursor)?;
-            if !Self::SINGLE_BYTE_VALUE_TYPES.contains(&value_type) {
-                return None;
-            }
-            cursor += 1;
-            total = total.checked_add(count)?;
-        }
-        Some(Self(total))
+    /// Measured from the function-owned complete mixed declaration before
+    /// encoding; concrete GC reference types need no separate byte decoder.
+    fn of(body: &Function) -> Self {
+        Self(body.allocated_local_count())
     }
 
     pub const fn count(self) -> u32 {
         self.0
-    }
-}
-
-/// Renders a possibly-undecodable local count for the size report.
-///
-/// `unknown` rather than `0`, so "the decoder does not understand this body"
-/// cannot be mistaken for "this body declares no locals".
-fn format_declared_locals(locals: Option<FunctionLocalCount>) -> String {
-    match locals {
-        Some(locals) => locals.count().to_string(),
-        None => "unknown".to_string(),
     }
 }
 
@@ -280,9 +222,8 @@ pub struct EmittedFunctionSummary {
     pub name: String,
     pub category: &'static str,
     pub body_bytes: FunctionBodySize,
-    /// `None` when the body's local declaration did not decode; see
-    /// [`FunctionLocalCount::decode`]. Rendered as `unknown`, never as `0`.
-    pub declared_locals: Option<FunctionLocalCount>,
+    /// Exact local count from the same owned body that produced its bytes.
+    pub declared_locals: FunctionLocalCount,
 }
 
 impl EmittedFunctionSummary {
@@ -297,7 +238,7 @@ impl EmittedFunctionSummary {
             "index={} bytes={} locals={} kind={} name={}",
             self.wasm_index,
             self.body_bytes.bytes(),
-            format_declared_locals(self.declared_locals),
+            self.declared_locals.count(),
             self.category,
             self.name
         )
@@ -321,9 +262,7 @@ impl EmittedFunctionSummary {
     /// every control-flow join, so virtual-register pressure tracks
     /// `locals x blocks` rather than encoded size.
     ///
-    /// `None` sorts below every `Some`, so a body whose declaration did not
-    /// decode can never be reported as the worst offender on the strength of a
-    /// number nobody knows.
+    /// Every body carries its measured mixed declaration count.
     pub(crate) fn most_locals(summaries: &[Self]) -> Option<&Self> {
         summaries
             .iter()
@@ -368,30 +307,51 @@ impl core::fmt::Display for FunctionBodySize {
 /// There is no way to build one without an identity, and no way to get a body
 /// into the code section without building one.
 #[derive(Debug, Clone)]
+enum FunctionDeclaration {
+    NonCallable,
+    Planned(crate::function_entry::PlannedFunctionEntry),
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct EmittedFunction {
+    declaration: FunctionDeclaration,
     identity: FunctionIdentity,
     /// The body in the form `code_sink::Function::into_body().into_raw_body()`
     /// produces: the local
     /// declaration followed by the instruction bytes, with no length prefix.
     /// `CodeSection::raw` prepends the same length prefix `CodeSection::function`
     /// would, so this is byte-identical to pushing the `Function` itself, and it
-    /// lets the local declaration be read back without cloning megabytes.
+    /// keeps attribution bound to the exact encoded body.
     raw_body: Vec<u8>,
     body_bytes: FunctionBodySize,
-    declared_locals: Option<FunctionLocalCount>,
+    declared_locals: FunctionLocalCount,
 }
 
 impl EmittedFunction {
-    pub(crate) fn new(identity: FunctionIdentity, body: Function) -> Self {
+    pub(crate) fn main(body: Function) -> Self {
+        Self::new(FunctionIdentity::Main, body)
+    }
+    pub(crate) fn runtime_helper(helper: RuntimeHelperId, body: Function) -> Self {
+        Self::new(FunctionIdentity::RuntimeHelper(helper), body)
+    }
+    pub(crate) fn from_completed_callable(body: crate::emit::CompletedCallableBody) -> Self {
+        let (entry, body) = body.into_parts();
+        let mut function = Self::new(entry.identity(), body);
+        function.declaration = FunctionDeclaration::Planned(entry);
+        function
+    }
+
+    fn new(identity: FunctionIdentity, body: Function) -> Self {
         // `into_body_named` asserts the label stack is empty, so an emitter
         // that opened a frame and never closed it fails here — with the
         // identity in the panic message, not merely in scope — instead of as
         // an anonymous wasmtime validation error inside whichever Test262 case
         // happened to compile it.
+        let declared_locals = FunctionLocalCount::of(&body);
         let raw_body = body.into_body_named(&identity.wasm_name()).into_raw_body();
         let body_bytes = FunctionBodySize::of(&raw_body);
-        let declared_locals = FunctionLocalCount::decode(&raw_body);
         Self {
+            declaration: FunctionDeclaration::NonCallable,
             identity,
             raw_body,
             body_bytes,
@@ -406,19 +366,20 @@ pub(crate) struct EmittedFunctionRecord {
     pub(crate) wasm_index: u32,
     pub(crate) identity: FunctionIdentity,
     pub(crate) body_bytes: FunctionBodySize,
-    /// `None` when the body's local declaration did not decode; see
-    /// [`FunctionLocalCount::decode`].
-    pub(crate) declared_locals: Option<FunctionLocalCount>,
+    /// Exact local count from the same owned body that produced its bytes.
+    pub(crate) declared_locals: FunctionLocalCount,
 }
 
-/// The code section under construction, plus the attribution table.
+/// Function declarations and bodies under construction, plus attribution.
 ///
-/// `CodeSection` is private to this type. `emit.rs` cannot name it, so the
-/// "push a body and forget to record it" state is unrepresentable rather than
-/// something review has to notice.
+/// Both encoder sections are private. Each push derives the declaration from
+/// the body identity and appends both exactly once, so a body cannot lose its
+/// declaration or be paired with a separately assembled signature list.
 pub(crate) struct ModuleCode {
+    functions: FunctionSection,
     section: CodeSection,
     records: Vec<EmittedFunctionRecord>,
+    type_indices: Vec<u32>,
     next_wasm_index: u32,
 }
 
@@ -428,8 +389,10 @@ impl ModuleCode {
     /// index space).
     pub(crate) fn new(first_wasm_index: u32) -> Self {
         Self {
+            functions: FunctionSection::new(),
             section: CodeSection::new(),
             records: Vec::new(),
+            type_indices: Vec::new(),
             next_wasm_index: first_wasm_index,
         }
     }
@@ -437,6 +400,15 @@ impl ModuleCode {
     pub(crate) fn push(&mut self, function: EmittedFunction) {
         let wasm_index = self.next_wasm_index;
         self.next_wasm_index += 1;
+        let type_index = match &function.declaration {
+            FunctionDeclaration::NonCallable => function.identity.type_index(),
+            FunctionDeclaration::Planned(entry) => {
+                entry.assert_body_index(wasm_index);
+                entry.signature().type_index()
+            }
+        };
+        self.functions.function(type_index);
+        self.type_indices.push(type_index);
         self.section.raw(&function.raw_body);
         self.records.push(EmittedFunctionRecord {
             wasm_index,
@@ -446,11 +418,13 @@ impl ModuleCode {
         });
     }
 
-    pub(crate) fn finish(self) -> (CodeSection, ModuleFunctionTable) {
+    pub(crate) fn finish(self) -> (FunctionSection, CodeSection, ModuleFunctionTable) {
         (
+            self.functions,
             self.section,
             ModuleFunctionTable {
                 records: self.records,
+                type_indices: self.type_indices,
             },
         )
     }
@@ -460,11 +434,17 @@ impl ModuleCode {
 #[derive(Debug, Clone)]
 pub(crate) struct ModuleFunctionTable {
     records: Vec<EmittedFunctionRecord>,
+    type_indices: Vec<u32>,
 }
 
 impl ModuleFunctionTable {
     pub(crate) fn records(&self) -> &[EmittedFunctionRecord] {
         &self.records
+    }
+
+    /// The type index of each body, in code-section order.
+    pub(crate) fn type_indices(&self) -> &[u32] {
+        &self.type_indices
     }
 
     /// The Wasm custom `name` section for this module.
@@ -634,10 +614,11 @@ pub(crate) fn write_size_report_file(path: &std::path::Path, summaries: &[Emitte
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LocalDeclarations;
     use wasm_encoder::{Instruction, ValType};
 
     fn body(instructions: usize) -> Function {
-        let mut function = Function::new([(0, ValType::I64)]);
+        let mut function = Function::new(LocalDeclarations::from_runs([(0, ValType::I64)]));
         for _ in 0..instructions {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::Drop);
@@ -660,10 +641,10 @@ mod tests {
         let mut code = ModuleCode::new(3);
         code.push(EmittedFunction::new(FunctionIdentity::Main, body(1)));
         code.push(EmittedFunction::new(
-            FunctionIdentity::RuntimeHelper(RuntimeHelperId::HeapAlloc),
+            FunctionIdentity::RuntimeHelper(RuntimeHelperId::TransientByteAlloc),
             body(2),
         ));
-        let (_, table) = code.finish();
+        let (_, _, table) = code.finish();
         let indices = table
             .records()
             .iter()
@@ -681,7 +662,7 @@ mod tests {
             FunctionIdentity::RuntimeHelper(RuntimeHelperId::ObjectRead),
             body(64),
         ));
-        let (_, table) = code.finish();
+        let (_, _, table) = code.finish();
         let summaries = table.summaries();
         let largest =
             EmittedFunctionSummary::largest(&summaries).expect("table should not be empty");
@@ -705,7 +686,7 @@ mod tests {
             FunctionIdentity::HostBuiltin(HostBuiltinId::Print),
             body(8),
         ));
-        let (_, table) = code.finish();
+        let (_, _, table) = code.finish();
         let summaries = table.summaries();
         assert_eq!(summaries.len(), table.records().len());
         assert_eq!(
@@ -742,7 +723,7 @@ mod tests {
     fn budget_failure_names_the_function() {
         let mut code = ModuleCode::new(0);
         code.push(EmittedFunction::new(FunctionIdentity::Main, body(256)));
-        let (_, table) = code.finish();
+        let (_, _, table) = code.finish();
         let budget = FunctionBodyBudget::from_bytes(NonZeroU32::new(8).expect("nonzero"));
         let error = table
             .check_budget(budget)
@@ -758,48 +739,30 @@ mod tests {
         let single = body(1);
         let size = single.byte_len() as u32;
         code.push(EmittedFunction::new(FunctionIdentity::Main, single));
-        let (_, table) = code.finish();
+        let (_, _, table) = code.finish();
         let budget = FunctionBodyBudget::from_bytes(NonZeroU32::new(size).expect("nonzero"));
         assert!(table.check_budget(budget).is_ok());
     }
 
     #[test]
-    fn declared_locals_are_read_back_from_the_body() {
-        let mut function = Function::new([(7, ValType::I64), (3, ValType::I32)]);
+    fn declared_locals_follow_the_complete_mixed_body_owner() {
+        let mut function = Function::new(LocalDeclarations::from_runs([
+            (7, ValType::I64),
+            (3, ValType::I32),
+            (2, ValType::Ref(wasm_encoder::RefType::EQREF)),
+        ]));
+        function.reserve_typed_local(ValType::F64);
         function.instruction(&Instruction::End);
         let emitted = EmittedFunction::new(FunctionIdentity::Main, function);
-        assert_eq!(
-            emitted
-                .declared_locals
-                .expect("an i64/i32 declaration must decode")
-                .count(),
-            10
-        );
+        assert_eq!(emitted.declared_locals.count(), 13);
     }
 
     #[test]
     fn a_body_with_no_locals_declares_none() {
-        let mut function = Function::new([]);
+        let mut function = Function::new(LocalDeclarations::from_runs([]));
         function.instruction(&Instruction::End);
         let emitted = EmittedFunction::new(FunctionIdentity::Main, function);
-        assert_eq!(
-            emitted
-                .declared_locals
-                .expect("an empty declaration must decode")
-                .count(),
-            0
-        );
-    }
-
-    /// The `None` answer must be reachable, or `format_declared_locals`'s
-    /// `unknown` arm is dead and `decode`'s validation set is decoration.
-    #[test]
-    fn an_undecodable_value_type_declines_to_guess() {
-        // One group of one local whose value type is `(ref null $0)` (`0x63`),
-        // a two-byte encoding this decoder deliberately refuses to step over.
-        let raw_body = [0x01u8, 0x01, 0x63, 0x00, 0x0b];
-        assert_eq!(FunctionLocalCount::decode(&raw_body), None);
-        assert_eq!(format_declared_locals(None), "unknown");
+        assert_eq!(emitted.declared_locals.count(), 0);
     }
 
     #[test]
@@ -810,10 +773,13 @@ mod tests {
                 id: "fn0".to_string(),
                 name: "outer".to_string(),
             },
+            FunctionIdentity::PreparedScript {
+                id: "prepared0".to_string(),
+                name: "prepared".to_string(),
+            },
             FunctionIdentity::StandardBuiltin(StandardBuiltinId::MathMax),
-            FunctionIdentity::StandardBuiltinStub(StandardBuiltinId::MathMax),
             FunctionIdentity::HostBuiltin(HostBuiltinId::Print),
-            FunctionIdentity::RuntimeHelper(RuntimeHelperId::HeapAlloc),
+            FunctionIdentity::RuntimeHelper(RuntimeHelperId::TransientByteAlloc),
         ]
         .iter()
         .map(FunctionIdentity::wasm_name)

@@ -4,8 +4,10 @@ use super::plural_rules::{CardinalCategory, PluralSelectionPurpose};
 use super::*;
 use core::num::{NonZeroU32, NonZeroU64};
 
-fn profiles() -> &'static NumberProfiles {
-    embedded_number_profiles().unwrap()
+fn profiles() -> &'static std::sync::Arc<NumberProfiles> {
+    crate::number_image::embedded_number_profiles_data_image_ref()
+        .unwrap()
+        .profiles_arc_ref()
 }
 fn canonical(value: &str) -> crate::CanonicalLocaleId {
     crate::CanonicalLocaleId::from_data(value).unwrap()
@@ -122,11 +124,15 @@ fn currency(code: &str, display: CurrencyDisplay, sign: CurrencySign) -> NumberF
 fn complete_locale_inventory_and_currency_precision_share_one_profile_authority() {
     let profiles = profiles();
     assert_eq!(profiles.available_locales().len(), 1082);
-    assert_eq!(profiles.numbering_systems().len(), 77);
+    assert_eq!(profiles.numbering_systems().len(), 78);
+    assert!(profiles
+        .numbering_systems()
+        .iter()
+        .any(|name| name.as_ref() == "tols"));
     for locale in profiles.available_locales() {
         let selected = configuration(locale, options());
-        assert_eq!(selected.locale.resolved().as_str(), *locale);
-        assert_eq!(selected.locale.formatting().as_str(), *locale);
+        assert_eq!(selected.locale.resolved().as_str(), locale.as_ref());
+        assert_eq!(selected.locale.formatting().as_str(), locale.as_ref());
         assert!(!partition_number(
             &selected,
             &value("1234.5"),
@@ -1002,6 +1008,7 @@ fn measurement_names_use_the_reviewed_notation_specific_exact_operand_view() {
     }
 }
 
+mod ordinal_samples;
 mod plural_samples;
 
 #[test]
@@ -1083,3 +1090,36 @@ mod range_policy;
 
 #[path = "tests/range_ownership.rs"]
 mod range_ownership;
+
+#[path = "tests/measurement_signs.rs"]
+mod measurement_signs;
+
+#[path = "tests/locale_matching.rs"]
+mod locale_matching;
+
+#[test]
+fn all_pinned_cldr_ordinal_sample_endpoints_match_exact_shared_operands() {
+    assert_eq!(ordinal_samples::ORDINAL_SAMPLES.len(), 513);
+    for &(rule, spelling, expected) in ordinal_samples::ORDINAL_SAMPLES {
+        let visible = spelling
+            .split_once('.')
+            .map_or(0, |(_, fraction)| fraction.len()) as u8;
+        let input = value(spelling);
+        let rounded = round_decimal(
+            input.finite_value().unwrap(),
+            &RoundingSettings::from(&NumberFormatOptions {
+                precision: fraction(visible, visible),
+                ..options()
+            }),
+            &NumericLimits::HOST_ABI,
+        )
+        .unwrap();
+        let observed = profiles()
+            .ordinal_rules_for_sample(rule)
+            .select(PluralOperands::bare_with_compact_row(&rounded, None));
+        assert_eq!(observed, expected, "ordinal rule {rule} sample {spelling}");
+    }
+}
+
+#[path = "tests/tols.rs"]
+mod tols;

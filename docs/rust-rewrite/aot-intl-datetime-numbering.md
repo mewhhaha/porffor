@@ -1,7 +1,10 @@
 # DateTimeFormat positional numbering
 
 The [Intl date/time provider](intl-datetime-provider.md) owns digit and fractional
-separator rendering for all 77 positional numbering systems in pinned CLDR 47.
+separator rendering for the 77 positional numbering systems in pinned CLDR47
+and the genuine CLDR48/UCD17 Tolong Siki supplement. These produce 78 checked
+digit tables. The base locale/pattern sources remain CLDR47; this does not
+upgrade other Unicode services. See the [shared supplement](intl-numbering-tols.md).
 Locale defaults, Unicode extensions and explicit options are negotiated against
 the same generated profile used for patterns and parts. The Wasm consumer copies
 localized parts or joins them into a string; it does not substitute digits in

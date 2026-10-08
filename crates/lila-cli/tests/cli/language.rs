@@ -27,12 +27,13 @@
 //! An earlier version of this comment called the split "the only lever left".
 //! That list is three *environment knobs*; it never examined in-process
 //! retention, and there is a named candidate mechanism there:
-//! `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`lila-engine/src/lib.rs:74`) bounds a
-//! `VecDeque` LRU of fully compiled Wasmtime modules **by entry count and by
-//! nothing else** — 64 entries, no byte ceiling. The in-process path these
-//! tests take retains into it (`WasmModuleMemoryCachePolicy::Retain`,
-//! `lila-engine/src/lib.rs`), so it holds one native module per distinct
-//! fixture, which is at least why the three *disk* knobs did nothing.
+//! The predecessor's native-module LRU bounded retained Wasmtime modules only
+//! by entry count: 64 entries, no byte ceiling. The in-process Retain path
+//! held native modules per distinct fixture, which explains why the three
+//! *disk* knobs did not control this particular retention owner. The
+//! 2026-10-03 dry replacement in `lila-engine/src/memory_module_cache.rs` adds
+//! a 512 MiB compilation-image budget while preserving the entry limit. Its
+//! acceptance is pending; this does not identify the historical OOM cause.
 //!
 //! That is where the confidence stops, and the entry-count story does **not**
 //! survive the banked chunks. Counted, not estimated, from
@@ -79,12 +80,11 @@
 //! (`lila-engine/src/lib.rs`), so they add no cache entry — they do add
 //! transient RSS.
 //!
-//! `LILA_MODULE_MEMORY_CACHE_ENTRIES` now overrides that bound, so a
-//! memory-constrained run has a lever that needs no code change; bounding the
-//! deque by bytes, as the disk tiers already are, is the standing follow-up.
-//! It is also the cheap experiment that would settle the paragraph above:
-//! `LILA_MODULE_MEMORY_CACHE_ENTRIES=8` on one `language*` chunk. Until that
-//! runs, do not justify a sizing decision by the entry-count model.
+//! `LILA_MODULE_MEMORY_CACHE_ENTRIES` and the new
+//! `LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES` configure positive retention limits.
+//! The byte limit covers cache-held code/data/debug images, not active clones,
+//! compilation or RSS. A fresh resource experiment is still needed before
+//! attributing the historical failure or changing the measured chunk sizing.
 //!
 //! Splitting by libtest FILTER is not available either:
 //! `known_failures::rung_1c_chunks` asserts each chunk's second argument is
@@ -121,6 +121,23 @@
 //! which is the entire point: the accumulation is per-process.
 
 use crate::*;
+
+#[test]
+fn run_wasm_backend_supports_iteration_array_and_arguments_member_references() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg(fixture_path("wasm_iteration_member_references.js"))
+        .output()
+        .expect("iteration reference fixture should run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
 
 #[test]
 fn in_process_module_reuse_keeps_host_output_in_fresh_realms() {
@@ -1212,4 +1229,30 @@ fn run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer
         stdout.contains("const-capture-return-kind:object:1"),
         "{stdout}"
     );
+}
+
+/// A top-level global write is visible to intrinsic folds inside closures.
+///
+/// Function bodies are lowered before the root-statement pass replays
+/// top-level writes, so without the prepass write summary a closure reading
+/// `Symbol.iterator` after `Symbol = undefined` folded to the stale intrinsic
+/// instead of throwing TypeError.
+#[test]
+fn run_wasm_backend_observes_global_clobber_inside_closures() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_global_symbol_clobber_in_closure.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }

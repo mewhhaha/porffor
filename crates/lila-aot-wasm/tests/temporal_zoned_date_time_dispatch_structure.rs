@@ -17,111 +17,30 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
-fn assert_private_non_derived_declaration(name: &str) {
-    let declaration_offset = METHODS_SOURCE
-        .find(&format!("enum {name} {{"))
-        .unwrap_or_else(|| panic!("missing {name} declaration"));
-    let declaration_prefix = METHODS_SOURCE[..declaration_offset]
-        .rsplit_once("\n\n")
-        .expect("declaration prefix")
-        .1;
-    assert!(!declaration_prefix.contains("#[derive("));
-    assert!(!METHODS_SOURCE.contains(&format!("pub enum {name}")));
-    assert!(!METHODS_SOURCE.contains(&format!("pub(crate) enum {name}")));
-    assert!(!METHODS_SOURCE.contains(&format!("pub(super) enum {name}")));
-}
-
-#[test]
-fn zoned_date_time_direction_domains_are_private_non_derived_and_exhaustive() {
-    assert_private_non_derived_declaration("ZonedDateTimeArithmetic");
-    assert_private_non_derived_declaration("ZonedDateTimeDifference");
-
-    let arithmetic = bounded(
-        METHODS_SOURCE,
-        "enum ZonedDateTimeArithmetic {",
-        "impl ZonedDateTimeArithmetic {",
-    );
-    assert!(arithmetic.starts_with("\n    Add,\n    Subtract,\n}\n\n"));
-    let arithmetic_projection = bounded(
-        METHODS_SOURCE,
-        "impl ZonedDateTimeArithmetic {",
-        "/// Which of the two difference members",
-    );
-    assert!(!arithmetic_projection.contains("_ =>"));
-    assert_eq!(arithmetic_projection.matches("Self::Add =>").count(), 1);
-    assert_eq!(
-        arithmetic_projection.matches("Self::Subtract =>").count(),
-        1
-    );
-
-    let difference = bounded(
-        METHODS_SOURCE,
-        "enum ZonedDateTimeDifference {",
-        "impl<'a> FunctionBuilder<'a> {",
-    );
-    assert!(difference.starts_with("\n    Until,\n    Since,\n}\n\n"));
-    let difference_emitter = METHODS_SOURCE
-        .split_once("fn emit_temporal_zoned_date_time_until_or_since(")
-        .expect("private difference emitter")
-        .1;
-    assert_eq!(difference_emitter.matches("match difference {").count(), 2);
-    for (binding, until, since) in [
-        (
-            "operation",
-            "TemporalPlainDifferenceOperation::Until",
-            "TemporalPlainDifferenceOperation::Since",
-        ),
-        (
-            "plan",
-            "TemporalDateTimeDifferenceSettingsPlan::ZonedUntil",
-            "TemporalDateTimeDifferenceSettingsPlan::ZonedSince",
-        ),
-    ] {
-        let projection = bounded(
-            difference_emitter,
-            &format!("let {binding} = match difference {{"),
-            "\n        };",
-        );
-        let arms = projection
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            arms,
-            [
-                format!("ZonedDateTimeDifference::Until => {until},"),
-                format!("ZonedDateTimeDifference::Since => {since},"),
-            ],
-            "{binding} must preserve both exhaustive direction mappings"
-        );
-    }
-}
-
 #[test]
 fn zoned_date_time_catalog_routes_use_four_fixed_family_entries() {
     for (method, domain, variant, raw_emitter) in [
         (
             "add",
-            "ZonedDateTimeArithmetic",
+            "TemporalZonedArithmeticOperation",
             "Add",
             "emit_temporal_zoned_date_time_add_or_subtract",
         ),
         (
             "subtract",
-            "ZonedDateTimeArithmetic",
+            "TemporalZonedArithmeticOperation",
             "Subtract",
             "emit_temporal_zoned_date_time_add_or_subtract",
         ),
         (
             "until",
-            "ZonedDateTimeDifference",
+            "TemporalZonedDifferenceOperation",
             "Until",
             "emit_temporal_zoned_date_time_until_or_since",
         ),
         (
             "since",
-            "ZonedDateTimeDifference",
+            "TemporalZonedDifferenceOperation",
             "Since",
             "emit_temporal_zoned_date_time_until_or_since",
         ),
@@ -163,20 +82,21 @@ fn zoned_date_time_catalog_routes_use_four_fixed_family_entries() {
         !METHODS_SOURCE.contains("pub(crate) fn emit_temporal_zoned_date_time_add_or_subtract(")
     );
     assert!(!METHODS_SOURCE.contains("pub(crate) fn emit_temporal_zoned_date_time_until_or_since("));
-    assert!(!STANDARD_SOURCE.contains("ZonedDateTimeArithmetic"));
-    assert!(!STANDARD_SOURCE.contains("ZonedDateTimeDifference"));
+    assert!(!STANDARD_SOURCE.contains("TemporalZonedArithmeticOperation"));
+    assert!(!STANDARD_SOURCE.contains("TemporalZonedDifferenceOperation"));
     assert!(!MOD_SOURCE.contains("pub(crate) use temporal_zoned_date_time_methods"));
 }
 
 #[test]
 fn zoned_date_time_dispatch_contract_records_exact_witnesses_and_nonclaims() {
     for marker in [
-        "private, non-derived domains",
+        "shared closed direction domains",
         "four fixed entries",
         "82f3f206759543894d9ec36a278938c4a17e3f0db2602df13f9c9e7c1f1756a0",
         "0df4c7b1b768c8520b30f505c8d5c5f6e18d1a8dbee0dff7b08149f2aa3bbde2",
         "8c95229bd602e45445a7c6ad5e2a89b3d120b903be74b73ac185782859d73cdf",
-        "no new Temporal behavior",
+        "historical closure introduced no new Temporal behavior",
+        "staged and unexecuted",
         "does not close T22",
     ] {
         assert!(

@@ -7,7 +7,7 @@ macro_rules! regexp_opcodes {
         #[repr(u64)]
         pub enum RegExpOpcode { $($variant = $word),+ }
         impl RegExpOpcode {
-            pub const ALL: [Self; 24] = [$(Self::$variant),+];
+            pub const ALL: [Self; 28] = [$(Self::$variant),+];
             pub const fn from_word(word: u64) -> Option<Self> {
                 match word { $($word => Some(Self::$variant),)+ _ => None }
             }
@@ -40,6 +40,10 @@ regexp_opcodes! {
     ProgressSplit = REGEXP_OPCODE_PROGRESS_SPLIT,
     ProgressCheck = REGEXP_OPCODE_PROGRESS_CHECK,
     WordBoundary = REGEXP_OPCODE_WORD_BOUNDARY,
+    RepeatBegin = REGEXP_OPCODE_REPEAT_BEGIN,
+    RepeatGuard = REGEXP_OPCODE_REPEAT_GUARD,
+    RepeatEnd = REGEXP_OPCODE_REPEAT_END,
+    RepeatExit = REGEXP_OPCODE_REPEAT_EXIT,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +66,9 @@ pub enum RegExpOperandRule {
     LookaroundFailure,
     ProgressSplit,
     ProgressCheck,
+    RepeatSlot,
+    RepeatGuard,
+    RepeatOwner,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +80,8 @@ pub enum RegExpControlFlow {
     BothOperands,
     ProgressSplit,
     LookaroundAfter,
+    RepeatGuard,
+    RepeatEnd,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +90,7 @@ pub enum RegExpInputProgress {
     MayStay,
     NumberedReference,
     CheckedOptional,
+    CheckedRepeat,
 }
 
 impl RegExpOpcode {
@@ -105,6 +115,9 @@ impl RegExpOpcode {
             Self::LookaroundFailure => Rule::LookaroundFailure,
             Self::ProgressSplit => Rule::ProgressSplit,
             Self::ProgressCheck => Rule::ProgressCheck,
+            Self::RepeatBegin => Rule::RepeatSlot,
+            Self::RepeatGuard => Rule::RepeatGuard,
+            Self::RepeatEnd | Self::RepeatExit => Rule::RepeatOwner,
         }
     }
 
@@ -117,6 +130,8 @@ impl RegExpOpcode {
             Self::ProgressCheck => Flow::Operand1,
             Self::ProgressSplit => Flow::ProgressSplit,
             Self::LookaroundEnd => Flow::LookaroundAfter,
+            Self::RepeatGuard => Flow::RepeatGuard,
+            Self::RepeatEnd => Flow::RepeatEnd,
             Self::LiteralAscii
             | Self::PositiveAsciiClass
             | Self::CaptureStart
@@ -133,7 +148,9 @@ impl RegExpOpcode {
             | Self::AssertEnd
             | Self::NotWhitespace
             | Self::LookaroundStart
-            | Self::WordBoundary => Flow::Next,
+            | Self::WordBoundary
+            | Self::RepeatBegin
+            | Self::RepeatExit => Flow::Next,
         }
     }
 
@@ -150,6 +167,7 @@ impl RegExpOpcode {
             | Self::NotWhitespace => Progress::Consumes,
             Self::NumberedBackreference => Progress::NumberedReference,
             Self::ProgressCheck => Progress::CheckedOptional,
+            Self::RepeatEnd => Progress::CheckedRepeat,
             Self::Accept
             | Self::Split
             | Self::Jump
@@ -163,7 +181,10 @@ impl RegExpOpcode {
             | Self::LookaroundEnd
             | Self::LookaroundFailure
             | Self::ProgressSplit
-            | Self::WordBoundary => Progress::MayStay,
+            | Self::WordBoundary
+            | Self::RepeatBegin
+            | Self::RepeatGuard
+            | Self::RepeatExit => Progress::MayStay,
         }
     }
 
@@ -192,20 +213,29 @@ impl RegExpOpcode {
             | Self::LookaroundEnd
             | Self::LookaroundFailure
             | Self::ProgressSplit
-            | Self::ProgressCheck => false,
+            | Self::ProgressCheck
+            | Self::RepeatBegin
+            | Self::RepeatGuard
+            | Self::RepeatEnd
+            | Self::RepeatExit => false,
         }
     }
 
     pub const fn is_choice(self) -> bool {
         matches!(
             self.control_flow(),
-            RegExpControlFlow::BothOperands | RegExpControlFlow::ProgressSplit
+            RegExpControlFlow::BothOperands
+                | RegExpControlFlow::ProgressSplit
+                | RegExpControlFlow::RepeatGuard
         )
     }
 
     pub const fn stops_non_consuming_walk(self, operand1: u64) -> bool {
         match self.input_progress() {
             RegExpInputProgress::Consumes | RegExpInputProgress::CheckedOptional => true,
+            // A certified repeat End has an eventual Exit edge in the
+            // non-consuming proof. It cannot hide a cycle which resets Begin.
+            RegExpInputProgress::CheckedRepeat => false,
             RegExpInputProgress::MayStay => false,
             RegExpInputProgress::NumberedReference => operand1 & REGEXP_BACKREFERENCE_NONEMPTY != 0,
         }
@@ -228,6 +258,10 @@ impl RegExpOpcode {
             RegExpControlFlow::BothOperands => [valid(a), valid(b)],
             RegExpControlFlow::ProgressSplit => [valid(a), valid(b >> 1)],
             RegExpControlFlow::LookaroundAfter => [valid(b & 0x3fff_ffff_ffff_ffff), None],
+            RegExpControlFlow::RepeatGuard => {
+                [valid(pc as u64 + 1), a.checked_add(1).and_then(valid)]
+            }
+            RegExpControlFlow::RepeatEnd => [a.checked_add(1).and_then(valid), None],
         }
     }
 }

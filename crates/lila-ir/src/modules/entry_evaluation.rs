@@ -4,12 +4,11 @@ use crate::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleEntryEvaluationKindIr {
-    Synchronous,
     Promise,
 }
 
-/// An entry operation has no JavaScript result. Its promise, when present,
-/// belongs to the host evaluation checkpoint rather than rejection tracking.
+/// An entry operation has no JavaScript result. Its canonical evaluation
+/// Promise belongs to the host checkpoint rather than rejection tracking.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleEntryEvaluationIr {
     kind: ModuleEntryEvaluationKindIr,
@@ -41,14 +40,12 @@ impl ModuleEntryEvaluationIr {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum LinkedModuleEntry {
     CanonicalGraph(ModuleUnitId),
-    RetainedDriver(ModuleEntryEvaluationKindIr),
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ModuleEntryEvaluationBoundary<'a> {
     expression: &'a Expression,
     operand: &'a Expression,
-    source: LinkedModuleEntry,
 }
 
 impl LinkedModuleEntry {
@@ -70,29 +67,11 @@ impl LinkedModuleEntry {
                 assert_eq!(evaluation.module(), module);
                 expression
             }
-            Self::RetainedDriver(kind) => {
-                let Expression::Unary(unary) = expression else {
-                    panic!("trusted retained entry discards its driver result");
-                };
-                assert_eq!(unary.op(), UnaryOp::Void);
-                let Expression::Call(call) = unary.target().flatten() else {
-                    panic!("trusted retained entry invokes its private driver");
-                };
-                assert!(call.args().is_empty());
-                assert!(match (kind, call.function().flatten()) {
-                    (ModuleEntryEvaluationKindIr::Synchronous, Expression::ArrowFunction(_))
-                    | (ModuleEntryEvaluationKindIr::Promise, Expression::AsyncArrowFunction(_)) =>
-                        true,
-                    _ => false,
-                });
-                unary.target()
-            }
         };
         assert!(analysis.module_entry_evaluation.is_none());
         analysis.module_entry_evaluation = Some(ModuleEntryEvaluationBoundary {
             expression,
             operand,
-            source: self,
         });
     }
 }
@@ -102,23 +81,15 @@ impl<'a> ModuleEntryEvaluationBoundary<'a> {
         std::ptr::eq(self.expression, expression)
     }
 
-    pub(crate) const fn source(self) -> LinkedModuleEntry {
-        self.source
-    }
-
     pub(crate) const fn operand(self) -> &'a Expression {
         self.operand
     }
 
     pub(crate) fn lower(self, evaluation: TypedExpr) -> TypedExpr {
-        let kind = match self.source {
-            LinkedModuleEntry::CanonicalGraph(_) => ModuleEntryEvaluationKindIr::Promise,
-            LinkedModuleEntry::RetainedDriver(kind) => kind,
-        };
         TypedExpr::from_info(
             ValueInfo::undefined(),
             ExprIr::ModuleEntryEvaluation(ModuleEntryEvaluationIr {
-                kind,
+                kind: ModuleEntryEvaluationKindIr::Promise,
                 evaluation: Box::new(evaluation),
             }),
         )

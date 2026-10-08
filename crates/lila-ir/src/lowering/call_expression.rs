@@ -30,57 +30,36 @@ impl<'a> ScriptLowerer<'a> {
             return call;
         }
 
-        if let Some(generator) = generator_expression_callee(callee) {
-            if args.is_empty() && linear_generator_plan(generator.body()).is_none() {
-                return self.lower_generator_iife_as_array(generator);
-            }
-        }
-
-        if let Some(values) = self.static_iterator_to_array_call_values(callee, args) {
-            return self.array_literal_from_static_generator_values(&values);
-        }
-        if let Some(values) = self.static_array_from_iterator_call_values(callee, args) {
-            return self.array_literal_from_static_generator_values(&values);
-        }
-
         if let Expression::Identifier(identifier) = callee {
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
             let callee_is_intrinsic_global = self.identifier_resolves_to_intrinsic_global(&name);
-            if args.is_empty() {
-                if let Some(result) = self.static_generator_call_overrides.get(&name).cloned() {
-                    return result;
-                }
-            }
-            if name == IS_CONSTRUCTOR_NAME && args.len() == 1 && callee_is_intrinsic_global {
+            if name == IS_CONSTRUCTOR_NAME
+                && args.len() == 1
+                && !matches!(args[0], Expression::Spread(_))
+                && callee_is_intrinsic_global
+            {
                 return TypedExpr::spec_is_constructor(self.lower_expression(&args[0]));
             }
-            if name == NUMBER_NAME && callee_is_intrinsic_global {
-                if let Some(value) = self.static_to_number_arg(args.first()) {
-                    for arg in args {
-                        self.lower_expression(arg);
-                    }
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Number),
-                        ExprIr::Number(value.to_bits()),
-                    );
-                }
-                // Number accepts a BigInt produced by ToPrimitive too. Only
-                // primitive inputs can exclude that result before conversion.
-                if args.len() == 1
-                    && [
-                        ValueKind::BigInt,
-                        ValueKind::Object,
-                        ValueKind::Array,
-                        ValueKind::Arguments,
-                        ValueKind::Function,
-                    ]
-                    .into_iter()
-                    .all(|kind| self.expression_cannot_be_kind(&args[0], kind))
-                {
-                    let value = self.lower_expression(&args[0]);
-                    self.record_possible_to_primitive_effects(&value.value_info());
-                    return TypedExpr::spec_to_number(value);
-                }
+            // These single-argument primitive conversions retain the complete
+            // operand IR. Calls with spreads or extra arguments go through the
+            // ordinary call owner so every argument is evaluated before any
+            // builtin conversion begins.
+            if name == NUMBER_NAME
+                && callee_is_intrinsic_global
+                && args.len() == 1
+                && [
+                    ValueKind::BigInt,
+                    ValueKind::Object,
+                    ValueKind::Array,
+                    ValueKind::Arguments,
+                    ValueKind::Function,
+                ]
+                .into_iter()
+                .all(|kind| self.expression_cannot_be_kind(&args[0], kind))
+            {
+                let value = self.lower_expression(&args[0]);
+                self.record_possible_to_primitive_effects(&value.value_info());
+                return TypedExpr::spec_to_number(value);
             }
             if name == STRING_NAME
                 && callee_is_intrinsic_global
@@ -91,457 +70,18 @@ impl<'a> ScriptLowerer<'a> {
                 self.record_possible_to_primitive_effects(&value.value_info());
                 return TypedExpr::spec_to_string(value);
             }
-            if name == BOOLEAN_NAME && callee_is_intrinsic_global {
-                if let Some(value) = self.static_to_boolean_arg(args.first()) {
-                    for arg in args {
-                        self.lower_expression(arg);
-                    }
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::Boolean(value),
-                    );
-                }
-                if args.len() == 1 {
-                    return TypedExpr::spec_to_boolean(self.lower_expression(&args[0]));
-                }
-            }
-            if name == PARSE_FLOAT_NAME && callee_is_intrinsic_global {
-                if let Some(value) = self.static_parse_float_arg(args.first()) {
-                    for arg in args {
-                        self.lower_expression(arg);
-                    }
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Number),
-                        ExprIr::Number(value.to_bits()),
-                    );
-                }
-            }
-            if name == SYMBOL_NAME && callee_is_intrinsic_global {
-                // `Symbol(description)`: if description is undefined, the
-                // `[[Description]]` is undefined; otherwise it is
-                // `? ToString(description)` (spec 20.4.1.1). Only the first
-                // argument participates; any extra arguments are still
-                // evaluated for their side effects.
-                let description = match args.first() {
-                    None => None,
-                    Some(arg) => {
-                        let lowered = self.lower_expression(arg);
-                        if lowered.kind == ValueKind::Undefined {
-                            None
-                        } else {
-                            self.record_possible_to_primitive_effects(&lowered.value_info());
-                            Some(Box::new(TypedExpr::spec_to_string(lowered)))
-                        }
-                    }
-                };
-                for arg in args.iter().skip(1) {
-                    self.lower_expression(arg);
-                }
-                return TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Symbol),
-                    ExprIr::Symbol { description },
-                );
-            }
-        }
-
-        if let Expression::PropertyAccess(PropertyAccess::Simple(access)) = callee {
-            if let PropertyAccessField::Const(field) = access.field() {
-                let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                if let Expression::Identifier(target) = access.target() {
-                    let target_name = self.interner.resolve_expect(target.sym()).to_string();
-                    if target_name == OBJECT_NAME && field_name == "is" && args.len() == 2 {
-                        let lhs = self.lower_expression(&args[0]);
-                        let rhs = self.lower_expression(&args[1]);
-                        return TypedExpr::spec_same_value(lhs, rhs);
-                    }
-                    let static_builtin = match (target_name.as_str(), field_name.as_str()) {
-                        (OBJECT_NAME, "keys") => Some(StandardBuiltinId::ObjectKeys),
-                        (OBJECT_NAME, "values") => Some(StandardBuiltinId::ObjectValues),
-                        (OBJECT_NAME, "entries") => Some(StandardBuiltinId::ObjectEntries),
-                        (STRING_NAME, "fromCharCode") => {
-                            Some(StandardBuiltinId::StringFromCharCode)
-                        }
-                        (STRING_NAME, "fromCodePoint") => {
-                            Some(StandardBuiltinId::StringFromCodePoint)
-                        }
-                        (STRING_NAME, "raw") => Some(StandardBuiltinId::StringRaw),
-                        _ => None,
-                    };
-                    if let Some(builtin) = static_builtin {
-                        let function_id = builtin.function_id();
-                        let (effective_function_id, args, info, invocation_effects) = self
-                            .lower_call_args_with_target(
-                                &function_id,
-                                args,
-                                BuiltinCallContext::Call,
-                                InvocationThisObservation::NotObserved,
-                            );
-                        let call = TypedExpr::from_info(
-                            info,
-                            ExprIr::CallIndirect {
-                                direct_eval: None,
-                                callee: Box::new(self.function_value_expr(effective_function_id)),
-                                this_arg: Some(Box::new(TypedExpr::from_info(
-                                    Self::standard_builtin_value_info(match builtin {
-                                        StandardBuiltinId::StringFromCharCode
-                                        | StandardBuiltinId::StringFromCodePoint
-                                        | StandardBuiltinId::StringRaw => {
-                                            StandardBuiltinId::StringConstructor
-                                        }
-                                        _ => StandardBuiltinId::ObjectConstructor,
-                                    }),
-                                    ExprIr::GlobalPropertyRead {
-                                        name: target_name.clone(),
-                                    },
-                                ))),
-                                args,
-                                static_regexp_compilation: None,
-                            },
-                        );
-                        return invocation_effects.attach_to_emitted_call(call);
-                    }
-                    if target_name == "ASCII_IDENTIFIER" && field_name == "test" && args.len() == 1
-                    {
-                        self.lower_expression(&args[0]);
-                        return TypedExpr::from_info(
-                            Self::boolean_value_info(),
-                            ExprIr::Boolean(true),
-                        );
-                    }
-                }
-                if field_name == "toString" {
-                    if args.is_empty()
-                        && self.intrinsic_method_is_proven(IntrinsicPrototype::String, "toString")
-                    {
-                        if let Some(value) = self.static_string_receiver_value(access.target()) {
-                            return Self::static_string_typed_expr(value);
-                        }
-                    }
-                    if let Some(value) = self
-                        .boolean_receiver_uses_intrinsic_method(
-                            access.target(),
-                            "toString",
-                            StandardBuiltinId::BooleanPrototypeToString,
-                        )
-                        .then(|| self.static_boolean_receiver_value(access.target()))
-                        .flatten()
-                    {
-                        match self.boolean_prototype_to_string_state {
-                            PrototypeToStringState::ObjectPrototype => {
-                                for arg in args {
-                                    self.lower_expression(arg);
-                                }
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::String("[object Boolean]".to_string()),
-                                );
-                            }
-                            PrototypeToStringState::Intrinsic
-                                if self.intrinsic_method_is_proven(
-                                    IntrinsicPrototype::Boolean,
-                                    "toString",
-                                ) =>
-                            {
-                                for arg in args {
-                                    self.lower_expression(arg);
-                                }
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::String(
-                                        if value { "true" } else { "false" }.to_string(),
-                                    ),
-                                );
-                            }
-                            PrototypeToStringState::Intrinsic | PrototypeToStringState::Unknown => {
-                            }
-                        }
-                    }
-                    if self.number_prototype_to_string_state
-                        == PrototypeToStringState::ObjectPrototype
-                        && self.is_number_prototype_property_expr(callee, "toString")
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
-                        }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String("[object Number]".to_string()),
-                        );
-                    }
-                    let number_to_string_is_intrinsic = self.number_prototype_to_string_state
-                        == PrototypeToStringState::Intrinsic
-                        && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toString");
-                    if number_to_string_is_intrinsic
-                        && self
-                            .static_number_to_string_receiver_value(access.target())
-                            .is_some()
-                        && self.static_number_to_string_radix_is_invalid(args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
-                        }
-                        return TypedExpr::from_info(
-                            ValueInfo::undefined(),
-                            ExprIr::RuntimeThrow {
-                                name: NativeErrorKind::RangeError,
-                                message: "Number.prototype.toString radix out of range",
-                            },
-                        );
-                    }
-                    if let Some(value) = number_to_string_is_intrinsic
-                        .then(|| self.static_number_to_string_call(access.target(), args))
-                        .flatten()
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
-                        }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
-                    }
-                }
-                // 21.1.3.2. The receiver-finiteness guard and the hand-rolled
-                // `RuntimeThrow` that used to sit here are gone: the ordering
-                // is now `NonFiniteReceiverOrder::ReceiverFirst` inside the
-                // helper, and "the spec requires a RangeError" is a variant
-                // rather than the same `None` that means "I could not fold
-                // this". The match has **no `_` arm** on purpose — a catch-all
-                // would silently absorb a fourth outcome, which is the mistake
-                // class this closes.
-                if field_name == "toExponential"
-                    && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toExponential")
-                {
-                    let fold = self.static_number_to_exponential_call(access.target(), args);
-                    match fold {
-                        NumberFormatFold::Formatted(value) => {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::String),
-                                ExprIr::String(value),
-                            );
-                        }
-                        NumberFormatFold::RangeError(message) => {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return Self::static_number_format_range_error(message);
-                        }
-                        NumberFormatFold::NotStatic => {}
-                    }
-                }
-                if field_name == "valueOf" {
-                    if args.is_empty()
-                        && self.intrinsic_method_is_proven(IntrinsicPrototype::String, "valueOf")
-                    {
-                        if let Some(value) = self.static_string_receiver_value(access.target()) {
-                            return Self::static_string_typed_expr(value);
-                        }
-                    }
-                    if let Some(value) = (self.boolean_receiver_uses_intrinsic_method(
-                        access.target(),
-                        "valueOf",
-                        StandardBuiltinId::BooleanPrototypeValueOf,
-                    ) && self
-                        .intrinsic_method_is_proven(IntrinsicPrototype::Boolean, "valueOf"))
-                    .then(|| self.static_boolean_receiver_value(access.target()))
-                    .flatten()
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
-                        }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::Boolean(value),
-                        );
-                    }
-                }
-                // 21.1.3.5. This is the site that never had a range check at
-                // all: its `RangeError` arm is new, and the message string with
-                // it. It could not have been fixed by calling the old shared
-                // `[0, 100]` predicate — step 5 here is `p < 1 or p > 100`.
-                if field_name == "toPrecision"
-                    && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toPrecision")
-                {
-                    let fold = self.static_number_to_precision_call(access.target(), args);
-                    match fold {
-                        NumberFormatFold::Formatted(value) => {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::String),
-                                ExprIr::String(value),
-                            );
-                        }
-                        NumberFormatFold::RangeError(message) => {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return Self::static_number_format_range_error(message);
-                        }
-                        NumberFormatFold::NotStatic => {}
-                    }
-                }
-                // 21.1.3.3. Steps 4-5 precede step 6, so the range check wins
-                // over the non-finite receiver here and `Infinity.toFixed(101)`
-                // is a RangeError. The old guard's `.is_some()` (versus
-                // `toExponential`'s `.is_some_and(is_finite)` sixty lines up)
-                // was exactly this ordering, spelled as a coincidence of two
-                // adjacent predicates; it is now
-                // `NonFiniteReceiverOrder::RangeCheckFirst`.
-                if field_name == "toFixed"
-                    && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toFixed")
-                {
-                    let fold = self.static_number_to_fixed_call(access.target(), args);
-                    match fold {
-                        NumberFormatFold::Formatted(value) => {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::String),
-                                ExprIr::String(value),
-                            );
-                        }
-                        NumberFormatFold::RangeError(message) => {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return Self::static_number_format_range_error(message);
-                        }
-                        NumberFormatFold::NotStatic => {}
-                    }
-                }
+            if name == BOOLEAN_NAME
+                && callee_is_intrinsic_global
+                && args.len() == 1
+                && !matches!(args[0], Expression::Spread(_))
+            {
+                return TypedExpr::spec_to_boolean(self.lower_expression(&args[0]));
             }
         }
 
         if let Expression::PropertyAccess(access) = callee {
             match access {
                 PropertyAccess::Simple(access) => {
-                    if let PropertyAccessField::Const(field) = access.field() {
-                        let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                        if field_name == "propertyIsEnumerable"
-                            && args.len() == 1
-                            && self.for_in_global_target(access.target())
-                            && self
-                                .try_static_string_key(&args[0])
-                                .is_some_and(|property| {
-                                    self.is_known_non_enumerable_global(&property)
-                                })
-                        {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::Boolean),
-                                ExprIr::Boolean(false),
-                            );
-                        }
-                    }
-                    if let (Expression::Identifier(target), PropertyAccessField::Const(field)) =
-                        (access.target(), access.field())
-                    {
-                        let target_name = self.interner.resolve_expect(target.sym()).to_string();
-                        let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                        if target_name == MATH_NAME && field_name == "pow" && args.len() == 2 {
-                            if let (Some(base), Some(exponent)) = (
-                                Self::literal_number_value(&args[0]),
-                                Self::literal_number_value(&args[1]),
-                            ) {
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::Number),
-                                    ExprIr::Number(Self::static_pow(base, exponent).to_bits()),
-                                );
-                            }
-                        }
-                        if target_name == MATH_NAME && field_name == "clz32" && args.len() == 1 {
-                            if let Some(value) = self.static_number_expr(&args[0]) {
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::Number),
-                                    ExprIr::Number(Self::static_clz32(value).to_bits()),
-                                );
-                            }
-                        }
-                        if target_name == MATH_NAME && field_name == "round" && args.len() == 1 {
-                            if let Some(value) = self.static_number_expr(&args[0]) {
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::Number),
-                                    ExprIr::Number(Self::static_round(value).to_bits()),
-                                );
-                            }
-                        }
-                        if target_name == STRING_NAME
-                            && field_name == "fromCharCode"
-                            && !args.is_empty()
-                        {
-                            let mut chars = args.iter().map(|arg| {
-                                TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::StringFromCharCode {
-                                        code: Box::new(self.lower_expression(arg)),
-                                    },
-                                )
-                            });
-                            let first = chars.next().expect("fromCharCode arg exists");
-                            return chars.fold(first, |lhs, rhs| {
-                                TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::StringConcat {
-                                        lhs: Box::new(lhs),
-                                        rhs: Box::new(rhs),
-                                    },
-                                )
-                            });
-                        }
-                        if target_name == STRING_NAME
-                            && field_name == "fromCharCode"
-                            && args.is_empty()
-                        {
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::String),
-                                ExprIr::String(String::new()),
-                            );
-                        }
-                        if field_name == "propertyIsEnumerable"
-                            && args.len() == 1
-                            && self
-                                .identifier_is_builtin_native_error(target_name.as_str())
-                                .is_some()
-                            && self
-                                .try_static_string_key(&args[0])
-                                .is_some_and(|property| property == "prototype")
-                        {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::Boolean),
-                                ExprIr::Boolean(false),
-                            );
-                        }
-                        if field_name == "propertyIsEnumerable"
-                            && args.len() == 1
-                            && self
-                                .try_static_string_key(&args[0])
-                                .is_some_and(|property| {
-                                    self.is_known_non_enumerable_builtin_property(
-                                        &target_name,
-                                        &property,
-                                    )
-                                })
-                        {
-                            for arg in args {
-                                self.lower_expression(arg);
-                            }
-                            return TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::Boolean),
-                                ExprIr::Boolean(false),
-                            );
-                        }
-                    }
                     let mut receiver = self.lower_property_target(access.target());
                     let receiver_capture_epoch = self.intervening_effect_epoch;
                     // The receiver's value, not its spelling: `String` and its
@@ -661,193 +201,9 @@ impl<'a> ScriptLowerer<'a> {
                             return result;
                         }
                     }
-                    if let Some(result) =
-                        self.lower_static_iterator_from_wrapper_method_call(&receiver, access, args)
-                    {
-                        return result;
-                    }
-                    if let Some(result) =
-                        self.lower_static_yield_star_generator_method_call(&receiver, access, args)
-                    {
-                        return result;
-                    }
-                    if let PropertyAccessField::Const(field) = access.field() {
-                        let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                        if (field_name == "exec" || field_name == "test")
-                            && args.len() == 1
-                            && receiver.possible_kinds.contains(ValueKind::Object)
-                        {
-                            // `CallMethod` looks `exec`/`test` up at run time, so
-                            // it is right for any receiver. Only a receiver whose
-                            // chain names the `%RegExp.prototype%` builtin while
-                            // that prototype still holds it licenses the builtin's
-                            // result kind and effects; any other callee is unknown.
-                            let method = self
-                                .shaped_receiver_intrinsic_method(
-                                    &receiver,
-                                    IntrinsicPrototype::RegExp,
-                                    &field_name,
-                                )
-                                .map(|method| method.builtin());
-                            let info = if method == Some(StandardBuiltinId::RegExpPrototypeTest) {
-                                ValueInfo::new(ValueKind::Boolean)
-                            } else {
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                }
-                            };
-                            let result = TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(field_name),
-                                    args: args
-                                        .iter()
-                                        .map(|arg| self.lower_expression(arg))
-                                        .collect(),
-                                },
-                            );
-                            match method {
-                                Some(_) => self.invalidate_unknown_user_code_effects(),
-                                None => self.observe_unaccounted_invocation_effects(
-                                    InvocationTargetProvenance::Erased,
-                                ),
-                            }
-                            return result;
-                        }
-                        if !self.array_prototype_mutated
-                            && matches!(
-                                receiver.heap_shape.as_deref(),
-                                Some(HeapShape::Array(shape)) if shape.prototype.is_none()
-                            )
-                        {
-                            if field_name == "join" && args.len() <= 1 {
-                                let args = self
-                                    .lower_call_args_expanding_spread(args)
-                                    .into_arguments_after_expression(&mut receiver);
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::CallMethod {
-                                        receiver: Box::new(receiver),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                        args,
-                                    },
-                                );
-                            }
-                            if field_name == "toString" && args.is_empty() {
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::CallMethod {
-                                        receiver: Box::new(receiver),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                        args: Vec::new(),
-                                    },
-                                );
-                            }
-                            if field_name == "reverse" && args.is_empty() {
-                                self.record_builtin_receiver_mutation(
-                                    StandardBuiltinId::ArrayPrototypeReverse,
-                                );
-                                return TypedExpr::from_info(
-                                    receiver.value_info(),
-                                    ExprIr::CallMethod {
-                                        receiver: Box::new(receiver),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                        args: Vec::new(),
-                                    },
-                                );
-                            }
-                        }
-                    }
-                    if let PropertyAccessField::Expr(expr) = access.field() {
-                        if let Some((symbol, symbol_key)) =
-                            self.lower_well_known_symbol_property_key(expr)
-                        {
-                            // Contract ledger entry R3, corrected. The domain
-                            // here is `WellKnownSymbol x receiver`, and the R3
-                            // note used to claim both axes were honoured — true
-                            // only of the two `Iterator` arms. The other five
-                            // fired on the symbol alone, so
-                            // `({ [Symbol.match](s) { return 42; } })[Symbol.match]("x")`
-                            // was typed as `RegExp.prototype[@@match]`'s
-                            // `Array | Null` rather than as `Number`. The
-                            // emitted IR is a generic `ExprIr::CallMethod`
-                            // either way, so the damage was confined to the
-                            // inferred `ValueInfo` and to anything keyed on it —
-                            // but that is exactly invariant S5's subject.
-                            //
-                            // Most cells legitimately have no static fast path,
-                            // so this match keeps a catch-all rather than nine
-                            // information-free `=> None` arms. The symbols that
-                            // deliberately fall through are `asyncIterator`,
-                            // `dispose`, `asyncDispose`, `hasInstance`,
-                            // `isConcatSpreadable`, `species`, `toPrimitive`,
-                            // `toStringTag` and `unscopables`; what the enum
-                            // buys is that the arms above name real variants.
-                            let regexp_receiver =
-                                Self::receiver_shape_allows_regexp_symbol_protocol(&receiver);
-                            let builtin = match symbol {
-                                WellKnownSymbol::Iterator if receiver.kind == ValueKind::String => {
-                                    Some(StandardBuiltinId::StringPrototypeIterator)
-                                }
-                                WellKnownSymbol::Iterator if receiver.kind == ValueKind::Array => {
-                                    Some(StandardBuiltinId::ArrayPrototypeValues)
-                                }
-                                WellKnownSymbol::Match if regexp_receiver => {
-                                    Some(StandardBuiltinId::RegExpPrototypeSymbolMatch)
-                                }
-                                WellKnownSymbol::MatchAll if regexp_receiver => {
-                                    Some(StandardBuiltinId::RegExpPrototypeSymbolMatchAll)
-                                }
-                                WellKnownSymbol::Replace if regexp_receiver => {
-                                    Some(StandardBuiltinId::RegExpPrototypeSymbolReplace)
-                                }
-                                WellKnownSymbol::Search if regexp_receiver => {
-                                    Some(StandardBuiltinId::RegExpPrototypeSymbolSearch)
-                                }
-                                WellKnownSymbol::Split if regexp_receiver => {
-                                    Some(StandardBuiltinId::RegExpPrototypeSymbolSplit)
-                                }
-                                _ => None,
-                            };
-                            if let Some(builtin) = builtin {
-                                let args = self
-                                    .lower_call_args_expanding_spread(args)
-                                    .into_arguments_after_expression(&mut receiver);
-                                let (info, invocation_effects) = self
-                                    .standard_builtin_call_info(
-                                        builtin,
-                                        &args,
-                                        BuiltinCallContext::Call,
-                                    )
-                                    .map(|analysis| analysis.into_parts())
-                                    .unwrap_or_else(|| {
-                                        (
-                                            ValueInfo {
-                                                kind: ValueKind::Dynamic,
-                                                possible_kinds: KindSet::all_runtime_tags(),
-                                                heap_shape: None,
-                                                function_targets: FunctionTargetKnowledge::unknown(
-                                                ),
-                                            },
-                                            AnalyzedInvocationEffects::already_applied(),
-                                        )
-                                    });
-                                let call = TypedExpr::from_info(
-                                    info,
-                                    ExprIr::CallMethod {
-                                        receiver: Box::new(receiver),
-                                        key: symbol_key,
-                                        args,
-                                    },
-                                );
-                                return invocation_effects.attach_to_emitted_call(call);
-                            }
-                        }
-                    }
+                    // Acquire every property before lowering arguments. Live intrinsic
+                    // and own-property proofs belong to the shared Get owner below;
+                    // receiver kind and a protocol-key spelling cannot license a callee.
                     let receiver_has_known_own_property = match access.field() {
                         PropertyAccessField::Const(field) => {
                             let field_name = self.interner.resolve_expect(field.sym()).to_string();
@@ -860,258 +216,31 @@ impl<'a> ScriptLowerer<'a> {
                         ValueKind::Object | ValueKind::Function => {
                             self.lower_object_property_key(receiver.clone(), access.field())
                         }
-                        ValueKind::String => {
-                            if let PropertyAccessField::Const(field) = access.field() {
-                                let field_name =
-                                    self.interner.resolve_expect(field.sym()).to_string();
-                                let method =
-                                    self.intrinsic_method(IntrinsicPrototype::String, &field_name);
-                                let proven = method.proven().map(|method| method.builtin());
-                                if proven == Some(StandardBuiltinId::StringPrototypeCharCodeAt)
-                                    && args.len() <= 1
-                                {
-                                    let index = args
-                                        .first()
-                                        .map(|arg| self.lower_expression(arg))
-                                        .unwrap_or_else(|| {
-                                            TypedExpr::from_info(
-                                                ValueInfo::new(ValueKind::Number),
-                                                ExprIr::Number(0.0f64.to_bits()),
-                                            )
-                                        });
-                                    return TypedExpr::from_info(
-                                        ValueInfo::new(ValueKind::Number),
-                                        ExprIr::StringCharCodeAt {
-                                            target: Box::new(receiver),
-                                            index: Box::new(index),
-                                        },
-                                    );
-                                }
-                                if proven == Some(StandardBuiltinId::StringPrototypeSplit)
-                                    && args.len() <= 2
-                                {
-                                    let args = self
-                                        .lower_call_args_expanding_spread(args)
-                                        .into_arguments_after_expression(&mut receiver);
-                                    return TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Array,
-                                            possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                            heap_shape: Some(Box::new(HeapShape::Array(
-                                                ArrayShape::default(),
-                                            ))),
-                                            function_targets: FunctionTargetKnowledge::unknown(),
-                                        },
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args,
-                                        },
-                                    );
-                                }
-                                TypedExpr::from_info(
-                                    method.callee_info().unwrap_or(ValueInfo {
-                                        kind: ValueKind::Dynamic,
-                                        possible_kinds: KindSet::all_runtime_tags(),
-                                        heap_shape: None,
-                                        function_targets: FunctionTargetKnowledge::unknown(),
-                                    }),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(receiver.clone()),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else {
-                                // A computed key on a String is GetV through
-                                // %String.prototype% (7.3.3), like Number's.
-                                self.lower_object_property_key(receiver.clone(), access.field())
-                            }
-                        }
-                        ValueKind::Number => {
-                            if let PropertyAccessField::Const(field) = access.field() {
-                                let field_name =
-                                    self.interner.resolve_expect(field.sym()).to_string();
-                                if field_name == "split"
-                                    && self.number_prototype_split_is_string_split
-                                    && args.len() <= 2
-                                {
-                                    if args.first().is_some_and(|separator| {
-                                        self.static_to_string_returns_regexp_object_expr(separator)
-                                    }) {
-                                        for arg in args {
-                                            self.lower_expression(arg);
-                                        }
-                                        return TypedExpr::from_info(
-                                            ValueInfo::undefined(),
-                                            ExprIr::RuntimeThrow {
-                                                name: NativeErrorKind::TypeError,
-                                                message: "Cannot convert object to primitive value",
-                                            },
-                                        );
-                                    }
-                                    let args = self
-                                        .lower_call_args_expanding_spread(args)
-                                        .into_arguments_after_expression(&mut receiver);
-                                    return TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Array,
-                                            possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                            heap_shape: Some(Box::new(HeapShape::Array(
-                                                ArrayShape::default(),
-                                            ))),
-                                            function_targets: FunctionTargetKnowledge::unknown(),
-                                        },
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args,
-                                        },
-                                    );
-                                }
-                                if field_name == "match"
-                                    && self.number_prototype_match_is_string_match
-                                    && args.len() <= 1
-                                {
-                                    let args = self
-                                        .lower_call_args_expanding_spread(args)
-                                        .into_arguments_after_expression(&mut receiver);
-                                    return TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: FunctionTargetKnowledge::unknown(),
-                                        },
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args,
-                                        },
-                                    );
-                                }
-                                // `toString` also needs the delete-tracking state:
-                                // after `delete Number.prototype.toString` the
-                                // recorded prototype no longer names the method.
-                                let method = if field_name == "toString"
-                                    && self.number_prototype_to_string_state
-                                        != PrototypeToStringState::Intrinsic
-                                {
-                                    self.intrinsic_method(IntrinsicPrototype::Number, &field_name)
-                                        .unclaimed()
-                                } else {
-                                    self.intrinsic_method(IntrinsicPrototype::Number, &field_name)
-                                };
-                                TypedExpr::from_info(
-                                    method.callee_info().unwrap_or(ValueInfo {
-                                        kind: ValueKind::Dynamic,
-                                        possible_kinds: KindSet::all_runtime_tags(),
-                                        heap_shape: None,
-                                        function_targets: FunctionTargetKnowledge::unknown(),
-                                    }),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(receiver.clone()),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else {
-                                self.lower_object_property_key(receiver.clone(), access.field())
-                            }
-                        }
-                        ValueKind::Boolean => {
-                            if let PropertyAccessField::Const(field) = access.field() {
-                                let field_name =
-                                    self.interner.resolve_expect(field.sym()).to_string();
-                                let method = if field_name == "toString"
-                                    && self.boolean_prototype_to_string_state
-                                        != PrototypeToStringState::Intrinsic
-                                {
-                                    self.intrinsic_method(IntrinsicPrototype::Boolean, &field_name)
-                                        .unclaimed()
-                                } else {
-                                    self.intrinsic_method(IntrinsicPrototype::Boolean, &field_name)
-                                };
-                                TypedExpr::from_info(
-                                    method.callee_info().unwrap_or(ValueInfo {
-                                        kind: ValueKind::Dynamic,
-                                        possible_kinds: KindSet::all_runtime_tags(),
-                                        heap_shape: None,
-                                        function_targets: FunctionTargetKnowledge::unknown(),
-                                    }),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(receiver.clone()),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else {
-                                self.lower_object_property_key(receiver.clone(), access.field())
-                            }
-                        }
-                        ValueKind::BigInt => {
-                            if let PropertyAccessField::Const(field) = access.field() {
-                                let field_name =
-                                    self.interner.resolve_expect(field.sym()).to_string();
-                                if let Some(read) = self.intrinsic_method_read(
-                                    IntrinsicPrototype::BigInt,
-                                    &receiver,
-                                    &field_name,
-                                ) {
-                                    read
-                                } else {
-                                    return self.unsupported_expr(
-                                        "indirect call: unsupported bigint property",
-                                    );
-                                }
-                            } else {
-                                self.lower_object_property_key(receiver.clone(), access.field())
-                            }
-                        }
-                        ValueKind::Symbol => {
-                            if let PropertyAccessField::Const(field) = access.field() {
-                                let field_name =
-                                    self.interner.resolve_expect(field.sym()).to_string();
-                                if let Some(read) = self.intrinsic_method_read(
-                                    IntrinsicPrototype::Symbol,
-                                    &receiver,
-                                    &field_name,
-                                ) {
-                                    read
-                                } else {
-                                    // Anything else (e.g. `hasOwnProperty`,
-                                    // `constructor`) is inherited from
-                                    // `Object.prototype` via
-                                    // `Symbol.prototype`'s own
-                                    // `[[Prototype]]`; resolve it through the
-                                    // generic runtime prototype-chain lookup
-                                    // rather than hardcoding every name.
-                                    self.lower_object_property_key(receiver.clone(), access.field())
-                                }
-                            } else if let PropertyAccessField::Expr(expr) = access.field() {
-                                if let Some((symbol, symbol_key)) =
-                                    self.lower_well_known_symbol_property_key(expr)
-                                {
-                                    if symbol == WellKnownSymbol::ToPrimitive {
-                                        TypedExpr::from_info(
-                                            Self::standard_builtin_value_info(
-                                                StandardBuiltinId::SymbolPrototypeToPrimitive,
-                                            ),
-                                            ExprIr::PropertyRead {
-                                                target: Box::new(receiver.clone()),
-                                                key: symbol_key,
-                                            },
-                                        )
-                                    } else {
-                                        self.lower_object_property_key(
-                                            receiver.clone(),
-                                            access.field(),
-                                        )
-                                    }
-                                } else {
-                                    self.lower_object_property_key(receiver.clone(), access.field())
-                                }
-                            } else {
-                                self.lower_object_property_key(receiver.clone(), access.field())
-                            }
-                        }
+                        ValueKind::String => self.lower_primitive_property_key(
+                            IntrinsicPrototype::String,
+                            receiver.clone(),
+                            access.field(),
+                        ),
+                        ValueKind::Number => self.lower_primitive_property_key(
+                            IntrinsicPrototype::Number,
+                            receiver.clone(),
+                            access.field(),
+                        ),
+                        ValueKind::Boolean => self.lower_primitive_property_key(
+                            IntrinsicPrototype::Boolean,
+                            receiver.clone(),
+                            access.field(),
+                        ),
+                        ValueKind::BigInt => self.lower_primitive_property_key(
+                            IntrinsicPrototype::BigInt,
+                            receiver.clone(),
+                            access.field(),
+                        ),
+                        ValueKind::Symbol => self.lower_primitive_property_key(
+                            IntrinsicPrototype::Symbol,
+                            receiver.clone(),
+                            access.field(),
+                        ),
                         ValueKind::Array
                             if self.array_prototype_mutated
                                 || Self::array_shape_has_custom_prototype(&receiver)
@@ -1123,51 +252,6 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
-                                if field_name == "splice"
-                                    && Self::static_splice_delete_count_is_supported(args)
-                                {
-                                    let Some((key, args)) = self.lower_splice_zero_call_args(args)
-                                    else {
-                                        return self.unsupported_expr("call spread");
-                                    };
-                                    self.record_builtin_receiver_mutation(
-                                        StandardBuiltinId::ArrayPrototypeSplice,
-                                    );
-                                    return TypedExpr::from_info(
-                                        Self::array_value_info_from_elements(Vec::new()),
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(key),
-                                            args,
-                                        },
-                                    );
-                                }
-                                if field_name == "join" && args.len() <= 1 {
-                                    let args = self
-                                        .lower_call_args_expanding_spread(args)
-                                        .into_arguments_after_expression(&mut receiver);
-                                    return TypedExpr::from_info(
-                                        ValueInfo::new(ValueKind::String),
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args,
-                                        },
-                                    );
-                                }
-                                if field_name == "reverse" && args.is_empty() {
-                                    self.record_builtin_receiver_mutation(
-                                        StandardBuiltinId::ArrayPrototypeReverse,
-                                    );
-                                    return TypedExpr::from_info(
-                                        receiver.value_info(),
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                            args: Vec::new(),
-                                        },
-                                    );
-                                }
                                 let builtin = match field_name.as_str() {
                                     "pop" => Some(StandardBuiltinId::ArrayPrototypePop),
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
@@ -1361,25 +445,6 @@ impl<'a> ScriptLowerer<'a> {
                                     self.invalidate_unknown_user_code_effects();
                                     return result;
                                 }
-                                if field_name == "splice"
-                                    && Self::static_splice_delete_count_is_supported(args)
-                                {
-                                    let Some((key, args)) = self.lower_splice_zero_call_args(args)
-                                    else {
-                                        return self.unsupported_expr("call spread");
-                                    };
-                                    self.record_builtin_receiver_mutation(
-                                        StandardBuiltinId::ArrayPrototypeSplice,
-                                    );
-                                    return TypedExpr::from_info(
-                                        Self::array_value_info_from_elements(Vec::new()),
-                                        ExprIr::CallMethod {
-                                            receiver: Box::new(receiver),
-                                            key: PropertyKeyIr::StaticString(key),
-                                            args,
-                                        },
-                                    );
-                                }
                                 let builtin = match field_name.as_str() {
                                     "pop" => Some(StandardBuiltinId::ArrayPrototypePop),
                                     "push" => Some(StandardBuiltinId::ArrayPrototypePush),
@@ -1501,63 +566,11 @@ impl<'a> ScriptLowerer<'a> {
                     self.mark_host_builtin_from_function_id(&function_id);
                     self.host_builtin_calls +=
                         usize::from(HostBuiltinId::from_function_id(&function_id).is_some());
-                    if let Some(
-                        array_builtin @ (StandardBuiltinId::ArrayPrototypePush
-                        | StandardBuiltinId::ArrayPrototypePop
-                        | StandardBuiltinId::ArrayPrototypeShift
-                        | StandardBuiltinId::ArrayPrototypeUnshift
-                        | StandardBuiltinId::ArrayPrototypeFill
-                        | StandardBuiltinId::ArrayPrototypeSort
-                        | StandardBuiltinId::ArrayPrototypeKeys
-                        | StandardBuiltinId::ArrayPrototypeEntries
-                        | StandardBuiltinId::ArrayPrototypeValues
-                        | StandardBuiltinId::TypedArrayPrototypeKeys
-                        | StandardBuiltinId::TypedArrayPrototypeEntries
-                        | StandardBuiltinId::TypedArrayPrototypeValues
-                        | StandardBuiltinId::ArrayPrototypeConcat
-                        | StandardBuiltinId::ArrayPrototypeJoin
-                        | StandardBuiltinId::ArrayPrototypeSlice
-                        | StandardBuiltinId::ArrayPrototypeSplice
-                        | StandardBuiltinId::TypedArrayPrototypeToString
-                        | StandardBuiltinId::ArrayPrototypeToLocaleString
-                        | StandardBuiltinId::ArrayPrototypeFlat
-                        | StandardBuiltinId::ArrayPrototypeFlatMap
-                        | StandardBuiltinId::ArrayPrototypeAt
-                        | StandardBuiltinId::ArrayPrototypeToReversed
-                        | StandardBuiltinId::ArrayPrototypeToSpliced
-                        | StandardBuiltinId::ArrayPrototypeToSorted
-                        | StandardBuiltinId::ArrayPrototypeWith
-                        | StandardBuiltinId::ArrayPrototypeReverse
-                        | StandardBuiltinId::ArrayPrototypeCopyWithin
-                        | StandardBuiltinId::ArrayPrototypeIncludes
-                        | StandardBuiltinId::ArrayPrototypeIndexOf
-                        | StandardBuiltinId::ArrayPrototypeLastIndexOf
-                        | StandardBuiltinId::TypedArrayPrototypeIncludes
-                        | StandardBuiltinId::TypedArrayPrototypeIndexOf
-                        | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
-                        | StandardBuiltinId::ArrayPrototypeFind
-                        | StandardBuiltinId::ArrayPrototypeFindIndex
-                        | StandardBuiltinId::TypedArrayPrototypeFind
-                        | StandardBuiltinId::TypedArrayPrototypeFindIndex
-                        | StandardBuiltinId::TypedArrayPrototypeFindLast
-                        | StandardBuiltinId::TypedArrayPrototypeFindLastIndex
-                        | StandardBuiltinId::TypedArrayPrototypeEvery
-                        | StandardBuiltinId::TypedArrayPrototypeSome
-                        | StandardBuiltinId::TypedArrayPrototypeMap
-                        | StandardBuiltinId::TypedArrayPrototypeFilter
-                        | StandardBuiltinId::TypedArrayPrototypeForEach
-                        | StandardBuiltinId::TypedArrayPrototypeReduce
-                        | StandardBuiltinId::TypedArrayPrototypeReduceRight
-                        | StandardBuiltinId::ArrayPrototypeFindLast
-                        | StandardBuiltinId::ArrayPrototypeFindLastIndex
-                        | StandardBuiltinId::ArrayPrototypeEvery
-                        | StandardBuiltinId::ArrayPrototypeSome
-                        | StandardBuiltinId::ArrayPrototypeForEach
-                        | StandardBuiltinId::ArrayPrototypeFilter
-                        | StandardBuiltinId::ArrayPrototypeMap
-                        | StandardBuiltinId::ArrayPrototypeReduce
-                        | StandardBuiltinId::ArrayPrototypeReduceRight),
-                    ) = StandardBuiltinId::from_function_id(&function_id)
+                    if let Some((array_builtin, info)) =
+                        StandardBuiltinId::from_function_id(&function_id).and_then(|builtin| {
+                            Self::inferred_indexed_collection_result_info(builtin)
+                                .map(|info| (builtin, info))
+                        })
                     {
                         let args = self
                             .lower_call_args_expanding_spread(args)
@@ -1672,6 +685,12 @@ impl<'a> ScriptLowerer<'a> {
                                 | StandardBuiltinId::ArrayPrototypeFindLastIndex
                                 | StandardBuiltinId::ArrayPrototypeEvery
                                 | StandardBuiltinId::ArrayPrototypeSome
+                                | StandardBuiltinId::TypedArrayPrototypeEvery
+                                | StandardBuiltinId::TypedArrayPrototypeSome
+                                | StandardBuiltinId::TypedArrayPrototypeFind
+                                | StandardBuiltinId::TypedArrayPrototypeFindIndex
+                                | StandardBuiltinId::TypedArrayPrototypeFindLast
+                                | StandardBuiltinId::TypedArrayPrototypeFindLastIndex
                                 | StandardBuiltinId::TypedArrayPrototypeMap
                                 | StandardBuiltinId::TypedArrayPrototypeFilter
                                 | StandardBuiltinId::TypedArrayPrototypeForEach
@@ -1726,7 +745,11 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                         }
-                        if array_builtin == StandardBuiltinId::ArrayPrototypeSort {
+                        if matches!(
+                            array_builtin,
+                            StandardBuiltinId::ArrayPrototypeSort
+                                | StandardBuiltinId::ArrayPrototypeToSorted
+                        ) {
                             if let Some(callback_id) = args
                                 .first()
                                 .and_then(|callback| self.resolve_single_function_target(callback))
@@ -1751,270 +774,20 @@ impl<'a> ScriptLowerer<'a> {
                                 self.merge_function_this_info(&callback_id, ValueInfo::undefined());
                             }
                         }
-                        let (key, info) = match array_builtin {
-                            StandardBuiltinId::ArrayPrototypePush => {
-                                ("push", ValueInfo::new(ValueKind::Number))
-                            }
-                            StandardBuiltinId::ArrayPrototypeShift => {
-                                ("shift", ValueInfo::new(ValueKind::Dynamic))
-                            }
-                            StandardBuiltinId::ArrayPrototypeUnshift => {
-                                ("unshift", ValueInfo::new(ValueKind::Number))
-                            }
-                            StandardBuiltinId::ArrayPrototypeFill => {
-                                ("fill", receiver.value_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeSort => {
-                                ("sort", receiver.value_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeConcat => {
-                                ("concat", self.array_concat_result_info(&receiver, &args))
-                            }
-                            StandardBuiltinId::ArrayPrototypeJoin => {
-                                ("join", ValueInfo::new(ValueKind::String))
-                            }
-                            StandardBuiltinId::ArrayPrototypeSlice => {
-                                ("slice", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeSplice => {
-                                ("splice", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::TypedArrayPrototypeToString => {
-                                ("toString", ValueInfo::new(ValueKind::String))
-                            }
-                            StandardBuiltinId::ArrayPrototypeToLocaleString => {
-                                ("toLocaleString", ValueInfo::new(ValueKind::String))
-                            }
-                            StandardBuiltinId::ArrayPrototypeFlat => {
-                                ("flat", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeFlatMap => {
-                                ("flatMap", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeAt => (
-                                "at",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeToReversed => {
-                                ("toReversed", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeWith => {
-                                ("with", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeToSpliced => {
-                                ("toSpliced", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeToSorted => {
-                                ("toSorted", Self::unshaped_array_result_info())
-                            }
-                            StandardBuiltinId::ArrayPrototypeReverse => (
-                                "reverse",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: Self::object_like_kind_set(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeCopyWithin => (
-                                "copyWithin",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: Self::object_like_kind_set(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeIncludes
-                            | StandardBuiltinId::TypedArrayPrototypeIncludes => {
-                                ("includes", ValueInfo::new(ValueKind::Boolean))
-                            }
-                            StandardBuiltinId::ArrayPrototypeIndexOf
-                            | StandardBuiltinId::TypedArrayPrototypeIndexOf => {
-                                ("indexOf", ValueInfo::new(ValueKind::Number))
-                            }
-                            StandardBuiltinId::ArrayPrototypeLastIndexOf
-                            | StandardBuiltinId::TypedArrayPrototypeLastIndexOf => {
-                                ("lastIndexOf", ValueInfo::new(ValueKind::Number))
-                            }
-                            StandardBuiltinId::ArrayPrototypeFind => (
-                                "find",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::TypedArrayPrototypeFind => (
-                                "find",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeFindIndex
-                            | StandardBuiltinId::TypedArrayPrototypeFindIndex => {
-                                ("findIndex", ValueInfo::new(ValueKind::Number))
-                            }
-                            StandardBuiltinId::ArrayPrototypeFindLast
-                            | StandardBuiltinId::TypedArrayPrototypeFindLast => (
-                                "findLast",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeFindLastIndex
-                            | StandardBuiltinId::TypedArrayPrototypeFindLastIndex => {
-                                ("findLastIndex", ValueInfo::new(ValueKind::Number))
-                            }
-                            StandardBuiltinId::ArrayPrototypeEvery
-                            | StandardBuiltinId::TypedArrayPrototypeEvery => {
-                                ("every", ValueInfo::new(ValueKind::Boolean))
-                            }
-                            StandardBuiltinId::ArrayPrototypeSome
-                            | StandardBuiltinId::TypedArrayPrototypeSome => {
-                                ("some", ValueInfo::new(ValueKind::Boolean))
-                            }
-                            StandardBuiltinId::ArrayPrototypeForEach
-                            | StandardBuiltinId::TypedArrayPrototypeForEach => {
-                                ("forEach", ValueInfo::undefined())
-                            }
-                            StandardBuiltinId::ArrayPrototypeFilter => (
-                                "filter",
-                                ValueInfo {
-                                    kind: ValueKind::Array,
-                                    possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                    heap_shape: Some(Box::new(HeapShape::Array(
-                                        ArrayShape::default(),
-                                    ))),
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeMap => {
-                                ("map", self.array_map_result_info(&receiver, args.first()))
-                            }
-                            StandardBuiltinId::TypedArrayPrototypeMap => (
-                                "map",
-                                ValueInfo {
-                                    kind: ValueKind::Object,
-                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::none(),
-                                },
-                            ),
-                            StandardBuiltinId::TypedArrayPrototypeFilter => (
-                                "filter",
-                                ValueInfo {
-                                    kind: ValueKind::Object,
-                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::none(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeReduce
-                            | StandardBuiltinId::TypedArrayPrototypeReduce => (
-                                "reduce",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeReduceRight
-                            | StandardBuiltinId::TypedArrayPrototypeReduceRight => (
-                                "reduceRight",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypePop => (
-                                "pop",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeKeys => (
-                                "keys",
-                                ValueInfo {
-                                    kind: ValueKind::Object,
-                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                    heap_shape: Some(Box::new(Self::empty_object_shape())),
-                                    function_targets: FunctionTargetKnowledge::none(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeEntries => (
-                                "entries",
-                                ValueInfo {
-                                    kind: ValueKind::Object,
-                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                    heap_shape: Some(Box::new(Self::empty_object_shape())),
-                                    function_targets: FunctionTargetKnowledge::none(),
-                                },
-                            ),
-                            StandardBuiltinId::ArrayPrototypeValues => (
-                                "values",
-                                ValueInfo {
-                                    kind: ValueKind::Object,
-                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                    heap_shape: Some(Box::new(Self::empty_object_shape())),
-                                    function_targets: FunctionTargetKnowledge::none(),
-                                },
-                            ),
-                            _ => unreachable!(),
-                        };
-                        let result = TypedExpr::from_info(
+                        // Even methods without a callback can observe getters,
+                        // coercions or species. The catalog flags alone do not
+                        // prove that these captured flow facts survive the call.
+                        self.invalidate_unknown_user_code_effects();
+                        return self.lower_indirect_method_call(
                             info,
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString(key.to_string()),
-                                args,
-                            },
-                        );
-                        if array_builtin.may_run_user_code_synchronously() {
-                            self.invalidate_unknown_user_code_effects();
-                        }
-                        return result;
-                    }
-                    if let Some(method_name) =
-                        match StandardBuiltinId::from_function_id(&function_id) {
-                            Some(StandardBuiltinId::StringPrototypeSubstring) => Some("substring"),
-                            Some(StandardBuiltinId::StringPrototypeSlice) => Some("slice"),
-                            _ => None,
-                        }
-                    {
-                        let args = self
-                            .lower_call_args_expanding_spread(args)
-                            .into_arguments_after_two_expressions(&mut callee, &mut receiver);
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                args,
-                            },
+                            callee,
+                            receiver,
+                            args,
+                            None,
+                            AnalyzedInvocationEffects::already_applied(),
                         );
                     }
                     let source_arguments = args;
-                    let prepared_static_json_parse_reviver =
-                        self.prepare_static_json_parse_reviver(&function_id, source_arguments);
                     let (args, mut info, mut invocation_effects) = self.lower_call_args(
                         &function_id,
                         source_arguments,
@@ -2023,72 +796,19 @@ impl<'a> ScriptLowerer<'a> {
                             callee: &mut callee,
                         },
                     );
-                    if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
-                        if let Some(folded) =
-                            Self::fold_standard_builtin_literal_call(builtin, &args)
-                        {
-                            return folded;
-                        }
-                    }
-                    if let Some(static_json_parse_reviver) = prepared_static_json_parse_reviver
-                        .and_then(|prepared| {
-                            self.finish_static_json_parse_reviver(prepared, &callee, &args)
-                        })
-                    {
-                        return invocation_effects
-                            .attach_to_emitted_call(static_json_parse_reviver);
-                    }
-                    if matches!(
-                        StandardBuiltinId::from_function_id(&function_id),
-                        Some(StandardBuiltinId::TypedArrayFrom | StandardBuiltinId::TypedArrayOf)
-                    ) {
-                        let key_name = if StandardBuiltinId::from_function_id(&function_id)
-                            == Some(StandardBuiltinId::TypedArrayOf)
-                        {
-                            "of"
-                        } else {
-                            "from"
-                        };
-                        let constructor_targets = receiver
-                            .function_targets
-                            .exact_targets()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|function_id| {
-                                StandardBuiltinId::from_function_id(function_id)
-                                    .filter(|builtin| Self::is_typed_array_constructor(*builtin))
-                            })
-                            .collect::<Vec<_>>();
-                        if let [constructor_builtin] = constructor_targets.as_slice() {
-                            info = Self::value_info_from_shape(Some(
-                                Self::typed_array_instance_shape_for_constructor(
-                                    *constructor_builtin,
-                                ),
-                            ));
-                        } else if !constructor_targets.is_empty() {
-                            info = Self::value_info_from_shape(Some(
-                                Self::typed_array_instance_shape(),
-                            ));
-                        }
-                        return TypedExpr::from_info(
-                            info,
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString(key_name.to_string()),
-                                args,
-                            },
-                        );
-                    }
                     if StandardBuiltinId::from_function_id(&function_id)
-                        == Some(StandardBuiltinId::StringPrototypeSubstr)
+                        == Some(StandardBuiltinId::StringPrototypeConcat)
                     {
-                        return TypedExpr::from_info(
+                        // A known String builtin can be stored under any
+                        // property name and borrowed by any receiver. The
+                        // acquired callee and its original base define Call.
+                        return self.lower_indirect_method_call(
                             info,
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString("substr".to_string()),
-                                args,
-                            },
+                            callee,
+                            receiver,
+                            args,
+                            None,
+                            invocation_effects,
                         );
                     }
                     if let Some(method) = NonGenericBuiltinMethod::from_function_id(&function_id) {
@@ -2121,89 +841,6 @@ impl<'a> ScriptLowerer<'a> {
                                 );
                             }
                         }
-                    }
-                    if let Some(string_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match string_builtin {
-                            StandardBuiltinId::StringPrototypeCharAt => "charAt",
-                            StandardBuiltinId::StringPrototypeConcat => "concat",
-                            StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
-                            StandardBuiltinId::StringPrototypeCodePointAt => "codePointAt",
-                            StandardBuiltinId::StringPrototypeAt => "at",
-                            StandardBuiltinId::StringPrototypePadStart => "padStart",
-                            StandardBuiltinId::StringPrototypePadEnd => "padEnd",
-                            StandardBuiltinId::StringPrototypeRepeat => "repeat",
-                            StandardBuiltinId::StringPrototypeNormalize => "normalize",
-                            StandardBuiltinId::StringPrototypeLocaleCompare => "localeCompare",
-                            StandardBuiltinId::StringPrototypeToLocaleLowerCase => {
-                                "toLocaleLowerCase"
-                            }
-                            StandardBuiltinId::StringPrototypeToLocaleUpperCase => {
-                                "toLocaleUpperCase"
-                            }
-                            StandardBuiltinId::StringPrototypeToLowerCase => "toLowerCase",
-                            StandardBuiltinId::StringPrototypeToUpperCase => "toUpperCase",
-                            StandardBuiltinId::StringPrototypeIsWellFormed => "isWellFormed",
-                            StandardBuiltinId::StringPrototypeToWellFormed => "toWellFormed",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
-                        }
-                    }
-                    if StandardBuiltinId::from_function_id(&function_id)
-                        == Some(StandardBuiltinId::ArrayIteratorNext)
-                    {
-                        return TypedExpr::from_info(
-                            info,
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString("next".to_string()),
-                                args,
-                            },
-                        );
-                    }
-                    if let Some(method_name) = StandardBuiltinId::from_function_id(&function_id)
-                        .and_then(StandardBuiltinId::string_html_method_name)
-                    {
-                        return TypedExpr::from_info(
-                            info,
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                args,
-                            },
-                        );
-                    }
-                    if matches!(
-                        StandardBuiltinId::from_function_id(&function_id),
-                        Some(
-                            StandardBuiltinId::StringPrototypeTrimStart
-                                | StandardBuiltinId::StringPrototypeTrim
-                                | StandardBuiltinId::StringPrototypeTrimEnd
-                        )
-                    ) {
-                        let key = match StandardBuiltinId::from_function_id(&function_id) {
-                            Some(StandardBuiltinId::StringPrototypeTrim) => "trim",
-                            Some(StandardBuiltinId::StringPrototypeTrimStart) => "trimStart",
-                            Some(StandardBuiltinId::StringPrototypeTrimEnd) => "trimEnd",
-                            _ => unreachable!(),
-                        };
-                        return TypedExpr::from_info(
-                            info,
-                            ExprIr::CallMethod {
-                                receiver: Box::new(receiver),
-                                key: PropertyKeyIr::StaticString(key.to_string()),
-                                args,
-                            },
-                        );
                     }
                     if matches!(
                         StandardBuiltinId::from_function_id(&function_id),
@@ -2428,10 +1065,7 @@ impl<'a> ScriptLowerer<'a> {
                                             heap_shape: Some(Self::function_heap_shape(
                                                 signature.protocol.is_constructable(),
                                             )),
-                                            function_targets: FunctionTargetKnowledge::exact(
-                                                StandardBuiltinId::BoundFunctionInvoker
-                                                    .function_id(),
-                                            ),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         };
                                         self.bound_functions += 1;
                                         self.bound_function_constructs +=
@@ -2463,43 +1097,6 @@ impl<'a> ScriptLowerer<'a> {
                     {
                         info = ValueInfo::new(ValueKind::String);
                     }
-                    if matches!(
-                        StandardBuiltinId::from_function_id(&function_id),
-                        Some(StandardBuiltinId::FunctionPrototypeCall)
-                    ) {
-                        if let Some(target_function_id) =
-                            self.resolve_single_function_target(&receiver)
-                        {
-                            if matches!(
-                                StandardBuiltinId::from_function_id(&target_function_id),
-                                Some(StandardBuiltinId::ArrayBufferSpeciesGetter)
-                            ) {
-                                let call_this =
-                                    args.first().cloned().unwrap_or_else(TypedExpr::undefined);
-                                info = if call_this.possible_kinds.is_subset_of(
-                                    KindSet::from_kind(ValueKind::Undefined)
-                                        .union(KindSet::from_kind(ValueKind::Null)),
-                                ) {
-                                    self.global_this_info()
-                                } else {
-                                    self.boxed_receiver_info_from_arg(&call_this)
-                                        .unwrap_or_else(|| call_this.value_info())
-                                };
-                                let forwarded_args =
-                                    args.iter().skip(1).cloned().collect::<Vec<_>>();
-                                return TypedExpr::from_info(
-                                    info,
-                                    ExprIr::CallIndirect {
-                                        direct_eval: None,
-                                        callee: Box::new(receiver),
-                                        this_arg: Some(Box::new(call_this)),
-                                        args: forwarded_args,
-                                        static_regexp_compilation: None,
-                                    },
-                                );
-                            }
-                        }
-                    }
                     let static_regexp_compilation = self.static_regexp_compilation_for_direct_call(
                         &callee,
                         &function_id,
@@ -2526,19 +1123,9 @@ impl<'a> ScriptLowerer<'a> {
                         receiver_info.clone(),
                         ExprIr::Identifier(receiver_storage_name.clone()),
                     );
-                    let mut callee = TypedExpr::from_info(
-                        self.read_object_shape(&receiver, &private_data_key(private_name_id))
-                            .unwrap_or(ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: FunctionTargetKnowledge::unknown(),
-                            }),
-                        ExprIr::PrivateRead {
-                            target: Box::new(materialized_receiver.clone()),
-                            private_name_id,
-                        },
-                    );
+                    let mut callee =
+                        self.lower_private_get_value(&mut materialized_receiver, private_name_id);
+                    receiver_info = materialized_receiver.value_info();
                     let function_id = matches!(
                         InvocationTargetProvenance::from(&callee),
                         InvocationTargetProvenance::ProvenFunction(_)

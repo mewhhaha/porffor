@@ -303,7 +303,7 @@ fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
             "let CoercedSuperPropertyReferenceLocals {",
             "self.emit_ordinary_set_result_via_helper(",
             "self.with_reference_strictness(strictness, function",
-            "emitter.emit_object_write_set_failure_else(\"Cannot assign to super property\"",
+            "emitter.emit_object_write_set_failure_else(\n                RuntimeErrorMessage::CANNOT_ASSIGN_TO_SUPER_PROPERTY,\n                function,\n            )",
             "self.release_temp_local(property_key_tag);",
             "self.release_temp_local(property_key_payload);",
             "self.release_temp_local(receiver_tag);",

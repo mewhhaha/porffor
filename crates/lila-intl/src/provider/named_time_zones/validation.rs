@@ -1,7 +1,7 @@
 use timezone_provider::tzif::Tzif;
 use tzif::data::posix::TransitionDay;
 
-use crate::InvalidTimeZoneData;
+use crate::{InvalidTimeZoneData, NamedTimeZoneOffsetSeconds};
 
 /// Tzif's selector assumes these invariants and otherwise defaults missing
 /// records. Validate once before an immutable snapshot becomes queryable.
@@ -25,9 +25,7 @@ pub(super) fn validate(tzif: &Tzif) -> Result<(), InvalidTimeZoneData> {
         ));
     }
     for record in &block.local_time_type_records {
-        if i32::try_from(record.utoff.0).is_err() || record.utoff.0 == i64::from(i32::MIN) {
-            return Err(InvalidTimeZoneData("invalid pinned TZif offset"));
-        }
+        NamedTimeZoneOffsetSeconds::from_data(record.utoff.0)?;
     }
     if !block.leap_second_records.is_empty() {
         return Err(InvalidTimeZoneData(
@@ -40,15 +38,23 @@ pub(super) fn validate(tzif: &Tzif) -> Result<(), InvalidTimeZoneData> {
         ));
     }
     if let Some(footer) = &tzif.footer {
-        if !(-i64::from(i32::MAX)..=i64::from(i32::MAX)).contains(&footer.std_info.offset.0) {
-            return Err(InvalidTimeZoneData("invalid pinned POSIX standard offset"));
-        }
+        NamedTimeZoneOffsetSeconds::from_data(
+            footer
+                .std_info
+                .offset
+                .0
+                .checked_neg()
+                .ok_or(InvalidTimeZoneData("POSIX offset negation overflow"))?,
+        )?;
         if let Some(daylight) = &footer.dst_info {
-            if !(-i64::from(i32::MAX)..=i64::from(i32::MAX))
-                .contains(&daylight.variant_info.offset.0)
-            {
-                return Err(InvalidTimeZoneData("invalid pinned POSIX daylight offset"));
-            }
+            NamedTimeZoneOffsetSeconds::from_data(
+                daylight
+                    .variant_info
+                    .offset
+                    .0
+                    .checked_neg()
+                    .ok_or(InvalidTimeZoneData("POSIX offset negation overflow"))?,
+            )?;
             for transition in [daylight.start_date, daylight.end_date] {
                 let valid = match transition.day {
                     TransitionDay::NoLeap(day) => (1..=365).contains(&day),

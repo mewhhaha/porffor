@@ -221,19 +221,19 @@ fn symbol_receiver_error_message_is_an_exhaustive_closed_projection() {
     for mapping in [
         concat!(
             "Self::Description=>",
-            "\"Symbol.prototype.descriptionrequiresthat'this'beaSymbol\""
+            "RuntimeErrorMessage::SYMBOL_PROTOTYPE_DESCRIPTION_REQUIRES_THAT_THIS_BE_A_SYMBOL"
         ),
         concat!(
             "Self::ToString=>",
-            "\"Symbol.prototype.toStringrequiresthat'this'beaSymbol\""
+            "RuntimeErrorMessage::SYMBOL_PROTOTYPE_TOSTRING_REQUIRES_THAT_THIS_BE_A_SYMBOL"
         ),
         concat!(
             "Self::ValueOf=>",
-            "\"Symbol.prototype.valueOfrequiresthat'this'beaSymbol\""
+            "RuntimeErrorMessage::SYMBOL_PROTOTYPE_VALUEOF_REQUIRES_THAT_THIS_BE_A_SYMBOL"
         ),
         concat!(
             "Self::ToPrimitive=>{",
-            "\"Symbol.prototype[Symbol.toPrimitive]requiresthat'this'beaSymbol\"}"
+            "RuntimeErrorMessage::SYMBOL_PROTOTYPE_SYMBOL_TOPRIMITIVE_REQUIRES_THAT_THIS_BE_A_SYMBOL}"
         ),
     ] {
         assert_eq!(
@@ -286,10 +286,10 @@ fn symbol_prototype_callers_name_all_four_receiver_operations() {
         );
     }
     for raw_message in [
-        "Symbol.prototype.description requires that 'this' be a Symbol",
-        "Symbol.prototype.toString requires that 'this' be a Symbol",
-        "Symbol.prototype.valueOf requires that 'this' be a Symbol",
-        "Symbol.prototype[Symbol.toPrimitive] requires that 'this' be a Symbol",
+        "RuntimeErrorMessage::SYMBOL_PROTOTYPE_DESCRIPTION_REQUIRES_THAT_THIS_BE_A_SYMBOL",
+        "RuntimeErrorMessage::SYMBOL_PROTOTYPE_TOSTRING_REQUIRES_THAT_THIS_BE_A_SYMBOL",
+        "RuntimeErrorMessage::SYMBOL_PROTOTYPE_VALUEOF_REQUIRES_THAT_THIS_BE_A_SYMBOL",
+        "RuntimeErrorMessage::SYMBOL_PROTOTYPE_SYMBOL_TOPRIMITIVE_REQUIRES_THAT_THIS_BE_A_SYMBOL",
     ] {
         assert!(!dispatch.contains(raw_message));
     }

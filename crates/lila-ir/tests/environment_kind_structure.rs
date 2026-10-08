@@ -87,33 +87,39 @@ fn environment_kind_preserves_the_closed_materialization_domains() {
 
 #[test]
 fn environment_kind_keeps_the_reviewed_projection_and_external_census() {
-    assert_eq!(
-        ANALYSIS_SOURCE
-            .matches(".is_materialized_in_stage_a()")
-            .count(),
-        1
+    let stage_a = bounded(
+        ANALYSIS_SOURCE,
+        "pub(crate) fn materialized_stage_a_environment(",
+        "pub(crate) fn environment_has_runtime_storage(",
     );
-    assert_eq!(ANALYSIS_SOURCE.matches(".is_materialized()").count(), 3);
-    // 27 since the capture-hop storage query treats every resumable
-    // `EnvironmentKind::Activation` as frame-owning (b2182bfe7).
-    assert_eq!(ANALYSIS_SOURCE.matches("EnvironmentKind").count(), 27);
-    assert_eq!(LOWERING_SOURCE.matches("EnvironmentKind").count(), 1);
-    assert_eq!(
-        FUNCTION_DEFINITION_SOURCE
-            .matches("EnvironmentKind")
-            .count(),
-        1
+    assert!(stage_a.contains(".is_materialized_in_stage_a()"));
+    let materialized = bounded(
+        ANALYSIS_SOURCE,
+        "pub(crate) fn materialized_environment(",
+        "fn environment_has_runtime_storage(",
     );
-    assert_eq!(
-        FUNCTION_ENVIRONMENT_SOURCE
-            .matches("EnvironmentKind")
-            .count(),
-        3
+    assert!(materialized.contains("environment.kind.is_materialized().then_some(environment)"));
+    let storage = bounded(
+        ANALYSIS_SOURCE,
+        "fn environment_has_runtime_storage(\n    environment:",
+        "#[derive(Default)]",
     );
-    assert_eq!(
-        EVAL_ENVIRONMENT_SOURCE.matches("EnvironmentKind").count(),
-        34
-    );
+    assert!(storage.contains("environment.kind == EnvironmentKind::Activation"));
+    assert!(storage.contains("environment.kind.is_materialized()"));
+    assert!(storage.contains("match execution_kind"));
+    assert!(storage.contains("FunctionExecutionKind::Ordinary => false"));
+    for execution in ["Generator", "Async", "AsyncGenerator"] {
+        assert!(storage.contains(&format!("FunctionExecutionKind::{execution}")));
+    }
+    assert!(!storage.contains("_ =>"));
+    for kind in [
+        "FunctionParameters",
+        "FunctionBody",
+        "ParameterEvalVariable",
+    ] {
+        assert!(FUNCTION_ENVIRONMENT_SOURCE.contains(&format!("EnvironmentKind::{kind}")));
+    }
+    assert!(EVAL_ENVIRONMENT_SOURCE.contains("EnvironmentKind::ForInOfIteration"));
     for source in [
         LOWERING_SOURCE,
         FUNCTION_DEFINITION_SOURCE,

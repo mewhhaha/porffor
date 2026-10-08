@@ -1,5 +1,29 @@
 # Created-Realm Array Prototype Lifecycle
 
+## Current atomic GC source — 2026-10-05
+
+The private `functions/created_realm_array_prototype.rs` owner still separates
+`ReservedRealmArrayPrototypeLocal(GcLocalSlot<ArrayObject>)` from the completed
+`RealmArrayPrototypeLocal(GcLocal<ArrayObject>)`. Both have private fields and
+no Clone/Copy capability. Shared GC bootstrap consumes reservation,
+initialization, intrinsic publication and constructor linking before NativeHost
+exposes the created global. The historical host-only consumer and raw
+payload/tag/call-count census below have retired.
+
+The maintained `created_realm_array_prototype_structure` guard protects these
+real private reservation/completion types and their typed method boundary.
+Existing `aot_created_realm_array_iterator` semantic sources remain. See
+[NativeHost GC values](native-host-gc-values.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 ## Private owner
 
 A created realm's `%Array.prototype%` progresses through two states owned by

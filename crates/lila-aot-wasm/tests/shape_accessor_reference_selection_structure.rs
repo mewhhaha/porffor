@@ -94,24 +94,24 @@ fn static_and_dynamic_shape_accessors_project_the_selection_directly() {
 }
 
 #[test]
-fn exactly_seven_product_producers_choose_their_accessor_selection() {
+fn exactly_eight_product_producers_choose_their_accessor_selection() {
     let producers = bounded(
         SOURCE,
         "        ExprIr::OptionalPropertyChain {\n            target: object,\n            chain,",
-        "        ExprIr::StringCharCodeAt {\n            target: object,",
+        "        ExprIr::BinaryNumber { lhs, rhs, .. }",
     );
 
     assert_eq!(
         producers
             .matches("shape_accessor_references_function(")
             .count(),
-        7
+        8
     );
     assert_eq!(
         producers
             .matches("ShapeAccessorReferenceSelection::Getter,")
             .count(),
-        2
+        3
     );
     assert_eq!(
         producers
@@ -157,9 +157,17 @@ fn exactly_seven_product_producers_choose_their_accessor_selection() {
         bounded(
             producers,
             "        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {",
-            "        ExprIr::OrdinaryPropertyNumericUpdate(update) => {",
+            "        ExprIr::OrdinaryPropertyGetCapture(capture) => {",
         ),
         "GetterOrSetter",
+    );
+    assert_single_selection(
+        bounded(
+            producers,
+            "        ExprIr::OrdinaryPropertyGetCapture(capture) => {",
+            "        ExprIr::CapturedOrdinaryPropertyWrite(write) => {",
+        ),
+        "Getter",
     );
     assert_single_selection(
         bounded(

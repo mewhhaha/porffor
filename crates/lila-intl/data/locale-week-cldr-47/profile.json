@@ -1,0 +1,1475 @@
+{
+  "algorithm": "locale-week-cldr47-v1",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "cldr_release": "47.0.0",
+  "primary_manifest_sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5",
+  "primary_source_sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4",
+  "regions": [
+    {
+      "first_day": 1,
+      "region": "001",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "002",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "003",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "005",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "009",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "011",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "013",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "014",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "015",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "017",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "018",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "019",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "021",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "029",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "030",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "034",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "035",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "039",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "053",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "054",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "057",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "061",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "142",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "143",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "145",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "150",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "151",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "154",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "155",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "202",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "419",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AD",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "AF",
+      "weekend_mask": 24
+    },
+    {
+      "first_day": 7,
+      "region": "AG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AQ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "AS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AX",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "AZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BB",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "BD",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "BH",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "BI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BJ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BQ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "BR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "BS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "BT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BV",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "BW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "BY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "BZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "CA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CD",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "CO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CP",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CQ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CV",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CX",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "CZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "DE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "DG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "DJ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "DK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "DM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "DO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "DZ",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "EA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "EC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "EE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "EG",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "EH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "ER",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "ES",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "ET",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "EU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "EZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "FI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "FJ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "FK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "FM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "FO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "FR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GB",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GD",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GP",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GQ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "GT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "GU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "GY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "HK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "HM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "HN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "HR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "HT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "HU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "IC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "ID",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "IE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "IL",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "IM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "IN",
+      "weekend_mask": 64
+    },
+    {
+      "first_day": 1,
+      "region": "IO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "IQ",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 6,
+      "region": "IR",
+      "weekend_mask": 16
+    },
+    {
+      "first_day": 1,
+      "region": "IS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "IT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "JE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "JM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "JO",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 7,
+      "region": "JP",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "KE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "KG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "KH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "KI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "KM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "KN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "KP",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "KR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "KW",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "KY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "KZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "LA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LB",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "LV",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "LY",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "MA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MD",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "ME",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "MH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "ML",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "MM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "MO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MP",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MQ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "MT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 5,
+      "region": "MV",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "MX",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "MY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "MZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "NI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "NP",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "NZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "OM",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 7,
+      "region": "PA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "PE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "PH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "PK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "PR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "PT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "PW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "PY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "QA",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "QO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "RE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "RO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "RS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "RU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "RW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "SA",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "SB",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "SD",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "SE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "SG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SJ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "ST",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "SV",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "SX",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 6,
+      "region": "SY",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "SZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TD",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "TH",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TJ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TL",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TO",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TR",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "TT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TV",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "TW",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "TZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "UA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "UG",
+      "weekend_mask": 64
+    },
+    {
+      "first_day": 7,
+      "region": "UM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "UN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "US",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "UY",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "UZ",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "VA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "VC",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "VE",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "VG",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "VI",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "VN",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "VU",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "WF",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "WS",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "XK",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "YE",
+      "weekend_mask": 48
+    },
+    {
+      "first_day": 1,
+      "region": "YT",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "ZA",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 1,
+      "region": "ZM",
+      "weekend_mask": 96
+    },
+    {
+      "first_day": 7,
+      "region": "ZW",
+      "weekend_mask": 96
+    }
+  ],
+  "schema": 1
+}

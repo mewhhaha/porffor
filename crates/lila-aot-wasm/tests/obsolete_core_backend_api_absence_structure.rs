@@ -48,13 +48,14 @@ fn live_neighboring_apis_remain_reachable() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (name, expected) in [
         ("emit_string_substring_method_call", 2),
-        ("emit_string_char_code_at_from_locals", 9),
+        // T19 retired the four consumers in the unreachable simple exec matcher.
+        ("emit_string_char_code_at_from_locals", 5),
         ("buffer_memarg64", 11),
         ("buffer_memarg8", 33),
         ("emit_store_realm_message_error_prototype", 4),
         ("emit_store_current_realm_message_error_prototype", 10),
         ("standard_builtin_function_global_index", 3),
-        ("standard_builtin_constructor_global_index", 17),
+        ("standard_builtin_constructor_global_index", 10),
     ] {
         assert_eq!(
             count_identifier_in_rust_sources(&source_root, name),

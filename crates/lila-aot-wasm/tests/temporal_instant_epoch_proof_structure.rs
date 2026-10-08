@@ -257,7 +257,7 @@ fn allocation_exhaustively_consumes_the_validated_epoch() {
         .find("letEpochNanoseconds(UnvalidatedEpochNanoseconds{payload_local,tag_local,})=epoch;")
         .expect("validated-epoch exhaustive destructuring");
     let allocation = consumer
-        .find("self.emit_alloc_temporal_instant(payload_local,tag_local,prototype_payload_local,function,)?;")
+        .find("self.emit_alloc_temporal_instant(payload_local,tag_local,TemporalPrototypeSource::Intrinsic,function,)?;")
         .expect("validated Temporal.Instant allocation");
     assert!(consume < allocation);
 }

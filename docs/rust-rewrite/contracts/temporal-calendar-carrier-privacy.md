@@ -1,5 +1,17 @@
 # Temporal calendar-carrier privacy
 
+## Source replacement — 2026-10-05
+
+The GC backend reads each concrete Temporal record through schema fields. The raw calendar-carrier enum and payload-offset fast path below describe the retired manual object layout. The obsolete source recipe checks have been retired. Exact historical receipts and any public fixture inventory remain recorded.
+
+The pre-retirement source is identified exactly:
+
+- `temporal_calendar_carrier_privacy_structure.rs`: SHA-256 `3d80212e1bcb77e624c22aa407af2e3650336c7e94254c674065acca910a95fd`.
+
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
+
+## Historical contract and checkpoints
+
 Status: implemented as a source-equivalent T22 invariant closure.
 
 The owner-private `TemporalCalendarCarrier` is the sole pairing between each

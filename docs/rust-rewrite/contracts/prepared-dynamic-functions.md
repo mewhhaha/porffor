@@ -29,6 +29,17 @@ Even when no candidate exists, intrinsic Function calls execute all argument
 ToString operations before reporting the typed dynamic-source limitation. An
 abrupt coercion remains its ordinary catchable JavaScript exception.
 
+The shared constructor-family dispatcher also converts every argument when its
+count is absent from the prepared registry. Known-count branches already own
+one conversion pass and either select a tuple, propagate its abrupt result or
+terminate at the typed rejection import. Only unmatched counts enter the
+conversion-only loop, so trying several same-arity candidates never repeats
+coercion. Zero arguments preserve the existing empty-function allocation path.
+The expanded `unregistered_source_arguments_still_coerce_in_order_and_propagate_abrupt_completion`
+native control covers all four constructor kinds, abrupt conversion order,
+Symbol rejection and a second same-arity source tuple. Verification remains
+pending the joined checkpoint.
+
 The frontend parses formal parameters and the body separately, then parses an
 unnamed function expression for combined early errors. It retains the canonical
 `function anonymous(...)` source for reflection without introducing an

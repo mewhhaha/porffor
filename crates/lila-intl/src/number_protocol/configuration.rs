@@ -26,51 +26,16 @@ impl NumberFormatOptions {
                 NotationOption::Compact.wire_code()
             }
         };
-        words[W::MinimumInteger.index()] = u64::from(self.minimum_integer_digits.get());
-        let (kind, fraction, significant, increment) = match self.precision {
-            Precision::Fraction(FractionPrecision::Range(range)) => {
-                (NumberPrecisionKind::Fraction, Some(range), None, 1)
-            }
-            Precision::Fraction(FractionPrecision::Increment { digits, increment }) => (
-                NumberPrecisionKind::Fraction,
-                Some(FractionDigitRange::new(digits, digits).expect("equal checked digit counts")),
-                None,
-                u64::from(increment.value()),
-            ),
-            Precision::Significant(range) => {
-                (NumberPrecisionKind::Significant, None, Some(range), 1)
-            }
-            Precision::More {
-                fraction,
-                significant,
-            } => (
-                NumberPrecisionKind::More,
-                Some(fraction),
-                Some(significant),
-                1,
-            ),
-            Precision::Less {
-                fraction,
-                significant,
-            } => (
-                NumberPrecisionKind::Less,
-                Some(fraction),
-                Some(significant),
-                1,
-            ),
-        };
-        words[W::Precision.index()] = kind.wire_code();
-        words[W::RoundingIncrement.index()] = increment;
-        if let Some(range) = fraction {
-            words[W::MinimumFraction.index()] = u64::from(range.minimum().get());
-            words[W::MaximumFraction.index()] = u64::from(range.maximum().get());
-        }
-        if let Some(range) = significant {
-            words[W::MinimumSignificant.index()] = u64::from(range.minimum().get());
-            words[W::MaximumSignificant.index()] = u64::from(range.maximum().get());
-        }
-        words[W::RoundingMode.index()] = self.rounding_mode.wire_code();
-        words[W::TrailingZero.index()] = self.trailing_zero_display.wire_code();
+        let rounding = rounding_wire_words(&RoundingSettings::from(self));
+        words[W::MinimumInteger.index()] = rounding[0];
+        words[W::Precision.index()] = rounding[1];
+        words[W::MinimumFraction.index()] = rounding[2];
+        words[W::MaximumFraction.index()] = rounding[3];
+        words[W::MinimumSignificant.index()] = rounding[4];
+        words[W::MaximumSignificant.index()] = rounding[5];
+        words[W::RoundingIncrement.index()] = rounding[6];
+        words[W::RoundingMode.index()] = rounding[7];
+        words[W::TrailingZero.index()] = rounding[8];
         words[W::Grouping.index()] = self.grouping.wire_code();
         words[W::SignDisplay.index()] = self.sign_display.wire_code();
         words
@@ -108,28 +73,12 @@ impl EncodedNumberOptions {
     fn domain<T>(&self, field: W, decode: fn(u64) -> Option<T>) -> Result<T, NumberWireError> {
         decode(self.word(field)).ok_or(NumberWireError::Malformed("invalid option code"))
     }
-    fn byte(&self, field: W) -> Result<u8, NumberWireError> {
-        u8::try_from(self.word(field))
-            .map_err(|_| NumberWireError::Malformed("digit count exceeds byte"))
-    }
     fn zeros(&self, fields: &[W]) -> Result<(), NumberWireError> {
         if fields.iter().any(|field| self.word(*field) != 0) {
             Err(NumberWireError::Malformed("nonzero inactive option"))
         } else {
             Ok(())
         }
-    }
-    fn fraction(&self) -> Result<FractionDigitRange, NumberWireError> {
-        Ok(FractionDigitRange::new(
-            FractionDigitCount::new(self.byte(W::MinimumFraction)?)?,
-            FractionDigitCount::new(self.byte(W::MaximumFraction)?)?,
-        )?)
-    }
-    fn significant(&self) -> Result<SignificantDigitRange, NumberWireError> {
-        Ok(SignificantDigitRange::new(
-            SignificantDigitCount::new(self.byte(W::MinimumSignificant)?)?,
-            SignificantDigitCount::new(self.byte(W::MaximumSignificant)?)?,
-        )?)
     }
     fn decode(self, active_style: &str) -> Result<NumberFormatOptions, NumberWireError> {
         let style = match self.domain(W::Style, StyleOption::from_wire_code)? {
@@ -184,53 +133,24 @@ impl EncodedNumberOptions {
                 Notation::Compact(self.domain(W::CompactDisplay, CompactDisplay::from_wire_code)?)
             }
         };
-        let kind = self.domain(W::Precision, NumberPrecisionKind::from_wire_code)?;
-        let increment = self.word(W::RoundingIncrement);
-        if increment != 1 && kind != NumberPrecisionKind::Fraction {
-            return Err(InvalidNumberConfiguration::NonUnitIncrementRequiresFixedFraction.into());
-        }
-        let precision = match kind {
-            NumberPrecisionKind::Fraction => {
-                self.zeros(&[W::MinimumSignificant, W::MaximumSignificant])?;
-                let range = self.fraction()?;
-                if increment == 1 {
-                    Precision::Fraction(FractionPrecision::Range(range))
-                } else {
-                    let increment = NonUnitRoundingIncrement::from_wire_value(increment)
-                        .ok_or(NumberWireError::Malformed("invalid rounding increment"))?;
-                    if range.minimum() != range.maximum() {
-                        return Err(
-                            InvalidNumberConfiguration::NonUnitIncrementRequiresFixedFraction
-                                .into(),
-                        );
-                    }
-                    Precision::Fraction(FractionPrecision::Increment {
-                        digits: range.minimum(),
-                        increment,
-                    })
-                }
-            }
-            NumberPrecisionKind::Significant => {
-                self.zeros(&[W::MinimumFraction, W::MaximumFraction])?;
-                Precision::Significant(self.significant()?)
-            }
-            NumberPrecisionKind::More => Precision::More {
-                fraction: self.fraction()?,
-                significant: self.significant()?,
-            },
-            NumberPrecisionKind::Less => Precision::Less {
-                fraction: self.fraction()?,
-                significant: self.significant()?,
-            },
-        };
+        let rounding = decode_rounding_words([
+            self.word(W::MinimumInteger),
+            self.word(W::Precision),
+            self.word(W::MinimumFraction),
+            self.word(W::MaximumFraction),
+            self.word(W::MinimumSignificant),
+            self.word(W::MaximumSignificant),
+            self.word(W::RoundingIncrement),
+            self.word(W::RoundingMode),
+            self.word(W::TrailingZero),
+        ])?;
         Ok(NumberFormatOptions {
             style,
             notation,
-            precision,
-            minimum_integer_digits: IntegerDigitCount::new(self.byte(W::MinimumInteger)?)?,
-            rounding_mode: self.domain(W::RoundingMode, RoundingMode::from_wire_code)?,
-            trailing_zero_display: self
-                .domain(W::TrailingZero, TrailingZeroDisplay::from_wire_code)?,
+            precision: rounding.precision,
+            minimum_integer_digits: rounding.minimum_integer_digits,
+            rounding_mode: rounding.mode,
+            trailing_zero_display: rounding.trailing_zero_display,
             grouping: self.domain(W::Grouping, Grouping::from_wire_code)?,
             sign_display: self.domain(W::SignDisplay, SignDisplay::from_wire_code)?,
         })
@@ -239,7 +159,7 @@ impl EncodedNumberOptions {
 impl NumberWireReader<'_> {
     pub(super) fn configuration(
         &mut self,
-        profiles: &NumberProfiles,
+        profiles: &Arc<NumberProfiles>,
     ) -> Result<NumberFormatConfiguration, NumberWireError> {
         let locale = self.resolved_locale(profiles)?;
         let mut words = [0; NUMBER_CONFIGURATION_WORDS];

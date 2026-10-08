@@ -6,11 +6,10 @@ use lila_test262::{load_preludes, LocalHarnessSource, PreludeOrigin, SuiteConfig
 
 fn assert_callable_harness(source: &str, include: &str, strict: bool) {
     lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
-    let config = SuiteConfig {
-        suite_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262"),
-        local_harness: LocalHarnessSource::EmbeddedWasmAot,
-        ..SuiteConfig::default()
-    };
+    let mut config = SuiteConfig::default();
+    config.suite_root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262");
+    config.local_harness = LocalHarnessSource::EmbeddedWasmAot;
     let preludes = load_preludes(&config).expect("pinned callable harness");
     let canonical = preludes.get(include).expect("canonical helper");
     assert_eq!(canonical.origin, PreludeOrigin::VendoredHarness);

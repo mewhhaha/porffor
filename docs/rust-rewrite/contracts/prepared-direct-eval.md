@@ -27,6 +27,12 @@ Named environment entries point to the same cells used by ordinary closures;
 source spelling and declaration authority survive physical binding aliases.
 A variable record exists even when it has no statically declared bindings.
 
+Strict direct and indirect eval initialize their planned owned `var` cells to
+`undefined` before body execution. A read before a zero-iteration `for-in` head
+therefore sees `undefined`, and escaping closures retain that same cell. Lexical
+cells retain their TDZ. A declared variable without a planned owned slot rejects
+Wasm emission explicitly; it cannot fall back to caller or global storage.
+
 `EnvironmentIdentifierIr` owns one ResolveBinding lifecycle. It resolves before
 RHS evaluation, iterator/default evaluation or arguments. GetValue, PutValue,
 delete and WithBaseObject consume that selected record. PutValue re-finds the

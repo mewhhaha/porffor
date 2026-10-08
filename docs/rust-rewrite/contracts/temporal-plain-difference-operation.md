@@ -26,16 +26,18 @@ As of 2026-09-10, PlainDateTime maps the operation into
 settings reader applies rounding-mode negation once; the direct arithmetic
 consumer `emit_temporal_difference_date_time` owns final-result negation.
 ZonedDateTime selects the corresponding `ZonedUntil` or `ZonedSince` settings
-plan and maps its method direction to the same operation domain. It no longer
-passes an options object to a PlainDateTime difference builtin.
+plan through its separate `TemporalZonedDifferenceOperation` domain. It no
+longer passes an options object to a PlainDateTime difference builtin.
 
-The shared arithmetic lives in `builtins/temporal_difference.rs` and receives
-already converted fields plus a borrowed
+PlainDateTime arithmetic lives in `builtins/temporal_difference.rs` and
+receives already converted fields plus a borrowed
 `ResolvedTemporalDateTimeDifferenceSettings` witness. The entry emitter owns
-the four settings locals until arithmetic finishes. A separate closed
-`TemporalDifferenceContext::{Plain, Zoned { offset_seconds_local }}` determines
-calendar-candidate range checks. This keeps operation direction separate from
-the receiver's range rules. The
+the four settings locals until arithmetic finishes. `CalendarDateAdd` checks
+plain calendar candidates before their non-throwing epoch projection.
+ZonedDateTime has its own exact-zone authority in
+`builtins/temporal_zoned_arithmetic/difference.rs`; its compatible inverse
+probes retain the actual origin epoch, zone and calendar. The retired
+fixed-offset context is absent from the plain emitter. The
 [ZonedDateTime difference contract](temporal-zoned-date-time-difference-default.md)
 defines the hour/day fallback and time-zone boundary.
 

@@ -1,19 +1,16 @@
-use super::provider_wire::{DtfResponseReader, DtfWireField, DtfWireWord};
 use super::*;
 use crate::builtins::date::DateLocaleFormat;
-use lila_intl::{DateTimeCalendar, DateTimeDefaults, DateTimeRequired, IntlHostOp};
-
+use construction_lifecycle::ReservedIntlDateTimeFormatObjectLocal;
 pub(crate) enum IntlDateTimeFormatPurpose {
     Constructor,
     DateLocale(DateLocaleFormat),
     Temporal(DtfTemporalKind),
 }
-
-enum RejectedDateTimeStyle {
+#[derive(Clone, Copy)]
+pub(super) enum RejectedDateTimeStyle {
     Date,
     Time,
 }
-
 impl IntlDateTimeFormatPurpose {
     fn required(&self) -> DateTimeRequired {
         match self {
@@ -45,489 +42,854 @@ impl IntlDateTimeFormatPurpose {
             },
         }
     }
-    fn rejected_style(&self) -> Option<(RejectedDateTimeStyle, String)> {
-        match self {
-            Self::Constructor | Self::DateLocale(DateLocaleFormat::DateAndTime) => None,
-            Self::DateLocale(DateLocaleFormat::Date) => Some((
-                RejectedDateTimeStyle::Time,
-                "Date.prototype.toLocaleDateString does not support the timeStyle option".into(),
-            )),
-            Self::DateLocale(DateLocaleFormat::Time) => Some((
-                RejectedDateTimeStyle::Date,
-                "Date.prototype.toLocaleTimeString does not support the dateStyle option".into(),
-            )),
-            Self::Temporal(kind) => kind.rejected_style().map(|(property, offset)| {
-                (
-                    if offset == HEAP_INTL_DTF_DATE_STYLE_OFFSET {
-                        RejectedDateTimeStyle::Date
-                    } else {
-                        RejectedDateTimeStyle::Time
-                    },
-                    intl_dtf_temporal_style_message(kind.type_name(), property),
-                )
-            }),
-        }
+    fn rejected_style(&self) -> Option<(RejectedDateTimeStyle, RuntimeErrorMessage)> {
+        match self{Self::Constructor|Self::DateLocale(DateLocaleFormat::DateAndTime)=>None,
+ Self::DateLocale(DateLocaleFormat::Date)=>Some((RejectedDateTimeStyle::Time,RuntimeErrorMessage::DATE_PROTOTYPE_TOLOCALEDATESTRING_DOES_NOT_SUPPORT_THE_TIMESTYLE_OPTION)),
+ Self::DateLocale(DateLocaleFormat::Time)=>Some((RejectedDateTimeStyle::Date,RuntimeErrorMessage::DATE_PROTOTYPE_TOLOCALETIMESTRING_DOES_NOT_SUPPORT_THE_DATESTYLE_OPTION)),Self::Temporal(kind)=>kind.rejected_style()}
     }
 }
-
+pub(super) struct DtfComponentsLocals {
+    pub(super) weekday: GcI32DomainLocal<Option<DateTimeTextWidth>>,
+    pub(super) era: GcI32DomainLocal<Option<DateTimeTextWidth>>,
+    pub(super) year: GcI32DomainLocal<Option<DateTimeNumericWidth>>,
+    pub(super) month: GcI32DomainLocal<Option<DateTimeMonthWidth>>,
+    pub(super) day: GcI32DomainLocal<Option<DateTimeNumericWidth>>,
+    pub(super) day_period: GcI32DomainLocal<Option<DateTimeTextWidth>>,
+    pub(super) hour: GcI32DomainLocal<Option<DateTimeNumericWidth>>,
+    pub(super) minute: GcI32DomainLocal<Option<DateTimeNumericWidth>>,
+    pub(super) second: GcI32DomainLocal<Option<DateTimeNumericWidth>>,
+    pub(super) fractional: GcI32DomainLocal<Option<DateTimeFractionalDigits>>,
+    pub(super) zone_name: GcI32DomainLocal<Option<TimeZoneNameStyle>>,
+    pub(super) date_style: GcI32DomainLocal<Option<DateTimeStyle>>,
+    pub(super) time_style: GcI32DomainLocal<Option<DateTimeStyle>>,
+}
+impl DtfComponentsLocals {
+    pub(super) fn new(schema: &RuntimeSchema, f: &mut Function) -> Self {
+        Self {
+            weekday: GcI32DomainLocal::new(schema, None::<DateTimeTextWidth>, f),
+            era: GcI32DomainLocal::new(schema, None::<DateTimeTextWidth>, f),
+            year: GcI32DomainLocal::new(schema, None::<DateTimeNumericWidth>, f),
+            month: GcI32DomainLocal::new(schema, None::<DateTimeMonthWidth>, f),
+            day: GcI32DomainLocal::new(schema, None::<DateTimeNumericWidth>, f),
+            day_period: GcI32DomainLocal::new(schema, None::<DateTimeTextWidth>, f),
+            hour: GcI32DomainLocal::new(schema, None::<DateTimeNumericWidth>, f),
+            minute: GcI32DomainLocal::new(schema, None::<DateTimeNumericWidth>, f),
+            second: GcI32DomainLocal::new(schema, None::<DateTimeNumericWidth>, f),
+            fractional: GcI32DomainLocal::new(schema, None::<DateTimeFractionalDigits>, f),
+            zone_name: GcI32DomainLocal::new(schema, None::<TimeZoneNameStyle>, f),
+            date_style: GcI32DomainLocal::new(schema, None::<DateTimeStyle>, f),
+            time_style: GcI32DomainLocal::new(schema, None::<DateTimeStyle>, f),
+        }
+    }
+    pub(super) fn clear(self, schema: &RuntimeSchema, f: &mut Function) {
+        self.time_style.clear(schema, f);
+        self.date_style.clear(schema, f);
+        self.zone_name.clear(schema, f);
+        self.fractional.clear(schema, f);
+        self.second.clear(schema, f);
+        self.minute.clear(schema, f);
+        self.hour.clear(schema, f);
+        self.day_period.clear(schema, f);
+        self.day.clear(schema, f);
+        self.month.clear(schema, f);
+        self.year.clear(schema, f);
+        self.era.clear(schema, f);
+        self.weekday.clear(schema, f);
+    }
+    pub(super) fn read_record(
+        &self,
+        record: &GcLocal<IntlDateTimeFormatObject>,
+        schema: &RuntimeSchema,
+        f: &mut Function,
+    ) {
+        let dtf = schema.struct_type::<IntlDateTimeFormatObject>();
+        dtf.field(IntlDateTimeFormatObjectSchema::WEEKDAY)
+            .read(record, schema, f)
+            .store_domain(&self.weekday, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::ERA)
+            .read(record, schema, f)
+            .store_domain(&self.era, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::YEAR)
+            .read(record, schema, f)
+            .store_domain(&self.year, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::MONTH)
+            .read(record, schema, f)
+            .store_domain(&self.month, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::DAY)
+            .read(record, schema, f)
+            .store_domain(&self.day, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::DAY_PERIOD)
+            .read(record, schema, f)
+            .store_domain(&self.day_period, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::HOUR)
+            .read(record, schema, f)
+            .store_domain(&self.hour, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::MINUTE)
+            .read(record, schema, f)
+            .store_domain(&self.minute, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::SECOND)
+            .read(record, schema, f)
+            .store_domain(&self.second, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::FRACTIONAL_SECOND_DIGITS)
+            .read(record, schema, f)
+            .store_domain(&self.fractional, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::TIME_ZONE_NAME)
+            .read(record, schema, f)
+            .store_domain(&self.zone_name, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::DATE_STYLE)
+            .read(record, schema, f)
+            .store_domain(&self.date_style, f);
+        dtf.field(IntlDateTimeFormatObjectSchema::TIME_STYLE)
+            .read(record, schema, f)
+            .store_domain(&self.time_style, f);
+    }
+    pub(super) fn append_components(
+        &self,
+        message: &IntlByteArrayBuilder,
+        schema: &RuntimeSchema,
+        f: &mut Function,
+    ) {
+        dtf_append_optional(message, &self.weekday, schema, f);
+        dtf_append_optional(message, &self.era, schema, f);
+        dtf_append_optional(message, &self.year, schema, f);
+        dtf_append_optional(message, &self.month, schema, f);
+        dtf_append_optional(message, &self.day, schema, f);
+        dtf_append_optional(message, &self.day_period, schema, f);
+        dtf_append_optional(message, &self.hour, schema, f);
+        dtf_append_optional(message, &self.minute, schema, f);
+        dtf_append_optional(message, &self.second, schema, f);
+        dtf_append_optional(message, &self.fractional, schema, f);
+        dtf_append_optional(message, &self.zone_name, schema, f);
+    }
+    pub(super) fn any_component(&self, f: &mut Function) {
+        emit_domain_is(&self.weekday, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        emit_domain_is(&self.era, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.year, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.month, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.day, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.day_period, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.hour, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.minute, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.second, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.fractional, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        emit_domain_is(&self.zone_name, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+    }
+}
+pub(super) struct CompletedDtfLocale {
+    locale: GcLocal<StringValue>,
+    data_locale: GcLocal<StringValue>,
+    calendar: GcI32DomainLocal<DateTimeCalendar>,
+    numbering: GcLocal<StringValue>,
+    hour_cycle: GcI32DomainLocal<DateTimeHourCycle>,
+}
+impl CompletedDtfLocale {
+    fn clear(self, schema: &RuntimeSchema, f: &mut Function) {
+        self.hour_cycle.clear(schema, f);
+        self.numbering.clear(f);
+        self.calendar.clear(schema, f);
+        self.data_locale.clear(f);
+        self.locale.clear(f);
+    }
+    fn append(&self, message: &IntlByteArrayBuilder, schema: &RuntimeSchema, f: &mut Function) {
+        message.append_utf8(&self.locale, schema, f);
+        message.append_utf8(&self.data_locale, schema, f);
+        dtf_append_domain(message, &self.calendar, schema, f);
+        message.append_utf8(&self.numbering, schema, f);
+        dtf_append_domain(message, &self.hour_cycle, schema, f);
+    }
+}
 impl FunctionBuilder<'_> {
+    fn emit_dtf_read_locale(
+        &self,
+        reader: &IntlByteArrayReader<'_>,
+        f: &mut Function,
+    ) -> CompletedDtfLocale {
+        let schema = self.runtime_schema();
+        let locale = reader.read_utf8(schema, f);
+        let data_locale = reader.read_utf8(schema, f);
+        let calendar = GcI32DomainLocal::new(schema, DateTimeCalendar::Gregorian, f);
+        self.emit_dtf_read_domain(
+            reader,
+            &calendar,
+            DateTimeCalendar::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        let numbering = reader.read_utf8(schema, f);
+        let hour_cycle = GcI32DomainLocal::new(schema, DateTimeHourCycle::H23, f);
+        self.emit_dtf_read_domain(
+            reader,
+            &hour_cycle,
+            DateTimeHourCycle::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        CompletedDtfLocale {
+            locale,
+            data_locale,
+            calendar,
+            numbering,
+            hour_cycle,
+        }
+    }
+    fn emit_dtf_keyword_option(
+        &mut self,
+        options: &ValueLocals,
+        property: IntlErrorOption,
+        f: &mut Function,
+    ) -> Result<GcLocal<StringValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(f);
+        self.emit_intl_number_string_value(options, property.property(), &value, f)?;
+        let out = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_interned_string_reference("", f)?, f);
+        emit_tag_is(&value, WasmRuntimeValueTag::Undefined, f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let text = schema
+            .reserve_gc_local(f)
+            .initialize(value.cast_reference::<StringValue>(schema, f), f);
+        let valid = schema.reserve_i32_local(f);
+        self.emit_intl_is_unicode_type_i32(&text, valid, f);
+        valid.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_intl_number_range_error(property.error_message(), f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        out.replace(self.emit_dtf_ascii_lowercase(&text, f), f);
+        schema.release_i32_local(valid, f);
+        text.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        value.clear(f);
+        Ok(out)
+    }
+    fn emit_dtf_ascii_lowercase(
+        &self,
+        text: &GcLocal<StringValue>,
+        f: &mut Function,
+    ) -> GcStackReference<StringValue> {
+        let schema = self.runtime_schema();
+        let units = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(text, schema, f)
+                .reference(),
+            f,
+        );
+        let count = schema.reserve_i32_local(f);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, f);
+        count.store(f);
+        let construction =
+            StringConstruction::allocate(schema, schema.reserve_gc_local(f), count, f);
+        let index = schema.reserve_i32_local(f);
+        let unit = schema.reserve_i32_local(f);
+        set_i32(index, 0, f);
+        f.instruction(&Instruction::Block(BlockType::Empty));
+        f.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(f);
+        count.load(f);
+        f.instruction(&Instruction::I32GeU);
+        f.instruction(&Instruction::BrIf(1));
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, index, schema, f)
+            .store(unit, f);
+        unit.load(f);
+        f.instruction(&Instruction::I32Const(65));
+        f.instruction(&Instruction::I32GeU);
+        unit.load(f);
+        f.instruction(&Instruction::I32Const(90));
+        f.instruction(&Instruction::I32LeU);
+        f.instruction(&Instruction::I32And);
+        f.instruction(&Instruction::If(BlockType::Empty));
+        unit.load(f);
+        f.instruction(&Instruction::I32Const(32));
+        f.instruction(&Instruction::I32Add);
+        unit.store(f);
+        f.instruction(&Instruction::End);
+        construction.write(index, unit, schema, f);
+        index.load(f);
+        f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Add);
+        index.store(f);
+        f.instruction(&Instruction::Br(0));
+        f.instruction(&Instruction::End);
+        f.instruction(&Instruction::End);
+        schema.release_i32_local(unit, f);
+        schema.release_i32_local(index, f);
+        schema.release_i32_local(count, f);
+        units.clear(f);
+        construction.publish(schema, f)
+    }
+    fn emit_dtf_observe_components(
+        &mut self,
+        options: &ValueLocals,
+        components: &DtfComponentsLocals,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Weekday,
+            DateTimeTextWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.weekday,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Era,
+            DateTimeTextWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.era,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Year,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.year,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Month,
+            DateTimeMonthWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.month,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Day,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.day,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::DayPeriod,
+            DateTimeTextWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.day_period,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Hour,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.hour,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Minute,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.minute,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::Second,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.second,
+            f,
+        )?;
+        let value = schema.reserve_value_local(f);
+        self.emit_intl_number_get_option(options, "fractionalSecondDigits", &value, f)?;
+        emit_tag_is(&value, WasmRuntimeValueTag::Undefined, f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let fallback = schema.reserve_i32_local(f);
+        let count = schema.reserve_i32_local(f);
+        set_i32(fallback, 1, f);
+        self.emit_intl_number_coerce_digit(
+            &value,
+            IntlErrorOption::FractionalSecondDigits,
+            1,
+            3,
+            fallback,
+            count,
+            f,
+        )?;
+        for digit in 1..=3 {
+            count.load(f);
+            f.instruction(&Instruction::I32Const(digit));
+            f.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            components.fractional.set_constant(
+                Some(DateTimeFractionalDigits::new(digit as u8).expect("closed fractional digits")),
+                f,
+            );
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        schema.release_i32_local(count, f);
+        schema.release_i32_local(fallback, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        value.clear(f);
+        self.emit_intl_number_choice_option(
+            options,
+            IntlErrorOption::TimeZoneName,
+            TimeZoneNameStyle::ALL
+                .into_iter()
+                .map(|v| (v.spelling(), Some(v))),
+            None,
+            &components.zone_name,
+            f,
+        )?;
+        Ok(())
+    }
     pub(crate) fn emit_intl_create_date_time_format(
         &mut self,
         purpose: IntlDateTimeFormatPurpose,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let locales_payload = self.reserve_temp_local();
-        let locales_tag = self.reserve_temp_local();
-        let requested_locales = self.reserve_temp_local();
-        let options_payload = self.reserve_temp_local();
-        let options_tag = self.reserve_temp_local();
-        let locale_matcher = self.reserve_temp_local();
-        let calendar = self.reserve_temp_local();
-        let numbering_system = self.reserve_temp_local();
-        let hour12 = self.reserve_temp_local();
-        let hour_cycle = self.reserve_temp_local();
-        let request = self.reserve_temp_local();
-        let resolved_locale = self.reserve_temp_local();
-        let time_zone = DtfCanonicalTimeZone::reserve(self);
-        let explicit = self.reserve_temp_local();
-        let present = self.reserve_temp_local();
-        let format_matcher = self.reserve_temp_local();
-        let date_style = self.reserve_temp_local();
-        let time_style = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let plan = self.reserve_temp_local();
-        let components: Vec<u32> = INTL_DTF_COMPONENT_OPTIONS
-            .iter()
-            .map(|_| self.reserve_temp_local())
-            .collect();
-        let fractional = self.reserve_temp_local();
-
-        // Reserve before observing locales/options, and publish only the fully
-        // selected record. A failed initialization cannot expose its object.
-        let reserved_object = self.emit_reserve_intl_date_time_format_object(function)?;
-        self.emit_builtin_arg_to_locals(0, locales_payload, locales_tag, function);
-        self.emit_dtf_requested_locales(locales_payload, locales_tag, requested_locales, function)?;
-        self.emit_builtin_arg_to_locals(1, options_payload, options_tag, function);
-        function.instruction(&Instruction::LocalGet(options_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(options_payload));
-        self.emit_dtf_set_const(options_tag, ValueKind::Object.tag() as i64, function);
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_current_function_realm_object_locals(
-            options_payload,
-            options_tag,
-            options_payload,
-            options_tag,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_dtf_matcher_option(
-            options_payload,
-            options_tag,
-            "localeMatcher",
-            lila_intl::DateTimeLocaleMatcher::OPTIONS,
-            locale_matcher,
-            function,
-        )?;
-        self.emit_dtf_keyword_option(options_payload, options_tag, "calendar", calendar, function)?;
-        self.emit_dtf_keyword_option(
-            options_payload,
-            options_tag,
-            "numberingSystem",
-            numbering_system,
-            function,
-        )?;
-        self.emit_intl_dtf_hour12_option(options_payload, options_tag, hour12, function)?;
-        self.emit_intl_dtf_string_option(
-            options_payload,
-            options_tag,
-            &INTL_DTF_HOUR_CYCLE_OPTION,
-            hour_cycle,
-            None,
-            function,
-        )?;
-        // A present hour12 suppresses the requested hc extension even though
-        // hourCycle's getter and validation still occur before ResolveLocale.
-        self.emit_dtf_if_code_eq(hour12, 1, function);
-        self.emit_dtf_set_const(hour_cycle, 6, function);
-        function.instruction(&Instruction::End);
-        self.emit_dtf_if_code_eq(hour12, 2, function);
-        self.emit_dtf_set_const(hour_cycle, 5, function);
-        function.instruction(&Instruction::End);
-        self.emit_dtf_provider_request(
-            IntlHostOp::ResolveDateTimeLocale,
-            &[
-                DtfWireField::Word(DtfWireWord::Local(locale_matcher)),
-                DtfWireField::Word(DtfWireWord::Local(hour_cycle)),
-                DtfWireField::Bytes(calendar),
-                DtfWireField::Bytes(numbering_system),
-                DtfWireField::CanonicalLocales(requested_locales),
-            ],
-            request,
-            function,
-        )?;
-        self.emit_dtf_provider_call(
-            IntlHostOp::ResolveDateTimeLocale,
-            request,
-            resolved_locale,
-            function,
-        )?;
-
-        let time_zone =
-            self.emit_intl_dtf_time_zone_option(options_payload, options_tag, time_zone, function)?;
-        self.emit_dtf_set_const(explicit, 0, function);
-        for (option, destination) in INTL_DTF_COMPONENT_OPTIONS.iter().zip(&components) {
-            self.emit_intl_dtf_string_option(
-                options_payload,
-                options_tag,
-                option,
-                *destination,
-                Some(present),
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(explicit));
-            function.instruction(&Instruction::LocalGet(present));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(explicit));
-            if option.property == INTL_DTF_FRACTIONAL_SECOND_DIGITS_AFTER {
-                self.emit_intl_dtf_fractional_second_digits_option(
-                    options_payload,
-                    options_tag,
-                    fractional,
-                    present,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(explicit));
-                function.instruction(&Instruction::LocalGet(present));
-                function.instruction(&Instruction::I64Or);
-                function.instruction(&Instruction::LocalSet(explicit));
+        let header = match purpose {
+            IntlDateTimeFormatPurpose::Constructor => {
+                self.emit_reserve_intl_date_time_format_object(f)?
             }
-        }
-        self.emit_dtf_matcher_option(
-            options_payload,
-            options_tag,
-            "formatMatcher",
-            lila_intl::DateTimeFormatMatcher::OPTIONS,
-            format_matcher,
-            function,
-        )?;
-        self.emit_intl_dtf_string_option(
-            options_payload,
-            options_tag,
-            &INTL_DTF_DATE_STYLE_OPTION,
-            date_style,
-            None,
-            function,
-        )?;
-        self.emit_intl_dtf_string_option(
-            options_payload,
-            options_tag,
-            &INTL_DTF_TIME_STYLE_OPTION,
-            time_style,
-            None,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(date_style));
-        function.instruction(&Instruction::LocalGet(time_style));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(explicit));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "dateStyle and timeStyle may not be used with explicit date-time components",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        if let Some((style, message)) = purpose.rejected_style() {
-            self.emit_dtf_if_nonzero(
-                match style {
-                    RejectedDateTimeStyle::Date => date_style,
-                    RejectedDateTimeStyle::Time => time_style,
-                },
-                function,
-            );
-            self.emit_throw_current_function_realm_type_error(
-                &message,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
-
-        // The provider sees the original component selection. Defaulting and
-        // per-Temporal-kind pattern selection share the same retained recipe.
-        let common = || {
-            vec![
-                DtfWireField::RecordBody(resolved_locale),
-                DtfWireField::TimeZone {
-                    identifier: time_zone.0.identifier_local,
-                    kind: time_zone.0.kind_local,
-                    fixed_seconds: time_zone.0.fixed_seconds_local,
-                },
-                DtfWireField::Word(DtfWireWord::Local(format_matcher)),
-                DtfWireField::Word(DtfWireWord::Constant(purpose.required().wire_code())),
-                DtfWireField::Word(DtfWireWord::Constant(purpose.defaults().wire_code())),
-            ]
+            IntlDateTimeFormatPurpose::DateLocale(_) | IntlDateTimeFormatPurpose::Temporal(_) => {
+                self.emit_reserve_intrinsic_date_time_format_object(f)?
+            }
         };
-        function.instruction(&Instruction::LocalGet(date_style));
-        function.instruction(&Instruction::LocalGet(time_style));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let mut fields = common();
-        fields.push(DtfWireField::Word(DtfWireWord::Constant(1)));
-        for (option, local) in INTL_DTF_COMPONENT_OPTIONS.iter().zip(&components) {
-            fields.push(DtfWireField::Word(DtfWireWord::Local(*local)));
-            if option.property == INTL_DTF_FRACTIONAL_SECOND_DIGITS_AFTER {
-                fields.push(DtfWireField::Word(DtfWireWord::Local(fractional)));
-            }
-        }
-        self.emit_dtf_provider_request(
-            IntlHostOp::SelectDateTimeFormat,
-            &fields,
-            request,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        let mut fields = common();
-        fields.extend([
-            DtfWireField::Word(DtfWireWord::Constant(2)),
-            DtfWireField::Word(DtfWireWord::Local(date_style)),
-            DtfWireField::Word(DtfWireWord::Local(time_style)),
-        ]);
-        self.emit_dtf_provider_request(
-            IntlHostOp::SelectDateTimeFormat,
-            &fields,
-            request,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_dtf_provider_call(IntlHostOp::SelectDateTimeFormat, request, plan, function)?;
-        self.emit_heap_alloc_const(HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record));
-        time_zone.store(self, record, function);
-        self.emit_dtf_store_selected_plan(plan, record, function)?;
-        self.store_i64_const_at_offset(record, HEAP_INTL_DTF_BOUND_FORMAT_OFFSET, 0, function);
-        let initialized_object =
-            self.emit_initialize_intl_date_time_format_object(reserved_object, record, function);
-        self.emit_publish_intl_date_time_format_object(initialized_object, function);
-
-        self.release_temp_local(fractional);
-        for local in components.into_iter().rev() {
-            self.release_temp_local(local);
-        }
-        for local in [
-            plan,
-            record,
-            time_style,
-            date_style,
-            format_matcher,
-            present,
-            explicit,
-        ] {
-            self.release_temp_local(local);
-        }
-        time_zone.release(self);
-        for local in [
-            resolved_locale,
-            request,
-            hour_cycle,
-            hour12,
-            numbering_system,
-            calendar,
-            locale_matcher,
-            options_tag,
-            options_payload,
-            requested_locales,
-            locales_tag,
-            locales_payload,
-        ] {
-            self.release_temp_local(local);
-        }
+        let schema = self.runtime_schema();
+        let locales = schema.reserve_value_local(f);
+        let options = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &locales, f);
+        self.emit_builtin_arg_to_value(1, &options, f);
+        let record =
+            self.emit_dtf_complete_initialization(header, &purpose, &locales, &options, None, f)?;
+        self.completion().initialize(f);
+        self.completion().value().set_reference(&record, schema, f);
+        record.clear(f);
+        options.clear(f);
+        locales.clear(f);
         Ok(())
     }
-
-    pub(super) fn emit_dtf_requested_locales(
+    pub(super) fn emit_dtf_complete_initialization(
         &mut self,
-        payload: u32,
-        tag: u32,
-        destination: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let result_tag = self.reserve_temp_local();
-        let canonicalize = self
-            .functions
-            .get(&StandardBuiltinId::IntlGetCanonicalLocales.function_id())
-            .cloned()
-            .ok_or_else(|| EmitError::unsupported("missing Intl.getCanonicalLocales builtin"))?;
-        self.emit_direct_js_call(
-            &canonicalize,
+        header: ReservedIntlDateTimeFormatObjectLocal,
+        purpose: &IntlDateTimeFormatPurpose,
+        locales: &ValueLocals,
+        original_options: &ValueLocals,
+        forced_zone: Option<&ResolvedDtfTimeZone>,
+        f: &mut Function,
+    ) -> Result<GcLocal<IntlDateTimeFormatObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let requested = self.emit_intl_canonical_locale_list(locales, f)?;
+        let options = schema.reserve_value_local(f);
+        options.copy_from(original_options, f);
+        self.emit_intl_number_options_object(&options, f)?;
+        let matcher = GcI32DomainLocal::new(schema, DateTimeLocaleMatcher::BestFit, f);
+        self.emit_intl_number_choice_option(
+            &options,
+            IntlErrorOption::LocaleMatcher,
+            DateTimeLocaleMatcher::ALL
+                .iter()
+                .map(|v| (v.option_name(), *v)),
+            DateTimeLocaleMatcher::BestFit,
+            &matcher,
+            f,
+        )?;
+        let calendar = self.emit_dtf_keyword_option(&options, IntlErrorOption::Calendar, f)?;
+        let numbering =
+            self.emit_dtf_keyword_option(&options, IntlErrorOption::NumberingSystem, f)?;
+        let observed = schema.reserve_value_local(f);
+        self.emit_intl_number_get_option(&options, "hour12", &observed, f)?;
+        let hour12 = GcI32DomainLocal::new(schema, None::<bool>, f);
+        emit_tag_is(&observed, WasmRuntimeValueTag::Undefined, f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.compile_truthy_tagged_i32(&observed, f)?;
+        self.open_frame(ControlFrameKind::If, f);
+        hour12.set_constant(Some(true), f);
+        f.instruction(&Instruction::Else);
+        hour12.set_constant(Some(false), f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let requested_cycle = GcI32DomainLocal::new(schema, None::<DateTimeHourCycle>, f);
+        self.emit_intl_number_choice_option(
+            &options,
+            IntlErrorOption::HourCycle,
+            DateTimeHourCycle::ALL
+                .iter()
+                .map(|v| (v.as_str(), Some(*v))),
             None,
-            &[(payload, tag)],
-            destination,
-            result_tag,
-            function,
+            &requested_cycle,
+            f,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.release_temp_local(result_tag);
-        Ok(())
-    }
-
-    pub(super) fn emit_dtf_matcher_option(
-        &mut self,
-        payload: u32,
-        tag: u32,
-        property: &'static str,
-        codes: &'static [(&'static str, i64)],
-        destination: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_intl_dtf_string_option(
-            payload,
-            tag,
-            &IntlDtfOption {
-                property,
-                slot_offset: 0,
-                codes,
-            },
-            destination,
-            None,
-            function,
-        )?;
-        self.emit_dtf_if_code_eq(destination, 0, function);
-        self.emit_dtf_set_const(destination, 2, function);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    fn emit_dtf_keyword_option(
-        &mut self,
-        payload: u32,
-        tag: u32,
-        property: &'static str,
-        destination: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let key = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        let value_tag = self.reserve_temp_local();
-        let valid = self.reserve_temp_local();
-        let lowered = self.reserve_temp_local();
-        self.emit_dtf_set_string(destination, "", function);
-        self.emit_dtf_set_string(key, property, function);
-        self.emit_object_read(payload, tag, payload, tag, key, value, value_tag, function)?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(value_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(value, value_tag, function)?;
-        function.instruction(&Instruction::LocalSet(value));
-        self.emit_return_current_completion_if_throw(function);
-        let checked = self.emit_intl_dtf_type_nonterminal_guard(
-            value,
-            valid,
-            lowered,
-            &format!("Invalid {property} option"),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(checked.lowered_local));
-        function.instruction(&Instruction::LocalSet(destination));
-        function.instruction(&Instruction::End);
-        for local in [lowered, valid, value_tag, value, key] {
-            self.release_temp_local(local);
+        let preference = GcI32DomainLocal::new(schema, DateTimeHourCyclePreference::Default, f);
+        for cycle in DateTimeHourCycle::ALL {
+            emit_domain_is(&requested_cycle, Some(*cycle), f);
+            self.open_frame(ControlFrameKind::If, f);
+            preference.set_constant(DateTimeHourCyclePreference::Cycle(*cycle), f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        Ok(())
+        for (value, selected) in [
+            (true, DateTimeHourCyclePreference::TwelveHour),
+            (false, DateTimeHourCyclePreference::TwentyFourHour),
+        ] {
+            emit_domain_is(&hour12, Some(value), f);
+            self.open_frame(ControlFrameKind::If, f);
+            preference.set_constant(selected, f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        let message = self.emit_dtf_request(IntlHostOp::ResolveDateTimeLocale, f);
+        dtf_append_domain(&message, &matcher, schema, f);
+        dtf_append_domain(&message, &preference, schema, f);
+        message.append_utf8(&calendar, schema, f);
+        message.append_utf8(&numbering, schema, f);
+        self.emit_intl_wire_canonical_locales(&message, &requested, f)?;
+        let response =
+            self.emit_dtf_provider_call(IntlHostOp::ResolveDateTimeLocale, message, f)?;
+        let reader = response.reader(schema, f);
+        let resolved = self.emit_dtf_read_locale(&reader, f);
+        reader.finish(schema, f);
+        response.clear(f);
+        let zone = self.emit_dtf_time_zone_option(&options, forced_zone, f)?;
+        let components = DtfComponentsLocals::new(schema, f);
+        self.emit_dtf_observe_components(&options, &components, f)?;
+        let format_matcher = GcI32DomainLocal::new(schema, DateTimeFormatMatcher::BestFit, f);
+        self.emit_intl_number_choice_option(
+            &options,
+            IntlErrorOption::FormatMatcher,
+            DateTimeFormatMatcher::ALL
+                .iter()
+                .map(|v| (v.option_name(), *v)),
+            DateTimeFormatMatcher::BestFit,
+            &format_matcher,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            &options,
+            IntlErrorOption::DateStyle,
+            DateTimeStyle::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.date_style,
+            f,
+        )?;
+        self.emit_intl_number_choice_option(
+            &options,
+            IntlErrorOption::TimeStyle,
+            DateTimeStyle::ALL
+                .iter()
+                .map(|v| (v.option_name(), Some(*v))),
+            None,
+            &components.time_style,
+            f,
+        )?;
+        emit_domain_is(&components.date_style, None, f);
+        emit_domain_is(&components.time_style, None, f);
+        f.instruction(&Instruction::I32And);
+        f.instruction(&Instruction::I32Eqz);
+        components.any_component(f);
+        f.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_intl_number_type_error(RuntimeErrorMessage::DATESTYLE_AND_TIMESTYLE_MAY_NOT_BE_USED_WITH_EXPLICIT_DATE_TIME_COMPONENTS,f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        if let Some((style, message)) = purpose.rejected_style() {
+            emit_domain_is(
+                match style {
+                    RejectedDateTimeStyle::Date => &components.date_style,
+                    RejectedDateTimeStyle::Time => &components.time_style,
+                },
+                None,
+                f,
+            );
+            f.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_intl_number_type_error(message, f)?;
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        let message = self.emit_dtf_request(IntlHostOp::SelectDateTimeFormat, f);
+        resolved.append(&message, schema, f);
+        zone.append(&message, schema, f);
+        dtf_append_domain(&message, &format_matcher, schema, f);
+        message.append_u64_constant(purpose.required().wire_code(), schema, f);
+        message.append_u64_constant(purpose.defaults().wire_code(), schema, f);
+        emit_domain_is(&components.date_style, None, f);
+        emit_domain_is(&components.time_style, None, f);
+        f.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, f);
+        if forced_zone.is_some() {
+            self.emit_dtf_zoned_component_defaults(&components, f);
+        }
+        message.append_u64_constant(1, schema, f);
+        components.append_components(&message, schema, f);
+        f.instruction(&Instruction::Else);
+        message.append_u64_constant(2, schema, f);
+        dtf_append_optional(&message, &components.date_style, schema, f);
+        dtf_append_optional(&message, &components.time_style, schema, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let response = self.emit_dtf_provider_call(IntlHostOp::SelectDateTimeFormat, message, f)?;
+        let record = self.emit_dtf_publish_selected_plan(header, &zone, &response, f)?;
+        response.clear(f);
+        format_matcher.clear(schema, f);
+        components.clear(schema, f);
+        zone.clear(schema, f);
+        resolved.clear(schema, f);
+        preference.clear(schema, f);
+        requested_cycle.clear(schema, f);
+        hour12.clear(schema, f);
+        observed.clear(f);
+        numbering.clear(f);
+        calendar.clear(f);
+        matcher.clear(schema, f);
+        options.clear(f);
+        requested.clear(f);
+        Ok(record)
     }
-
-    fn emit_dtf_store_selected_plan(
+    fn emit_dtf_publish_selected_plan(
         &mut self,
-        response: u32,
-        record: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let value = self.reserve_temp_local();
-        let calendar = self.reserve_temp_local();
-        let reader = DtfResponseReader::new(self, response, function);
-        reader.bytes(self, value, function);
-        self.store_i64_local_at_offset(record, HEAP_INTL_DTF_LOCALE_OFFSET, value, function);
-        reader.bytes(self, value, function); // The plan retains dataLocale; resolvedOptions omits it.
-        reader.word(self, calendar, function);
-        self.emit_dtf_set_const(value, 0, function);
+        header: ReservedIntlDateTimeFormatObjectLocal,
+        requested_zone: &ResolvedDtfTimeZone,
+        response: &DtfProviderResponse,
+        f: &mut Function,
+    ) -> Result<GcLocal<IntlDateTimeFormatObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let reader = response.reader(schema, f);
+        let locale = self.emit_dtf_read_locale(&reader, f);
+        let zone = self.emit_dtf_read_selected_zone(&reader, requested_zone, f);
+        let components = DtfComponentsLocals::new(schema, f);
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.weekday,
+            DateTimeTextWidth::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.era,
+            DateTimeTextWidth::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.year,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.month,
+            DateTimeMonthWidth::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.day,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.day_period,
+            DateTimeTextWidth::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.hour,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.minute,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.second,
+            DateTimeNumericWidth::ALL
+                .iter()
+                .map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.fractional,
+            (1..=3).map(|v| {
+                let d = DateTimeFractionalDigits::new(v).expect("closed fractional digits");
+                (d, u64::from(d.get()))
+            }),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.zone_name,
+            TimeZoneNameStyle::ALL
+                .into_iter()
+                .map(|v| (v, v.code() as u64)),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.date_style,
+            DateTimeStyle::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        self.emit_dtf_read_optional(
+            &reader,
+            &components.time_style,
+            DateTimeStyle::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        let mask = schema.reserve_i64_local(f);
+        reader.read_u64(mask, schema, f);
+        let availability = GcI64DomainLocal::new(
+            schema,
+            DateTimeFormatAvailability::from_available_kinds([]),
+            f,
+        );
+        availability.set_checked_mask(mask, f);
+        schema.release_i64_local(mask, f);
+        let plan = self.emit_dtf_read_plan(&reader, f);
+        reader.finish(schema, f);
+        let calendar = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_interned_string_reference("", f)?, f);
         for kind in DateTimeCalendar::ALL {
-            self.emit_dtf_if_code_eq(calendar, kind.wire_code() as i64, function);
-            self.emit_dtf_set_string(value, kind.as_str(), function);
-            function.instruction(&Instruction::End);
+            emit_domain_is(&locale.calendar, *kind, f);
+            self.open_frame(ControlFrameKind::If, f);
+            calendar.replace(self.emit_interned_string_reference(kind.as_str(), f)?, f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(value));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.store_i64_local_at_offset(record, HEAP_INTL_DTF_CALENDAR_OFFSET, value, function);
-        reader.bytes(self, value, function);
-        self.store_i64_local_at_offset(
-            record,
-            HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
-            value,
-            function,
-        );
-        reader.word(self, value, function);
-        self.store_i64_local_at_offset(record, HEAP_INTL_DTF_HOUR_CYCLE_OFFSET, value, function);
-        function.instruction(&Instruction::LocalGet(value));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(value));
-        self.store_i64_local_at_offset(record, HEAP_INTL_DTF_HOUR12_OFFSET, value, function);
-        reader.word(self, value, function);
-        self.store_i64_local_at_offset(
-            record,
-            HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET,
-            value,
-            function,
-        );
-        self.emit_dtf_if_code_eq(value, TimeZoneKind::Named.code(), function);
-        reader.bytes(self, value, function);
-        self.store_i64_local_at_offset(record, HEAP_INTL_DTF_TIME_ZONE_OFFSET, value, function);
-        function.instruction(&Instruction::Else);
-        reader.word(self, value, function);
-        self.store_i64_local_at_offset(
-            record,
-            HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET,
-            value,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        for offset in INTL_DTF_FORMAT_COMPONENT_SLOTS.into_iter().chain([
-            HEAP_INTL_DTF_DATE_STYLE_OFFSET,
-            HEAP_INTL_DTF_TIME_STYLE_OFFSET,
-            HEAP_INTL_DTF_AVAILABLE_FORMATS_OFFSET,
-        ]) {
-            reader.word(self, value, function);
-            self.store_i64_local_at_offset(record, offset, value, function);
+        let cycle = GcI32DomainLocal::new(schema, None::<DateTimeHourCycle>, f);
+        let hour12 = GcI32DomainLocal::new(schema, None::<bool>, f);
+        emit_domain_is(&components.hour, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        emit_domain_is(&components.time_style, None, f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, f);
+        for kind in DateTimeHourCycle::ALL {
+            emit_domain_is(&locale.hour_cycle, *kind, f);
+            self.open_frame(ControlFrameKind::If, f);
+            cycle.set_constant(Some(*kind), f);
+            hour12.set_constant(
+                Some(matches!(
+                    kind,
+                    DateTimeHourCycle::H11 | DateTimeHourCycle::H12
+                )),
+                f,
+            );
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        reader.bytes(self, value, function);
-        self.store_i64_local_at_offset(record, HEAP_INTL_DTF_PLAN_OFFSET, value, function);
-        reader.finish(self, function);
-        self.release_temp_local(calendar);
-        self.release_temp_local(value);
-        Ok(())
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let record = schema.reserve_gc_local(f).initialize(
+            schema.struct_type::<IntlDateTimeFormatObject>().construct(
+                (
+                    GcOperand::reference(&header.0, schema),
+                    GcOperand::reference(&locale.locale, schema),
+                    GcOperand::reference(&calendar, schema),
+                    GcOperand::reference(&locale.numbering, schema),
+                    GcOperand::reference(&zone.identifier, schema),
+                    GcOperand::i64_local(zone.fixed_seconds),
+                    zone.kind.operand(),
+                    cycle.operand(),
+                    components.weekday.operand(),
+                    components.era.operand(),
+                    components.year.operand(),
+                    components.month.operand(),
+                    components.day.operand(),
+                    components.day_period.operand(),
+                    components.hour.operand(),
+                    components.minute.operand(),
+                    components.second.operand(),
+                    components.fractional.operand(),
+                    components.zone_name.operand(),
+                    components.date_style.operand(),
+                    components.time_style.operand(),
+                    hour12.operand(),
+                    availability.operand(),
+                    GcOperand::reference(&plan, schema),
+                    GcOperand::null(schema),
+                ),
+                f,
+            ),
+            f,
+        );
+        hour12.clear(schema, f);
+        cycle.clear(schema, f);
+        calendar.clear(f);
+        plan.clear(f);
+        availability.clear(schema, f);
+        components.clear(schema, f);
+        zone.clear(schema, f);
+        locale.clear(schema, f);
+        header.0.clear(f);
+        Ok(record)
     }
 }

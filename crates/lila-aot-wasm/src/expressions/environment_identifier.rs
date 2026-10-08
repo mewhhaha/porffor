@@ -3,60 +3,149 @@ use crate::environments::environment_reference::EnvironmentIdentifierRead;
 use crate::functions::CallContinuation;
 use lila_ir::{
     EnvironmentCompoundOperationIr, EnvironmentIdentifierIr, EnvironmentIdentifierOperationIr,
+    EnvironmentIdentifierResolutionStart,
 };
 
 impl FunctionBuilder<'_> {
-    fn environment_operand(&mut self, name: &str, payload: u32, tag: u32) -> TypedExpr {
+    pub(crate) fn compile_global_identifier_assignment_to_value(
+        &mut self,
+        name: &str,
+        rhs: &TypedExpr,
+        strictness: Strictness,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let key = schema
+            .reserve_gc_local::<StringValue, NonNullable>(function)
+            .initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
+        let reference = self.emit_resolve_global_identifier(&key, strictness, function)?;
+        let value = schema.reserve_value_local(function);
+        self.compile_expr_to_value(rhs, &value, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_environment_identifier_put(&reference, &value, function)?;
+        output.copy_from(&value, function);
+        self.release_environment_identifier_reference(reference, function);
+        value.clear(function);
+        key.clear(function);
+        Ok(())
+    }
+
+    /// An expression operand lives in the real local-binding arena. The scope
+    /// keeps only its copied ID; releasing that ID clears the owned reference.
+    pub(crate) fn retain_expression_operand(
+        &mut self,
+        name: &str,
+        value: &ValueLocals,
+        function: &mut Function,
+    ) -> (TypedExpr, crate::emit::LocalBindingId) {
+        let storage = self.allocate_local_binding(BindingMode::Let, function);
+        let BindingStorage::Local(id) = storage else {
+            unreachable!("local binding allocation returns its owned arena identity")
+        };
+        self.write_binding_from_locals(storage, value, function);
         self.binding_scopes
             .last_mut()
             .expect("operand scope exists")
-            .insert(
-                name.to_string(),
-                BindingStorage::Dynamic {
-                    payload_local: payload,
-                    tag_local: tag,
-                },
-            );
-        TypedExpr {
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: lila_ir::FunctionTargetKnowledge::unknown(),
-            expr: ExprIr::Identifier(name.to_string()),
-        }
+            .insert(name.to_string(), storage);
+        (
+            TypedExpr {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: lila_ir::FunctionTargetKnowledge::unknown(),
+                expr: ExprIr::Identifier(name.to_string()),
+            },
+            id,
+        )
     }
 
-    pub(crate) fn compile_environment_identifier_to_locals(
+    pub(crate) fn compile_environment_identifier_to_value(
         &mut self,
         identifier: &EnvironmentIdentifierIr,
-        continuation: &CallContinuation,
-        output: u32,
-        output_tag: u32,
+        _continuation: &CallContinuation,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        let key_expression = TypedExpr {
-            kind: ValueKind::String,
-            possible_kinds: KindSet::from_kind(ValueKind::String),
-            heap_shape: None,
-            function_targets: lila_ir::FunctionTargetKnowledge::none(),
-            expr: ExprIr::String(identifier.name.clone()),
-        };
-        self.compile_expr_to_locals(&key_expression, key, tag, function)?;
-        let reference =
-            self.emit_resolve_environment_identifier(key, identifier.strictness, function)?;
+        let schema = self.runtime_schema();
+        let key = schema
+            .reserve_gc_local::<StringValue, NonNullable>(function)
+            .initialize(
+                self.emit_interned_string_reference(&identifier.name, function)?,
+                function,
+            );
+        let value = schema.reserve_value_local(function);
         use EnvironmentIdentifierOperationIr as Operation;
         match &identifier.operation {
+            Operation::CaptureAssignmentReference { capture } => {
+                self.emit_capture_identifier_reference(
+                    capture,
+                    &key,
+                    identifier.strictness,
+                    &value,
+                    function,
+                )?;
+                output.copy_from(&value, function);
+                value.clear(function);
+                key.clear(function);
+                return Ok(());
+            }
+            Operation::PutCapturedReference {
+                reference: captured,
+                value: rhs,
+            } => {
+                let reference = self.emit_take_captured_identifier_reference(
+                    captured,
+                    identifier.strictness,
+                    function,
+                )?;
+                self.compile_expr_to_value(rhs, &value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.emit_environment_identifier_put(&reference, &value, function)?;
+                output.copy_from(&value, function);
+                self.release_environment_identifier_reference(reference, function);
+                value.clear(function);
+                key.clear(function);
+                return Ok(());
+            }
+            Operation::ReleaseCapturedReference { reference } => {
+                self.emit_release_captured_identifier_reference(reference, function)?;
+                output.set_undefined(function);
+                value.clear(function);
+                key.clear(function);
+                return Ok(());
+            }
+            Operation::Read
+            | Operation::Typeof
+            | Operation::CaptureCallReference { .. }
+            | Operation::Assign { .. }
+            | Operation::Delete
+            | Operation::Update { .. }
+            | Operation::EagerCompound { .. }
+            | Operation::LogicalCompound { .. }
+            | Operation::Call { .. } => {}
+        }
+        let reference = match identifier.resolution_start() {
+            EnvironmentIdentifierResolutionStart::CurrentEnvironment => {
+                self.emit_resolve_environment_identifier(&key, identifier.strictness, function)?
+            }
+            EnvironmentIdentifierResolutionStart::GlobalEnvironment => {
+                self.emit_resolve_global_identifier(&key, identifier.strictness, function)?
+            }
+        };
+        match &identifier.operation {
             Operation::Assign { value: rhs } => {
-                self.compile_expr_to_locals(rhs, value, tag, function)?;
-                self.emit_environment_identifier_put(&reference, value, tag, function)?;
+                self.compile_expr_to_value(rhs, &value, function)?;
+                self.emit_environment_identifier_put(&reference, &value, function)?;
             }
             Operation::Delete => {
-                self.emit_environment_identifier_delete(&reference, value, function)?;
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag));
+                let deleted = schema.reserve_i32_local(function);
+                self.emit_environment_identifier_delete(&reference, deleted, function)?;
+                value.set_boolean(deleted, function);
+                schema.release_i32_local(deleted, function);
             }
             operation => {
                 let read = if matches!(operation, Operation::Typeof) {
@@ -64,151 +153,133 @@ impl FunctionBuilder<'_> {
                 } else {
                     EnvironmentIdentifierRead::Value
                 };
-                self.emit_environment_identifier_get(&reference, read, value, tag, function)?;
+                self.emit_environment_identifier_get(&reference, read, &value, function)?;
                 match operation {
                     Operation::Read => {}
+                    Operation::CaptureCallReference { receiver: captured } => {
+                        let receiver = schema.reserve_value_local(function);
+                        self.emit_environment_identifier_call_base(&reference, &receiver, function);
+                        let storage = self
+                            .lookup_binding(captured.storage_name())
+                            .expect("call Reference owns its activation receiver");
+                        self.write_binding_from_locals(storage, &receiver, function);
+                        receiver.clear(function);
+                    }
                     Operation::Typeof => {
-                        self.emit_typeof_payload_from_tag_payload_local(tag, value, function)?;
-                        function.instruction(&Instruction::LocalSet(value));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(tag));
+                        self.emit_typeof_value(&value, output, function)?;
+                        value.copy_from(output, function);
                     }
                     Operation::Update {
                         operation,
                         return_mode,
                     } => {
-                        self.emit_value_to_numeric_locals(value, tag, function)?;
-                        let old_value = self.reserve_temp_local();
-                        let old_tag = self.reserve_temp_local();
-                        function.instruction(&Instruction::LocalGet(value));
-                        function.instruction(&Instruction::LocalSet(old_value));
-                        function.instruction(&Instruction::LocalGet(tag));
-                        function.instruction(&Instruction::LocalSet(old_tag));
+                        let pending = schema.reserve_completion(function);
+                        pending.initialize(function);
+                        self.emit_value_to_numeric_locals(&value, &pending, function)?;
+                        self.completion().copy_from(&pending, function);
+                        self.emit_propagate_current_throw_if_needed(function);
+                        value.copy_from(pending.value(), function);
+                        pending.clear(function);
+                        let old = schema.reserve_value_local(function);
+                        old.copy_from(&value, function);
                         self.emit_numeric_update_to_locals(
                             *operation,
                             NumericUpdateValueKind::Dynamic,
-                            old_value,
-                            old_tag,
-                            value,
-                            tag,
+                            &old,
+                            &value,
                             function,
                         )?;
-                        self.emit_environment_identifier_put(&reference, value, tag, function)?;
+                        self.emit_environment_identifier_put(&reference, &value, function)?;
                         if *return_mode == UpdateReturnMode::Postfix {
-                            function.instruction(&Instruction::LocalGet(old_value));
-                            function.instruction(&Instruction::LocalSet(value));
-                            function.instruction(&Instruction::LocalGet(old_tag));
-                            function.instruction(&Instruction::LocalSet(tag));
+                            value.copy_from(&old, function);
                         }
-                        self.release_temp_local(old_tag);
-                        self.release_temp_local(old_value);
+                        old.clear(function);
                     }
                     Operation::EagerCompound { operation, rhs } => {
                         self.push_scope();
-                        let lhs = self.environment_operand("\0environment.old", value, tag);
+                        let (lhs, id) =
+                            self.retain_expression_operand("\0environment.old", &value, function);
                         let result = match operation {
                             EnvironmentCompoundOperationIr::Add => {
-                                self.compile_coercive_add_to_locals(&lhs, rhs, value, tag, function)
+                                self.compile_coercive_add_to_locals(&lhs, rhs, &value, function)
                             }
                             EnvironmentCompoundOperationIr::Arithmetic(op) => self
                                 .compile_coercive_binary_number_to_locals(
-                                    *op, &lhs, rhs, value, tag, function,
+                                    *op, &lhs, rhs, &value, function,
                                 ),
                             EnvironmentCompoundOperationIr::Bitwise(op) => self
                                 .compile_bitwise_numeric_to_locals(
-                                    *op, &lhs, rhs, value, tag, function,
+                                    *op, &lhs, rhs, &value, function,
                                 ),
                         };
                         self.pop_scope();
+                        self.release_local_binding(id, function);
                         result?;
-                        self.emit_environment_identifier_put(&reference, value, tag, function)?;
+                        self.emit_environment_identifier_put(&reference, &value, function)?;
                     }
                     Operation::LogicalCompound { operation, rhs } => {
                         match operation {
                             LogicalBinaryOp::And | LogicalBinaryOp::Or => {
-                                self.compile_truthy_tagged_i32(tag, value, function)?;
+                                self.compile_truthy_tagged_i32(&value, function)?;
                                 if *operation == LogicalBinaryOp::Or {
                                     function.instruction(&Instruction::I32Eqz);
                                 }
                             }
                             LogicalBinaryOp::Coalesce => {
-                                function.instruction(&Instruction::LocalGet(tag));
-                                function.instruction(&Instruction::I64Const(
-                                    ValueKind::Null.tag() as i64
-                                ));
-                                function.instruction(&Instruction::I64Eq);
-                                function.instruction(&Instruction::LocalGet(tag));
-                                function.instruction(&Instruction::I64Const(
-                                    ValueKind::Undefined.tag() as i64,
-                                ));
-                                function.instruction(&Instruction::I64Eq);
-                                function.instruction(&Instruction::I32Or);
+                                self.compile_nullish_tagged_i32(value.tag(), function)?
                             }
                         }
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.compile_expr_to_locals(rhs, value, tag, function)?;
-                        self.emit_environment_identifier_put(&reference, value, tag, function)?;
+                        self.open_frame(ControlFrameKind::If, function);
+                        self.compile_expr_to_value(rhs, &value, function)?;
+                        self.emit_environment_identifier_put(&reference, &value, function)?;
+                        self.pop_control(ControlFrameKind::If);
                         function.instruction(&Instruction::End);
                     }
                     Operation::Call { args, direct_eval } => {
-                        let receiver = self.reserve_temp_local();
-                        let receiver_tag = self.reserve_temp_local();
-                        self.emit_environment_identifier_call_base(
-                            &reference,
-                            receiver,
-                            receiver_tag,
+                        let receiver = schema.reserve_value_local(function);
+                        self.emit_environment_identifier_call_base(&reference, &receiver, function);
+                        self.push_scope();
+                        let (callee, callee_id) = self.retain_expression_operand(
+                            "\0environment.callee",
+                            &value,
                             function,
                         );
-                        self.push_scope();
-                        let callee = self.environment_operand("\0environment.callee", value, tag);
-                        let this = self.environment_operand(
+                        let (this, this_id) = self.retain_expression_operand(
                             "\0environment.receiver",
-                            receiver,
-                            receiver_tag,
+                            &receiver,
+                            function,
                         );
                         let result = (|| {
-                            if matches!(continuation, CallContinuation::Return)
-                                && self.emit_tail_indirect_call(
-                                    &callee,
-                                    Some(&this),
-                                    args,
-                                    direct_eval.as_ref(),
-                                    function,
-                                )?
-                            {
-                                return Ok(());
-                            }
                             self.emit_indirect_call(
                                 &callee,
                                 Some(&this),
                                 args,
                                 None,
                                 direct_eval.as_ref(),
-                                value,
-                                tag,
+                                &value,
                                 function,
                             )
                         })();
                         self.pop_scope();
+                        self.release_local_binding(this_id, function);
+                        self.release_local_binding(callee_id, function);
                         result?;
-                        self.release_temp_local(receiver_tag);
-                        self.release_temp_local(receiver);
+                        receiver.clear(function);
                     }
-                    Operation::Assign { .. } | Operation::Delete => {
-                        unreachable!("write-only operations handled before GetValue")
+                    Operation::Assign { .. }
+                    | Operation::Delete
+                    | Operation::CaptureAssignmentReference { .. }
+                    | Operation::PutCapturedReference { .. }
+                    | Operation::ReleaseCapturedReference { .. } => {
+                        unreachable!("captured and write-only operations precede generic GetValue")
                     }
                 }
             }
         }
-        function.instruction(&Instruction::LocalGet(value));
-        function.instruction(&Instruction::LocalSet(output));
-        function.instruction(&Instruction::LocalGet(tag));
-        function.instruction(&Instruction::LocalSet(output_tag));
-        self.release_environment_identifier_reference(reference);
-        self.release_temp_local(tag);
-        self.release_temp_local(value);
-        self.release_temp_local(key);
+        output.copy_from(&value, function);
+        self.release_environment_identifier_reference(reference, function);
+        value.clear(function);
+        key.clear(function);
         Ok(())
     }
 }

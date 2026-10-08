@@ -1,5 +1,14 @@
 # Atomics wait outcome domain
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+The closed Ok/NotEqual/TimedOut outcome maps to the three exact String spellings. Sync and async waits compare and register in one native backing FIFO under the notify lock. Sync waits consume a declared nonnull-resource import and a native condition-variable signal. Async waits retain a GC SAB/Promise, positive host ID and deadline; zero is a closed immediate mismatch. Notify retires one common list, and timeout cancellation arbitrates notification under the same lock. Agent retirement wakes blocked sync signals with host cancellation, clears retained resources and never fabricates an ECMAScript timeout. Atomics.pause now follows current §25.4.12: arguments are evaluated by the caller and ignored by the native body; the old finite-integral validation fixtures are maintained to the current rule.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: implemented as a source-equivalent Wasm-AOT invariant boundary.
 
 ## Closed outcome

@@ -10,6 +10,7 @@ use super::partition_resource::{
 use super::parts::*;
 use super::plural_rules::{CardinalCategory, PluralSelectionPurpose};
 use super::profiles::*;
+use std::sync::Arc;
 
 mod buffer;
 mod range;
@@ -45,7 +46,7 @@ impl<'a> From<&'a NumberRangeEndpoint> for Input<'a> {
 
 struct FormatContext<'a> {
     options: &'a NumberFormatOptions,
-    profiles: &'a NumberProfiles,
+    profiles: &'a Arc<NumberProfiles>,
     locale: &'a LocaleProfile,
     numbering: &'a NumberingProfile,
     system: &'a NumberingSystem,
@@ -56,16 +57,19 @@ struct FormatContext<'a> {
 impl<'a> FormatContext<'a> {
     fn new(
         configuration: &'a NumberFormatConfiguration,
-        profiles: &'a NumberProfiles,
+        profiles: &'a Arc<NumberProfiles>,
         limits: &'a PartitionLimits,
     ) -> Result<Self, NumberFormatKernelError> {
+        configuration.locale.ensure_profiles(profiles)?;
         let locale = profiles
             .profile(configuration.locale.formatting().as_str())
             .ok_or(NumberFormatKernelError::InvalidResolvedLocale)?;
         let (index, system) = profiles
             .system(configuration.locale.numbering_system().name())
             .ok_or(NumberFormatKernelError::InvalidResolvedLocale)?;
-        let numbering = profiles.numbering(locale.numbering[index]);
+        let numbering = profiles.numbering(
+            locale.numbering[index].ok_or(NumberFormatKernelError::InvalidResolvedLocale)?,
+        );
         Ok(Self {
             options: &configuration.options,
             profiles,
@@ -118,7 +122,7 @@ struct Formatted {
 pub fn partition_number(
     configuration: &NumberFormatConfiguration,
     value: &IntlMathematicalValue,
-    profiles: &NumberProfiles,
+    profiles: &Arc<NumberProfiles>,
     limits: &PartitionLimits,
 ) -> Result<ScalarNumberPartition, NumberFormatKernelError> {
     let context = FormatContext::new(configuration, profiles, limits)?;

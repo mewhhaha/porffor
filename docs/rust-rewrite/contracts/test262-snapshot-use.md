@@ -1,5 +1,36 @@
 # Test262 aggregate snapshot use
 
+Status: schema-8 compiler-binding source is authored; compilation and execution
+remain unverified. Finish all task source before the confirmed 4096 MiB capped
+serial checkpoint. No task or conformance count changes from this source work.
+
+## Current checked policy
+
+The private, capability-free `SnapshotUse::{CurrentState, ReadOnlyEvidence}`
+remains exhaustive. Both choices require a current schema-8 compiler binding.
+Current state additionally requires its identity to equal the actual running
+compiler. Progress, verified/publication/backlog and resume consumers select that
+policy. Only explicit comparison selects read-only evidence, so complete
+aggregates from different compiler builds can be compared with each side's
+actual producer retained.
+
+Every node loader receives the parent's checked compiler identity and proves
+that child evidence has the same producer. Matrix strategy, suite pins, backend,
+manifest, exact case sets, counts and taxonomy stay independently mandatory.
+Legacy schemas 4–7 retain checked historical decoding/pin-report metadata; they
+cannot become current progress, aggregate joins, resume or publication and do
+not gain a compiler identity from the currently running process.
+
+The maintained structural and semantic controls follow these real consumers;
+they are authored, not executed for this successor. See the
+[compiler provenance contract](snapshot-compiler-provenance.md).
+
+## Historical 2026-08-27 predecessor checkpoint
+
+The following records the former schema policy and its scoped evidence. Its
+metadata-only legacy progress behavior, source counts and passing checks do not
+apply to the new schema-8 source above.
+
 Status: implemented as a source-equivalent T03 invariant closure on 2026-08-27.
 
 ## Closed use policy

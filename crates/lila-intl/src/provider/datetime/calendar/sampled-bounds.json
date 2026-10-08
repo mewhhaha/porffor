@@ -1,0 +1,1042 @@
+[
+  {
+    "calendar": "buddhist",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -271278,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 20
+  },
+  {
+    "calendar": "buddhist",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 276303,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 13
+  },
+  {
+    "calendar": "buddhist",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -271278,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 19
+  },
+  {
+    "calendar": "buddhist",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -271278,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 1
+  },
+  {
+    "calendar": "buddhist",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 276303,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 30
+  },
+  {
+    "calendar": "chinese",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -269184,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 18
+  },
+  {
+    "calendar": "chinese",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 278397,
+    "ordinal": 7,
+    "standard_code": "M07",
+    "formatting_code": "M07",
+    "day": 30
+  },
+  {
+    "calendar": "chinese",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -269184,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 17
+  },
+  {
+    "calendar": "chinese",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -269184,
+    "ordinal": 2,
+    "standard_code": "M02",
+    "formatting_code": "M02",
+    "day": 28
+  },
+  {
+    "calendar": "chinese",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 278397,
+    "ordinal": 8,
+    "standard_code": "M08",
+    "formatting_code": "M08",
+    "day": 17
+  },
+  {
+    "calendar": "coptic",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -272099,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 24
+  },
+  {
+    "calendar": "coptic",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275471,
+    "ordinal": 5,
+    "standard_code": "M05",
+    "formatting_code": "M05",
+    "day": 22
+  },
+  {
+    "calendar": "coptic",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -272099,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 23
+  },
+  {
+    "calendar": "coptic",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -272099,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 5
+  },
+  {
+    "calendar": "coptic",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275471,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 9
+  },
+  {
+    "calendar": "dangi",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -269488,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 18
+  },
+  {
+    "calendar": "dangi",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 278093,
+    "ordinal": 7,
+    "standard_code": "M07",
+    "formatting_code": "M07",
+    "day": 30
+  },
+  {
+    "calendar": "dangi",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -269488,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 17
+  },
+  {
+    "calendar": "dangi",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -269488,
+    "ordinal": 2,
+    "standard_code": "M02",
+    "formatting_code": "M02",
+    "day": 28
+  },
+  {
+    "calendar": "dangi",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 278093,
+    "ordinal": 8,
+    "standard_code": "M08",
+    "formatting_code": "M08",
+    "day": 17
+  },
+  {
+    "calendar": "ethioaa",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -266323,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 24
+  },
+  {
+    "calendar": "ethioaa",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 281247,
+    "ordinal": 5,
+    "standard_code": "M05",
+    "formatting_code": "M05",
+    "day": 22
+  },
+  {
+    "calendar": "ethioaa",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -266323,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 23
+  },
+  {
+    "calendar": "ethioaa",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -266323,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 5
+  },
+  {
+    "calendar": "ethioaa",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 281247,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 9
+  },
+  {
+    "calendar": "ethiopic",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -271823,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 24
+  },
+  {
+    "calendar": "ethiopic",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275747,
+    "ordinal": 5,
+    "standard_code": "M05",
+    "formatting_code": "M05",
+    "day": 22
+  },
+  {
+    "calendar": "ethiopic",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -271823,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 23
+  },
+  {
+    "calendar": "ethiopic",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -271823,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 5
+  },
+  {
+    "calendar": "ethiopic",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275747,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 9
+  },
+  {
+    "calendar": "gregory",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 20
+  },
+  {
+    "calendar": "gregory",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275760,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 13
+  },
+  {
+    "calendar": "gregory",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 19
+  },
+  {
+    "calendar": "gregory",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 1
+  },
+  {
+    "calendar": "gregory",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275760,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 30
+  },
+  {
+    "calendar": "hebrew",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -268058,
+    "ordinal": 11,
+    "standard_code": "M11",
+    "formatting_code": "M11",
+    "day": 5
+  },
+  {
+    "calendar": "hebrew",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 279517,
+    "ordinal": 10,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 11
+  },
+  {
+    "calendar": "hebrew",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -268058,
+    "ordinal": 11,
+    "standard_code": "M11",
+    "formatting_code": "M11",
+    "day": 4
+  },
+  {
+    "calendar": "hebrew",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -268058,
+    "ordinal": 10,
+    "standard_code": "M10",
+    "formatting_code": "M10",
+    "day": 15
+  },
+  {
+    "calendar": "hebrew",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 279517,
+    "ordinal": 10,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 28
+  },
+  {
+    "calendar": "indian",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -271899,
+    "ordinal": 1,
+    "standard_code": "M01",
+    "formatting_code": "M01",
+    "day": 30
+  },
+  {
+    "calendar": "indian",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275682,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 22
+  },
+  {
+    "calendar": "indian",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -271899,
+    "ordinal": 1,
+    "standard_code": "M01",
+    "formatting_code": "M01",
+    "day": 29
+  },
+  {
+    "calendar": "indian",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -271899,
+    "ordinal": 1,
+    "standard_code": "M01",
+    "formatting_code": "M01",
+    "day": 11
+  },
+  {
+    "calendar": "indian",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275682,
+    "ordinal": 7,
+    "standard_code": "M07",
+    "formatting_code": "M07",
+    "day": 8
+  },
+  {
+    "calendar": "islamic-civil",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 22
+  },
+  {
+    "calendar": "islamic-civil",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 283583,
+    "ordinal": 5,
+    "standard_code": "M05",
+    "formatting_code": "M05",
+    "day": 23
+  },
+  {
+    "calendar": "islamic-civil",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 21
+  },
+  {
+    "calendar": "islamic-civil",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 3
+  },
+  {
+    "calendar": "islamic-civil",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 283583,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 10
+  },
+  {
+    "calendar": "islamic-tbla",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 23
+  },
+  {
+    "calendar": "islamic-tbla",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 283583,
+    "ordinal": 5,
+    "standard_code": "M05",
+    "formatting_code": "M05",
+    "day": 24
+  },
+  {
+    "calendar": "islamic-tbla",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 22
+  },
+  {
+    "calendar": "islamic-tbla",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 4
+  },
+  {
+    "calendar": "islamic-tbla",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 283583,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 11
+  },
+  {
+    "calendar": "islamic-umalqura",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 22
+  },
+  {
+    "calendar": "islamic-umalqura",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 283583,
+    "ordinal": 5,
+    "standard_code": "M05",
+    "formatting_code": "M05",
+    "day": 23
+  },
+  {
+    "calendar": "islamic-umalqura",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 21
+  },
+  {
+    "calendar": "islamic-umalqura",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -280804,
+    "ordinal": 3,
+    "standard_code": "M03",
+    "formatting_code": "M03",
+    "day": 3
+  },
+  {
+    "calendar": "islamic-umalqura",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 283583,
+    "ordinal": 6,
+    "standard_code": "M06",
+    "formatting_code": "M06",
+    "day": 10
+  },
+  {
+    "calendar": "iso8601",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 20
+  },
+  {
+    "calendar": "iso8601",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275760,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 13
+  },
+  {
+    "calendar": "iso8601",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 19
+  },
+  {
+    "calendar": "iso8601",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 1
+  },
+  {
+    "calendar": "iso8601",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275760,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 30
+  },
+  {
+    "calendar": "japanese",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 20
+  },
+  {
+    "calendar": "japanese",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275760,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 13
+  },
+  {
+    "calendar": "japanese",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 19
+  },
+  {
+    "calendar": "japanese",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -271821,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 1
+  },
+  {
+    "calendar": "japanese",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275760,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 30
+  },
+  {
+    "calendar": "persian",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -272442,
+    "ordinal": 1,
+    "standard_code": "M01",
+    "formatting_code": "M01",
+    "day": 10
+  },
+  {
+    "calendar": "persian",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 275139,
+    "ordinal": 7,
+    "standard_code": "M07",
+    "formatting_code": "M07",
+    "day": 12
+  },
+  {
+    "calendar": "persian",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -272442,
+    "ordinal": 1,
+    "standard_code": "M01",
+    "formatting_code": "M01",
+    "day": 9
+  },
+  {
+    "calendar": "persian",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -272443,
+    "ordinal": 12,
+    "standard_code": "M12",
+    "formatting_code": "M12",
+    "day": 21
+  },
+  {
+    "calendar": "persian",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 275139,
+    "ordinal": 7,
+    "standard_code": "M07",
+    "formatting_code": "M07",
+    "day": 29
+  },
+  {
+    "calendar": "roc",
+    "input": [
+      -271821,
+      4,
+      20
+    ],
+    "extended_year": -273732,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 20
+  },
+  {
+    "calendar": "roc",
+    "input": [
+      275760,
+      9,
+      13
+    ],
+    "extended_year": 273849,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 13
+  },
+  {
+    "calendar": "roc",
+    "input": [
+      -271821,
+      4,
+      19
+    ],
+    "extended_year": -273732,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 19
+  },
+  {
+    "calendar": "roc",
+    "input": [
+      -271821,
+      4,
+      1
+    ],
+    "extended_year": -273732,
+    "ordinal": 4,
+    "standard_code": "M04",
+    "formatting_code": "M04",
+    "day": 1
+  },
+  {
+    "calendar": "roc",
+    "input": [
+      275760,
+      9,
+      30
+    ],
+    "extended_year": 273849,
+    "ordinal": 9,
+    "standard_code": "M09",
+    "formatting_code": "M09",
+    "day": 30
+  }
+]

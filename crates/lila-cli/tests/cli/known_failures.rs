@@ -392,6 +392,8 @@ pub(crate) enum TestTarget {
     Cli,
     /// `tests/cli_output_ending_structure.rs`.
     CliOutputEndingStructure,
+    /// `tests/fake_suite_publication.rs`.
+    FakeSuitePublication,
     /// `tests/perf.rs`.
     Perf,
     /// `tests/product_artifact_execution.rs`.
@@ -407,6 +409,7 @@ impl TestTarget {
             TestTarget::Cache => "cache",
             TestTarget::Cli => "cli",
             TestTarget::CliOutputEndingStructure => "cli_output_ending_structure",
+            TestTarget::FakeSuitePublication => "fake_suite_publication",
             TestTarget::Perf => "perf",
             TestTarget::ProductArtifactExecution => "product_artifact_execution",
             TestTarget::Test262VerdictCommandStructure => "test262_verdict_command_structure",
@@ -424,6 +427,7 @@ impl TestTarget {
             "async_generator" => Some(TestTarget::AsyncGenerator),
             "cache" => Some(TestTarget::Cache),
             "cli_output_ending_structure" => Some(TestTarget::CliOutputEndingStructure),
+            "fake_suite_publication" => Some(TestTarget::FakeSuitePublication),
             "perf" => Some(TestTarget::Perf),
             "product_artifact_execution" => Some(TestTarget::ProductArtifactExecution),
             "test262_verdict_command_structure" => Some(TestTarget::Test262VerdictCommandStructure),
@@ -447,6 +451,7 @@ impl FromStr for TestTarget {
             "cache" => Ok(TestTarget::Cache),
             "cli" => Ok(TestTarget::Cli),
             "cli_output_ending_structure" => Ok(TestTarget::CliOutputEndingStructure),
+            "fake_suite_publication" => Ok(TestTarget::FakeSuitePublication),
             "perf" => Ok(TestTarget::Perf),
             "product_artifact_execution" => Ok(TestTarget::ProductArtifactExecution),
             "test262_verdict_command_structure" => Ok(TestTarget::Test262VerdictCommandStructure),

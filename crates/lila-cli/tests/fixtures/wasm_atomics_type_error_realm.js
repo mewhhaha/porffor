@@ -9,8 +9,8 @@ function assertEntryTypeError(callback, label) {
 }
 
 assertEntryTypeError(function() {
-  Atomics.pause(1.5);
-}, "Atomics.pause invalid iteration");
+  new Atomics.pause();
+}, "Atomics.pause nonconstructor");
 
 assertEntryTypeError(function() {
   Atomics.notify({}, 0);

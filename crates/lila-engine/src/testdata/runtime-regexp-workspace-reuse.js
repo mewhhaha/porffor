@@ -30,7 +30,7 @@ if (second === null || second[0] !== 'b' || second[1] !== undefined ||
 freshObjects();
 failure([40,97,98,99], SyntaxError);
 failure([91,122,45,97,93], SyntaxError);
-failure([97,123,53,48,48,48,125], RangeError);
+failure(regexpResourceProbeUnits, RangeError);
 var indexed = new RegExp(sourceFromUnits([40,97,98,41,43]), 'd');
 var third = indexed.exec('abab');
 if (third[0] !== 'abab' || third[1] !== 'ab' || third.indices[0][1] !== 4 ||

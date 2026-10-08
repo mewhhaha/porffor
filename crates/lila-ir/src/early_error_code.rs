@@ -48,6 +48,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::CatchBodyDeclarationConflict
         | EarlyErrorCode::DuplicateClassConstructor
         | EarlyErrorCode::ClassBaseConstructorHasDirectSuper
+        | EarlyErrorCode::ClassMethodHasDirectSuper
         | EarlyErrorCode::ClassConstructorGeneratorMethod
         | EarlyErrorCode::ClassConstructorAsyncMethod
         | EarlyErrorCode::ClassConstructorGetter
@@ -101,9 +102,9 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         EarlyErrorCode::ModuleSyntax
         | EarlyErrorCode::ModuleUnresolved
         | EarlyErrorCode::ModuleMissingExport
+        | EarlyErrorCode::ModuleSourceUnavailable
         | EarlyErrorCode::ModuleAmbiguousExport
         | EarlyErrorCode::ModuleInconsistentLoad
-        | EarlyErrorCode::ModuleUnsupportedPhase
         | EarlyErrorCode::ModuleTooManyUnits => IrDiagnosticKind::LinkError,
     }
 }

@@ -2,6 +2,7 @@
 name = "lila-engine"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
@@ -16,7 +17,7 @@ lila-spec-exec = { path = "../lila-spec-exec", optional = true }
 rayon = "1.11.0"
 sha2 = "0.10.9"
 wasmparser = "0.245.1"
-wasmtime = { version = "38.0.4", default-features = false, features = ["cache", "cranelift", "gc", "gc-drc", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
+wasmtime = { version = "=47.0.0", default-features = false, features = ["cache", "cranelift", "gc", "gc-copying", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
 
 [build-dependencies]
 sha2 = "0.10.9"

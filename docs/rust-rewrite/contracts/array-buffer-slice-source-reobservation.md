@@ -1,5 +1,14 @@
 # ArrayBuffer slice source re-observation
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+Slice captures entry length before start/end coercion and species lookup. Real Construct consumes the saved species reference and completed argv. The concrete result must have the right brand, distinct storage, sufficient logical length and writable backing. After species effects, the original source is reacquired. Ordinary ArrayBuffer slice clips the surviving prefix and leaves the remainder zero; SharedArrayBuffer slice rejects aliased data blocks; sliceToImmutable uses its defining-Realm intrinsic allocation and complete source bound. Logical byte lengths never expose rounded backing padding.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: normative for the Wasm AOT ArrayBuffer slice copy seam; the
 `ArrayBufferSliceBound` invariant is implemented, independently reviewed, and
 focused-verified. The copy-policy ownership invariant is implemented and

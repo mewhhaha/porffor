@@ -1,89 +1,81 @@
 use super::super::*;
-use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
-use super::temporal_plain_date::{
-    TemporalCalendarCanonicalizationContext, TemporalCalendarId, TemporalEraField,
+use crate::gc_types::*;
+
+mod records;
+pub(in crate::builtins) use records::TemporalReceiverRecord;
+mod epoch;
+mod zoned_conversion;
+use super::temporal_options::{
+    Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow, TemporalRoundingMode,
+    TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
 };
+use super::temporal_plain_date::{TemporalCalendarId, TemporalEraField, TemporalMonthFieldContext};
+use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
-use crate::intrinsics::temporal::TemporalIntrinsicFamily;
-use crate::operations::BigIntNumberPolicy;
-
-/// Both instant-bearing records share the exact BigInt splitter. The closed
-/// selector owns the offsets so callers cannot pair fields from two layouts.
-#[derive(Clone, Copy)]
-pub(super) enum TemporalEpochNanosecondsRecord {
-    Instant,
-    ZonedDateTime,
-}
-
-impl TemporalEpochNanosecondsRecord {
-    const fn offsets(self) -> (u64, u64) {
-        match self {
-            Self::Instant => (
-                HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            ),
-            Self::ZonedDateTime => (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            ),
-        }
-    }
-}
+use super::temporal_zone_provider::*;
+use crate::intrinsics::temporal::{TemporalIntrinsicFamily, TemporalPrototypeSource};
+pub(in crate::builtins) use epoch::TemporalEpochNanoseconds;
 
 pub(super) enum TemporalZonedDateTimePlainTarget {
     Date,
     DateTime,
+    Time,
+}
+
+/// Which `Temporal.Now.plain*ISO` member is being emitted. A closed set gets
+/// a closed type: three adjacent dispatch arms passing `0`/`1`/`2` would
+/// compile a transposition into a silently wrong return brand.
+#[derive(Clone, Copy)]
+enum TemporalNowPlainKind {
+    DateTime,
+    Date,
+    Time,
+}
+
+/// Where the `Instant` string core reads its options bag from. `toJSON` is
+/// `toString` with `undefined` options and must never observe its argument.
+#[derive(Clone, Copy)]
+enum InstantStringOptions {
+    FromArgument,
+    Undefined,
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum TemporalZonedDateTimeOptionsContext {
     From,
     With,
+    PlainDateTimeToZonedDateTime,
 }
 
 impl TemporalZonedDateTimeOptionsContext {
     const fn default_offset(self) -> OffsetOption {
         match self {
             Self::From => OffsetOption::Reject,
-            Self::With => OffsetOption::Prefer,
+            Self::With | Self::PlainDateTimeToZonedDateTime => OffsetOption::Prefer,
         }
     }
 
-    const fn object_error(self) -> &'static str {
+    const fn object_error(self) -> RuntimeErrorMessage {
         match self {
-            Self::From => "Temporal.ZonedDateTime.from options must be an object or undefined",
+            Self::From => RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_FROM_OPTIONS_MUST_BE_AN_OBJECT_OR_UNDEFINED,
             Self::With => {
-                "Temporal.ZonedDateTime.prototype.with options must be an object or undefined"
+                RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_PROTOTYPE_WITH_OPTIONS_MUST_BE_AN_OBJECT_OR_UNDEFINED
+            }
+            Self::PlainDateTimeToZonedDateTime => {
+                RuntimeErrorMessage::TEMPORAL_PLAINDATETIME_PROTOTYPE_TOZONEDDATETIME_OPTIONS_MUST_BE_AN_OBJECT_OR_UNDEFINED
             }
         }
     }
-}
 
-#[derive(Clone, Copy)]
-enum ZonedDateTimeCalendarField {
-    Year,
-    DayOfWeek,
-    DayOfYear,
-    WeekOfYear,
-    YearOfWeek,
-    DaysInWeek,
-    DaysInMonth,
-    DaysInYear,
-    MonthsInYear,
-}
-
-impl ZonedDateTimeCalendarField {
-    const fn date_accessor(self) -> StandardBuiltinId {
+    /// Which option keys this entry point reads. `toZonedDateTime` reads
+    /// `disambiguation` only: the spec never consults `offset` or `overflow`
+    /// there, so reading either would turn an unrelated getter into observable
+    /// behavior (`options-read-before-algorithmic-validation.js`,
+    /// `order-of-operations.js`).
+    fn keys(self) -> &'static [ZonedDateTimeOptionKey] {
         match self {
-            Self::Year => StandardBuiltinId::TemporalPlainDatePrototypeYearGetter,
-            Self::DayOfWeek => StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter,
-            Self::DayOfYear => StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
-            Self::WeekOfYear => StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter,
-            Self::YearOfWeek => StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter,
-            Self::DaysInWeek => StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter,
-            Self::DaysInMonth => StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter,
-            Self::DaysInYear => StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter,
-            Self::MonthsInYear => StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter,
+            Self::From | Self::With => &ZonedDateTimeOptionKey::ALL,
+            Self::PlainDateTimeToZonedDateTime => &ZonedDateTimeOptionKey::TO_ZONED_DATE_TIME,
         }
     }
 }
@@ -127,39 +119,6 @@ pub(crate) enum ZonedDateTimeField {
     InLeapYear,
 }
 
-/// Where a [`ZonedDateTimeField`] arm leaves its answer.
-///
-/// Numeric stack arms push one `i64` that is an `f64` bit pattern and let the
-/// tail of the emitter tag it `Number`. `MonthCode` writes a String result pair
-/// itself; `Era` and `EraYear` delegate to
-/// [`FunctionBuilder::emit_temporal_calendar_era_field`], which writes the pair
-/// itself and whose answer may be a String, a Number *or* Undefined.
-///
-/// Before this enum the distinction was a `!=` against one specific builtin id.
-/// Adding a second self-writing getter under that rule appended
-/// `LocalSet(result_local)` + a `Number` tag after the callee had already
-/// written the pair — so an `undefined` era would have been reported as a
-/// number, from a stack the arm never pushed to.
-///
-/// What the type actually buys, stated exactly so it is not read as more.
-/// Adding a [`ZonedDateTimeField`] variant is an E0004 in both the emitter
-/// `match` here and `compile_standard_builtin` (`builtins/standard.rs`), so a
-/// new field cannot be added without stating its delivery discipline in the
-/// same place it emits. What the type does **not** check is that an arm
-/// returns the *right* discriminant: writing `NumberOnStack` in an arm that
-/// called [`FunctionBuilder::emit_temporal_calendar_era_field`] still
-/// reproduces the `undefined`-tagged-as-`Number` bug, silently, at run time.
-/// Making that unrepresentable would mean the `NumberOnStack` value being
-/// constructible only by the helper that pushes the `i64`; that is not what
-/// this is.
-enum ZdtFieldResult {
-    /// The arm left exactly one `i64` on the stack and did not touch the result
-    /// pair.
-    NumberOnStack,
-    /// The arm wrote both halves of the result pair and left the stack empty.
-    WrittenByCallee,
-}
-
 /// The three options `Temporal.ZonedDateTime.from` reads, in read order.
 ///
 /// The option's identity used to be the `&str` the loop iterated, compared
@@ -167,20 +126,26 @@ enum ZdtFieldResult {
 /// the code into the wrong destination local and reached a live `unreachable!()`
 /// in the compiler. Every derived fact is now a total function of the variant.
 #[derive(Clone, Copy)]
-enum ZonedDateTimeOptionKey {
+pub(crate) enum ZonedDateTimeOptionKey {
     Disambiguation,
     Offset,
     Overflow,
 }
 
 impl ZonedDateTimeOptionKey {
-    const ALL: [ZonedDateTimeOptionKey; 3] = [
+    pub(crate) const ALL: [ZonedDateTimeOptionKey; 3] = [
         ZonedDateTimeOptionKey::Disambiguation,
         ZonedDateTimeOptionKey::Offset,
         ZonedDateTimeOptionKey::Overflow,
     ];
 
-    fn property(self) -> &'static str {
+    /// The `toZonedDateTime` subset: `disambiguation` only. `offset` and
+    /// `overflow` are deliberately absent (see
+    /// [`TemporalZonedDateTimeOptionsContext::keys`]).
+    const TO_ZONED_DATE_TIME: [ZonedDateTimeOptionKey; 1] =
+        [ZonedDateTimeOptionKey::Disambiguation];
+
+    pub(crate) fn property(self) -> &'static str {
         match self {
             ZonedDateTimeOptionKey::Disambiguation => Disambiguation::PROPERTY,
             ZonedDateTimeOptionKey::Offset => OffsetOption::PROPERTY,
@@ -188,17 +153,21 @@ impl ZonedDateTimeOptionKey {
         }
     }
 
-    fn range_error(self) -> &'static str {
+    pub(crate) fn range_error(self) -> RuntimeErrorMessage {
         match self {
             ZonedDateTimeOptionKey::Disambiguation => {
-                "Invalid Temporal.ZonedDateTime disambiguation option"
+                RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_DISAMBIGUATION_OPTION
             }
-            ZonedDateTimeOptionKey::Offset => "Invalid Temporal.ZonedDateTime offset option",
-            ZonedDateTimeOptionKey::Overflow => "Invalid Temporal.ZonedDateTime overflow option",
+            ZonedDateTimeOptionKey::Offset => {
+                RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_OFFSET_OPTION
+            }
+            ZonedDateTimeOptionKey::Overflow => {
+                RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_OVERFLOW_OPTION
+            }
         }
     }
 
-    fn allowed(self) -> Vec<(&'static str, i64)> {
+    pub(crate) fn allowed(self) -> Vec<(&'static str, i64)> {
         fn pairs<O: StringValuedOption>() -> Vec<(&'static str, i64)> {
             O::ALLOWED
                 .iter()
@@ -220,15 +189,16 @@ impl ZonedDateTimeOptionKey {
         }
     }
 
-    /// Which caller-supplied local receives the code. `disambiguation` has no
-    /// destination: this backend resolves only `UTC` and fixed offsets, so the
-    /// value is validated and then deliberately dropped. That gap is now named
-    /// rather than expressed as an absent code in a table.
-    fn destination(self, offset_local: u32, overflow_local: u32) -> Option<u32> {
+    fn destination(
+        self,
+        disambiguation_local: I64Local,
+        offset_local: I64Local,
+        overflow_local: I64Local,
+    ) -> I64Local {
         match self {
-            ZonedDateTimeOptionKey::Disambiguation => None,
-            ZonedDateTimeOptionKey::Offset => Some(offset_local),
-            ZonedDateTimeOptionKey::Overflow => Some(overflow_local),
+            Self::Disambiguation => disambiguation_local,
+            Self::Offset => offset_local,
+            Self::Overflow => overflow_local,
         }
     }
 }
@@ -239,1324 +209,383 @@ const NANOSECONDS_PER_MILLISECOND: i64 = 1_000_000;
 const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
 pub(super) const SECONDS_PER_DAY: i64 = 86_400;
 
-enum ZonedDateTimeCalendarCoercion {
-    ToTemporalCalendarIdentifier,
-    CanonicalizeCalendar,
-}
-
 #[derive(Clone, Copy)]
-pub(super) enum TemporalTimeCalendarUse {
-    /// `ToTemporalTime` validates annotation syntax but ignores the calendar
-    /// value, including an unknown identifier.
+pub(super) enum TemporalTimeCalendarUse<'a> {
     Ignore,
-    /// `ToTemporalCalendarIdentifier` resolves the annotation value (or the
-    /// ISO default) through the backend's closed calendar domain.
-    Resolve {
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
-    },
+    Resolve { calendar: &'a ValueLocals },
 }
 
+/// Which string forms a time-zone-taking entry point accepts.
+///
+/// The constructor takes `Identifier` (`ParseTemporalTimeZoneString` rejects
+/// a datetime string — `timezone-iso-string.js`); every other time-zone-taking
+/// entry point takes `Object` (`ToTemporalTimeZoneObject` extracts the zone
+/// from an ISO string — `Now/*/timezone-string-datetime.js`,
+/// `from/argument-propertybag-timezone-string-*.js`,
+/// `withTimeZone/timezone-string-*.js`).
 #[derive(Clone, Copy)]
-enum TemporalIsoParseGoal {
-    Instant,
+pub(crate) enum TemporalTimeZoneStringGoal {
+    Identifier,
+    Object,
+}
+
+enum TemporalIsoParseGoal<'a> {
+    Instant {
+        seconds: I64Local,
+        nanosecond: I64Local,
+    },
     TimeZoneIdentifier {
-        time_zone_payload_local: u32,
-        time_zone_tag_local: u32,
+        time_zone: &'a ValueLocals,
+        string_goal: TemporalTimeZoneStringGoal,
     },
     ZonedDateTimeSyntax {
-        time_zone_payload_local: u32,
-        time_zone_tag_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        time_zone: &'a ValueLocals,
+        calendar: &'a ValueLocals,
     },
     ZonedDateTime {
-        offset_option_local: u32,
-        time_zone_payload_local: u32,
-        time_zone_tag_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        policies: &'a TemporalZonedOptionsLocals,
+        zone: &'a ResolvedTemporalZoneLocals,
+        output: PreparedTemporalInstantLocals,
     },
-    /// `ParseISODateTime` with the `TemporalDateString` goal: the civil
-    /// year/month/day are handed back instead of being collapsed into epoch
-    /// nanoseconds, a trailing time and offset are optional, and a bracketed
-    /// time zone is accepted without being resolved (a `PlainDate` has no time
-    /// zone, so `[America/New_York]` is legal syntax even though this backend
-    /// cannot resolve that identifier).
     PlainDate {
-        year_destination_local: u32,
-        month_destination_local: u32,
-        day_destination_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        year_destination_local: I64Local,
+        month_destination_local: I64Local,
+        day_destination_local: I64Local,
+        calendar: &'a ValueLocals,
     },
-    /// `ParseISODateTime` with the `TemporalDateTimeString` goal: the civil
-    /// date *and* the wall-clock time are handed back. A missing time part
-    /// defaults to midnight, a `Z` designator is forbidden (a `PlainDateTime`
-    /// names no instant) and a bracketed time zone is accepted without being
-    /// resolved.
     PlainDateTime {
-        year_destination_local: u32,
-        month_destination_local: u32,
-        day_destination_local: u32,
-        hour_destination_local: u32,
-        minute_destination_local: u32,
-        second_destination_local: u32,
-        nanosecond_destination_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        year_destination_local: I64Local,
+        month_destination_local: I64Local,
+        day_destination_local: I64Local,
+        hour_destination_local: I64Local,
+        minute_destination_local: I64Local,
+        second_destination_local: I64Local,
+        nanosecond_destination_local: I64Local,
+        calendar: &'a ValueLocals,
     },
-    /// `ParseTemporalTimeString`. The wrapper has already rewritten a bare
-    /// time (`15:23`, `T15:23`, `152330-0800`) into `0000-01-01T` + the same
-    /// tail, so by the time this goal is reached every input carries a date
-    /// and only the time-of-day fields are wanted back. A date-only string
-    /// still reaches here unrewritten, and is rejected here because a
-    /// `PlainTime` never gets an implicit midnight.
     PlainTime {
-        hour_destination_local: u32,
-        minute_destination_local: u32,
-        second_destination_local: u32,
-        nanosecond_destination_local: u32,
-        calendar_use: TemporalTimeCalendarUse,
+        hour_destination_local: I64Local,
+        minute_destination_local: I64Local,
+        second_destination_local: I64Local,
+        nanosecond_destination_local: I64Local,
+        calendar_use: TemporalTimeCalendarUse<'a>,
     },
 }
 
 impl<'a> FunctionBuilder<'a> {
-    /// Temporal proposal 2.3.1 `Temporal.Now.timeZoneId`.
-    ///
-    /// This backend has no tzdata: `emit_temporal_zoned_date_time_time_zone`
-    /// only resolves `UTC` and fixed `±HH:MM` offsets, so `UTC` is the only
-    /// identifier the rest of the implementation can honour.
     pub(crate) fn emit_temporal_now_time_zone_id(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        let system = self.emit_system_time_zone(f)?;
+        self.completion()
+            .value()
+            .set_reference(system.identifier(), self.runtime_schema(), f);
+        self.completion().set_normal(self.completion().value(), f);
+        system.release(self, f);
         Ok(())
     }
-
-    /// Reads the host wall clock and splits it into whole epoch seconds plus a
-    /// non-negative nanosecond remainder, the shape
-    /// `emit_temporal_epoch_nanoseconds_bigint` expects.
-    ///
-    /// The host import is millisecond resolution, which the spec permits: it
-    /// only requires the clock not to go backwards within an execution.
+    /// Millisecond host clock split by floor division; negative clocks retain
+    /// a nonnegative subsecond remainder before immutable BigInt publication.
     fn emit_temporal_now_epoch_seconds_and_subseconds(
         &mut self,
-        seconds_local: u32,
-        subsecond_local: u32,
-        function: &mut Function,
+        seconds: I64Local,
+        nano: I64Local,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let wall_clock_millis_import_function_index = self
+        let import = self
             .functions
             .wall_clock_millis_import_function_index()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "Temporal.Now requires the lila_host.wall_clock_millis import",
-                )
-            })?;
-        let milliseconds_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::Call(wall_clock_millis_import_function_index));
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-
-        // Floor-divide by 1000 so that pre-epoch clocks (test hosts can set
-        // them) still produce a subsecond remainder in [0, 1e9).
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-
-        self.release_temp_local(milliseconds_local);
+            .ok_or_else(|| EmitError::unsupported("Temporal.Now requires wall_clock_millis"))?;
+        let schema = self.runtime_schema();
+        let millis = schema.reserve_i64_local(f);
+        f.instruction(&Instruction::Call(import));
+        f.instruction(&Instruction::I64TruncF64S);
+        millis.store(f);
+        millis.load(f);
+        f.instruction(&Instruction::I64Const(1000));
+        f.instruction(&Instruction::I64DivS);
+        seconds.store(f);
+        millis.load(f);
+        seconds.load(f);
+        f.instruction(&Instruction::I64Const(1000));
+        f.instruction(&Instruction::I64Mul);
+        f.instruction(&Instruction::I64Sub);
+        nano.store(f);
+        nano.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::I64LtS);
+        self.open_frame(ControlFrameKind::If, f);
+        seconds.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Sub);
+        seconds.store(f);
+        nano.load(f);
+        f.instruction(&Instruction::I64Const(1000));
+        f.instruction(&Instruction::I64Add);
+        nano.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        nano.load(f);
+        f.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
+        f.instruction(&Instruction::I64Mul);
+        nano.store(f);
+        schema.release_i64_local(millis, f);
         Ok(())
     }
-
-    /// Temporal proposal 2.3.2 `Temporal.Now.instant`.
-    pub(crate) fn emit_temporal_now_instant(
+    fn emit_temporal_now_epoch(
         &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_now_epoch_seconds_and_subseconds(
-            seconds_local,
-            subsecond_local,
-            function,
-        )?;
-        self.emit_temporal_epoch_nanoseconds_bigint(
-            seconds_local,
-            subsecond_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        self.emit_alloc_temporal_instant(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-
-        for local in [
-            prototype_payload_local,
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            subsecond_local,
-            seconds_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        f: &mut Function,
+    ) -> Result<TemporalEpochNanoseconds, EmitError> {
+        let schema = self.runtime_schema();
+        let seconds = schema.reserve_i64_local(f);
+        let nano = schema.reserve_i64_local(f);
+        self.emit_temporal_now_epoch_seconds_and_subseconds(seconds, nano, f)?;
+        let value = self.emit_temporal_epoch_nanoseconds_bigint(seconds, nano, f);
+        let epoch = self.emit_temporal_instant_validated_epoch(&value, f)?;
+        value.clear(f);
+        schema.release_i64_local(nano, f);
+        schema.release_i64_local(seconds, f);
+        Ok(epoch)
+    }
+    pub(crate) fn emit_temporal_now_instant(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        let epoch = self.emit_temporal_now_epoch(f)?;
+        self.emit_alloc_temporal_instant(&epoch, TemporalPrototypeSource::Intrinsic, f)?;
+        epoch.clear(self, f);
         Ok(())
     }
-
-    /// Temporal proposal 2.3.4 `Temporal.Now.zonedDateTimeISO`.
     pub(crate) fn emit_temporal_now_zoned_date_time_iso(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_zone_payload_local = self.reserve_temp_local();
-        let time_zone_tag_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        // An absent or `undefined` argument means SystemTimeZoneIdentifier();
-        // anything else goes through the same resolution the ZonedDateTime
-        // constructor uses, so named zones still reject.
-        self.emit_builtin_arg_to_locals(0, time_zone_payload_local, time_zone_tag_local, function);
-        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-        function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(time_zone_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-        function.instruction(&Instruction::LocalSet(calendar_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(calendar_tag_local));
-
-        self.emit_temporal_now_epoch_seconds_and_subseconds(
-            seconds_local,
-            subsecond_local,
-            function,
-        )?;
-        self.emit_temporal_epoch_nanoseconds_bigint(
-            seconds_local,
-            subsecond_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        let input = self.runtime_schema().reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let prepared = self.reserve_temporal_zone_identity(f);
+        let zone = self.emit_temporal_time_zone_or_system_into(prepared, &input, f)?;
+        let calendar = self.emit_temporal_iso_calendar_slot(f)?;
+        let epoch = self.emit_temporal_now_epoch(f)?;
+        let instant = NormalizedTemporalInstantLocals::from_epoch(epoch);
         self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
+            TemporalZonedAllocationInput::new(&instant, &zone, &calendar),
+            TemporalPrototypeSource::Intrinsic,
+            f,
         )?;
-
-        for local in [
-            prototype_payload_local,
-            epoch_tag_local,
-            epoch_payload_local,
-            subsecond_local,
-            seconds_local,
-            calendar_tag_local,
-            calendar_payload_local,
-            time_zone_tag_local,
-            time_zone_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        instant.release(self, f);
+        calendar.release(self, f);
+        zone.release(self, f);
+        input.clear(f);
         Ok(())
     }
-
-    pub(crate) fn emit_temporal_instant_from(
+    pub(crate) fn emit_temporal_now_plain_date_time_iso(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let argument_brand_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            argument_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(argument_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_INSTANT as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            argument_brand_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            argument_brand_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            argument_brand_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
-        self.emit_load_current_builtin_temporal_prototype(
-            TemporalIntrinsicFamily::Instant,
-            prototype_payload_local,
-            function,
-        );
-        self.emit_alloc_temporal_instant(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(argument_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            argument_brand_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            argument_brand_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            argument_brand_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
-        self.emit_load_current_builtin_temporal_prototype(
-            TemporalIntrinsicFamily::Instant,
-            prototype_payload_local,
-            function,
-        );
-        self.emit_alloc_temporal_instant(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
-            ToPrimitiveHint::String,
-            argument_payload_local,
-            argument_tag_local,
-            function,
-        )?;
-        self.emit_current_function_realm_primitive_to_tagged_locals(
-            primitive,
-            argument_payload_local,
-            argument_tag_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Instant.from requires a string or Temporal.Instant",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_temporal_parse_iso_string(
-            argument_payload_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            TemporalIsoParseGoal::Instant,
-            function,
-        )?;
-        self.emit_load_current_builtin_temporal_prototype(
-            TemporalIntrinsicFamily::Instant,
-            prototype_payload_local,
-            function,
-        );
-        self.emit_alloc_temporal_instant(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(nanoseconds_tag_local);
-        self.release_temp_local(nanoseconds_payload_local);
-        self.release_temp_local(argument_brand_local);
-        self.release_temp_local(argument_tag_local);
-        self.release_temp_local(argument_payload_local);
+        self.emit_temporal_now_plain_iso(TemporalNowPlainKind::DateTime, f)
+    }
+    pub(crate) fn emit_temporal_now_plain_date_iso(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_now_plain_iso(TemporalNowPlainKind::Date, f)
+    }
+    pub(crate) fn emit_temporal_now_plain_time_iso(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_now_plain_iso(TemporalNowPlainKind::Time, f)
+    }
+    fn emit_temporal_now_plain_iso(
+        &mut self,
+        kind: TemporalNowPlainKind,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let input = self.runtime_schema().reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let prepared = self.reserve_temporal_zone_identity(f);
+        let zone = self.emit_temporal_time_zone_or_system_into(prepared, &input, f)?;
+        let epoch = self.emit_temporal_now_epoch(f)?;
+        let instant = NormalizedTemporalInstantLocals::from_epoch(epoch);
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &instant, f)?;
+        let iso = self.emit_temporal_zone_snapshot_iso_record(&snapshot, f)?;
+        let calendar = self.emit_temporal_iso_calendar_slot(f)?;
+        match kind {
+            TemporalNowPlainKind::Date => self.emit_alloc_temporal_plain_date(
+                iso.fields()[0],
+                iso.fields()[1],
+                iso.fields()[2],
+                &calendar,
+                TemporalPrototypeSource::Intrinsic,
+                f,
+            )?,
+            TemporalNowPlainKind::DateTime => self.emit_alloc_temporal_plain_date_time(
+                iso.fields(),
+                &calendar,
+                TemporalPrototypeSource::Intrinsic,
+                f,
+            )?,
+            TemporalNowPlainKind::Time => self.emit_alloc_temporal_plain_time(
+                &Self::temporal_plain_date_time_time_locals(iso.fields()),
+                TemporalPrototypeSource::Intrinsic,
+                f,
+            )?,
+        }
+        calendar.release(self, f);
+        iso.release(self, f);
+        snapshot.release(self, f);
+        instant.release(self, f);
+        zone.release(self, f);
+        input.clear(f);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_zoned_date_time_compare(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let zoned_payload_local = self.reserve_temp_local();
-        let zoned_tag_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let left_epoch_payload_local = self.reserve_temp_local();
-        let left_epoch_tag_local = self.reserve_temp_local();
-        let right_epoch_payload_local = self.reserve_temp_local();
-        let right_epoch_tag_local = self.reserve_temp_local();
-        let comparison_local = self.reserve_temp_local();
-
-        let zoned_from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimeFrom.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.from`",
-                )
-            })?;
-
-        for (index, epoch_payload_local, epoch_tag_local) in [
-            (0, left_epoch_payload_local, left_epoch_tag_local),
-            (1, right_epoch_payload_local, right_epoch_tag_local),
-        ] {
-            self.emit_builtin_arg_to_locals(
-                index,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            );
-            self.emit_direct_js_call(
-                &zoned_from_meta,
-                None,
-                &[(argument_payload_local, argument_tag_local)],
-                zoned_payload_local,
-                zoned_tag_local,
-                function,
-            )?;
-            self.load_i64_to_local_from_offset(
-                zoned_payload_local,
-                HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                record_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                epoch_payload_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-                epoch_tag_local,
-                function,
-            );
-        }
-
-        // Compare exact epoch BigInts without rounding through Number.
-        self.emit_bigint_compare_i64(
-            left_epoch_payload_local,
-            left_epoch_tag_local,
-            right_epoch_payload_local,
-            right_epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(comparison_local));
-
-        function.instruction(&Instruction::LocalGet(comparison_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            comparison_local,
-            right_epoch_tag_local,
-            right_epoch_payload_local,
-            left_epoch_tag_local,
-            left_epoch_payload_local,
-            record_local,
-            zoned_tag_local,
-            zoned_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        let schema = self.runtime_schema();
+        let left_value = schema.reserve_value_local(f);
+        let right_value = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &left_value, f);
+        self.emit_builtin_arg_to_value(1, &right_value, f);
+        let left = self.emit_temporal_to_zoned_record(&left_value, f)?;
+        let right = self.emit_temporal_to_zoned_record(&right_value, f)?;
+        let left_epoch = self.emit_temporal_normalized_instant_from_zoned_record(&left, f)?;
+        let right_epoch = self.emit_temporal_normalized_instant_from_zoned_record(&right, f)?;
+        let comparison = schema.reserve_i32_local(f);
+        let number = schema.reserve_i64_local(f);
+        self.emit_bigint_compare(
+            left_epoch.epoch_nanoseconds(),
+            right_epoch.epoch_nanoseconds(),
+            comparison,
+            f,
+        );
+        comparison.load(f);
+        f.instruction(&Instruction::F64ConvertI32S);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        number.store(f);
+        let output = schema.reserve_value_local(f);
+        output.set_number(number, f);
+        self.completion().set_normal(&output, f);
+        output.clear(f);
+        schema.release_i64_local(number, f);
+        schema.release_i32_local(comparison, f);
+        right_epoch.release(self, f);
+        left_epoch.release(self, f);
+        right.release(f);
+        left.release(f);
+        right_value.clear(f);
+        left_value.clear(f);
         Ok(())
     }
-
     pub(crate) fn emit_temporal_zoned_date_time_from(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let argument_brand_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let offset_option_local = self.reserve_temp_local();
-        let overflow_option_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let time_zone_tag_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
-
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            argument_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(argument_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.emit_temporal_zoned_date_time_options(
-            TemporalZonedDateTimeOptionsContext::From,
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            function,
-        )?;
-        for (offset, local) in [
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                epoch_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-                epoch_tag_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-                time_zone_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
-                time_zone_tag_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-                calendar_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
-                calendar_tag_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(record_local, offset, local, function);
-        }
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_temporal_zoned_date_time_from_property_bag(
-            argument_payload_local,
-            argument_tag_local,
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_zoned_date_time_from_property_bag(
-            argument_payload_local,
-            argument_tag_local,
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_temporal_parse_iso_string(
-            argument_payload_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            TemporalIsoParseGoal::ZonedDateTimeSyntax {
-                time_zone_payload_local,
-                time_zone_tag_local,
-                calendar_payload_local,
-                calendar_tag_local,
-            },
-            function,
-        )?;
-        self.emit_temporal_zoned_date_time_options(
-            TemporalZonedDateTimeOptionsContext::From,
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            function,
-        )?;
-        self.emit_temporal_parse_iso_string(
-            argument_payload_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            TemporalIsoParseGoal::ZonedDateTime {
-                offset_option_local,
-                time_zone_payload_local,
-                time_zone_tag_local,
-                calendar_payload_local,
-                calendar_tag_local,
-            },
-            function,
-        )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-
-        for local in [
-            prototype_payload_local,
-            calendar_tag_local,
-            calendar_payload_local,
-            time_zone_tag_local,
-            time_zone_payload_local,
-            epoch_tag_local,
-            epoch_payload_local,
-            overflow_option_local,
-            offset_option_local,
-            options_tag_local,
-            options_payload_local,
-            record_local,
-            argument_brand_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(f);
+        let options = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_builtin_arg_to_value(1, &options, f);
+        self.emit_temporal_zoned_date_time_from_input(&input, &options, f)?;
+        options.clear(f);
+        input.clear(f);
         Ok(())
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_temporal_zoned_date_time_from_property_bag(
+    pub(super) fn emit_temporal_zoned_date_time_from_value(
         &mut self,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
-        options_payload_local: u32,
-        options_tag_local: u32,
-        offset_option_local: u32,
-        overflow_option_local: u32,
-        epoch_payload_local: u32,
-        epoch_tag_local: u32,
-        time_zone_payload_local: u32,
-        time_zone_tag_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
-        prototype_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let property_key_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let day_present_local = self.reserve_temp_local();
-        let hour_local = self.reserve_temp_local();
-        let microsecond_local = self.reserve_temp_local();
-        let millisecond_local = self.reserve_temp_local();
-        let minute_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let month_present_local = self.reserve_temp_local();
-        let month_code_payload_local = self.reserve_temp_local();
-        let month_code_present_local = self.reserve_temp_local();
-        let nanosecond_local = self.reserve_temp_local();
-        let offset_nanoseconds_local = self.reserve_temp_local();
-        let offset_present_local = self.reserve_temp_local();
-        let second_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        // Last persistent reservation. Every intervening helper restores the
-        // temporary stack depth, so the resolver can release these slots from
-        // the top of the strict LIFO stack.
-        let era_slots = self.reserve_temporal_era_slots();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("calendar")));
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            property_key_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        // Property bag: `ToTemporalCalendarIdentifier`, so an ISO date string
-        // parses rather than throwing.
-        self.emit_temporal_zoned_date_time_calendar(
-            calendar_payload_local,
-            calendar_tag_local,
-            ZonedDateTimeCalendarCoercion::ToTemporalCalendarIdentifier,
-            function,
-        )?;
-
-        // `day`, then the era pair, then `hour` .. `month`: the era keys sort
-        // between `day` and `hour`, and a Proxy bag observes the reads in
-        // exactly this order.
-        self.emit_temporal_property_bag_positive_integer(
-            argument_payload_local,
-            argument_tag_local,
-            "day",
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            present_local,
-            day_local,
-            0,
-            "Temporal.ZonedDateTime property bag field must be finite",
-            "Temporal.ZonedDateTime month and day must be positive",
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(present_local));
-        function.instruction(&Instruction::LocalSet(day_present_local));
-
-        let era = self.emit_temporal_read_era_fields(
-            era_slots,
-            argument_payload_local,
-            argument_tag_local,
-            calendar_payload_local,
-            function,
-        )?;
-
-        for (property, output_local, output_present_local) in [
-            ("hour", hour_local, None),
-            ("microsecond", microsecond_local, None),
-            ("millisecond", millisecond_local, None),
-            ("minute", minute_local, None),
-            ("month", month_local, Some(month_present_local)),
-        ] {
-            // `month` is the only remaining row of the calendar field table
-            // whose conversion is `ToPositiveIntegerWithTruncation`; the
-            // wall-clock rows accept zero.
-            if property == "month" {
-                self.emit_temporal_property_bag_positive_integer(
-                    argument_payload_local,
-                    argument_tag_local,
-                    property,
-                    property_key_local,
-                    value_payload_local,
-                    value_tag_local,
-                    present_local,
-                    output_local,
-                    0,
-                    "Temporal.ZonedDateTime property bag field must be finite",
-                    "Temporal.ZonedDateTime month and day must be positive",
-                    function,
-                )?;
-            } else {
-                self.emit_temporal_property_bag_integer(
-                    argument_payload_local,
-                    argument_tag_local,
-                    property,
-                    property_key_local,
-                    value_payload_local,
-                    value_tag_local,
-                    present_local,
-                    output_local,
-                    0,
-                    "Temporal.ZonedDateTime property bag field must be finite",
-                    function,
-                )?;
-            }
-            if let Some(output_present_local) = output_present_local {
-                function.instruction(&Instruction::LocalGet(present_local));
-                function.instruction(&Instruction::LocalSet(output_present_local));
-            }
-        }
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("monthCode")));
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(month_code_present_local));
-        self.emit_temporal_month_code_string(
-            value_payload_local,
-            value_tag_local,
-            "Temporal.ZonedDateTime monthCode must be a string",
-            "Invalid Temporal.ZonedDateTime monthCode",
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(month_code_payload_local));
-
-        for (property, output_local) in [("nanosecond", nanosecond_local)] {
-            self.emit_temporal_property_bag_integer(
-                argument_payload_local,
-                argument_tag_local,
-                property,
-                property_key_local,
-                value_payload_local,
-                value_tag_local,
-                present_local,
-                output_local,
-                0,
-                "Temporal.ZonedDateTime property bag field must be finite",
-                function,
-            )?;
-        }
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("offset")));
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(offset_present_local));
-        self.emit_temporal_offset_string(
-            value_payload_local,
-            value_tag_local,
-            "Temporal.ZonedDateTime offset must be a string",
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(offset_present_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_utc_offset_nanoseconds(
-            value_payload_local,
-            offset_nanoseconds_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_temporal_property_bag_integer(
-            argument_payload_local,
-            argument_tag_local,
-            "second",
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            present_local,
-            second_local,
-            0,
-            "Temporal.ZonedDateTime property bag field must be finite",
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("timeZone")));
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            property_key_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime property bag requires timeZone",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-
-        self.emit_temporal_property_bag_integer(
-            argument_payload_local,
-            argument_tag_local,
-            "year",
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            present_local,
-            year_local,
-            0,
-            "Temporal.ZonedDateTime property bag field must be finite",
-            function,
-        )?;
-        self.emit_temporal_zoned_date_time_options(
-            TemporalZonedDateTimeOptionsContext::From,
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            function,
-        )?;
-
-        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
-            era,
-            calendar_payload_local,
-            year_local,
-            present_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(resolved_year.year_present_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime property bag requires year",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(day_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime property bag requires day",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(month_code_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        for month in 1_i64..=12 {
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&format!("M{month:02}")),
-            ));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_string_payload_equality_i32(
-                month_code_payload_local,
-                value_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(month));
-            function.instruction(&Instruction::LocalSet(value_payload_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.ZonedDateTime monthCode",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(month_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(month_local));
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime month and monthCode must agree",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(month_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(month_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime property bag requires month or monthCode",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(month_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime month and day must be positive",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_temporal_regulate_property_bag_date_time(
-            year_local,
-            month_local,
-            day_local,
-            hour_local,
-            minute_local,
-            second_local,
-            millisecond_local,
-            microsecond_local,
-            nanosecond_local,
-            overflow_option_local,
-            function,
-        )?;
-
-        self.emit_temporal_fixed_zoned_date_time_epoch(
-            &[
-                year_local,
-                month_local,
-                day_local,
-                hour_local,
-                minute_local,
-                second_local,
-                millisecond_local,
-                microsecond_local,
-                nanosecond_local,
-            ],
-            time_zone_payload_local,
-            offset_nanoseconds_local,
-            offset_present_local,
-            offset_option_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-
-        for local in [
-            year_local,
-            second_local,
-            offset_present_local,
-            offset_nanoseconds_local,
-            nanosecond_local,
-            month_code_present_local,
-            month_code_payload_local,
-            month_present_local,
-            month_local,
-            minute_local,
-            millisecond_local,
-            microsecond_local,
-            hour_local,
-            day_present_local,
-            day_local,
-            present_local,
-            value_tag_local,
-            value_payload_local,
-            property_key_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        input: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<GcLocal<TemporalZonedDateTimeObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let options = schema.reserve_value_local(f);
+        options.set_undefined(f);
+        self.emit_temporal_zoned_date_time_from_input(input, &options, f)?;
+        options.clear(f);
+        Ok(schema.reserve_gc_local(f).initialize(
+            self.completion()
+                .value()
+                .cast_reference::<TemporalZonedDateTimeObject>(schema, f),
+            f,
+        ))
     }
-
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_regulate_property_bag_date_time(
         &mut self,
-        year_local: u32,
-        month_local: u32,
-        day_local: u32,
-        hour_local: u32,
-        minute_local: u32,
-        second_local: u32,
-        millisecond_local: u32,
-        microsecond_local: u32,
-        nanosecond_local: u32,
-        overflow_option_local: u32,
+        year_local: I64Local,
+        month_local: I64Local,
+        day_local: I64Local,
+        hour_local: I64Local,
+        minute_local: I64Local,
+        second_local: I64Local,
+        millisecond_local: I64Local,
+        microsecond_local: I64Local,
+        nanosecond_local: I64Local,
+        overflow_option_local: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let maximum_day_local = self.reserve_temp_local();
-        let invalid_local = self.reserve_temp_local();
+        let maximum_day_local = self.runtime_schema().reserve_i64_local(function);
+        let invalid_local = self.runtime_schema().reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(-271_821));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(275_760));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime property bag year is outside the supported instant range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError,RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_PROPERTY_BAG_YEAR_IS_OUTSIDE_THE_SUPPORTED_INSTANT_RANGE,function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(month_local));
+        (month_local).load(function);
         function.instruction(&Instruction::I64Const(12));
         function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(overflow_option_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (overflow_option_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime property bag month is out of range",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_PROPERTY_BAG_MONTH_IS_OUT_OF_RANGE,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(12));
-        function.instruction(&Instruction::LocalSet(month_local));
+        (month_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(31));
-        function.instruction(&Instruction::LocalSet(maximum_day_local));
+        (maximum_day_local).store(function);
         for month in [4_i64, 6, 9, 11] {
-            function.instruction(&Instruction::LocalGet(month_local));
+            (month_local).load(function);
             function.instruction(&Instruction::I64Const(month));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(30));
-            function.instruction(&Instruction::LocalSet(maximum_day_local));
+            (maximum_day_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(month_local));
+        (month_local).load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(year_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(400));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::I64Eqz);
@@ -1566,11 +595,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(28));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(maximum_day_local));
+        (maximum_day_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(invalid_local));
+        (invalid_local).store(function);
         for (local, minimum, maximum) in [
             (hour_local, 0_i64, 23_i64),
             (minute_local, 0, 59),
@@ -1579,48 +609,45 @@ impl<'a> FunctionBuilder<'a> {
             (microsecond_local, 0, 999),
             (nanosecond_local, 0, 999),
         ] {
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(minimum));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(maximum));
             function.instruction(&Instruction::I64GtS);
             function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(invalid_local));
+            (invalid_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
+        (day_local).load(function);
+        (maximum_day_local).load(function);
         function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
+        (invalid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(invalid_local));
+        (invalid_local).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(overflow_option_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (overflow_option_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime property bag date-time field is out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError,RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_PROPERTY_BAG_DATE_TIME_FIELD_IS_OUT_OF_RANGE,function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
+        (day_local).load(function);
+        (maximum_day_local).load(function);
         function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
-        function.instruction(&Instruction::LocalSet(day_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (maximum_day_local).load(function);
+        (day_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         for (local, minimum, maximum) in [
             (hour_local, 0_i64, 23_i64),
@@ -1630,97 +657,65 @@ impl<'a> FunctionBuilder<'a> {
             (microsecond_local, 0, 999),
             (nanosecond_local, 0, 999),
         ] {
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(minimum));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(minimum));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(maximum));
             function.instruction(&Instruction::I64GtS);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(maximum));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(invalid_local);
-        self.release_temp_local(maximum_day_local);
+        self.runtime_schema()
+            .release_i64_local(invalid_local, function);
+        self.runtime_schema()
+            .release_i64_local(maximum_day_local, function);
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_property_bag_integer(
         &mut self,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        input: &ValueLocals,
         property: &str,
-        property_key_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        present_local: u32,
-        output_local: u32,
+        present: I64Local,
+        output: I64Local,
         default: i64,
-        not_finite_error_message: &str,
+        not_finite_error: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(self.strings.payload(property)));
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        self.emit_temporal_duration_option_get(input, property, &value, function)?;
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(present_local));
-        self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(present_local));
+        present.store(function);
+        present.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(default));
-        function.instruction(&Instruction::LocalSet(output_local));
+        output.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::MAX)));
-        function.instruction(&Instruction::F64Gt);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            not_finite_error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.emit_temporal_to_integer_with_truncation(&value, output, not_finite_error, function)?;
+
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::End);
+        value.clear(function);
         Ok(())
     }
 
@@ -1740,51 +735,61 @@ impl<'a> FunctionBuilder<'a> {
     /// `[[...ZonedDateTime]]`.
     pub(crate) fn emit_temporal_reject_branded_partial_object(
         &mut self,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
-        error_message: &str,
+        input: &ValueLocals,
+        error_message: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let brand_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            argument_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
-            function,
-        );
-        for (index, brand) in [
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
+        let schema = self.runtime_schema();
+        for (index, test) in [
+            Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalPlainDateObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ),
+            Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalPlainDateTimeObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ),
+            Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalPlainMonthDayObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ),
+            Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalPlainTimeObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ),
+            Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalPlainYearMonthObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ),
+            Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalZonedDateTimeObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ),
         ]
         .into_iter()
         .enumerate()
         {
-            function.instruction(&Instruction::LocalGet(brand_local));
-            function.instruction(&Instruction::I64Const(brand as i64));
-            function.instruction(&Instruction::I64Eq);
-            if index > 0 {
+            input.reference().load(function);
+            function.instruction(&test);
+            if index != 0 {
                 function.instruction(&Instruction::I32Or);
             }
         }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
             error_message,
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(brand_local);
         Ok(())
     }
 
@@ -1802,2184 +807,1059 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_property_bag_positive_integer(
         &mut self,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        input: &ValueLocals,
         property: &str,
-        property_key_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        present_local: u32,
-        output_local: u32,
+        present: I64Local,
+        output: I64Local,
         default: i64,
-        not_finite_error_message: &str,
-        not_positive_error_message: &str,
+        not_finite_error: RuntimeErrorMessage,
+        not_positive_error: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_temporal_property_bag_integer(
-            argument_payload_local,
-            argument_tag_local,
+            input,
             property,
-            property_key_local,
-            value_payload_local,
-            value_tag_local,
-            present_local,
-            output_local,
+            present,
+            output,
             default,
-            not_finite_error_message,
+            not_finite_error,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(present_local));
+        present.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(output_local));
+        self.open_frame(ControlFrameKind::If, function);
+        output.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            not_positive_error_message,
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            not_positive_error,
             function,
         )?;
-        self.emit_return_current_completion(function);
+
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_property_bag_string(
         &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        error_message: &str,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        let pending = self.runtime_schema().reserve_completion(function);
+        self.emit_value_to_string_payload(value, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        value.copy_from(pending.value(), function);
+        pending.clear(function);
+
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_value_to_string_payload(value_payload_local, value_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        self.emit_return_current_completion_if_throw(function);
         Ok(())
     }
 
     pub(super) fn emit_temporal_offset_string(
         &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        error_message: &str,
-        function: &mut Function,
+        value: &ValueLocals,
+        error: RuntimeErrorMessage,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        let pending = self.runtime_schema().reserve_completion(f);
         self.emit_tagged_to_primitive_locals(
             ToPrimitiveHint::String,
-            value_payload_local,
-            value_tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
+            value,
+            &pending,
             ToPrimitiveAbruptRoute::ReturnCurrentFunction,
-            function,
+            f,
         )?;
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::End);
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
+        pending.value().tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        f.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::TypeError, error, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        value.copy_from(pending.value(), f);
+        pending.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         Ok(())
     }
-
-    pub(super) fn emit_temporal_zoned_date_time_offset_date_range(
-        &mut self,
-        days_local: u32,
-        offset_option_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // Explicit offsets with prefer/reject check the original ISO date.
-        // Use/ignore instead check the date after applying the selected offset.
-        function.instruction(&Instruction::LocalGet(offset_option_local));
-        function.instruction(&Instruction::I64Const(OffsetOption::Prefer.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(offset_option_local));
-        function.instruction(&Instruction::I64Const(OffsetOption::Reject.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(-100_000_000));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(100_000_000));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_instant_range_error(function)?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(super) fn emit_temporal_zoned_date_time_options(
+    pub(super) fn emit_temporal_read_zoned_options_fields(
         &mut self,
         context: TemporalZonedDateTimeOptionsContext,
-        options_payload_local: u32,
-        options_tag_local: u32,
-        offset_option_local: u32,
-        overflow_option_local: u32,
-        function: &mut Function,
+        options: &ValueLocals,
+        disambiguation: I64Local,
+        offset: I64Local,
+        overflow: I64Local,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let property_key_local = self.reserve_temp_local();
-        let option_payload_local = self.reserve_temp_local();
-        let option_tag_local = self.reserve_temp_local();
-        let expected_payload_local = self.reserve_temp_local();
-        let recognized_local = self.reserve_temp_local();
-
+        let schema = self.runtime_schema();
         for key in ZonedDateTimeOptionKey::ALL {
-            if let Some(destination) = key.destination(offset_option_local, overflow_option_local) {
-                function.instruction(&Instruction::I64Const(key.default_code(context)));
-                function.instruction(&Instruction::LocalSet(destination));
-            }
+            f.instruction(&Instruction::I64Const(key.default_code(context)));
+            key.destination(disambiguation, offset, overflow).store(f);
         }
-        function.instruction(&Instruction::LocalGet(options_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_is_heap_object_like_tag_i32(options_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
+        options.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_is_heap_object_like_tag_i32(options.tag(), f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
             context.object_error(),
-            self.result_local,
-            self.result_tag_local,
-            function,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        for key in ZonedDateTimeOptionKey::ALL {
-            let destination = key.destination(offset_option_local, overflow_option_local);
-            function.instruction(&Instruction::I64Const(self.strings.payload(key.property())));
-            function.instruction(&Instruction::LocalSet(property_key_local));
-            self.emit_object_read(
-                options_payload_local,
-                options_tag_local,
-                options_payload_local,
-                options_tag_local,
-                property_key_local,
-                option_payload_local,
-                option_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            function.instruction(&Instruction::LocalGet(option_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_value_to_string_payload(option_payload_local, option_tag_local, function)?;
-            function.instruction(&Instruction::LocalSet(option_payload_local));
-            self.emit_return_current_completion_if_throw(function);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(recognized_local));
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let value = schema.reserve_value_local(f);
+        let pending = schema.reserve_completion(f);
+        let recognized = schema.reserve_i32_local(f);
+        for key in context.keys() {
+            self.emit_temporal_duration_option_get(options, key.property(), &value, f)?;
+            value.tag().load(f);
+            f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+            f.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_value_to_string_payload(&value, &pending, f)?;
+            self.completion().copy_from(&pending, f);
+            self.emit_propagate_current_throw_if_needed(f);
+            let text = schema
+                .reserve_gc_local(f)
+                .initialize(pending.value().cast_reference::<StringValue>(schema, f), f);
+            f.instruction(&Instruction::I32Const(0));
+            recognized.store(f);
             for (expected, code) in key.allowed() {
-                function.instruction(&Instruction::I64Const(self.strings.payload(expected)));
-                function.instruction(&Instruction::LocalSet(expected_payload_local));
-                self.emit_string_payload_equality_i32(
-                    option_payload_local,
-                    expected_payload_local,
-                    function,
-                );
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(recognized_local));
-                if let Some(destination) = destination {
-                    function.instruction(&Instruction::I64Const(code));
-                    function.instruction(&Instruction::LocalSet(destination));
-                }
-                function.instruction(&Instruction::End);
+                self.emit_temporal_string_matches(&text, expected, f)?;
+                self.open_frame(ControlFrameKind::If, f);
+                f.instruction(&Instruction::I32Const(1));
+                recognized.store(f);
+                f.instruction(&Instruction::I64Const(code));
+                key.destination(disambiguation, offset, overflow).store(f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
             }
-            function.instruction(&Instruction::LocalGet(recognized_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
+            recognized.load(f);
+            f.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
                 key.range_error(),
-                self.result_local,
-                self.result_tag_local,
-                function,
+                f,
             )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            text.clear(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(recognized_local);
-        self.release_temp_local(expected_payload_local);
-        self.release_temp_local(option_tag_local);
-        self.release_temp_local(option_payload_local);
-        self.release_temp_local(property_key_local);
+        schema.release_i32_local(recognized, f);
+        pending.clear(f);
+        value.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_zoned_date_time_constructor(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let epoch_argument_payload_local = self.reserve_temp_local();
-        let epoch_argument_tag_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let time_zone_tag_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
+        self.emit_temporal_require_construct_call(
+            RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_CONSTRUCTOR_REQUIRES_NEW,
+            f,
         )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime constructor requires new",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        let input = self.runtime_schema().reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let instant = self.emit_temporal_to_normalized_instant(&input, f)?;
+        self.emit_builtin_arg_to_value(1, &input, f);
+        let zone = self.emit_temporal_zoned_date_time_time_zone(
+            &input,
+            TemporalTimeZoneStringGoal::Identifier,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            epoch_argument_payload_local,
-            epoch_argument_tag_local,
-            function,
-        );
-        self.emit_value_to_bigint_locals(
-            epoch_argument_tag_local,
-            epoch_argument_payload_local,
-            BigIntNumberPolicy::RejectNumber,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_temporal_instant_validate_range(epoch_payload_local, epoch_tag_local, function)?;
-        self.emit_builtin_arg_to_locals(1, time_zone_payload_local, time_zone_tag_local, function);
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-        self.emit_builtin_arg_to_locals(2, calendar_payload_local, calendar_tag_local, function);
-        // Constructor: `CanonicalizeCalendar` only — an ISO date string is a
-        // RangeError here.
-        self.emit_temporal_zoned_date_time_calendar(
-            calendar_payload_local,
-            calendar_tag_local,
-            ZonedDateTimeCalendarCoercion::CanonicalizeCalendar,
-            function,
-        )?;
-        self.emit_error_new_target_prototype_to_local(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-            None,
-            prototype_payload_local,
-            function,
-        )?;
+        self.emit_builtin_arg_to_value(2, &input, f);
+        let calendar = self.emit_temporal_constructor_calendar_slot(&input, f)?;
+        let prototype =
+            self.emit_temporal_constructor_prototype(TemporalIntrinsicFamily::ZonedDateTime, f)?;
         self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
+            TemporalZonedAllocationInput::new(&instant, &zone, &calendar),
+            TemporalPrototypeSource::Constructor(&prototype),
+            f,
         )?;
-
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(calendar_tag_local);
-        self.release_temp_local(calendar_payload_local);
-        self.release_temp_local(time_zone_tag_local);
-        self.release_temp_local(time_zone_payload_local);
-        self.release_temp_local(epoch_tag_local);
-        self.release_temp_local(epoch_payload_local);
-        self.release_temp_local(epoch_argument_tag_local);
-        self.release_temp_local(epoch_argument_payload_local);
+        prototype.release(f);
+        calendar.release(self, f);
+        zone.release(self, f);
+        instant.release(self, f);
+        input.clear(f);
         Ok(())
     }
 
-    pub(crate) fn emit_temporal_zoned_date_time_time_zone(
+    pub(in crate::builtins) fn emit_temporal_parse_time_zone_value_into(
         &mut self,
-        time_zone_payload_local: u32,
-        time_zone_tag_local: u32,
-        function: &mut Function,
+        input: &ValueLocals,
+        goal: TemporalTimeZoneStringGoal,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_zone_offset_seconds_local = self.reserve_temp_local();
-        let object_brand_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let string_offset_local = self.reserve_temp_local();
-        let string_len_local = self.reserve_temp_local();
-        let first_byte_local = self.reserve_temp_local();
-        let direct_identifier_local = self.reserve_temp_local();
-        let unused_nanoseconds_payload_local = self.reserve_temp_local();
-        let unused_nanoseconds_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            time_zone_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            object_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(object_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            time_zone_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-            time_zone_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
-            time_zone_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime time zone must be a string",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        let schema = self.runtime_schema();
+        let handled = schema.reserve_i32_local(f);
+        f.instruction(&Instruction::I32Const(0));
+        handled.store(f);
+        if matches!(goal, TemporalTimeZoneStringGoal::Object) {
+            input.reference().load(f);
+            f.instruction(&Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<TemporalZonedDateTimeObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ));
+            self.open_frame(ControlFrameKind::If, f);
+            let record = schema.reserve_gc_local(f).initialize(
+                input.cast_reference::<TemporalZonedDateTimeObject>(schema, f),
+                f,
+            );
+            let zone = schema.reserve_gc_local(f).initialize(
+                schema
+                    .struct_type::<TemporalZonedDateTimeObject>()
+                    .field(TemporalZonedDateTimeObjectSchema::TIME_ZONE)
+                    .read(&record, schema, f)
+                    .reference(),
+                f,
+            );
+            input.set_reference(&zone, schema, f);
+            zone.clear(f);
+            record.clear(f);
+            f.instruction(&Instruction::I32Const(1));
+            handled.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        handled.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        input.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        f.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_TIME_ZONE_MUST_BE_A_STRING,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(direct_identifier_local));
-        self.emit_unpack_string_payload(
-            time_zone_payload_local,
-            string_offset_local,
-            string_len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_load_string_byte(
-            string_offset_local,
-            direct_identifier_local,
-            first_byte_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(first_byte_local));
-        function.instruction(&Instruction::I64Const(b'+' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(first_byte_local));
-        function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(direct_identifier_local));
-        function.instruction(&Instruction::End);
-
-        let expected_utc_payload_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-        function.instruction(&Instruction::LocalSet(expected_utc_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            time_zone_payload_local,
-            expected_utc_payload_local,
-            Some(case_fold_local),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(direct_identifier_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            time_zone_offset_seconds_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_parse_iso_string(
-            time_zone_payload_local,
-            unused_nanoseconds_payload_local,
-            unused_nanoseconds_tag_local,
-            TemporalIsoParseGoal::TimeZoneIdentifier {
-                time_zone_payload_local,
-                time_zone_tag_local,
-            },
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_utc_payload_local);
-        self.release_temp_local(unused_nanoseconds_tag_local);
-        self.release_temp_local(unused_nanoseconds_payload_local);
-        self.release_temp_local(direct_identifier_local);
-        self.release_temp_local(first_byte_local);
-        self.release_temp_local(string_len_local);
-        self.release_temp_local(string_offset_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_brand_local);
-        self.release_temp_local(time_zone_offset_seconds_local);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let string = schema
+            .reserve_gc_local(f)
+            .initialize(input.cast_reference::<StringValue>(schema, f), f);
+        let named = schema.reserve_i64_local(f);
+        let first = schema.reserve_i64_local(f);
+        let length = schema.reserve_i64_local(f);
+        let zero = schema.reserve_i64_local(f);
+        f.instruction(&Instruction::I64Const(0));
+        zero.store(f);
+        self.emit_temporal_load_code_unit(&string, zero, first, f);
+        self.emit_temporal_string_length(&string, length, f);
+        self.emit_temporal_named_identifier_syntax(&string, named, f);
+        first.load(f);
+        f.instruction(&Instruction::I64Const(b'+' as i64));
+        f.instruction(&Instruction::I64Eq);
+        first.load(f);
+        f.instruction(&Instruction::I64Const(b'-' as i64));
+        f.instruction(&Instruction::I64Eq);
+        f.instruction(&Instruction::I32Or);
+        length.load(f);
+        f.instruction(&Instruction::I64Const(6));
+        f.instruction(&Instruction::I64LeU);
+        f.instruction(&Instruction::I32And);
+        named.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, f);
+        // A direct identifier is canonicalized by the identity factory. Direct
+        // numeric forms are parsed there once; ISO forms follow their own goal.
+        f.instruction(&Instruction::Else);
+        match goal {
+            TemporalTimeZoneStringGoal::Identifier => self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::INVALID_TEMPORAL_TIME_ZONE_IDENTIFIER,
+                f,
+            )?,
+            TemporalTimeZoneStringGoal::Object => {
+                self.emit_temporal_parse_iso_string(
+                    &string,
+                    TemporalIsoParseGoal::TimeZoneIdentifier {
+                        time_zone: input,
+                        string_goal: goal,
+                    },
+                    f,
+                )?;
+            }
+        }
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i64_local(zero, f);
+        schema.release_i64_local(length, f);
+        schema.release_i64_local(first, f);
+        schema.release_i64_local(named, f);
+        string.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i32_local(handled, f);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_fixed_time_zone_offset_seconds(
         &mut self,
-        time_zone_payload_local: u32,
-        time_zone_offset_seconds_local: u32,
-        function: &mut Function,
+        input: &GcLocal<StringValue>,
+        output: I64Local,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let expected_payload_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-        function.instruction(&Instruction::LocalSet(expected_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            time_zone_payload_local,
-            expected_payload_local,
-            Some(case_fold_local),
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(expected_payload_local));
-        function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(time_zone_offset_seconds_local));
-        function.instruction(&Instruction::Else);
-        let string_offset_local = self.reserve_temp_local();
-        let string_len_local = self.reserve_temp_local();
-        let cursor_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let valid_local = self.reserve_temp_local();
-        let sign_local = self.reserve_temp_local();
-        let hour_local = self.reserve_temp_local();
-        let minute_local = self.reserve_temp_local();
-        let has_minute_local = self.reserve_temp_local();
-        self.emit_unpack_string_payload(
-            time_zone_payload_local,
-            string_offset_local,
-            string_len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(minute_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::LocalGet(valid_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'+' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(sign_local));
-        self.emit_temporal_advance_cursor(cursor_local, function);
-        self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
-            cursor_local,
-            string_len_local,
-            byte_local,
-            valid_local,
-            hour_local,
-            2,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b':' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_advance_cursor(cursor_local, function);
-        function.instruction(&Instruction::End);
-        self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
-            cursor_local,
-            string_len_local,
-            byte_local,
-            valid_local,
-            minute_local,
-            2,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(hour_local));
-        function.instruction(&Instruction::I64Const(23));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(minute_local));
-        function.instruction(&Instruction::I64Const(59));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(valid_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.ZonedDateTime time zone",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        let schema = self.runtime_schema();
+        let length = schema.reserve_i64_local(f);
+        let cursor = schema.reserve_i64_local(f);
+        let unit = schema.reserve_i64_local(f);
+        let sign = schema.reserve_i64_local(f);
+        let hour = schema.reserve_i64_local(f);
+        let minute = schema.reserve_i64_local(f);
+        let valid = schema.reserve_i64_local(f);
+        self.emit_temporal_string_length(input, length, f);
+        cursor.set_constant(0, f);
+        minute.set_constant(0, f);
+        self.emit_temporal_load_code_unit(input, cursor, unit, f);
+        unit.load(f);
+        f.instruction(&Instruction::I64Const(b'+' as i64));
+        f.instruction(&Instruction::I64Eq);
+        unit.load(f);
+        f.instruction(&Instruction::I64Const(b'-' as i64));
+        f.instruction(&Instruction::I64Eq);
+        f.instruction(&Instruction::I32Or);
+        f.instruction(&Instruction::I64ExtendI32U);
+        valid.store(f);
+        unit.load(f);
+        f.instruction(&Instruction::I64Const(b'-' as i64));
+        f.instruction(&Instruction::I64Eq);
+        f.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        f.instruction(&Instruction::I64Const(-1));
+        f.instruction(&Instruction::Else);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::End);
+        sign.store(f);
+        cursor.set_constant(1, f);
+        self.emit_temporal_parse_fixed_decimal(input, cursor, length, unit, valid, hour, 2, f);
+        cursor.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_load_code_unit(input, cursor, unit, f);
+        unit.load(f);
+        f.instruction(&Instruction::I64Const(b':' as i64));
+        f.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_advance_cursor(cursor, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_temporal_parse_fixed_decimal(input, cursor, length, unit, valid, minute, 2, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        valid.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        cursor.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64Ne);
+        f.instruction(&Instruction::I32Or);
+        hour.load(f);
+        f.instruction(&Instruction::I64Const(23));
+        f.instruction(&Instruction::I64GtU);
+        f.instruction(&Instruction::I32Or);
+        minute.load(f);
+        f.instruction(&Instruction::I64Const(59));
+        f.instruction(&Instruction::I64GtU);
+        f.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_TIME_ZONE,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(hour_local));
-        function.instruction(&Instruction::I64Const(3_600));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(minute_local));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(time_zone_offset_seconds_local));
-        self.emit_temporal_format_fixed_time_zone_offset(
-            time_zone_offset_seconds_local,
-            time_zone_payload_local,
-            function,
-        )?;
-        self.release_temp_local(has_minute_local);
-        self.release_temp_local(minute_local);
-        self.release_temp_local(hour_local);
-        self.release_temp_local(sign_local);
-        self.release_temp_local(valid_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(cursor_local);
-        self.release_temp_local(string_len_local);
-        self.release_temp_local(string_offset_local);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_payload_local);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        hour.load(f);
+        f.instruction(&Instruction::I64Const(3600));
+        f.instruction(&Instruction::I64Mul);
+        minute.load(f);
+        f.instruction(&Instruction::I64Const(60));
+        f.instruction(&Instruction::I64Mul);
+        f.instruction(&Instruction::I64Add);
+        sign.load(f);
+        f.instruction(&Instruction::I64Mul);
+        output.store(f);
+        for local in [valid, minute, hour, sign, unit, cursor, length] {
+            schema.release_i64_local(local, f);
+        }
         Ok(())
     }
 
-    fn emit_temporal_zoned_date_time_calendar(
+    pub(in crate::builtins) fn emit_alloc_temporal_zoned_date_time(
         &mut self,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
-        coercion: ZonedDateTimeCalendarCoercion,
-        function: &mut Function,
+        input: TemporalZonedAllocationInput<'_>,
+        prototype: TemporalPrototypeSource<'_>,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        match coercion {
-            ZonedDateTimeCalendarCoercion::ToTemporalCalendarIdentifier => self
-                .emit_temporal_to_temporal_calendar_identifier(
-                    calendar_payload_local,
-                    calendar_tag_local,
-                    "Temporal.ZonedDateTime calendar must be a string",
-                    function,
-                ),
-            ZonedDateTimeCalendarCoercion::CanonicalizeCalendar => self
-                .emit_temporal_canonicalize_calendar(
-                    calendar_payload_local,
-                    calendar_tag_local,
-                    TemporalCalendarCanonicalizationContext::ZonedDateTime,
-                    function,
-                ),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_alloc_temporal_zoned_date_time(
-        &mut self,
-        epoch_payload_local: u32,
-        epoch_tag_local: u32,
-        time_zone_payload_local: u32,
-        time_zone_tag_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
-        prototype_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_payload_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_payload_local));
-        self.emit_heap_alloc_const(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        for (offset, local) in [
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-                epoch_tag_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                epoch_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
-                time_zone_tag_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-                time_zone_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
-                calendar_tag_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-                calendar_payload_local,
-            ),
-        ] {
-            self.store_i64_local_at_offset(record_local, offset, local, function);
-        }
-        self.store_i64_const_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
-            function,
+        let schema = self.runtime_schema();
+        let header = schema.reserve_gc_local(f).initialize(
+            self.emit_alloc_temporal_object_header(
+                TemporalIntrinsicFamily::ZonedDateTime,
+                prototype,
+                f,
+            )?,
+            f,
         );
-        self.store_i64_local_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
+        let record = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalZonedDateTimeObject>()
+                .construct(
+                    (
+                        GcOperand::reference(&header, schema),
+                        GcOperand::reference(input.instant().epoch_nanoseconds(), schema),
+                        GcOperand::reference(input.zone().identifier(), schema),
+                        GcOperand::reference(input.calendar().identifier(), schema),
+                    ),
+                    f,
+                ),
+            f,
         );
-        function.instruction(&Instruction::LocalGet(object_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_payload_local);
+        self.completion().value().set_reference(&record, schema, f);
+        self.completion().set_normal(self.completion().value(), f);
+        record.clear(f);
+        header.clear(f);
         Ok(())
     }
-
+    pub(crate) fn emit_temporal_zoned_date_time_record_from_receiver(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<GcLocal<TemporalZonedDateTimeObject>, EmitError> {
+        self.emit_temporal_record_from_receiver(f)
+    }
     pub(crate) fn emit_temporal_zoned_date_time_epoch_nanoseconds(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_zoned_date_time_record_from_receiver(f)?;
+        let epoch = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalZonedDateTimeObject>()
+                .field(TemporalZonedDateTimeObjectSchema::EPOCH_NANOSECONDS)
+                .read(&record, schema, f)
+                .reference(),
+            f,
         );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.release_temp_local(record_local);
+        self.completion().value().set_reference(&epoch, schema, f);
+        self.completion().set_normal(self.completion().value(), f);
+        epoch.clear(f);
+        record.clear(f);
         Ok(())
     }
-
     pub(crate) fn emit_temporal_zoned_date_time_epoch_milliseconds(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let quotient_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(nanoseconds_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_heap_bigint_millisecond_quotient(
-            nanoseconds_payload_local,
-            quotient_local,
-            remainder_local,
-            negative_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(negative_local);
-        self.release_temp_local(remainder_local);
-        self.release_temp_local(quotient_local);
-        self.release_temp_local(nanoseconds_tag_local);
-        self.release_temp_local(nanoseconds_payload_local);
-        self.release_temp_local(record_local);
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        let epoch = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let millis = schema.reserve_i64_local(f);
+        epoch.floor_seconds().load(f);
+        f.instruction(&Instruction::I64Const(1000));
+        f.instruction(&Instruction::I64Mul);
+        epoch.nanosecond().load(f);
+        f.instruction(&Instruction::I64Const(1_000_000));
+        f.instruction(&Instruction::I64DivU);
+        f.instruction(&Instruction::I64Add);
+        millis.store(f);
+        let output = schema.reserve_value_local(f);
+        self.emit_temporal_integer_number(millis, &output, f);
+        self.completion().set_normal(&output, f);
+        output.clear(f);
+        schema.release_i64_local(millis, f);
+        epoch.release(self, f);
+        record.release(f);
         Ok(())
     }
-
     pub(crate) fn emit_temporal_zoned_date_time_offset(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let offset_seconds_local = self.reserve_temp_local();
-        let output_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_zoned_date_time_offset_seconds_from_receiver(
-            offset_seconds_local,
-            function,
-        )?;
-        self.emit_temporal_format_fixed_time_zone_offset(
-            offset_seconds_local,
-            output_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(output_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(output_payload_local);
-        self.release_temp_local(offset_seconds_local);
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        let instant = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let zone = self.emit_temporal_zone_from_zoned_record(&record, f)?;
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &instant, f)?;
+        let output = schema.reserve_value_local(f);
+        self.emit_temporal_format_exact_offset_seconds(snapshot.offset_seconds(), &output, f)?;
+        self.completion().set_normal(&output, f);
+        output.clear(f);
+        snapshot.release(self, f);
+        zone.release(self, f);
+        instant.release(self, f);
+        record.release(f);
         Ok(())
     }
 
+    fn emit_temporal_format_exact_offset_seconds(
+        &mut self,
+        offset: I64Local,
+        output: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_format_fixed_time_zone_offset(offset, output, f)?;
+        let schema = self.runtime_schema();
+        let seconds = schema.reserve_i64_local(f);
+        offset.load(f);
+        f.instruction(&Instruction::I64Const(60));
+        f.instruction(&Instruction::I64RemS);
+        seconds.store(f);
+        seconds.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::I64LtS);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(0));
+        seconds.load(f);
+        f.instruction(&Instruction::I64Sub);
+        seconds.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        seconds.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let text = schema
+            .reserve_gc_local(f)
+            .initialize(output.cast_reference::<StringValue>(schema, f), f);
+        self.emit_temporal_append_gc_literal(&text, ":", f)?;
+        seconds.load(f);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        seconds.store(f);
+        self.emit_date_append_padded_decimal(&text, seconds, 2, f)?;
+        output.set_reference(&text, schema, f);
+        text.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i64_local(seconds, f);
+        Ok(())
+    }
     pub(super) fn emit_temporal_format_fixed_time_zone_offset(
         &mut self,
-        offset_seconds_local: u32,
-        output_payload_local: u32,
-        function: &mut Function,
+        offset: I64Local,
+        output: &ValueLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let magnitude_seconds_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let separator_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("+")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(magnitude_seconds_local));
-        function.instruction(&Instruction::LocalGet(magnitude_seconds_local));
-        function.instruction(&Instruction::I64Const(3_600));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(hour_payload_local));
-        function.instruction(&Instruction::LocalGet(magnitude_seconds_local));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(minute_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            hour_payload_local,
-            2,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(":")));
-        function.instruction(&Instruction::LocalSet(separator_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            separator_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            minute_payload_local,
-            2,
-            function,
-        )?;
-
-        self.release_temp_local(separator_payload_local);
-        self.release_temp_local(minute_payload_local);
-        self.release_temp_local(hour_payload_local);
-        self.release_temp_local(magnitude_seconds_local);
+        let schema = self.runtime_schema();
+        let text = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_interned_string_reference("+", f)?, f);
+        let magnitude = schema.reserve_i64_local(f);
+        let number = schema.reserve_i64_local(f);
+        offset.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::I64LtS);
+        self.open_frame(ControlFrameKind::If, f);
+        text.replace(self.emit_interned_string_reference("-", f)?, f);
+        f.instruction(&Instruction::I64Const(0));
+        offset.load(f);
+        f.instruction(&Instruction::I64Sub);
+        magnitude.store(f);
+        f.instruction(&Instruction::Else);
+        offset.load(f);
+        magnitude.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        magnitude.load(f);
+        f.instruction(&Instruction::I64Const(3600));
+        f.instruction(&Instruction::I64DivU);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        number.store(f);
+        self.emit_date_append_padded_decimal(&text, number, 2, f)?;
+        self.emit_temporal_append_gc_literal(&text, ":", f)?;
+        magnitude.load(f);
+        f.instruction(&Instruction::I64Const(60));
+        f.instruction(&Instruction::I64DivU);
+        f.instruction(&Instruction::I64Const(60));
+        f.instruction(&Instruction::I64RemU);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        number.store(f);
+        self.emit_date_append_padded_decimal(&text, number, 2, f)?;
+        output.set_reference(&text, schema, f);
+        schema.release_i64_local(number, f);
+        schema.release_i64_local(magnitude, f);
+        text.clear(f);
         Ok(())
     }
 
     pub(crate) fn emit_temporal_zoned_date_time_offset_nanoseconds(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let offset_seconds_local = self.reserve_temp_local();
-        self.emit_temporal_zoned_date_time_offset_seconds_from_receiver(
-            offset_seconds_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(offset_seconds_local);
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        let instant = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let zone = self.emit_temporal_zone_from_zoned_record(&record, f)?;
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &instant, f)?;
+        let offset = schema.reserve_i64_local(f);
+        let output = schema.reserve_value_local(f);
+        snapshot.offset_seconds().load(f);
+        f.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
+        f.instruction(&Instruction::I64Mul);
+        offset.store(f);
+        self.emit_temporal_integer_number(offset, &output, f);
+        self.completion().set_normal(&output, f);
+        output.clear(f);
+        schema.release_i64_local(offset, f);
+        snapshot.release(self, f);
+        zone.release(self, f);
+        instant.release(self, f);
+        record.release(f);
         Ok(())
     }
-
-    fn emit_temporal_zoned_date_time_offset_seconds_from_receiver(
-        &mut self,
-        offset_seconds_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-            time_zone_payload_local,
-            function,
-        );
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            offset_seconds_local,
-            function,
-        )?;
-        self.release_temp_local(time_zone_payload_local);
-        self.release_temp_local(record_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_temporal_zoned_date_time_time_zone_id(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_zoned_date_time_string_slot(
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_temporal_zoned_date_time_calendar_id(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_temporal_zoned_date_time_string_slot(
-            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
-            function,
-        )
-    }
-
-    /// `GetISODateTimeFor(timeZone, epochNanoseconds)`: the receiver's epoch
-    /// nanoseconds shifted by its time zone's offset and split into the seven
-    /// components `emit_date_components_from_time` produces, plus the
-    /// sub-millisecond `remainder_local` those components do not carry.
-    ///
-    /// Extracted verbatim from `emit_temporal_zoned_date_time_iso_field` so
-    /// `toPlainDateTime` runs the *same* sequence rather than a second copy of
-    /// it. A copy would be free to drift on the two subtleties this body
-    /// carries: the negative-remainder correction that turns a truncating
-    /// `I64DivS` into a floor, and the two-limb heap-BigInt path for epoch
-    /// values outside the inline range.
-    ///
-    /// The `component_locals` array is `[year, month, day, hour, minute,
-    /// second, millisecond]` and every entry comes back as an **f64 bit
-    /// pattern**, with `month` **0-based**. `remainder_local` is the exception:
-    /// a plain non-negative `i64` nanosecond count inside the millisecond.
-    /// Callers that want integers must reinterpret and truncate.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_temporal_zoned_date_time_local_components(
-        &mut self,
-        record_local: u32,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
-        milliseconds_local: u32,
-        remainder_local: u32,
-        negative_local: u32,
-        offset_seconds_local: u32,
-        time_zone_payload_local: u32,
-        local_time_payload_local: u32,
-        component_locals: [u32; 7],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let [year_payload_local, month_payload_local, day_payload_local, hour_payload_local, minute_payload_local, second_payload_local, millisecond_payload_local] =
-            component_locals;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_zoned_date_time_record_from_receiver(f)?;
+        let string = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalZonedDateTimeObject>()
+                .field(TemporalZonedDateTimeObjectSchema::TIME_ZONE)
+                .read(&record, schema, f)
+                .reference(),
+            f,
         );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-            time_zone_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(nanoseconds_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_heap_bigint_millisecond_quotient(
-            nanoseconds_payload_local,
-            milliseconds_local,
-            remainder_local,
-            negative_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::End);
-
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            offset_seconds_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(local_time_payload_local));
-        self.emit_date_components_from_time(
-            local_time_payload_local,
-            year_payload_local,
-            month_payload_local,
-            day_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            millisecond_payload_local,
-            function,
-        );
+        self.completion().value().set_reference(&string, schema, f);
+        self.completion().set_normal(self.completion().value(), f);
+        string.clear(f);
+        record.clear(f);
         Ok(())
     }
-
-    /// The local ISO date-time fields of a `Temporal.ZonedDateTime`, one
-    /// accessor at a time.
-    ///
-    /// Every arm shares the epoch-nanoseconds -> local-components sequence at
-    /// the top; `field` selects which component comes back and, through
-    /// [`ZdtFieldResult`], how it was delivered.
+    pub(crate) fn emit_temporal_zoned_date_time_calendar_id(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_zoned_date_time_record_from_receiver(f)?;
+        let string = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalZonedDateTimeObject>()
+                .field(TemporalZonedDateTimeObjectSchema::CALENDAR)
+                .read(&record, schema, f)
+                .reference(),
+            f,
+        );
+        self.completion().value().set_reference(&string, schema, f);
+        self.completion().set_normal(self.completion().value(), f);
+        string.clear(f);
+        record.clear(f);
+        Ok(())
+    }
+    /// The concrete record supplies the zone, epoch and calendar without Get.
+    /// Its projection uses the same exact floor pair as native field getters.
+    pub(super) fn emit_temporal_zoned_date_time_wall_clock_fields(
+        &mut self,
+        record: &GcLocal<TemporalZonedDateTimeObject>,
+        fields: &[I64Local; 9],
+        calendar: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(f);
+        value.set_reference(record, schema, f);
+        let branded = self.emit_temporal_branded_zoned_record_from_value(&value, f)?;
+        let instant = self.emit_temporal_normalized_instant_from_zoned_record(&branded, f)?;
+        let zone = self.emit_temporal_zone_from_zoned_record(&branded, f)?;
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &instant, f)?;
+        let iso = self.emit_temporal_zone_snapshot_iso_record(&snapshot, f)?;
+        for (source, destination) in iso.fields().iter().zip(fields) {
+            source.load(f);
+            destination.store(f);
+        }
+        let identifier = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<TemporalZonedDateTimeObject>()
+                .field(TemporalZonedDateTimeObjectSchema::CALENDAR)
+                .read(record, schema, f)
+                .reference(),
+            f,
+        );
+        calendar.set_reference(&identifier, schema, f);
+        identifier.clear(f);
+        iso.release(self, f);
+        snapshot.release(self, f);
+        zone.release(self, f);
+        instant.release(self, f);
+        branded.release(f);
+        value.clear(f);
+        Ok(())
+    }
     pub(crate) fn emit_temporal_zoned_date_time_iso_field(
         &mut self,
         field: ZonedDateTimeField,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let local_time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let day_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let millisecond_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.emit_temporal_zoned_date_time_local_components(
-            record_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            milliseconds_local,
-            remainder_local,
-            negative_local,
-            offset_seconds_local,
-            time_zone_payload_local,
-            local_time_payload_local,
-            [
-                year_payload_local,
-                month_payload_local,
-                day_payload_local,
-                hour_payload_local,
-                minute_payload_local,
-                second_payload_local,
-                millisecond_payload_local,
-            ],
-            function,
-        )?;
-
-        // Exhaustive over `ZonedDateTimeField`, no catch-all: a new accessor
-        // must state both what it emits and how it delivered it, in the same
-        // place.
-        let delivery = match field {
-            ZonedDateTimeField::DayOfWeek => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::DayOfWeek,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::DayOfYear => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::DayOfYear,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::WeekOfYear => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::WeekOfYear,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::YearOfWeek => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::YearOfWeek,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::DaysInWeek => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::DaysInWeek,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::DaysInMonth => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::DaysInMonth,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::DaysInYear => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::DaysInYear,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::MonthsInYear => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::MonthsInYear,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::InLeapYear => {
-                let year_local = self.reserve_temp_local();
-                function.instruction(&Instruction::LocalGet(year_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::I64TruncF64S);
-                function.instruction(&Instruction::LocalSet(year_local));
-                self.emit_temporal_iso_year_is_leap_i32(year_local, function);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(year_local);
-                ZdtFieldResult::WrittenByCallee
-            }
-
-            ZonedDateTimeField::Year => {
-                self.emit_temporal_zoned_date_time_calendar_numeric_field(
-                    ZonedDateTimeCalendarField::Year,
-                    record_local,
-                    [year_payload_local, month_payload_local, day_payload_local],
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::Month => {
-                function.instruction(&Instruction::LocalGet(month_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-                function.instruction(&Instruction::F64Add);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                ZdtFieldResult::NumberOnStack
-            }
-            ZonedDateTimeField::Day => {
-                function.instruction(&Instruction::LocalGet(day_payload_local));
-                ZdtFieldResult::NumberOnStack
-            }
+        use super::temporal_plain_date::TemporalPlainDateField as D;
+        let schema = self.runtime_schema();
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        let instant = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let zone = self.emit_temporal_zone_from_zoned_record(&record, f)?;
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &instant, f)?;
+        let iso = self.emit_temporal_zone_snapshot_iso_record(&snapshot, f)?;
+        let calendar = self.emit_temporal_calendar_from_zoned_record(&record, f)?;
+        let output = schema.reserve_value_local(f);
+        match field {
             ZonedDateTimeField::Hour => {
-                function.instruction(&Instruction::LocalGet(hour_payload_local));
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_integer_number(iso.fields()[3], &output, f)
             }
             ZonedDateTimeField::Minute => {
-                function.instruction(&Instruction::LocalGet(minute_payload_local));
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_integer_number(iso.fields()[4], &output, f)
             }
             ZonedDateTimeField::Second => {
-                function.instruction(&Instruction::LocalGet(second_payload_local));
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_integer_number(iso.fields()[5], &output, f)
             }
             ZonedDateTimeField::Millisecond => {
-                function.instruction(&Instruction::LocalGet(millisecond_payload_local));
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_integer_number(iso.fields()[6], &output, f)
             }
             ZonedDateTimeField::Microsecond => {
-                function.instruction(&Instruction::LocalGet(remainder_local));
-                function.instruction(&Instruction::I64Const(1_000));
-                function.instruction(&Instruction::I64DivU);
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_integer_number(iso.fields()[7], &output, f)
             }
             ZonedDateTimeField::Nanosecond => {
-                function.instruction(&Instruction::LocalGet(remainder_local));
-                function.instruction(&Instruction::I64Const(1_000));
-                function.instruction(&Instruction::I64RemU);
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_integer_number(iso.fields()[8], &output, f)
             }
-            ZonedDateTimeField::MonthCode => {
-                let month_number_local = self.reserve_temp_local();
-                function.instruction(&Instruction::LocalGet(month_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::I64TruncF64U);
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(month_number_local));
-                function.instruction(&Instruction::I64Const(self.strings.payload("M01")));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                for month in 2..=12 {
-                    function.instruction(&Instruction::LocalGet(month_number_local));
-                    function.instruction(&Instruction::I64Const(month));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(
-                        self.strings.payload(&format!("M{month:02}")),
-                    ));
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(month_number_local);
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::Era => {
-                self.emit_temporal_zoned_date_time_era_field(
-                    record_local,
-                    year_payload_local,
-                    TemporalEraField::Era,
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-            ZonedDateTimeField::EraYear => {
-                self.emit_temporal_zoned_date_time_era_field(
-                    record_local,
-                    year_payload_local,
-                    TemporalEraField::EraYear,
-                    function,
-                );
-                ZdtFieldResult::WrittenByCallee
-            }
-        };
-        match delivery {
-            ZdtFieldResult::NumberOnStack => {
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            }
-            ZdtFieldResult::WrittenByCallee => {}
+            ZonedDateTimeField::Era => self.emit_temporal_date_field_value(
+                D::Era,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::EraYear => self.emit_temporal_date_field_value(
+                D::EraYear,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::Year => self.emit_temporal_date_field_value(
+                D::Year,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::Month => self.emit_temporal_date_field_value(
+                D::Month,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::MonthCode => self.emit_temporal_date_field_value(
+                D::MonthCode,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::Day => self.emit_temporal_date_field_value(
+                D::Day,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::DayOfWeek => self.emit_temporal_date_field_value(
+                D::DayOfWeek,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::DayOfYear => self.emit_temporal_date_field_value(
+                D::DayOfYear,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::WeekOfYear => self.emit_temporal_date_field_value(
+                D::WeekOfYear,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::YearOfWeek => self.emit_temporal_date_field_value(
+                D::YearOfWeek,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::DaysInWeek => self.emit_temporal_date_field_value(
+                D::DaysInWeek,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::DaysInMonth => self.emit_temporal_date_field_value(
+                D::DaysInMonth,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::DaysInYear => self.emit_temporal_date_field_value(
+                D::DaysInYear,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::MonthsInYear => self.emit_temporal_date_field_value(
+                D::MonthsInYear,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
+            ZonedDateTimeField::InLeapYear => self.emit_temporal_date_field_value(
+                D::InLeapYear,
+                &calendar,
+                [iso.fields()[0], iso.fields()[1], iso.fields()[2]],
+                &output,
+                f,
+            )?,
         }
-
-        for local in [
-            millisecond_payload_local,
-            second_payload_local,
-            minute_payload_local,
-            hour_payload_local,
-            day_payload_local,
-            month_payload_local,
-            year_payload_local,
-            local_time_payload_local,
-            time_zone_payload_local,
-            offset_seconds_local,
-            negative_local,
-            remainder_local,
-            milliseconds_local,
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        self.completion().set_normal(&output, f);
+        output.clear(f);
+        calendar.release(self, f);
+        iso.release(self, f);
+        snapshot.release(self, f);
+        zone.release(self, f);
+        instant.release(self, f);
+        record.release(f);
         Ok(())
     }
-
-    fn emit_temporal_zoned_date_time_calendar_numeric_field(
-        &mut self,
-        field: ZonedDateTimeCalendarField,
-        record_local: u32,
-        date_payload_locals: [u32; 3],
-        function: &mut Function,
-    ) {
-        let date_locals = [
-            self.reserve_temp_local(),
-            self.reserve_temp_local(),
-            self.reserve_temp_local(),
-        ];
-        let value_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-            calendar_payload_local,
-            function,
-        );
-        for (payload_local, local) in date_payload_locals.into_iter().zip(date_locals) {
-            function.instruction(&Instruction::LocalGet(payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::I64TruncF64S);
-            function.instruction(&Instruction::LocalSet(local));
-        }
-        function.instruction(&Instruction::LocalGet(date_locals[1]));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(date_locals[1]));
-        self.emit_temporal_plain_date_numeric_field(
-            field.date_accessor(),
-            calendar_payload_local,
-            date_locals[0],
-            date_locals[1],
-            date_locals[2],
-            value_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        if matches!(
-            field,
-            ZonedDateTimeCalendarField::WeekOfYear | ZonedDateTimeCalendarField::YearOfWeek
-        ) {
-            self.emit_temporal_calendar_week_result(calendar_payload_local, function);
-        }
-        self.release_temp_local(calendar_payload_local);
-        self.release_temp_local(value_local);
-        for local in date_locals.into_iter().rev() {
-            self.release_temp_local(local);
-        }
-    }
-
-    /// `era` / `eraYear` for a `Temporal.ZonedDateTime`, from the receiver's
-    /// `[[Calendar]]` and its *local* ISO year.
-    ///
-    /// The answer comes out of [`Self::emit_temporal_calendar_era_field`], the
-    /// same emitter `PlainDate`, `PlainDateTime` and `PlainYearMonth` use, so
-    /// ZonedDateTime cannot disagree with them about where the year-0 boundary
-    /// falls or which era codes exist. That emitter writes both halves of the
-    /// result pair, which is why the caller reports
-    /// [`ZdtFieldResult::WrittenByCallee`].
-    ///
-    /// The one unit conversion is load-bearing.
-    /// `emit_date_components_from_time` leaves every component as an **f64 bit
-    /// pattern** (each of its arms ends in `I64ReinterpretF64`), whereas
-    /// `emit_temporal_calendar_era_field` takes a plain `i64` ISO year, the way
-    /// `PlainDate` hands it one straight out of its record. Passing the bit
-    /// pattern through unconverted would compare a reinterpreted double against
-    /// `0` and put essentially every year in the `ce` branch — a bug invisible
-    /// for positive years, which is exactly why
-    /// `wasm_temporal_zoned_date_time_era.js` drives the `bce` side.
-    /// `I64TruncF64S` is exact here: the value is an integral f64 well inside
-    /// the `i64` range, since `ISODateTimeWithinLimits` bounds the year to
-    /// ±275,760.
-    fn emit_temporal_zoned_date_time_era_field(
-        &mut self,
-        record_local: u32,
-        year_payload_local: u32,
-        field: TemporalEraField,
-        function: &mut Function,
-    ) {
-        let calendar_payload_local = self.reserve_temp_local();
-        let iso_year_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-            calendar_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(iso_year_local));
-        self.emit_temporal_calendar_era_field(
-            calendar_payload_local,
-            iso_year_local,
-            field,
-            function,
-        );
-        self.release_temp_local(iso_year_local);
-        self.release_temp_local(calendar_payload_local);
-    }
-
-    /// `Temporal.ZonedDateTime.prototype.toPlainDateTime`.
-    ///
-    /// The inverse of [`Self::emit_temporal_plain_date_time_to_zoned_date_time`]
-    /// and the keystone of the era-boundary corpus: every
-    /// `intl402/Temporal/ZonedDateTime/**/era-boundary-gregory.js` file asserts
-    /// through `TemporalHelpers.assertPlainDateTime`, which requires a real
-    /// `Temporal.PlainDateTime`, never the zoned value.
-    ///
-    /// It reuses the epoch-nanoseconds -> local-components sequence that
-    /// [`Self::emit_temporal_zoned_date_time_iso_field`] already runs, then
-    /// hands the nine ISO fields plus **the receiver's own calendar payload** to
-    /// `CreateTemporalDateTime`. Carrying the calendar is what makes
-    /// `result.era` answer `"bce"` rather than `undefined`; the ISO fields alone
-    /// would produce an `iso8601` PlainDateTime that reports no era at all.
     pub(super) fn emit_temporal_zoned_date_time_to_plain(
         &mut self,
         target: TemporalZonedDateTimePlainTarget,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let local_time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let day_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let millisecond_payload_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let field_locals = self.reserve_temporal_plain_date_time_field_locals();
-
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.emit_temporal_zoned_date_time_local_components(
-            record_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            milliseconds_local,
-            remainder_local,
-            negative_local,
-            offset_seconds_local,
-            time_zone_payload_local,
-            local_time_payload_local,
-            [
-                year_payload_local,
-                month_payload_local,
-                day_payload_local,
-                hour_payload_local,
-                minute_payload_local,
-                second_payload_local,
-                millisecond_payload_local,
-            ],
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-            calendar_payload_local,
-            function,
-        );
-
-        // The components arrive as f64 bit patterns; a `PlainDateTime` record
-        // stores plain integers. `month_payload_local` is 0-based, matching
-        // `emit_date_components_from_time`, so it gains the same `+ 1` the
-        // `month` accessor applies.
-        for (payload_local, field_local) in [
-            (year_payload_local, field_locals[0]),
-            (day_payload_local, field_locals[2]),
-            (hour_payload_local, field_locals[3]),
-            (minute_payload_local, field_locals[4]),
-            (second_payload_local, field_locals[5]),
-            (millisecond_payload_local, field_locals[6]),
-        ] {
-            function.instruction(&Instruction::LocalGet(payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::I64TruncF64S);
-            function.instruction(&Instruction::LocalSet(field_local));
-        }
-        function.instruction(&Instruction::LocalGet(month_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(field_locals[1]));
-        // `remainder_local` is the sub-millisecond nanosecond count, already a
-        // plain non-negative `i64` — the one component that is not a bit
-        // pattern, because it never went through `emit_date_components_from_time`.
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(field_locals[7]));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(field_locals[8]));
-
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        let instant = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let zone = self.emit_temporal_zone_from_zoned_record(&record, f)?;
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &instant, f)?;
+        let iso = self.emit_temporal_zone_snapshot_iso_record(&snapshot, f)?;
+        let calendar = self.emit_temporal_calendar_from_zoned_record(&record, f)?;
         match target {
-            TemporalZonedDateTimePlainTarget::Date => {
-                let prototype_payload_local = self.reserve_temp_local();
-                function.instruction(&Instruction::GlobalGet(
-                    TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
-                ));
-                function.instruction(&Instruction::LocalSet(prototype_payload_local));
-                self.emit_alloc_temporal_plain_date(
-                    field_locals[0],
-                    field_locals[1],
-                    field_locals[2],
-                    calendar_payload_local,
-                    prototype_payload_local,
-                    function,
-                )?;
-                self.release_temp_local(prototype_payload_local);
-            }
-            TemporalZonedDateTimePlainTarget::DateTime => {
-                self.emit_alloc_temporal_plain_date_time(
-                    &field_locals,
-                    calendar_payload_local,
-                    None,
-                    function,
-                )?;
-            }
+            TemporalZonedDateTimePlainTarget::Date => self.emit_alloc_temporal_plain_date(
+                iso.fields()[0],
+                iso.fields()[1],
+                iso.fields()[2],
+                &calendar,
+                TemporalPrototypeSource::Intrinsic,
+                f,
+            )?,
+            TemporalZonedDateTimePlainTarget::DateTime => self
+                .emit_alloc_temporal_plain_date_time(
+                    iso.fields(),
+                    &calendar,
+                    TemporalPrototypeSource::Intrinsic,
+                    f,
+                )?,
+            TemporalZonedDateTimePlainTarget::Time => self.emit_alloc_temporal_plain_time(
+                &Self::temporal_plain_date_time_time_locals(iso.fields()),
+                TemporalPrototypeSource::Intrinsic,
+                f,
+            )?,
         }
-
-        self.release_temporal_plain_date_time_field_locals(field_locals);
-        for local in [
-            calendar_payload_local,
-            millisecond_payload_local,
-            second_payload_local,
-            minute_payload_local,
-            hour_payload_local,
-            day_payload_local,
-            month_payload_local,
-            year_payload_local,
-            local_time_payload_local,
-            time_zone_payload_local,
-            offset_seconds_local,
-            negative_local,
-            remainder_local,
-            milliseconds_local,
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        calendar.release(self, f);
+        iso.release(self, f);
+        snapshot.release(self, f);
+        zone.release(self, f);
+        instant.release(self, f);
+        record.release(f);
         Ok(())
     }
-
     pub(crate) fn emit_temporal_zoned_date_time_equals(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_record_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let other_payload_local = self.reserve_temp_local();
-        let other_tag_local = self.reserve_temp_local();
-        let other_record_local = self.reserve_temp_local();
-        let receiver_epoch_payload_local = self.reserve_temp_local();
-        let receiver_epoch_tag_local = self.reserve_temp_local();
-        let other_epoch_payload_local = self.reserve_temp_local();
-        let other_epoch_tag_local = self.reserve_temp_local();
-        let receiver_time_zone_local = self.reserve_temp_local();
-        let other_time_zone_local = self.reserve_temp_local();
-        let receiver_calendar_local = self.reserve_temp_local();
-        let other_calendar_local = self.reserve_temp_local();
-        let equal_local = self.reserve_temp_local();
-
-        self.emit_temporal_zoned_date_time_record_from_receiver(receiver_record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        let from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimeFrom.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.from`",
-                )
-            })?;
-        self.emit_direct_js_call(
-            &from_meta,
-            None,
-            &[(argument_payload_local, argument_tag_local)],
-            other_payload_local,
-            other_tag_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            other_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            other_record_local,
-            function,
+        let schema = self.runtime_schema();
+        let receiver = self.emit_temporal_branded_zoned_receiver(f)?;
+        let input = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let other = self.emit_temporal_to_zoned_record(&input, f)?;
+        let left = self.emit_temporal_normalized_instant_from_zoned_record(&receiver, f)?;
+        let right = self.emit_temporal_normalized_instant_from_zoned_record(&other, f)?;
+        let lzone = self.emit_temporal_zone_from_zoned_record(&receiver, f)?;
+        let rzone = self.emit_temporal_zone_from_zoned_record(&other, f)?;
+        let lcal = self.emit_temporal_calendar_from_zoned_record(&receiver, f)?;
+        let rcal = self.emit_temporal_calendar_from_zoned_record(&other, f)?;
+        let equal = schema.reserve_i32_local(f);
+        let comparison = schema.reserve_i32_local(f);
+        self.emit_bigint_compare(
+            left.epoch_nanoseconds(),
+            right.epoch_nanoseconds(),
+            comparison,
+            f,
         );
-        for (record, offset, local) in [
-            (
-                receiver_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                receiver_epoch_payload_local,
-            ),
-            (
-                receiver_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-                receiver_epoch_tag_local,
-            ),
-            (
-                other_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                other_epoch_payload_local,
-            ),
-            (
-                other_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-                other_epoch_tag_local,
-            ),
-            (
-                receiver_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-                receiver_time_zone_local,
-            ),
-            (
-                other_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-                other_time_zone_local,
-            ),
-            (
-                receiver_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-                receiver_calendar_local,
-            ),
-            (
-                other_record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-                other_calendar_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(record, offset, local, function);
-        }
-        function.instruction(&Instruction::LocalGet(receiver_epoch_tag_local));
-        function.instruction(&Instruction::LocalGet(other_epoch_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_nonstring_tagged_payload_equality_i32(
-            receiver_epoch_tag_local,
-            receiver_epoch_payload_local,
-            other_epoch_tag_local,
-            other_epoch_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_mixed_bigint_equality_i32(
-            receiver_epoch_tag_local,
-            receiver_epoch_payload_local,
-            other_epoch_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(equal_local));
+        comparison.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        equal.store(f);
         self.emit_string_payload_equality_i32(
-            receiver_time_zone_local,
-            other_time_zone_local,
-            function,
+            lzone.primary_identifier(),
+            rzone.primary_identifier(),
+            f,
         );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(equal_local));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(equal_local));
-        self.emit_string_payload_equality_i32(
-            receiver_calendar_local,
-            other_calendar_local,
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(equal_local));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            equal_local,
-            other_calendar_local,
-            receiver_calendar_local,
-            other_time_zone_local,
-            receiver_time_zone_local,
-            other_epoch_tag_local,
-            other_epoch_payload_local,
-            receiver_epoch_tag_local,
-            receiver_epoch_payload_local,
-            other_record_local,
-            other_tag_local,
-            other_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            receiver_record_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        equal.load(f);
+        f.instruction(&Instruction::I32And);
+        equal.store(f);
+        self.emit_string_payload_equality_i32(lcal.identifier(), rcal.identifier(), f);
+        equal.load(f);
+        f.instruction(&Instruction::I32And);
+        equal.store(f);
+        self.completion().value().set_boolean(equal, f);
+        self.completion().set_normal(self.completion().value(), f);
+        schema.release_i32_local(comparison, f);
+        schema.release_i32_local(equal, f);
+        rcal.release(self, f);
+        lcal.release(self, f);
+        rzone.release(self, f);
+        lzone.release(self, f);
+        right.release(self, f);
+        left.release(self, f);
+        other.release(f);
+        input.clear(f);
+        receiver.release(f);
         Ok(())
     }
-
-    fn emit_temporal_zoned_date_time_string_slot(
-        &mut self,
-        payload_offset: u64,
-        tag_offset: u64,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            payload_offset,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            tag_offset,
-            self.result_tag_local,
-            function,
-        );
-        self.release_temp_local(record_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_temporal_zoned_date_time_to_instant(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            epoch_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            epoch_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        self.emit_alloc_temporal_instant(
-            epoch_payload_local,
-            epoch_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(epoch_tag_local);
-        self.release_temp_local(epoch_payload_local);
-        self.release_temp_local(record_local);
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        let epoch = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let value = self.emit_temporal_instant_validated_epoch(epoch.epoch_nanoseconds(), f)?;
+        self.emit_alloc_temporal_instant(&value, TemporalPrototypeSource::Intrinsic, f)?;
+        value.clear(self, f);
+        epoch.release(self, f);
+        record.release(f);
         Ok(())
     }
-
     pub(crate) fn emit_temporal_zoned_date_time_with_time_zone(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let time_zone_tag_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, time_zone_payload_local, time_zone_tag_local, function);
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
+        let input = self.runtime_schema().reserve_value_local(f);
+        let record = self.emit_temporal_branded_zoned_receiver(f)?;
+        self.emit_builtin_arg_to_value(0, &input, f);
+        let zone = self.emit_temporal_zoned_date_time_time_zone(
+            &input,
+            TemporalTimeZoneStringGoal::Object,
+            f,
         )?;
-        for (offset, local) in [
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-                epoch_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-                epoch_tag_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-                calendar_payload_local,
-            ),
-            (
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
-                calendar_tag_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(record_local, offset, local, function);
-        }
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        let instant = self.emit_temporal_normalized_instant_from_zoned_record(&record, f)?;
+        let calendar = self.emit_temporal_calendar_from_zoned_record(&record, f)?;
         self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
+            TemporalZonedAllocationInput::new(&instant, &zone, &calendar),
+            TemporalPrototypeSource::Intrinsic,
+            f,
         )?;
-
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(calendar_tag_local);
-        self.release_temp_local(calendar_payload_local);
-        self.release_temp_local(epoch_tag_local);
-        self.release_temp_local(epoch_payload_local);
-        self.release_temp_local(time_zone_tag_local);
-        self.release_temp_local(time_zone_payload_local);
-        self.release_temp_local(record_local);
-        Ok(())
-    }
-
-    /// `pub(crate)` rather than module-private because
-    /// `temporal_zoned_date_time_methods.rs` is a sibling module: the batch-6
-    /// `add`/`subtract`/`until`/`since`/`withCalendar` bodies all begin with the
-    /// same `[[InitializedTemporalZonedDateTime]]` brand check this performs,
-    /// and re-deriving it there would be a second place for the receiver
-    /// validation to drift.
-    pub(crate) fn emit_temporal_zoned_date_time_record_from_receiver(
-        &mut self,
-        record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime receiver does not have [[InitializedTemporalZonedDateTime]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime receiver does not have [[InitializedTemporalZonedDateTime]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_temporal_instant_constructor(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Instant constructor requires new",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        self.emit_value_to_bigint_locals(
-            argument_tag_local,
-            argument_payload_local,
-            BigIntNumberPolicy::RejectNumber,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_temporal_instant_validate_range(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
-        let prototype_tag_local = self.reserve_temp_local();
-        self.emit_new_target_prototype_to_locals(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-            crate::functions::NewTargetPrototypeFallback::RealmIntrinsic(
-                TemporalIntrinsicFamily::Instant.prototype_slot().offset(),
-            ),
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        )?;
-        self.release_temp_local(prototype_tag_local);
-        self.emit_alloc_temporal_instant(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
-
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(nanoseconds_tag_local);
-        self.release_temp_local(nanoseconds_payload_local);
-        self.release_temp_local(argument_tag_local);
-        self.release_temp_local(argument_payload_local);
+        calendar.release(self, f);
+        instant.release(self, f);
+        zone.release(self, f);
+        record.release(f);
+        input.clear(f);
         Ok(())
     }
 
     fn emit_temporal_parse_iso_string(
         &mut self,
-        string_payload_local: u32,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
-        parse_goal: TemporalIsoParseGoal,
+        string: &GcLocal<StringValue>,
+        parse_goal: TemporalIsoParseGoal<'_>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let string_offset_local = self.reserve_temp_local();
-        let string_len_local = self.reserve_temp_local();
-        let main_end_local = self.reserve_temp_local();
-        let cursor_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let valid_local = self.reserve_temp_local();
-        let negative_year_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let hour_local = self.reserve_temp_local();
-        let minute_local = self.reserve_temp_local();
-        let second_local = self.reserve_temp_local();
-        let fraction_local = self.reserve_temp_local();
-        let fraction_digits_local = self.reserve_temp_local();
-        let date_separated_local = self.reserve_temp_local();
-        let time_separated_local = self.reserve_temp_local();
-        let has_minute_local = self.reserve_temp_local();
-        let has_second_local = self.reserve_temp_local();
-        let has_time_local = self.reserve_temp_local();
-        let offset_kind_local = self.reserve_temp_local();
-        let offset_sign_local = self.reserve_temp_local();
-        let offset_hour_local = self.reserve_temp_local();
-        let offset_minute_local = self.reserve_temp_local();
-        let offset_second_local = self.reserve_temp_local();
-        let offset_has_second_local = self.reserve_temp_local();
-        let offset_fraction_local = self.reserve_temp_local();
-        let offset_fraction_digits_local = self.reserve_temp_local();
-        let maximum_day_local = self.reserve_temp_local();
-        let calendar_count_local = self.reserve_temp_local();
-        let calendar_critical_local = self.reserve_temp_local();
-        let timezone_count_local = self.reserve_temp_local();
-        let annotation_start_local = self.reserve_temp_local();
-        let annotation_equals_local = self.reserve_temp_local();
-        let annotation_critical_local = self.reserve_temp_local();
-        let annotation_key_uppercase_local = self.reserve_temp_local();
-        let annotation_numeric_timezone_local = self.reserve_temp_local();
-        let annotation_colon_count_local = self.reserve_temp_local();
-        let time_zone_start_local = self.reserve_temp_local();
-        let time_zone_end_local = self.reserve_temp_local();
-        let calendar_start_local = self.reserve_temp_local();
-        let calendar_end_local = self.reserve_temp_local();
-        let time_zone_offset_seconds_local = self.reserve_temp_local();
-        let selected_offset_seconds_local = self.reserve_temp_local();
-        let selected_offset_subsecond_local = self.reserve_temp_local();
-        let offset_matches_time_zone_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
-        let era_local = self.reserve_temp_local();
-        let adjusted_year_local = self.reserve_temp_local();
-        let month_index_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
+    ) -> Result<Option<NormalizedTemporalInstantLocals>, EmitError> {
+        let slice_length = self.runtime_schema().reserve_i64_local(function);
+        let string_len_local = self.runtime_schema().reserve_i64_local(function);
+        let main_end_local = self.runtime_schema().reserve_i64_local(function);
+        let cursor_local = self.runtime_schema().reserve_i64_local(function);
+        let byte_local = self.runtime_schema().reserve_i64_local(function);
+        let valid_local = self.runtime_schema().reserve_i64_local(function);
+        let negative_year_local = self.runtime_schema().reserve_i64_local(function);
+        let year_local = self.runtime_schema().reserve_i64_local(function);
+        let month_local = self.runtime_schema().reserve_i64_local(function);
+        let day_local = self.runtime_schema().reserve_i64_local(function);
+        let hour_local = self.runtime_schema().reserve_i64_local(function);
+        let minute_local = self.runtime_schema().reserve_i64_local(function);
+        let second_local = self.runtime_schema().reserve_i64_local(function);
+        let fraction_local = self.runtime_schema().reserve_i64_local(function);
+        let fraction_digits_local = self.runtime_schema().reserve_i64_local(function);
+        let date_separated_local = self.runtime_schema().reserve_i64_local(function);
+        let time_separated_local = self.runtime_schema().reserve_i64_local(function);
+        let has_minute_local = self.runtime_schema().reserve_i64_local(function);
+        let has_second_local = self.runtime_schema().reserve_i64_local(function);
+        let has_time_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_kind_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_sign_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_hour_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_minute_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_second_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_has_second_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_fraction_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_fraction_digits_local = self.runtime_schema().reserve_i64_local(function);
+        let maximum_day_local = self.runtime_schema().reserve_i64_local(function);
+        let calendar_count_local = self.runtime_schema().reserve_i64_local(function);
+        let calendar_critical_local = self.runtime_schema().reserve_i64_local(function);
+        let timezone_count_local = self.runtime_schema().reserve_i64_local(function);
+        let annotation_start_local = self.runtime_schema().reserve_i64_local(function);
+        let annotation_equals_local = self.runtime_schema().reserve_i64_local(function);
+        let annotation_critical_local = self.runtime_schema().reserve_i64_local(function);
+        let annotation_key_uppercase_local = self.runtime_schema().reserve_i64_local(function);
+        let annotation_numeric_timezone_local = self.runtime_schema().reserve_i64_local(function);
+        let annotation_colon_count_local = self.runtime_schema().reserve_i64_local(function);
+        let time_zone_start_local = self.runtime_schema().reserve_i64_local(function);
+        let time_zone_end_local = self.runtime_schema().reserve_i64_local(function);
+        let calendar_start_local = self.runtime_schema().reserve_i64_local(function);
+        let calendar_end_local = self.runtime_schema().reserve_i64_local(function);
+        let time_zone_offset_seconds_local = self.runtime_schema().reserve_i64_local(function);
+        let selected_offset_seconds_local = self.runtime_schema().reserve_i64_local(function);
+        let selected_offset_subsecond_local = self.runtime_schema().reserve_i64_local(function);
+        let offset_matches_time_zone_local = self.runtime_schema().reserve_i64_local(function);
+        let days_local = self.runtime_schema().reserve_i64_local(function);
+        let era_local = self.runtime_schema().reserve_i64_local(function);
+        let adjusted_year_local = self.runtime_schema().reserve_i64_local(function);
+        let month_index_local = self.runtime_schema().reserve_i64_local(function);
+        let seconds_local = self.runtime_schema().reserve_i64_local(function);
+        let subsecond_local = self.runtime_schema().reserve_i64_local(function);
         let parse_locals = [
-            string_offset_local,
+            slice_length,
             string_len_local,
             main_end_local,
             cursor_local,
@@ -4033,12 +1913,7 @@ impl<'a> FunctionBuilder<'a> {
             subsecond_local,
         ];
 
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            string_offset_local,
-            string_len_local,
-            function,
-        );
+        self.emit_temporal_string_length(string, string_len_local, function);
         for (local, value) in [
             (cursor_local, 0),
             (valid_local, 1),
@@ -4071,54 +1946,57 @@ impl<'a> FunctionBuilder<'a> {
             (offset_matches_time_zone_local, 0),
         ] {
             function.instruction(&Instruction::I64Const(value));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
 
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalSet(main_end_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
+        (string_len_local).load(function);
+        (main_end_local).store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        (cursor_local).load(function);
+        (string_len_local).load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'[' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(main_end_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (cursor_local).load(function);
+        (main_end_local).store(function);
         function.instruction(&Instruction::Br(2));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(cursor_local));
+        (cursor_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cursor_local));
+        (cursor_local).store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (cursor_local).store(function);
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_year_local));
+        (negative_year_local).store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(cursor_local));
+        (cursor_local).store(function);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4127,24 +2005,26 @@ impl<'a> FunctionBuilder<'a> {
             6,
             function,
         );
-        function.instruction(&Instruction::LocalGet(negative_year_local));
+        (negative_year_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(year_local));
+        (year_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4153,26 +2033,28 @@ impl<'a> FunctionBuilder<'a> {
             4,
             function,
         );
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_temporal_peek_byte(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
             valid_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(date_separated_local));
+        (date_separated_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4181,12 +2063,12 @@ impl<'a> FunctionBuilder<'a> {
             2,
             function,
         );
-        function.instruction(&Instruction::LocalGet(date_separated_local));
+        (date_separated_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Else);
         self.emit_temporal_expect_byte(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4194,9 +2076,10 @@ impl<'a> FunctionBuilder<'a> {
             b'-',
             function,
         );
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4206,39 +2089,40 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (cursor_local).load(function);
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_time_local));
+        (has_time_local).store(function);
         self.emit_temporal_peek_byte(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
             valid_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'T' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b't' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b' ' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_advance_cursor(cursor_local, function);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4249,36 +2133,38 @@ impl<'a> FunctionBuilder<'a> {
         );
 
         self.emit_temporal_peek_byte_if_available(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b':' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(time_separated_local));
+        (time_separated_local).store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
+        (has_minute_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Else);
         self.emit_temporal_byte_is_digit(byte_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
+        (has_minute_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(has_minute_local));
+        (has_minute_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(minute_local));
+        (minute_local).store(function);
         function.instruction(&Instruction::Else);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4288,40 +2174,44 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_peek_byte_if_available(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(time_separated_local));
+        (time_separated_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_temporal_byte_is_digit(byte_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_second_local));
+        (has_second_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b':' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_second_local));
+        (has_second_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(has_second_local));
+        (has_second_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(second_local));
+        (second_local).store(function);
         function.instruction(&Instruction::Else);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4331,7 +2221,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_parse_optional_fraction(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4340,36 +2230,37 @@ impl<'a> FunctionBuilder<'a> {
             fraction_digits_local,
             function,
         );
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (cursor_local).load(function);
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'Z' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'z' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(offset_kind_local));
+        (offset_kind_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::LocalSet(offset_kind_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (offset_kind_local).store(function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -4377,10 +2268,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(offset_sign_local));
+        (offset_sign_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4390,7 +2281,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_parse_offset_tail(
-            string_offset_local,
+            string,
             cursor_local,
             main_end_local,
             byte_local,
@@ -4404,14 +2295,17 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        if matches!(parse_goal, TemporalIsoParseGoal::Instant) {
+        if matches!(parse_goal, TemporalIsoParseGoal::Instant { .. }) {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(valid_local));
+            (valid_local).store(function);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         for local in [
@@ -4422,24 +2316,26 @@ impl<'a> FunctionBuilder<'a> {
             fraction_digits_local,
         ] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
-        if matches!(parse_goal, TemporalIsoParseGoal::Instant) {
+        if matches!(parse_goal, TemporalIsoParseGoal::Instant { .. }) {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(valid_local));
+            (valid_local).store(function);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (cursor_local).load(function);
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_temporal_validate_annotations(
-            string_offset_local,
+            string,
             main_end_local,
             string_len_local,
             cursor_local,
@@ -4475,114 +2371,155 @@ impl<'a> FunctionBuilder<'a> {
             valid_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(valid_local));
+        (valid_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
             match parse_goal {
-                TemporalIsoParseGoal::Instant => "Invalid Temporal.Instant string",
+                TemporalIsoParseGoal::Instant { .. } => {
+                    RuntimeErrorMessage::INVALID_TEMPORAL_INSTANT_STRING
+                }
                 TemporalIsoParseGoal::TimeZoneIdentifier { .. } => {
-                    "Invalid Temporal time zone identifier"
+                    RuntimeErrorMessage::INVALID_TEMPORAL_TIME_ZONE_IDENTIFIER
                 }
                 TemporalIsoParseGoal::ZonedDateTimeSyntax { .. }
                 | TemporalIsoParseGoal::ZonedDateTime { .. } => {
-                    "Invalid Temporal.ZonedDateTime string"
+                    RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_STRING
                 }
-                TemporalIsoParseGoal::PlainDate { .. } => "Invalid Temporal.PlainDate string",
+                TemporalIsoParseGoal::PlainDate { .. } => {
+                    RuntimeErrorMessage::INVALID_TEMPORAL_PLAINDATE_STRING
+                }
                 TemporalIsoParseGoal::PlainDateTime { .. } => {
-                    "Invalid Temporal.PlainDateTime string"
+                    RuntimeErrorMessage::INVALID_TEMPORAL_PLAINDATETIME_STRING
                 }
-                TemporalIsoParseGoal::PlainTime { .. } => "Invalid Temporal.PlainTime string",
+                TemporalIsoParseGoal::PlainTime { .. } => {
+                    RuntimeErrorMessage::INVALID_TEMPORAL_PLAINTIME_STRING
+                }
             },
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         if let TemporalIsoParseGoal::TimeZoneIdentifier {
-            time_zone_payload_local,
-            time_zone_tag_local,
+            time_zone,
+            string_goal,
         } = parse_goal
         {
-            function.instruction(&Instruction::LocalGet(timezone_count_local));
+            // The constructor's `Identifier` goal rejects a date or datetime
+            // prefix, even with a valid bracketed zone
+            // (`timezone-iso-string.js`): `main_end > 0` means the string had
+            // a main section, and the only main sections that survive the
+            // shared validity check are dates and datetimes — offsets are
+            // filtered before this parser runs, and every other main section
+            // fails the date parse. The `Object` goal skips this: an ISO
+            // string is a valid time-zone argument everywhere else.
+            if matches!(string_goal, TemporalTimeZoneStringGoal::Identifier) {
+                (main_end_local).load(function);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_temporal_error_and_return(
+                    lila_ir::NativeErrorKind::RangeError,
+                    RuntimeErrorMessage::INVALID_TEMPORAL_TIME_ZONE_IDENTIFIER,
+                    function,
+                )?;
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
+            (timezone_count_local).load(function);
             function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
+            self.open_frame(ControlFrameKind::If, function);
+            (offset_kind_local).load(function);
             function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal time zone string requires an offset or bracketed time zone",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError,RuntimeErrorMessage::TEMPORAL_TIME_ZONE_STRING_REQUIRES_AN_OFFSET_OR_BRACKETED_TIME_ZONE,function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
+            (offset_kind_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-            function.instruction(&Instruction::LocalSet(time_zone_payload_local));
+            self.open_frame(ControlFrameKind::If, function);
+            let literal = self.runtime_schema().reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference("UTC", function)?,
+                function,
+            );
+            time_zone.set_reference(&literal, self.runtime_schema(), function);
+            literal.clear(function);
             function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(offset_has_second_local));
+            (offset_has_second_local).load(function);
             function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::LocalGet(offset_fraction_digits_local));
+            (offset_fraction_digits_local).load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32And);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal time zone offset must use minute precision",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::TEMPORAL_TIME_ZONE_OFFSET_MUST_USE_MINUTE_PRECISION,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(offset_sign_local));
-            function.instruction(&Instruction::LocalGet(offset_hour_local));
+            (offset_sign_local).load(function);
+            (offset_hour_local).load(function);
             function.instruction(&Instruction::I64Const(3_600));
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalGet(offset_minute_local));
+            (offset_minute_local).load(function);
             function.instruction(&Instruction::I64Const(60));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalSet(time_zone_offset_seconds_local));
+            (time_zone_offset_seconds_local).store(function);
             self.emit_temporal_format_fixed_time_zone_offset(
                 time_zone_offset_seconds_local,
-                time_zone_payload_local,
+                time_zone,
                 function,
             )?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(time_zone_end_local));
-            function.instruction(&Instruction::LocalGet(time_zone_start_local));
+            (time_zone_end_local).load(function);
+            (time_zone_start_local).load(function);
             function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.emit_string_slice_payload_from_locals(
-                string_payload_local,
-                time_zone_start_local,
-                self.scratch_local,
+            (slice_length).store(function);
+            let piece = self.runtime_schema().reserve_gc_local(function).initialize(
+                self.emit_temporal_string_slice(
+                    string,
+                    time_zone_start_local,
+                    slice_length,
+                    function,
+                ),
                 function,
-            )?;
-            function.instruction(&Instruction::LocalSet(time_zone_payload_local));
+            );
+            time_zone.set_reference(&piece, self.runtime_schema(), function);
+            piece.clear(function);
+            let named = self.runtime_schema().reserve_i64_local(function);
+            let parsed_zone = self.runtime_schema().reserve_gc_local(function).initialize(
+                time_zone.cast_reference::<StringValue>(self.runtime_schema(), function),
+                function,
+            );
+            self.emit_temporal_named_identifier_syntax(&parsed_zone, named, function);
+            (named).load(function);
+            function.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_temporal_fixed_time_zone_offset_seconds(
-                time_zone_payload_local,
+                &parsed_zone,
                 time_zone_offset_seconds_local,
                 function,
             )?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(time_zone_tag_local));
+            parsed_zone.clear(function);
+            self.runtime_schema().release_i64_local(named, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
 
             for local in parse_locals.iter().rev() {
-                self.release_temp_local(*local);
+                self.runtime_schema().release_i64_local(*local, function);
             }
-            return Ok(());
+            return Ok(None);
         }
 
         if let TemporalIsoParseGoal::PlainTime {
@@ -4596,88 +2533,83 @@ impl<'a> FunctionBuilder<'a> {
             // `09:00:00Z` and `2019-10-01T09:00:00Z` both name an instant, not
             // a wall-clock time, so the UTC designator is a RangeError.
             // A numeric offset (`offset_kind == 2`) is merely ignored.
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
+            (offset_kind_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.PlainTime string must not use the UTC designator",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::TEMPORAL_PLAINTIME_STRING_MUST_NOT_USE_THE_UTC_DESIGNATOR,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
             // A date-only string never gains an implicit midnight.
-            function.instruction(&Instruction::LocalGet(has_time_local));
+            (has_time_local).load(function);
             function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid Temporal.PlainTime string",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::INVALID_TEMPORAL_PLAINTIME_STRING,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(timezone_count_local));
+            (timezone_count_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64GtU);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid Temporal.PlainTime string",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::INVALID_TEMPORAL_PLAINTIME_STRING,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
             match calendar_use {
                 TemporalTimeCalendarUse::Ignore => {}
-                TemporalTimeCalendarUse::Resolve {
-                    calendar_payload_local,
-                    calendar_tag_local,
-                } => self.emit_temporal_iso_calendar_annotation(
-                    string_payload_local,
-                    calendar_count_local,
-                    calendar_start_local,
-                    calendar_end_local,
-                    calendar_payload_local,
-                    calendar_tag_local,
-                    "Invalid Temporal time-string calendar annotation",
-                    function,
-                )?,
+                TemporalTimeCalendarUse::Resolve { calendar } => self
+                    .emit_temporal_iso_calendar_annotation(
+                        string,
+                        calendar_count_local,
+                        calendar_start_local,
+                        calendar_end_local,
+                        calendar,
+                        RuntimeErrorMessage::INVALID_TEMPORAL_TIME_STRING_CALENDAR_ANNOTATION,
+                        function,
+                    )?,
             }
 
             // A parsed leap second is clamped, not rejected: `23:59:60` is
             // `23:59:59`.
-            function.instruction(&Instruction::LocalGet(second_local));
+            (second_local).load(function);
             function.instruction(&Instruction::I64Const(60));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(59));
-            function.instruction(&Instruction::LocalSet(second_local));
+            (second_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
             for (source, destination) in [
                 (hour_local, hour_destination_local),
                 (minute_local, minute_destination_local),
                 (second_local, second_destination_local),
             ] {
-                function.instruction(&Instruction::LocalGet(source));
-                function.instruction(&Instruction::LocalSet(destination));
+                (source).load(function);
+                (destination).store(function);
             }
             self.emit_temporal_scale_fraction_to_nanoseconds(
                 fraction_local,
                 fraction_digits_local,
                 function,
             );
-            function.instruction(&Instruction::LocalSet(nanosecond_destination_local));
+            (nanosecond_destination_local).store(function);
 
             for local in parse_locals.iter().rev() {
-                self.release_temp_local(*local);
+                self.runtime_schema().release_i64_local(*local, function);
             }
-            return Ok(());
+            return Ok(None);
         }
 
         if let TemporalIsoParseGoal::PlainDateTime {
@@ -4688,45 +2620,43 @@ impl<'a> FunctionBuilder<'a> {
             minute_destination_local,
             second_destination_local,
             nanosecond_destination_local,
-            calendar_payload_local,
-            calendar_tag_local,
+            calendar,
         } = parse_goal
         {
             // `2019-10-01T09:00:00Z` names an instant, not a wall-clock
             // date-time, so the UTC designator is a RangeError. A numeric
             // offset (`offset_kind == 2`) is merely ignored.
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
+            (offset_kind_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.PlainDateTime string must not use the UTC designator",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::TEMPORAL_PLAINDATETIME_STRING_MUST_NOT_USE_THE_UTC_DESIGNATOR,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
             self.emit_temporal_iso_calendar_annotation(
-                string_payload_local,
+                string,
                 calendar_count_local,
                 calendar_start_local,
                 calendar_end_local,
-                calendar_payload_local,
-                calendar_tag_local,
-                "Invalid Temporal.PlainDateTime calendar annotation",
+                calendar,
+                RuntimeErrorMessage::INVALID_TEMPORAL_PLAINDATETIME_CALENDAR_ANNOTATION,
                 function,
             )?;
 
             // A parsed leap second is clamped, not rejected: `23:59:60` is
             // `23:59:59`.
-            function.instruction(&Instruction::LocalGet(second_local));
+            (second_local).load(function);
             function.instruction(&Instruction::I64Const(60));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(59));
-            function.instruction(&Instruction::LocalSet(second_local));
+            (second_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
             for (source, destination) in [
@@ -4737,55 +2667,52 @@ impl<'a> FunctionBuilder<'a> {
                 (minute_local, minute_destination_local),
                 (second_local, second_destination_local),
             ] {
-                function.instruction(&Instruction::LocalGet(source));
-                function.instruction(&Instruction::LocalSet(destination));
+                (source).load(function);
+                (destination).store(function);
             }
             self.emit_temporal_scale_fraction_to_nanoseconds(
                 fraction_local,
                 fraction_digits_local,
                 function,
             );
-            function.instruction(&Instruction::LocalSet(nanosecond_destination_local));
+            (nanosecond_destination_local).store(function);
 
             for local in parse_locals.iter().rev() {
-                self.release_temp_local(*local);
+                self.runtime_schema().release_i64_local(*local, function);
             }
-            return Ok(());
+            return Ok(None);
         }
 
         if let TemporalIsoParseGoal::PlainDate {
             year_destination_local,
             month_destination_local,
             day_destination_local,
-            calendar_payload_local,
-            calendar_tag_local,
+            calendar,
         } = parse_goal
         {
             // A `PlainDate` has no instant, so the UTC designator is not just
             // redundant, it is forbidden: `2019-10-01T09:00:00Z` must throw.
             // `offset_kind == 1` is the `Z` form; `2` is an explicit numeric
             // offset, which is merely ignored.
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
+            (offset_kind_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.PlainDate string must not use the UTC designator",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::TEMPORAL_PLAINDATE_STRING_MUST_NOT_USE_THE_UTC_DESIGNATOR,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
             self.emit_temporal_iso_calendar_annotation(
-                string_payload_local,
+                string,
                 calendar_count_local,
                 calendar_start_local,
                 calendar_end_local,
-                calendar_payload_local,
-                calendar_tag_local,
-                "Invalid Temporal.PlainDate calendar annotation",
+                calendar,
+                RuntimeErrorMessage::INVALID_TEMPORAL_PLAINDATE_CALENDAR_ANNOTATION,
                 function,
             )?;
 
@@ -4794,79 +2721,84 @@ impl<'a> FunctionBuilder<'a> {
                 (month_local, month_destination_local),
                 (day_local, day_destination_local),
             ] {
-                function.instruction(&Instruction::LocalGet(source));
-                function.instruction(&Instruction::LocalSet(destination));
+                (source).load(function);
+                (destination).store(function);
             }
 
             for local in parse_locals.iter().rev() {
-                self.release_temp_local(*local);
+                self.runtime_schema().release_i64_local(*local, function);
             }
-            return Ok(());
+            return Ok(None);
         }
 
         if let TemporalIsoParseGoal::ZonedDateTimeSyntax {
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-        }
-        | TemporalIsoParseGoal::ZonedDateTime {
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            ..
+            time_zone,
+            calendar,
         } = parse_goal
         {
-            function.instruction(&Instruction::LocalGet(timezone_count_local));
+            (timezone_count_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.ZonedDateTime string requires one bracketed time zone",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_STRING_REQUIRES_ONE_BRACKETED_TIME_ZONE,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
-            function.instruction(&Instruction::LocalGet(time_zone_end_local));
-            function.instruction(&Instruction::LocalGet(time_zone_start_local));
+            (time_zone_end_local).load(function);
+            (time_zone_start_local).load(function);
             function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.emit_string_slice_payload_from_locals(
-                string_payload_local,
-                time_zone_start_local,
-                self.scratch_local,
+            (slice_length).store(function);
+            let piece = self.runtime_schema().reserve_gc_local(function).initialize(
+                self.emit_temporal_string_slice(
+                    string,
+                    time_zone_start_local,
+                    slice_length,
+                    function,
+                ),
                 function,
-            )?;
-            function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(time_zone_tag_local));
-            self.emit_temporal_fixed_time_zone_offset_seconds(
-                time_zone_payload_local,
-                time_zone_offset_seconds_local,
-                function,
-            )?;
+            );
+            time_zone.set_reference(&piece, self.runtime_schema(), function);
+            piece.clear(function);
 
-            self.emit_temporal_iso_calendar_annotation(
-                string_payload_local,
-                calendar_count_local,
-                calendar_start_local,
-                calendar_end_local,
-                calendar_payload_local,
-                calendar_tag_local,
-                "Invalid Temporal.ZonedDateTime calendar annotation",
+            let literal = self.runtime_schema().reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference("iso8601", function)?,
                 function,
-            )?;
+            );
+            calendar.set_reference(&literal, self.runtime_schema(), function);
+            literal.clear(function);
+
+            (calendar_count_local).load(function);
+            function.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            function.instruction(&Instruction::Else);
+            (calendar_end_local).load(function);
+            (calendar_start_local).load(function);
+            function.instruction(&Instruction::I64Sub);
+            (slice_length).store(function);
+            let piece = self.runtime_schema().reserve_gc_local(function).initialize(
+                self.emit_temporal_string_slice(
+                    string,
+                    calendar_start_local,
+                    slice_length,
+                    function,
+                ),
+                function,
+            );
+            calendar.set_reference(&piece, self.runtime_schema(), function);
+            piece.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
 
         if matches!(parse_goal, TemporalIsoParseGoal::ZonedDateTimeSyntax { .. }) {
             for local in parse_locals.iter().rev() {
-                self.release_temp_local(*local);
+                self.runtime_schema().release_i64_local(*local, function);
             }
-            return Ok(());
+            return Ok(None);
         }
 
         self.emit_temporal_scale_fraction_to_nanoseconds(
@@ -4874,29 +2806,29 @@ impl<'a> FunctionBuilder<'a> {
             fraction_digits_local,
             function,
         );
-        function.instruction(&Instruction::LocalSet(fraction_local));
+        (fraction_local).store(function);
         self.emit_temporal_scale_fraction_to_nanoseconds(
             offset_fraction_local,
             offset_fraction_digits_local,
             function,
         );
-        function.instruction(&Instruction::LocalSet(offset_fraction_local));
-        function.instruction(&Instruction::LocalGet(offset_sign_local));
-        function.instruction(&Instruction::LocalGet(offset_hour_local));
+        (offset_fraction_local).store(function);
+        (offset_sign_local).load(function);
+        (offset_hour_local).load(function);
         function.instruction(&Instruction::I64Const(3_600));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(offset_minute_local));
+        (offset_minute_local).load(function);
         function.instruction(&Instruction::I64Const(60));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(offset_second_local));
+        (offset_second_local).load(function);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
-        function.instruction(&Instruction::LocalGet(offset_sign_local));
-        function.instruction(&Instruction::LocalGet(offset_fraction_local));
+        (selected_offset_seconds_local).store(function);
+        (offset_sign_local).load(function);
+        (offset_fraction_local).load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
+        (selected_offset_subsecond_local).store(function);
 
         self.emit_temporal_days_from_civil(
             year_local,
@@ -4909,120 +2841,128 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         if let TemporalIsoParseGoal::ZonedDateTime {
-            offset_option_local,
-            ..
+            policies,
+            zone,
+            output,
         } = parse_goal
         {
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
-            function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(2));
+            let milli = self.runtime_schema().reserve_i64_local(function);
+            let micro = self.runtime_schema().reserve_i64_local(function);
+            let nano = self.runtime_schema().reserve_i64_local(function);
+            let supplied_raw = self.runtime_schema().reserve_i64_local(function);
+            for (divisor, modulus, destination) in [
+                (1_000_000, 1000, milli),
+                (1000, 1000, micro),
+                (1, 1000, nano),
+            ] {
+                (fraction_local).load(function);
+                function.instruction(&Instruction::I64Const(divisor));
+                function.instruction(&Instruction::I64DivU);
+                function.instruction(&Instruction::I64Const(modulus));
+                function.instruction(&Instruction::I64RemU);
+                (destination).store(function);
+            }
+            (second_local).load(function);
+            function.instruction(&Instruction::I64Const(60));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_zoned_date_time_offset_date_range(
-                days_local,
-                offset_option_local,
+            self.open_frame(ControlFrameKind::If, function);
+            function.instruction(&Instruction::I64Const(59));
+            (second_local).store(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            let iso = self.emit_temporal_regulated_iso_record(
+                &[
+                    year_local,
+                    month_local,
+                    day_local,
+                    hour_local,
+                    minute_local,
+                    second_local,
+                    milli,
+                    micro,
+                    nano,
+                ],
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(selected_offset_seconds_local));
-            function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(selected_offset_subsecond_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(offset_matches_time_zone_local));
-
-            function.instruction(&Instruction::LocalGet(offset_option_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::LocalGet(offset_matches_time_zone_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.ZonedDateTime offset does not match its fixed time zone",
-                self.result_local,
-                self.result_tag_local,
+            (selected_offset_seconds_local).load(function);
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64Mul);
+            (selected_offset_subsecond_local).load(function);
+            function.instruction(&Instruction::I64Add);
+            (supplied_raw).store(function);
+            let supplied =
+                self.emit_temporal_validated_offset_nanoseconds(supplied_raw, function)?;
+            let instant = self.emit_temporal_parsed_zoned_epoch_into(
+                output,
+                &iso,
+                zone,
+                &supplied,
+                policies,
+                TemporalZonedParseFlags::String {
+                    has_time: has_time_local,
+                    offset_kind: offset_kind_local,
+                    offset_has_seconds: offset_has_second_local,
+                },
                 function,
             )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-
-            function.instruction(&Instruction::LocalGet(offset_option_local));
-            function.instruction(&Instruction::I64Const(3));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(offset_option_local));
-            function.instruction(&Instruction::I64Const(2));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(offset_matches_time_zone_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
-            function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+            supplied.release(self, function);
+            iso.release(self, function);
+            for slot in [supplied_raw, nano, micro, milli] {
+                self.runtime_schema().release_i64_local(slot, function);
+            }
+            for local in parse_locals.iter().rev() {
+                self.runtime_schema().release_i64_local(*local, function);
+            }
+            return Ok(Some(instant));
         }
 
-        function.instruction(&Instruction::LocalGet(days_local));
+        (days_local).load(function);
         function.instruction(&Instruction::I64Const(SECONDS_PER_DAY));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(hour_local));
+        (hour_local).load(function);
         function.instruction(&Instruction::I64Const(3_600));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(minute_local));
+        (minute_local).load(function);
         function.instruction(&Instruction::I64Const(60));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(second_local));
+        (second_local).load(function);
         function.instruction(&Instruction::I64Const(59));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(59));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(second_local));
+        (second_local).load(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(selected_offset_seconds_local));
+        (selected_offset_seconds_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::LocalGet(selected_offset_subsecond_local));
+        (seconds_local).store(function);
+        (fraction_local).load(function);
+        (selected_offset_subsecond_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
+        (subsecond_local).store(function);
         self.emit_temporal_normalize_seconds_and_subseconds(
             seconds_local,
             subsecond_local,
             function,
         );
-        self.emit_temporal_epoch_nanoseconds_bigint(
-            seconds_local,
-            subsecond_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
-        self.emit_temporal_instant_validate_range(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
+        if let TemporalIsoParseGoal::Instant {
+            seconds,
+            nanosecond,
+        } = parse_goal
+        {
+            seconds_local.load(function);
+            seconds.store(function);
+            subsecond_local.load(function);
+            nanosecond.store(function);
+        }
 
         for local in parse_locals.iter().rev() {
-            self.release_temp_local(*local);
+            self.runtime_schema().release_i64_local(*local, function);
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Resolves the `[u-ca=...]` annotation an ISO string may carry into a
@@ -5042,79 +2982,77 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_iso_calendar_annotation(
         &mut self,
-        string_payload_local: u32,
-        calendar_count_local: u32,
-        calendar_start_local: u32,
-        calendar_end_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
-        error_message: &str,
+        string: &GcLocal<StringValue>,
+        count: I64Local,
+        start: I64Local,
+        end: I64Local,
+        output: &ValueLocals,
+        error: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .payload(TemporalCalendarId::DEFAULT.canonical()),
-        ));
-        function.instruction(&Instruction::LocalSet(calendar_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(calendar_tag_local));
-        function.instruction(&Instruction::LocalGet(calendar_count_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        let calendar_annotation_payload_local = self.reserve_temp_local();
-        let expected_calendar_payload_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        let matched_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(calendar_end_local));
-        function.instruction(&Instruction::LocalGet(calendar_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_slice_payload_from_locals(
-            string_payload_local,
-            calendar_start_local,
-            self.scratch_local,
+        let schema = self.runtime_schema();
+        let default = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(TemporalCalendarId::DEFAULT.canonical(), function)?,
             function,
-        )?;
-        function.instruction(&Instruction::LocalSet(calendar_annotation_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(matched_local));
+        );
+        output.set_reference(&default, schema, function);
+        default.clear(function);
+        count.load(function);
+        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::Else);
+        let length = schema.reserve_i64_local(function);
+        end.load(function);
+        start.load(function);
+        function.instruction(&Instruction::I64Sub);
+        length.store(function);
+        let annotation = schema.reserve_gc_local(function).initialize(
+            self.emit_temporal_string_slice(string, start, length, function),
+            function,
+        );
+        let matched = schema.reserve_i32_local(function);
+        let fold = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        matched.store(function);
+        function.instruction(&Instruction::I32Const(1));
+        fold.store(function);
         for calendar in TemporalCalendarId::ALL {
-            let canonical_payload = self.strings.payload(calendar.canonical());
             for &spelling in calendar.spellings() {
-                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
-                function.instruction(&Instruction::LocalSet(expected_calendar_payload_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(case_fold_local));
-                self.emit_string_payload_equality_i32_with_ascii_case_folding(
-                    calendar_annotation_payload_local,
-                    expected_calendar_payload_local,
-                    Some(case_fold_local),
+                let expected = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference(spelling, function)?,
                     function,
                 );
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(canonical_payload));
-                function.instruction(&Instruction::LocalSet(calendar_payload_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(matched_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    &annotation,
+                    &expected,
+                    Some(fold),
+                    function,
+                );
+                expected.clear(function);
+                self.open_frame(ControlFrameKind::If, function);
+                let canonical = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference(calendar.canonical(), function)?,
+                    function,
+                );
+                output.set_reference(&canonical, schema, function);
+                canonical.clear(function);
+                function.instruction(&Instruction::I32Const(1));
+                matched.store(function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
         }
-        function.instruction(&Instruction::LocalGet(matched_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        matched.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError, error, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(matched_local);
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_calendar_payload_local);
-        self.release_temp_local(calendar_annotation_payload_local);
+        schema.release_i32_local(fold, function);
+        schema.release_i32_local(matched, function);
+        annotation.clear(function);
+        schema.release_i64_local(length, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -5124,34 +3062,23 @@ impl<'a> FunctionBuilder<'a> {
     /// without the goal enum leaving this module.
     pub(crate) fn emit_temporal_parse_plain_date_string(
         &mut self,
-        string_payload_local: u32,
-        year_destination_local: u32,
-        month_destination_local: u32,
-        day_destination_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        string: &GcLocal<StringValue>,
+        year: I64Local,
+        month: I64Local,
+        day: I64Local,
+        calendar: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // The `nanoseconds_*` out-parameters are dead for this goal — the
-        // PlainDate arm returns before the epoch-nanosecond tail runs — but the
-        // parser signature still wants somewhere to point them.
-        let unused_payload_local = self.reserve_temp_local();
-        let unused_tag_local = self.reserve_temp_local();
         self.emit_temporal_parse_iso_string(
-            string_payload_local,
-            unused_payload_local,
-            unused_tag_local,
+            string,
             TemporalIsoParseGoal::PlainDate {
-                year_destination_local,
-                month_destination_local,
-                day_destination_local,
-                calendar_payload_local,
-                calendar_tag_local,
+                year_destination_local: year,
+                month_destination_local: month,
+                day_destination_local: day,
+                calendar,
             },
             function,
         )?;
-        self.release_temp_local(unused_tag_local);
-        self.release_temp_local(unused_payload_local);
         Ok(())
     }
 
@@ -5159,39 +3086,31 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_parse_plain_date_time_string(
         &mut self,
-        string_payload_local: u32,
-        year_destination_local: u32,
-        month_destination_local: u32,
-        day_destination_local: u32,
-        hour_destination_local: u32,
-        minute_destination_local: u32,
-        second_destination_local: u32,
-        nanosecond_destination_local: u32,
-        calendar_payload_local: u32,
-        calendar_tag_local: u32,
+        string: &GcLocal<StringValue>,
+        year: I64Local,
+        month: I64Local,
+        day: I64Local,
+        hour: I64Local,
+        minute: I64Local,
+        second: I64Local,
+        nanosecond: I64Local,
+        calendar: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let unused_payload_local = self.reserve_temp_local();
-        let unused_tag_local = self.reserve_temp_local();
         self.emit_temporal_parse_iso_string(
-            string_payload_local,
-            unused_payload_local,
-            unused_tag_local,
+            string,
             TemporalIsoParseGoal::PlainDateTime {
-                year_destination_local,
-                month_destination_local,
-                day_destination_local,
-                hour_destination_local,
-                minute_destination_local,
-                second_destination_local,
-                nanosecond_destination_local,
-                calendar_payload_local,
-                calendar_tag_local,
+                year_destination_local: year,
+                month_destination_local: month,
+                day_destination_local: day,
+                hour_destination_local: hour,
+                minute_destination_local: minute,
+                second_destination_local: second,
+                nanosecond_destination_local: nanosecond,
+                calendar,
             },
             function,
         )?;
-        self.release_temp_local(unused_tag_local);
-        self.release_temp_local(unused_payload_local);
         Ok(())
     }
 
@@ -5208,123 +3127,133 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_temporal_parse_plain_time_string(
         &mut self,
-        string_payload_local: u32,
-        hour_destination_local: u32,
-        minute_destination_local: u32,
-        second_destination_local: u32,
-        nanosecond_destination_local: u32,
-        calendar_use: TemporalTimeCalendarUse,
+        string: &GcLocal<StringValue>,
+        hour_destination_local: I64Local,
+        minute_destination_local: I64Local,
+        second_destination_local: I64Local,
+        nanosecond_destination_local: I64Local,
+        calendar_use: TemporalTimeCalendarUse<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let offset_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let main_end_local = self.reserve_temp_local();
-        let cursor_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let date_form_local = self.reserve_temp_local();
-        let designated_local = self.reserve_temp_local();
-        let digits_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let maximum_day_local = self.reserve_temp_local();
-        let piece_local = self.reserve_temp_local();
-        let rewritten_local = self.reserve_temp_local();
+        let length_local = self.runtime_schema().reserve_i64_local(function);
+        let main_end_local = self.runtime_schema().reserve_i64_local(function);
+        let cursor_local = self.runtime_schema().reserve_i64_local(function);
+        let byte_local = self.runtime_schema().reserve_i64_local(function);
+        let date_form_local = self.runtime_schema().reserve_i64_local(function);
+        let designated_local = self.runtime_schema().reserve_i64_local(function);
+        let digits_local = self.runtime_schema().reserve_i64_local(function);
+        let month_local = self.runtime_schema().reserve_i64_local(function);
+        let day_local = self.runtime_schema().reserve_i64_local(function);
+        let maximum_day_local = self.runtime_schema().reserve_i64_local(function);
 
-        self.emit_unpack_string_payload(string_payload_local, offset_local, length_local, function);
+        self.emit_temporal_string_length(string, length_local, function);
+        let rewritten_local = self
+            .runtime_schema()
+            .reserve_gc_local(function)
+            .initialize(string.load(self.runtime_schema(), function), function);
+        let slice_length = self.runtime_schema().reserve_i64_local(function);
 
         // `main_end` is the first annotation bracket, or the whole string.
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::LocalSet(main_end_local));
+        (length_local).load(function);
+        (main_end_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(length_local));
+        (cursor_local).store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        (cursor_local).load(function);
+        (length_local).load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_load_string_byte(offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'[' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(main_end_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (cursor_local).load(function);
+        (main_end_local).store(function);
         function.instruction(&Instruction::Br(2));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
         // A date-shaped head is one of `±YYYYYY…`, `YYYY-MM-DD…` or eight
         // digits followed by a date/time separator. Everything else is a bare
         // time.
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(date_form_local));
+        (date_form_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(designated_local));
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (designated_local).store(function);
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_load_byte_at_index(offset_local, 0, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_load_byte_at_index(string, 0, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(date_form_local));
+        (date_form_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'T' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b't' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(designated_local));
+        (designated_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_load_byte_at_index(offset_local, 4, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_load_byte_at_index(string, 4, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(digits_local));
-        self.emit_temporal_load_byte_at_index(offset_local, 7, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(digits_local));
+        (digits_local).store(function);
+        self.emit_temporal_load_byte_at_index(string, 7, cursor_local, byte_local, function);
+        (digits_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(date_form_local));
+        (date_form_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64Const(8));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(digits_local));
+        (digits_local).store(function);
         for index in 0..8 {
             self.emit_temporal_load_byte_at_index(
-                offset_local,
+                string,
                 index,
                 cursor_local,
                 byte_local,
@@ -5332,48 +3261,51 @@ impl<'a> FunctionBuilder<'a> {
             );
             self.emit_temporal_byte_is_digit(byte_local, function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(digits_local));
+            (digits_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(main_end_local));
+        (main_end_local).load(function);
         function.instruction(&Instruction::I64Const(8));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::Else);
-        self.emit_temporal_load_byte_at_index(offset_local, 8, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.emit_temporal_load_byte_at_index(string, 8, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'T' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b't' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b' ' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(digits_local));
+        (digits_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(date_form_local));
+        (date_form_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(date_form_local));
+        (date_form_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
 
         // `AmbiguousTemporalTimeString`: only an undesignated bare time can
         // collide with a `MM-DD` or `YYYY-MM` date.
-        function.instruction(&Instruction::LocalGet(designated_local));
+        (designated_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         // (length, month digit indices, day digit indices, separator index)
         for (length, month_indices, day_indices, separator) in [
             (4_i64, [0_i64, 1_i64], Some([2_i64, 3_i64]), None),
@@ -5381,32 +3313,33 @@ impl<'a> FunctionBuilder<'a> {
             (6, [4, 5], None, None),
             (7, [5, 6], None, Some(4)),
         ] {
-            function.instruction(&Instruction::LocalGet(main_end_local));
+            (main_end_local).load(function);
             function.instruction(&Instruction::I64Const(length));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(digits_local));
+            (digits_local).store(function);
             for index in 0..length {
                 if Some(index) == separator {
                     self.emit_temporal_load_byte_at_index(
-                        offset_local,
+                        string,
                         index,
                         cursor_local,
                         byte_local,
                         function,
                     );
-                    function.instruction(&Instruction::LocalGet(byte_local));
+                    (byte_local).load(function);
                     function.instruction(&Instruction::I64Const(b'-' as i64));
                     function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.open_frame(ControlFrameKind::If, function);
                     function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(digits_local));
+                    (digits_local).store(function);
+                    self.pop_control(ControlFrameKind::If);
                     function.instruction(&Instruction::End);
                     continue;
                 }
                 self.emit_temporal_load_byte_at_index(
-                    offset_local,
+                    string,
                     index,
                     cursor_local,
                     byte_local,
@@ -5414,13 +3347,14 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 self.emit_temporal_byte_is_digit(byte_local, function);
                 function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(digits_local));
+                (digits_local).store(function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
             self.emit_temporal_two_digit_value(
-                offset_local,
+                string,
                 month_indices,
                 cursor_local,
                 byte_local,
@@ -5429,7 +3363,7 @@ impl<'a> FunctionBuilder<'a> {
             );
             match day_indices {
                 Some(indices) => self.emit_temporal_two_digit_value(
-                    offset_local,
+                    string,
                     indices,
                     cursor_local,
                     byte_local,
@@ -5440,79 +3374,80 @@ impl<'a> FunctionBuilder<'a> {
                 // range for a valid month.
                 None => {
                     function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(day_local));
+                    (day_local).store(function);
                 }
             }
             // February is treated as 29 days: `0229` is ambiguous even though
             // the year is unknown.
             function.instruction(&Instruction::I64Const(31));
-            function.instruction(&Instruction::LocalSet(maximum_day_local));
+            (maximum_day_local).store(function);
             for (month, days) in [(4_i64, 30_i64), (6, 30), (9, 30), (11, 30), (2, 29)] {
-                function.instruction(&Instruction::LocalGet(month_local));
+                (month_local).load(function);
                 function.instruction(&Instruction::I64Const(month));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::I64Const(days));
-                function.instruction(&Instruction::LocalSet(maximum_day_local));
+                (maximum_day_local).store(function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
-            function.instruction(&Instruction::LocalGet(digits_local));
+            (digits_local).load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::LocalGet(month_local));
+            (month_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64GeS);
             function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(month_local));
+            (month_local).load(function);
             function.instruction(&Instruction::I64Const(12));
             function.instruction(&Instruction::I64LeS);
             function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(day_local));
+            (day_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64GeS);
             function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(day_local));
-            function.instruction(&Instruction::LocalGet(maximum_day_local));
+            (day_local).load(function);
+            (maximum_day_local).load(function);
             function.instruction(&Instruction::I64LeS);
             function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Ambiguous Temporal.PlainTime string requires the T designator",
-                self.result_local,
-                self.result_tag_local,
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(
+                lila_ir::NativeErrorKind::RangeError,
+                RuntimeErrorMessage::AMBIGUOUS_TEMPORAL_PLAINTIME_STRING_REQUIRES_THE_T_DESIGNATOR,
                 function,
             )?;
-            self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         // Rewrite: `0000-01-01T` + the tail, minus any `T` designator.
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::LocalGet(designated_local));
+        (length_local).load(function);
+        (designated_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_slice_payload_from_locals(
-            string_payload_local,
-            designated_local,
-            self.scratch_local,
+        (slice_length).store(function);
+        let piece = self.runtime_schema().reserve_gc_local(function).initialize(
+            self.emit_temporal_string_slice(string, designated_local, slice_length, function),
             function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("0000-01-01T")));
-        function.instruction(&Instruction::LocalSet(rewritten_local));
-        self.emit_concat_string_payloads_local(rewritten_local, piece_local, function)?;
-        function.instruction(&Instruction::LocalSet(rewritten_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(string_payload_local));
-        function.instruction(&Instruction::LocalSet(rewritten_local));
+        );
+        let prefix = self.runtime_schema().reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("0000-01-01T", function)?,
+            function,
+        );
+        rewritten_local.replace(
+            self.emit_concat_gc_strings(&prefix, &piece, function),
+            function,
+        );
+        prefix.clear(function);
+        piece.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_temporal_parse_iso_string(
-            rewritten_local,
-            piece_local,
-            byte_local,
+            &rewritten_local,
             TemporalIsoParseGoal::PlainTime {
                 hour_destination_local,
                 minute_destination_local,
@@ -5524,8 +3459,6 @@ impl<'a> FunctionBuilder<'a> {
         )?;
 
         for local in [
-            rewritten_local,
-            piece_local,
             maximum_day_local,
             day_local,
             month_local,
@@ -5536,10 +3469,12 @@ impl<'a> FunctionBuilder<'a> {
             cursor_local,
             main_end_local,
             length_local,
-            offset_local,
         ] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
+        self.runtime_schema()
+            .release_i64_local(slice_length, function);
+        rewritten_local.clear(function);
         Ok(())
     }
 
@@ -5547,68 +3482,76 @@ impl<'a> FunctionBuilder<'a> {
     /// the scratch cursor the byte loader wants.
     fn emit_temporal_load_byte_at_index(
         &mut self,
-        string_offset_local: u32,
+        string: &GcLocal<StringValue>,
         index: i64,
-        index_local: u32,
-        byte_local: u32,
+        index_local: I64Local,
+        byte_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(index));
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_load_string_byte(string_offset_local, index_local, byte_local, function);
+        (index_local).store(function);
+        self.emit_temporal_load_code_unit(string, index_local, byte_local, function);
     }
 
     /// Two ASCII digits at fixed indices, read as a decimal number. The caller
     /// has already checked that both are digits.
     fn emit_temporal_two_digit_value(
         &mut self,
-        string_offset_local: u32,
+        string: &GcLocal<StringValue>,
         indices: [i64; 2],
-        index_local: u32,
-        byte_local: u32,
-        output_local: u32,
+        index_local: I64Local,
+        byte_local: I64Local,
+        output_local: I64Local,
         function: &mut Function,
     ) {
         self.emit_temporal_load_byte_at_index(
-            string_offset_local,
+            string,
             indices[0],
             index_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(output_local));
+        (output_local).store(function);
         self.emit_temporal_load_byte_at_index(
-            string_offset_local,
+            string,
             indices[1],
             index_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(output_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (output_local).load(function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(output_local));
+        (output_local).store(function);
     }
 
-    fn emit_temporal_advance_cursor(&mut self, cursor_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(cursor_local));
+    pub(super) fn emit_temporal_advance_cursor(
+        &mut self,
+        cursor_local: I64Local,
+        function: &mut Function,
+    ) {
+        (cursor_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cursor_local));
+        (cursor_local).store(function);
     }
 
-    fn emit_temporal_byte_is_digit(&mut self, byte_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(byte_local));
+    pub(super) fn emit_temporal_byte_is_digit(
+        &mut self,
+        byte_local: I64Local,
+        function: &mut Function,
+    ) {
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'9' as i64));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
@@ -5616,69 +3559,72 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_temporal_peek_byte(
         &mut self,
-        string_offset_local: u32,
-        cursor_local: u32,
-        end_local: u32,
-        byte_local: u32,
-        valid_local: u32,
+        string: &GcLocal<StringValue>,
+        cursor_local: I64Local,
+        end_local: I64Local,
+        byte_local: I64Local,
+        valid_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        (cursor_local).load(function);
+        (end_local).load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(byte_local));
+        (byte_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
 
     fn emit_temporal_peek_byte_if_available(
         &mut self,
-        string_offset_local: u32,
-        cursor_local: u32,
-        end_local: u32,
-        byte_local: u32,
+        string: &GcLocal<StringValue>,
+        cursor_local: I64Local,
+        end_local: I64Local,
+        byte_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        (byte_local).store(function);
+        (cursor_local).load(function);
+        (end_local).load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_expect_byte(
         &mut self,
-        string_offset_local: u32,
-        cursor_local: u32,
-        end_local: u32,
-        byte_local: u32,
-        valid_local: u32,
+        string: &GcLocal<StringValue>,
+        cursor_local: I64Local,
+        end_local: I64Local,
+        byte_local: I64Local,
+        valid_local: I64Local,
         expected: u8,
         function: &mut Function,
     ) {
         self.emit_temporal_peek_byte(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
             valid_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(expected as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_advance_cursor(cursor_local, function);
     }
@@ -5686,20 +3632,20 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_parse_fixed_decimal(
         &mut self,
-        string_offset_local: u32,
-        cursor_local: u32,
-        end_local: u32,
-        byte_local: u32,
-        valid_local: u32,
-        destination_local: u32,
+        string: &GcLocal<StringValue>,
+        cursor_local: I64Local,
+        end_local: I64Local,
+        byte_local: I64Local,
+        valid_local: I64Local,
+        destination_local: I64Local,
         width: u32,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(destination_local));
+        (destination_local).store(function);
         for _ in 0..width {
             self.emit_temporal_peek_byte(
-                string_offset_local,
+                string,
                 cursor_local,
                 end_local,
                 byte_local,
@@ -5708,18 +3654,19 @@ impl<'a> FunctionBuilder<'a> {
             );
             self.emit_temporal_byte_is_digit(byte_local, function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(valid_local));
+            (valid_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(destination_local));
+            (destination_local).load(function);
             function.instruction(&Instruction::I64Const(10));
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalGet(byte_local));
+            (byte_local).load(function);
             function.instruction(&Instruction::I64Const(b'0' as i64));
             function.instruction(&Instruction::I64Sub);
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(destination_local));
+            (destination_local).store(function);
             self.emit_temporal_advance_cursor(cursor_local, function);
         }
     }
@@ -5727,71 +3674,76 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_parse_optional_fraction(
         &mut self,
-        string_offset_local: u32,
-        cursor_local: u32,
-        end_local: u32,
-        byte_local: u32,
-        valid_local: u32,
-        fraction_local: u32,
-        fraction_digits_local: u32,
+        string: &GcLocal<StringValue>,
+        cursor_local: I64Local,
+        end_local: I64Local,
+        byte_local: I64Local,
+        valid_local: I64Local,
+        fraction_local: I64Local,
+        fraction_digits_local: I64Local,
         function: &mut Function,
     ) {
         self.emit_temporal_peek_byte_if_available(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'.' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b',' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_temporal_advance_cursor(cursor_local, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        (cursor_local).load(function);
+        (end_local).load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
         self.emit_temporal_byte_is_digit(byte_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        (fraction_digits_local).load(function);
         function.instruction(&Instruction::I64Const(9));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(fraction_local));
+        (fraction_local).load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(fraction_local));
+        (fraction_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        (fraction_digits_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(fraction_digits_local));
+        (fraction_digits_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        (fraction_digits_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
 
@@ -5799,52 +3751,51 @@ impl<'a> FunctionBuilder<'a> {
     /// Unlike a time-zone identifier, this grammar allows seconds and fractions.
     pub(super) fn emit_temporal_utc_offset_nanoseconds(
         &mut self,
-        payload_local: u32,
-        nanoseconds_local: u32,
+        string: &GcLocal<StringValue>,
+        nanoseconds_local: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let string_offset_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let cursor_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let valid_local = self.reserve_temp_local();
-        let sign_local = self.reserve_temp_local();
-        let hour_local = self.reserve_temp_local();
-        let minute_local = self.reserve_temp_local();
-        let second_local = self.reserve_temp_local();
-        let has_second_local = self.reserve_temp_local();
-        let fraction_local = self.reserve_temp_local();
-        let fraction_digits_local = self.reserve_temp_local();
-        self.emit_unpack_string_payload(payload_local, string_offset_local, length_local, function);
+        let length_local = self.runtime_schema().reserve_i64_local(function);
+        let cursor_local = self.runtime_schema().reserve_i64_local(function);
+        let byte_local = self.runtime_schema().reserve_i64_local(function);
+        let valid_local = self.runtime_schema().reserve_i64_local(function);
+        let sign_local = self.runtime_schema().reserve_i64_local(function);
+        let hour_local = self.runtime_schema().reserve_i64_local(function);
+        let minute_local = self.runtime_schema().reserve_i64_local(function);
+        let second_local = self.runtime_schema().reserve_i64_local(function);
+        let has_second_local = self.runtime_schema().reserve_i64_local(function);
+        let fraction_local = self.runtime_schema().reserve_i64_local(function);
+        let fraction_digits_local = self.runtime_schema().reserve_i64_local(function);
+        self.emit_temporal_string_length(string, length_local, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(cursor_local));
+        (cursor_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(hour_local));
+        (hour_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(minute_local));
+        (minute_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(second_local));
+        (second_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(fraction_local));
+        (fraction_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(fraction_digits_local));
+        (fraction_digits_local).store(function);
         self.emit_temporal_peek_byte_if_available(
-            string_offset_local,
+            string,
             cursor_local,
             length_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (valid_local).store(function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -5852,10 +3803,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(sign_local));
+        (sign_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             length_local,
             byte_local,
@@ -5865,7 +3816,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_parse_offset_tail(
-            string_offset_local,
+            string,
             cursor_local,
             length_local,
             byte_local,
@@ -5877,131 +3828,144 @@ impl<'a> FunctionBuilder<'a> {
             fraction_digits_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(valid_local));
+        (valid_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(length_local));
+        (cursor_local).load(function);
+        (length_local).load(function);
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(hour_local));
+        (hour_local).load(function);
         function.instruction(&Instruction::I64Const(23));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(minute_local));
+        (minute_local).load(function);
         function.instruction(&Instruction::I64Const(59));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(second_local));
+        (second_local).load(function);
         function.instruction(&Instruction::I64Const(59));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.ZonedDateTime string",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_STRING,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         // The shared parser stores unscaled decimal fraction digits.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        (fraction_digits_local).load(function);
         function.instruction(&Instruction::I64Const(9));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(fraction_local));
+        (fraction_local).load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(fraction_local));
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        (fraction_local).store(function);
+        (fraction_digits_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(fraction_digits_local));
+        (fraction_digits_local).store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(hour_local));
+        (hour_local).load(function);
         function.instruction(&Instruction::I64Const(3600));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(minute_local));
+        (minute_local).load(function);
         function.instruction(&Instruction::I64Const(60));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(second_local));
+        (second_local).load(function);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Const(1_000_000_000));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(fraction_local));
+        (fraction_local).load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(sign_local));
+        (sign_local).load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(nanoseconds_local));
-        self.release_temp_local(fraction_digits_local);
-        self.release_temp_local(fraction_local);
-        self.release_temp_local(has_second_local);
-        self.release_temp_local(second_local);
-        self.release_temp_local(minute_local);
-        self.release_temp_local(hour_local);
-        self.release_temp_local(sign_local);
-        self.release_temp_local(valid_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(cursor_local);
-        self.release_temp_local(length_local);
-        self.release_temp_local(string_offset_local);
+        (nanoseconds_local).store(function);
+        self.runtime_schema()
+            .release_i64_local(fraction_digits_local, function);
+        self.runtime_schema()
+            .release_i64_local(fraction_local, function);
+        self.runtime_schema()
+            .release_i64_local(has_second_local, function);
+        self.runtime_schema()
+            .release_i64_local(second_local, function);
+        self.runtime_schema()
+            .release_i64_local(minute_local, function);
+        self.runtime_schema()
+            .release_i64_local(hour_local, function);
+        self.runtime_schema()
+            .release_i64_local(sign_local, function);
+        self.runtime_schema()
+            .release_i64_local(valid_local, function);
+        self.runtime_schema()
+            .release_i64_local(byte_local, function);
+        self.runtime_schema()
+            .release_i64_local(cursor_local, function);
+        self.runtime_schema()
+            .release_i64_local(length_local, function);
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_parse_offset_tail(
         &mut self,
-        string_offset_local: u32,
-        cursor_local: u32,
-        end_local: u32,
-        byte_local: u32,
-        valid_local: u32,
-        minute_local: u32,
-        second_local: u32,
-        has_second_local: u32,
-        fraction_local: u32,
-        fraction_digits_local: u32,
+        string: &GcLocal<StringValue>,
+        cursor_local: I64Local,
+        end_local: I64Local,
+        byte_local: I64Local,
+        valid_local: I64Local,
+        minute_local: I64Local,
+        second_local: I64Local,
+        has_second_local: I64Local,
+        fraction_local: I64Local,
+        fraction_digits_local: I64Local,
         function: &mut Function,
     ) {
-        let separated_local = self.reserve_temp_local();
-        let has_minute_local = self.reserve_temp_local();
+        let separated_local = self.runtime_schema().reserve_i64_local(function);
+        let has_minute_local = self.runtime_schema().reserve_i64_local(function);
         for local in [separated_local, has_minute_local, has_second_local] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
         self.emit_temporal_peek_byte_if_available(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b':' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(separated_local));
+        (separated_local).store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
+        (has_minute_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Else);
         self.emit_temporal_byte_is_digit(byte_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
+        (has_minute_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(has_minute_local));
+        (has_minute_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
@@ -6011,36 +3975,40 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_peek_byte_if_available(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(separated_local));
+        (separated_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_temporal_byte_is_digit(byte_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_second_local));
+        (has_second_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b':' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_second_local));
+        (has_second_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(has_second_local));
+        (has_second_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_temporal_parse_fixed_decimal(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
@@ -6050,7 +4018,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_parse_optional_fraction(
-            string_offset_local,
+            string,
             cursor_local,
             end_local,
             byte_local,
@@ -6059,47 +4027,51 @@ impl<'a> FunctionBuilder<'a> {
             fraction_digits_local,
             function,
         );
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(has_minute_local);
-        self.release_temp_local(separated_local);
+        self.runtime_schema()
+            .release_i64_local(has_minute_local, function);
+        self.runtime_schema()
+            .release_i64_local(separated_local, function);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_validate_annotations(
         &mut self,
-        string_offset_local: u32,
-        main_end_local: u32,
-        string_len_local: u32,
-        cursor_local: u32,
-        byte_local: u32,
-        valid_local: u32,
-        calendar_count_local: u32,
-        calendar_critical_local: u32,
-        timezone_count_local: u32,
-        annotation_start_local: u32,
-        annotation_equals_local: u32,
-        annotation_critical_local: u32,
-        annotation_key_uppercase_local: u32,
-        annotation_numeric_timezone_local: u32,
-        annotation_colon_count_local: u32,
-        time_zone_start_local: u32,
-        time_zone_end_local: u32,
-        calendar_start_local: u32,
-        calendar_end_local: u32,
+        string: &GcLocal<StringValue>,
+        main_end_local: I64Local,
+        string_len_local: I64Local,
+        cursor_local: I64Local,
+        byte_local: I64Local,
+        valid_local: I64Local,
+        calendar_count_local: I64Local,
+        calendar_critical_local: I64Local,
+        timezone_count_local: I64Local,
+        annotation_start_local: I64Local,
+        annotation_equals_local: I64Local,
+        annotation_critical_local: I64Local,
+        annotation_key_uppercase_local: I64Local,
+        annotation_numeric_timezone_local: I64Local,
+        annotation_colon_count_local: I64Local,
+        time_zone_start_local: I64Local,
+        time_zone_end_local: I64Local,
+        calendar_start_local: I64Local,
+        calendar_end_local: I64Local,
         function: &mut Function,
     ) {
-        let annotation_end_local = self.reserve_temp_local();
-        let key_is_calendar_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(main_end_local));
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
+        let annotation_index = self.runtime_schema().reserve_i64_local(function);
+        let annotation_end_local = self.runtime_schema().reserve_i64_local(function);
+        let key_is_calendar_local = self.runtime_schema().reserve_i64_local(function);
+        (main_end_local).load(function);
+        (cursor_local).store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        (cursor_local).load(function);
+        (string_len_local).load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
         self.emit_temporal_expect_byte(
-            string_offset_local,
+            string,
             cursor_local,
             string_len_local,
             byte_local,
@@ -6115,283 +4087,305 @@ impl<'a> FunctionBuilder<'a> {
             (annotation_equals_local, -1),
         ] {
             function.instruction(&Instruction::I64Const(value));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
         self.emit_temporal_peek_byte(
-            string_offset_local,
+            string,
             cursor_local,
             string_len_local,
             byte_local,
             valid_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'!' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(annotation_critical_local));
+        (annotation_critical_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(annotation_start_local));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(annotation_end_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
+        (cursor_local).load(function);
+        (annotation_start_local).store(function);
+        (cursor_local).load(function);
+        (annotation_end_local).store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        (cursor_local).load(function);
+        (string_len_local).load(function);
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
         function.instruction(&Instruction::Br(2));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.emit_temporal_load_code_unit(string, cursor_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b']' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(annotation_end_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (cursor_local).load(function);
+        (annotation_end_local).store(function);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Br(2));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'[' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(annotation_equals_local));
+        (annotation_equals_local).load(function);
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'=' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(annotation_equals_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (cursor_local).load(function);
+        (annotation_equals_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'A' as i64));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'Z' as i64));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(annotation_key_uppercase_local));
+        (annotation_key_uppercase_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b':' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(annotation_colon_count_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (annotation_colon_count_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(annotation_colon_count_local));
+        (annotation_colon_count_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(annotation_end_local));
-        function.instruction(&Instruction::LocalGet(annotation_start_local));
+        (annotation_end_local).load(function);
+        (annotation_start_local).load(function);
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(annotation_equals_local));
+        (annotation_equals_local).load(function);
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(annotation_key_uppercase_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (annotation_key_uppercase_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(key_is_calendar_local));
-        function.instruction(&Instruction::LocalGet(annotation_equals_local));
-        function.instruction(&Instruction::LocalGet(annotation_start_local));
+        (key_is_calendar_local).store(function);
+        (annotation_equals_local).load(function);
+        (annotation_start_local).load(function);
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         for (offset, expected) in [(0, b'u'), (1, b'-'), (2, b'c'), (3, b'a')] {
-            function.instruction(&Instruction::LocalGet(annotation_start_local));
+            (annotation_start_local).load(function);
             function.instruction(&Instruction::I64Const(offset));
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.emit_load_string_byte(
-                string_offset_local,
-                self.scratch_local,
-                byte_local,
-                function,
-            );
+            (annotation_index).store(function);
+            self.emit_temporal_load_code_unit(string, annotation_index, byte_local, function);
             // emit_load_string_byte consumes a local index, so materialize it.
-            function.instruction(&Instruction::LocalGet(byte_local));
+            (byte_local).load(function);
             function.instruction(&Instruction::I64Const(expected as i64));
             function.instruction(&Instruction::I64Eq);
             if offset == 0 {
                 function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(key_is_calendar_local));
+                (key_is_calendar_local).store(function);
             } else {
-                function.instruction(&Instruction::LocalGet(key_is_calendar_local));
+                (key_is_calendar_local).load(function);
                 function.instruction(&Instruction::I32WrapI64);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(key_is_calendar_local));
+                (key_is_calendar_local).store(function);
             }
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(key_is_calendar_local));
+        (key_is_calendar_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(calendar_count_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (calendar_count_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(annotation_equals_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (annotation_equals_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(calendar_start_local));
-        function.instruction(&Instruction::LocalGet(annotation_end_local));
-        function.instruction(&Instruction::LocalSet(calendar_end_local));
+        (calendar_start_local).store(function);
+        (annotation_end_local).load(function);
+        (calendar_end_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(calendar_count_local));
+        (calendar_count_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(calendar_count_local));
-        function.instruction(&Instruction::LocalGet(calendar_critical_local));
-        function.instruction(&Instruction::LocalGet(annotation_critical_local));
+        (calendar_count_local).store(function);
+        (calendar_critical_local).load(function);
+        (annotation_critical_local).load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(calendar_critical_local));
-        function.instruction(&Instruction::LocalGet(calendar_count_local));
+        (calendar_critical_local).store(function);
+        (calendar_count_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::LocalGet(calendar_critical_local));
+        (calendar_critical_local).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(annotation_critical_local));
+        (annotation_critical_local).load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(timezone_count_local));
+        (timezone_count_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(annotation_start_local));
-        function.instruction(&Instruction::LocalSet(time_zone_start_local));
-        function.instruction(&Instruction::LocalGet(annotation_end_local));
-        function.instruction(&Instruction::LocalSet(time_zone_end_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (annotation_start_local).load(function);
+        (time_zone_start_local).store(function);
+        (annotation_end_local).load(function);
+        (time_zone_end_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(timezone_count_local));
+        (timezone_count_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalTee(timezone_count_local));
+        (timezone_count_local).store(function);
+        (timezone_count_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_load_string_byte(
-            string_offset_local,
-            annotation_start_local,
-            byte_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(byte_local));
+        self.emit_temporal_load_code_unit(string, annotation_start_local, byte_local, function);
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        (byte_local).load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(annotation_end_local));
-        function.instruction(&Instruction::LocalGet(annotation_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::LocalGet(annotation_end_local));
-        function.instruction(&Instruction::LocalGet(annotation_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
+        // `TimeZoneNumericUTCOffset` is `±HH`, `±HHMM` or `±HH:MM`
+        // (lengths 3, 5 and 6); anything with seconds stays invalid.
+        for expected in [3, 5, 6] {
+            (annotation_end_local).load(function);
+            (annotation_start_local).load(function);
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Const(expected));
+            function.instruction(&Instruction::I64Eq);
+            if expected != 3 {
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(key_is_calendar_local);
-        self.release_temp_local(annotation_end_local);
+        self.runtime_schema()
+            .release_i64_local(key_is_calendar_local, function);
+        self.runtime_schema()
+            .release_i64_local(annotation_end_local, function);
+        self.runtime_schema()
+            .release_i64_local(annotation_index, function);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_validate_date_time(
         &mut self,
-        year_local: u32,
-        month_local: u32,
-        day_local: u32,
-        hour_local: u32,
-        minute_local: u32,
-        second_local: u32,
-        offset_hour_local: u32,
-        offset_minute_local: u32,
-        offset_second_local: u32,
-        maximum_day_local: u32,
-        valid_local: u32,
+        year_local: I64Local,
+        month_local: I64Local,
+        day_local: I64Local,
+        hour_local: I64Local,
+        minute_local: I64Local,
+        second_local: I64Local,
+        offset_hour_local: I64Local,
+        offset_minute_local: I64Local,
+        offset_second_local: I64Local,
+        maximum_day_local: I64Local,
+        valid_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(31));
-        function.instruction(&Instruction::LocalSet(maximum_day_local));
+        (maximum_day_local).store(function);
         for month in [4_i64, 6, 9, 11] {
-            function.instruction(&Instruction::LocalGet(month_local));
+            (month_local).load(function);
             function.instruction(&Instruction::I64Const(month));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(30));
-            function.instruction(&Instruction::LocalSet(maximum_day_local));
+            (maximum_day_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(month_local));
+        (month_local).load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(year_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(year_local));
+        (year_local).load(function);
         function.instruction(&Instruction::I64Const(400));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::I64Eqz);
@@ -6401,7 +4395,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(28));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(maximum_day_local));
+        (maximum_day_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         for (local, minimum, maximum) in [
@@ -6414,89 +4409,93 @@ impl<'a> FunctionBuilder<'a> {
             (offset_minute_local, 0, 59),
             (offset_second_local, 0, 59),
         ] {
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(minimum));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(maximum));
             function.instruction(&Instruction::I64GtS);
             function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(valid_local));
+            (valid_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::LocalGet(maximum_day_local));
+        (day_local).load(function);
+        (maximum_day_local).load(function);
         function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
+        (valid_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
 
     fn emit_temporal_scale_fraction_to_nanoseconds(
         &mut self,
-        fraction_local: u32,
-        digit_count_local: u32,
+        fraction_local: I64Local,
+        digit_count_local: I64Local,
         function: &mut Function,
     ) {
-        let counter_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(digit_count_local));
-        function.instruction(&Instruction::LocalSet(counter_local));
+        let counter_local = self.runtime_schema().reserve_i64_local(function);
+        (digit_count_local).load(function);
+        (counter_local).store(function);
         for _ in 0..9 {
-            function.instruction(&Instruction::LocalGet(counter_local));
+            (counter_local).load(function);
             function.instruction(&Instruction::I64Const(9));
             function.instruction(&Instruction::I64LtU);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(fraction_local));
+            self.open_frame(ControlFrameKind::If, function);
+            (fraction_local).load(function);
             function.instruction(&Instruction::I64Const(10));
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalSet(fraction_local));
-            function.instruction(&Instruction::LocalGet(counter_local));
+            (fraction_local).store(function);
+            (counter_local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(counter_local));
+            (counter_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        self.release_temp_local(counter_local);
+        (fraction_local).load(function);
+        self.runtime_schema()
+            .release_i64_local(counter_local, function);
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_days_from_civil(
         &mut self,
-        year_local: u32,
-        month_local: u32,
-        day_local: u32,
-        adjusted_year_local: u32,
-        era_local: u32,
-        month_index_local: u32,
-        days_local: u32,
+        year_local: I64Local,
+        month_local: I64Local,
+        day_local: I64Local,
+        adjusted_year_local: I64Local,
+        era_local: I64Local,
+        month_index_local: I64Local,
+        days_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(year_local));
-        function.instruction(&Instruction::LocalGet(month_local));
+        (year_local).load(function);
+        (month_local).load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64LeS);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(adjusted_year_local));
-        function.instruction(&Instruction::LocalGet(adjusted_year_local));
+        (adjusted_year_local).store(function);
+        (adjusted_year_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(adjusted_year_local));
+        (adjusted_year_local).load(function);
         function.instruction(&Instruction::I64Const(399));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(adjusted_year_local));
+        (adjusted_year_local).load(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(400));
         function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(era_local));
-        function.instruction(&Instruction::LocalGet(month_local));
-        function.instruction(&Instruction::LocalGet(month_local));
+        (era_local).store(function);
+        (month_local).load(function);
+        (month_local).load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -6505,27 +4504,28 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(-9));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(month_index_local));
-        function.instruction(&Instruction::LocalGet(era_local));
+        (month_index_local).store(function);
+        (era_local).load(function);
         function.instruction(&Instruction::I64Const(146_097));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(adjusted_year_local));
-        function.instruction(&Instruction::LocalGet(era_local));
+        (adjusted_year_local).load(function);
+        (era_local).load(function);
         function.instruction(&Instruction::I64Const(400));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalTee(days_local));
+        (days_local).store(function);
+        (days_local).load(function);
         function.instruction(&Instruction::I64Const(365));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(days_local));
+        (days_local).load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(days_local));
+        (days_local).load(function);
         function.instruction(&Instruction::I64Const(100));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalGet(month_index_local));
+        (month_index_local).load(function);
         function.instruction(&Instruction::I64Const(153));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Const(2));
@@ -6533,1501 +4533,808 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(5));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(day_local));
+        (day_local).load(function);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Const(719_468));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(days_local));
+        (days_local).store(function);
     }
 
     pub(super) fn emit_temporal_normalize_seconds_and_subseconds(
         &mut self,
-        seconds_local: u32,
-        subsecond_local: u32,
+        seconds_local: I64Local,
+        subsecond_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (subsecond_local).store(function);
+        (seconds_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
+        (seconds_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (subsecond_local).store(function);
+        (seconds_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(seconds_local));
+        (seconds_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_temporal_epoch_nanoseconds_bigint(
         &mut self,
-        seconds_local: u32,
-        subsecond_local: u32,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
+        seconds_local: I64Local,
+        subsecond_local: I64Local,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let negative_local = self.reserve_temp_local();
-        let magnitude_seconds_local = self.reserve_temp_local();
-        let magnitude_subsecond_local = self.reserve_temp_local();
-        let low_word_local = self.reserve_temp_local();
-        let low_product_local = self.reserve_temp_local();
-        let high_product_local = self.reserve_temp_local();
-        let low_limb_local = self.reserve_temp_local();
-        let high_limb_local = self.reserve_temp_local();
+    ) -> GcLocal<BigIntValue> {
+        let negative_local = self.runtime_schema().reserve_i64_local(function);
+        let magnitude_seconds_local = self.runtime_schema().reserve_i64_local(function);
+        let magnitude_subsecond_local = self.runtime_schema().reserve_i64_local(function);
+        let low_word_local = self.runtime_schema().reserve_i64_local(function);
+        let low_product_local = self.runtime_schema().reserve_i64_local(function);
+        let high_product_local = self.runtime_schema().reserve_i64_local(function);
+        let low_limb_local = self.runtime_schema().reserve_i64_local(function);
+        let high_limb_local = self.runtime_schema().reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (seconds_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
+        (negative_local).store(function);
+        (negative_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::LocalSet(magnitude_seconds_local));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::LocalSet(magnitude_subsecond_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (seconds_local).load(function);
+        (magnitude_seconds_local).store(function);
+        (subsecond_local).load(function);
+        (magnitude_subsecond_local).store(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (seconds_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(magnitude_seconds_local));
+        (magnitude_seconds_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(magnitude_subsecond_local));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        (magnitude_subsecond_local).store(function);
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(magnitude_seconds_local));
+        (magnitude_seconds_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(magnitude_seconds_local));
+        (magnitude_seconds_local).store(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(magnitude_subsecond_local));
+        (magnitude_subsecond_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(magnitude_seconds_local));
+        (magnitude_seconds_local).load(function);
         function.instruction(&Instruction::I64Const(u32::MAX as i64));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(low_word_local));
-        function.instruction(&Instruction::LocalGet(low_word_local));
+        (low_word_local).store(function);
+        (low_word_local).load(function);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(low_product_local));
-        function.instruction(&Instruction::LocalGet(magnitude_seconds_local));
+        (low_product_local).store(function);
+        (magnitude_seconds_local).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(high_product_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
+        (high_product_local).store(function);
+        (low_product_local).load(function);
+        (high_product_local).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64Shl);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
+        (low_limb_local).store(function);
+        (high_product_local).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
+        (low_limb_local).load(function);
+        (low_product_local).load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high_limb_local));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(magnitude_subsecond_local));
+        (high_limb_local).store(function);
+        (low_limb_local).load(function);
+        (magnitude_subsecond_local).load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(magnitude_subsecond_local));
+        (low_limb_local).store(function);
+        (low_limb_local).load(function);
+        (magnitude_subsecond_local).load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(high_limb_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (high_limb_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high_limb_local));
+        (high_limb_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
-        function.instruction(&Instruction::Else);
-        let record_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        self.emit_heap_alloc_const(16, function)?;
-        function.instruction(&Instruction::LocalSet(limbs_local));
-        self.store_i64_local_at_offset(limbs_local, 0, low_limb_local, function);
-        self.store_i64_local_at_offset(limbs_local, 8, high_limb_local, function);
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(limb_count_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(low_word_local));
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            low_word_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_CAP_OFFSET,
-            limb_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(record_local);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(high_limb_local);
-        self.release_temp_local(low_limb_local);
-        self.release_temp_local(high_product_local);
-        self.release_temp_local(low_product_local);
-        self.release_temp_local(low_word_local);
-        self.release_temp_local(magnitude_subsecond_local);
-        self.release_temp_local(magnitude_seconds_local);
-        self.release_temp_local(negative_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_alloc_temporal_instant(
-        &mut self,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
-        prototype_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let instant_payload_local = self.reserve_temp_local();
-        let instant_record_local = self.reserve_temp_local();
-
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(instant_payload_local));
-        self.emit_heap_alloc_const(HEAP_TEMPORAL_INSTANT_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(instant_record_local));
-        self.store_i64_local_at_offset(
-            instant_record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            instant_record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            instant_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_INSTANT,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            instant_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            instant_record_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(instant_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(instant_record_local);
-        self.release_temp_local(instant_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_temporal_instant_epoch_nanoseconds(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.release_temp_local(record_local);
-        Ok(())
-    }
-
-    /// Exact signed truncation pair, including heap BigInts beyond i64.
-    pub(super) fn emit_temporal_epoch_nanoseconds_pair(
-        &mut self,
-        record_local: u32,
-        record: TemporalEpochNanosecondsRecord,
-        seconds_local: u32,
-        subsecond_local: u32,
-        function: &mut Function,
-    ) {
-        let (payload_offset, tag_offset) = record.offsets();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(record_local, payload_offset, payload_local, function);
-        self.load_i64_to_local_from_offset(record_local, tag_offset, tag_local, function);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_heap_bigint_millisecond_quotient(
-            payload_local,
-            milliseconds_local,
-            remainder_local,
-            negative_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
+        let schema = self.runtime_schema();
+        let negative = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        negative_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        function.instruction(&Instruction::End);
+        negative.store(function);
+        function.instruction(&Instruction::I32Const(2));
+        index.store(function);
+        let slot = schema.reserve_gc_local(function);
+        let construction = BigIntConstruction::allocate(schema, slot, index, function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        construction.write(index, low_limb_local, schema, function);
+        function.instruction(&Instruction::I32Const(1));
+        index.store(function);
+        construction.write(index, high_limb_local, schema, function);
+        let result = schema
+            .reserve_gc_local(function)
+            .initialize(construction.publish(negative, schema, function), function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(negative, function);
         for local in [
+            high_limb_local,
+            low_limb_local,
+            high_product_local,
+            low_product_local,
+            low_word_local,
+            magnitude_subsecond_local,
+            magnitude_seconds_local,
             negative_local,
-            remainder_local,
-            milliseconds_local,
-            tag_local,
-            payload_local,
         ] {
-            self.release_temp_local(local);
+            schema.release_i64_local(local, function);
         }
+        result
     }
 
-    /// `floor(epochNanoseconds / 10^6)` as an f64, read out of the epoch
-    /// nanoseconds slot pair of `record_local`.
+    /// Round `(seconds_local, subseconds_local)` in place to a
+    /// `quantum_local`-nanosecond increment with `mode_local`.
     ///
-    /// The division is a *floor*, not a truncation: `-1n` nanosecond is
-    /// millisecond `-1`, not `0`, so the negative remainder is corrected
-    /// explicitly. Both the small-integer and heap-BigInt representations of
-    /// the slot are handled, because either can reach a record.
-    ///
-    /// `Temporal.Instant` and `Temporal.ZonedDateTime` lay their epoch
-    /// nanoseconds out identically, which is why the offsets are parameters
-    /// rather than baked in.
-    pub(crate) fn emit_temporal_epoch_nanoseconds_record_to_milliseconds(
+    /// The `RoundTemporalInstant` core shared by `Instant.prototype.round`
+    /// and `Instant.prototype.toString`: day/within-day split with the
+    /// floor correction for pre-epoch instants, half-even parity from the
+    /// global quotient, the `round_up` decision, and carry absorption back
+    /// into seconds. All scratch locals are reserved and released inside.
+    pub(super) fn emit_temporal_round_seconds_and_subseconds_to_quantum(
         &mut self,
-        record_local: u32,
-        payload_offset: u64,
-        tag_offset: u64,
-        dest_local: u32,
+        quantum_local: I64Local,
+        mode_local: I64Local,
+        seconds_local: I64Local,
+        subseconds_local: I64Local,
         function: &mut Function,
     ) {
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let quotient_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            record_local,
-            payload_offset,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            tag_offset,
-            nanoseconds_tag_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(nanoseconds_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
+        let day_local = self.runtime_schema().reserve_i64_local(function);
+        let within_day_local = self.runtime_schema().reserve_i64_local(function);
+        let quotient_local = self.runtime_schema().reserve_i64_local(function);
+        let remainder_local = self.runtime_schema().reserve_i64_local(function);
+        let parity_local = self.runtime_schema().reserve_i64_local(function);
+        let positive_local = self.runtime_schema().reserve_i64_local(function);
+        (seconds_local).load(function);
+        function.instruction(&Instruction::I64Const(86_400));
+        function.instruction(&Instruction::I64DivS);
+        (day_local).store(function);
+        (seconds_local).load(function);
+        function.instruction(&Instruction::I64Const(86_400));
+        function.instruction(&Instruction::I64RemS);
+        (within_day_local).store(function);
+        (within_day_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_heap_bigint_millisecond_quotient(
-            nanoseconds_payload_local,
-            quotient_local,
-            remainder_local,
-            negative_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(quotient_local));
+        self.open_frame(ControlFrameKind::If, function);
+        (within_day_local).load(function);
+        function.instruction(&Instruction::I64Const(86_400));
+        function.instruction(&Instruction::I64Add);
+        (within_day_local).store(function);
+        (day_local).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(quotient_local));
+        (day_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_local));
+        (within_day_local).load(function);
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64Mul);
+        (subseconds_local).load(function);
+        function.instruction(&Instruction::I64Add);
+        (within_day_local).store(function);
 
-        self.release_temp_local(negative_local);
-        self.release_temp_local(remainder_local);
-        self.release_temp_local(quotient_local);
-        self.release_temp_local(nanoseconds_tag_local);
-        self.release_temp_local(nanoseconds_payload_local);
-    }
-
-    pub(crate) fn emit_temporal_instant_epoch_milliseconds(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-
-        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
-        self.emit_temporal_epoch_nanoseconds_record_to_milliseconds(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            self.result_local,
+        // RoundNumberToIncrementAsIfPositive uses the floor quotient even
+        // before the epoch. A day is an exact multiple of every admitted
+        // quantum, so its remainder can be computed without a wide product.
+        (within_day_local).load(function);
+        (quantum_local).load(function);
+        function.instruction(&Instruction::I64DivU);
+        (quotient_local).store(function);
+        (within_day_local).load(function);
+        (quantum_local).load(function);
+        function.instruction(&Instruction::I64RemU);
+        (remainder_local).store(function);
+        // Half-even needs the global quotient parity. Keeping only the
+        // within-day quotient would misround odd days with a 24-hour quantum.
+        (day_local).load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
+        (quantum_local).load(function);
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Mul);
+        (quotient_local).load(function);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        (parity_local).store(function);
+        function.instruction(&Instruction::I64Const(1));
+        (positive_local).store(function);
+        (within_day_local).load(function);
+        (remainder_local).load(function);
+        function.instruction(&Instruction::I64Sub);
+        (within_day_local).store(function);
+        self.emit_temporal_duration_round_up_i32(
+            remainder_local,
+            quantum_local,
+            parity_local,
+            positive_local,
+            mode_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(record_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_temporal_instant_equals(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let receiver_record_local = self.reserve_temp_local();
-        let receiver_epoch_payload_local = self.reserve_temp_local();
-        let receiver_epoch_tag_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let other_instant_payload_local = self.reserve_temp_local();
-        let other_instant_tag_local = self.reserve_temp_local();
-        let other_record_local = self.reserve_temp_local();
-        let other_epoch_payload_local = self.reserve_temp_local();
-        let other_epoch_tag_local = self.reserve_temp_local();
-
-        self.emit_temporal_instant_record_from_receiver(receiver_record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            receiver_record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            receiver_epoch_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            receiver_epoch_tag_local,
-            function,
-        );
-
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        let instant_from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantFrom.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Temporal.Instant.from`",
-                )
-            })?;
-        self.emit_direct_js_call(
-            &instant_from_meta,
-            None,
-            &[(argument_payload_local, argument_tag_local)],
-            other_instant_payload_local,
-            other_instant_tag_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            other_instant_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            other_record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            other_record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            other_epoch_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            other_record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            other_epoch_tag_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(receiver_epoch_tag_local));
-        function.instruction(&Instruction::LocalGet(other_epoch_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_nonstring_tagged_payload_equality_i32(
-            receiver_epoch_tag_local,
-            receiver_epoch_payload_local,
-            other_epoch_tag_local,
-            other_epoch_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_mixed_bigint_equality_i32(
-            receiver_epoch_tag_local,
-            receiver_epoch_payload_local,
-            other_epoch_payload_local,
-            function,
-        );
+        self.open_frame(ControlFrameKind::If, function);
+        (within_day_local).load(function);
+        (quantum_local).load(function);
+        function.instruction(&Instruction::I64Add);
+        (within_day_local).store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
+        // within_day may equal one full day after rounding; the exact
+        // seconds addition absorbs that carry without another calendar step.
+        (day_local).load(function);
+        function.instruction(&Instruction::I64Const(86_400));
+        function.instruction(&Instruction::I64Mul);
+        (within_day_local).load(function);
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::I64Add);
+        (seconds_local).store(function);
+        (within_day_local).load(function);
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64RemU);
+        (subseconds_local).store(function);
         for local in [
-            other_epoch_tag_local,
-            other_epoch_payload_local,
-            other_record_local,
-            other_instant_tag_local,
-            other_instant_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            receiver_epoch_tag_local,
-            receiver_epoch_payload_local,
-            receiver_record_local,
+            positive_local,
+            parity_local,
+            remainder_local,
+            quotient_local,
+            within_day_local,
+            day_local,
         ] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
-        Ok(())
     }
 
+    /// Temporal proposal `Temporal.Instant.prototype.toString`.
+    ///
+    /// Reads `fractionalSecondDigits`, `roundingMode`, `smallestUnit` and
+    /// `timeZone` in spec order, rounds the epoch to the implied quantum,
+    /// shifts it into the zone, and renders. `smallestUnit` overrides
+    /// `fractionalSecondDigits` for both rounding and display; its range
+    /// check runs after every option read
+    /// (`options-read-before-algorithmic-validation.js`).
     pub(crate) fn emit_temporal_instant_to_string(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let date_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let millisecond_payload_local = self.reserve_temp_local();
-        let fraction_local = self.reserve_temp_local();
-        let output_payload_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let absolute_year_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(nanoseconds_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-        function.instruction(&Instruction::LocalGet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        // CONVENTION, shared with `emit_temporal_heap_bigint_millisecond_quotient`
-        // in the `Else` arm: `remainder_local` is the **non-negative magnitude**
-        // of the sub-millisecond part; the sign lives only in `negative_local`.
-        // The floor correction below is written for that convention.
-        //
-        // `I64RemS` takes the sign of the dividend, so this arm handed the
-        // correction a negative remainder while the heap-bigint arm handed it a
-        // magnitude (it reduces the limbs with `I64RemU` and negates only the
-        // quotient). `NANOSECONDS_PER_MILLISECOND - remainder` then *added*
-        // where it meant to subtract:
-        // `new Temporal.Instant(-13849764_999_999_999n).toJSON()` rendered
-        // `1969-07-24T16:50:35.001999999Z` instead of `...35.000000001Z`,
-        // because 1e6 - -999_999 is 1_999_999 rather than 1.
-        //
-        // This is the only one of the three sites that reads the remainder's
-        // *value*: `emit_temporal_zoned_date_time_epoch_milliseconds` and
-        // `emit_temporal_epoch_nanoseconds_record_to_milliseconds` only test it
-        // with `I64Eqz`, for which the sign is immaterial. Caught by
-        // `built-ins/Temporal/Instant/prototype/toJSON/negative-epochnanoseconds.js`.
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_heap_bigint_millisecond_quotient(
-            nanoseconds_payload_local,
-            milliseconds_local,
-            remainder_local,
-            negative_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(time_payload_local));
-        self.emit_date_components_from_time(
-            time_payload_local,
-            year_payload_local,
-            month_payload_local,
-            date_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            millisecond_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(millisecond_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(fraction_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Neg);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(9_999.0)));
-        function.instruction(&Instruction::F64Gt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("+")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            4,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(month_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(month_payload_local));
-        for (component_payload_local, minimum_width, separator) in [
-            (month_payload_local, 2, "-"),
-            (date_payload_local, 2, "T"),
-            (hour_payload_local, 2, ":"),
-            (minute_payload_local, 2, ":"),
-        ] {
-            self.emit_date_append_padded_decimal(
-                output_payload_local,
-                component_payload_local,
-                minimum_width,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_concat_string_payloads_local(
-                output_payload_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-        }
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            second_payload_local,
-            2,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload(".")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        // `FormatFractionalSeconds` with `auto` precision: render the fraction
-        // as nine digits and strip **every** trailing zero, not just whole
-        // groups of three. The 3/6/9 cascade this replaces printed
-        // `new Temporal.Instant(30_123_400_000n)` as `…:30.123400Z`, because
-        // 123,400,000 is divisible by 1,000 but not by 1,000,000 — so it took
-        // the six-digit arm — where the spec asks for `…:30.1234Z`
-        // (`Instant/prototype/toJSON/basic.js` case 4).
-        //
-        // `emit_date_append_padded_decimal` takes a Rust-level width, so the
-        // choice is a cascade over the nine possible widths rather than a
-        // runtime loop: the first `width` whose divisor divides the fraction
-        // exactly is the one with no trailing zero left. `fraction_local` is
-        // known non-zero here (the enclosing `If` handles zero by emitting no
-        // fraction at all), so the `width == 9` fallthrough is reached only by
-        // a fraction with a significant nanosecond digit.
-        const FRACTION_DIGITS: u32 = 9;
-        for width in 1..FRACTION_DIGITS {
-            let divisor = 10_i64.pow(FRACTION_DIGITS - width);
-            function.instruction(&Instruction::LocalGet(fraction_local));
-            function.instruction(&Instruction::I64Const(divisor));
-            function.instruction(&Instruction::I64RemU);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(fraction_local));
-            function.instruction(&Instruction::I64Const(divisor));
-            function.instruction(&Instruction::I64DivU);
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_date_append_padded_decimal(
-                output_payload_local,
-                piece_payload_local,
-                width,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-        }
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            piece_payload_local,
-            FRACTION_DIGITS,
-            function,
-        )?;
-        for _ in 1..FRACTION_DIGITS {
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("Z")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            absolute_year_payload_local,
-            piece_payload_local,
-            output_payload_local,
-            fraction_local,
-            millisecond_payload_local,
-            second_payload_local,
-            minute_payload_local,
-            hour_payload_local,
-            date_payload_local,
-            month_payload_local,
-            year_payload_local,
-            time_payload_local,
-            negative_local,
-            remainder_local,
-            milliseconds_local,
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        self.emit_temporal_instant_to_string_core(InstantStringOptions::FromArgument, function)
     }
 
-    pub(super) fn emit_temporal_instant_record_from_receiver(
-        &mut self,
-        record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Instant receiver does not have [[InitializedTemporalInstant]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_INSTANT as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Instant receiver does not have [[InitializedTemporalInstant]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_temporal_instant_validate_range(
-        &mut self,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let sign_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        let high_limb_local = self.reserve_temp_local();
-        let low_limb_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(nanoseconds_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            nanoseconds_payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            sign_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            nanoseconds_payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            nanoseconds_payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_instant_range_error(function)?;
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(limbs_local, 0, low_limb_local, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(high_limb_local));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(limbs_local, 8, high_limb_local, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_INSTANT_LIMIT_HIGH_LIMB));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_INSTANT_LIMIT_HIGH_LIMB));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_INSTANT_LIMIT_LOW_LIMB));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_instant_range_error(function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(low_limb_local);
-        self.release_temp_local(high_limb_local);
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(sign_local);
-        Ok(())
-    }
-
-    fn emit_temporal_instant_range_error(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "Temporal.Instant epoch nanoseconds are outside the supported range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        Ok(())
-    }
-
-    fn emit_temporal_heap_bigint_millisecond_quotient(
-        &mut self,
-        bigint_payload_local: u32,
-        quotient_local: u32,
-        remainder_local: u32,
-        negative_local: u32,
-        function: &mut Function,
-    ) {
-        let sign_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        let limb_local = self.reserve_temp_local();
-        let word_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            bigint_payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            sign_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            bigint_payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            bigint_payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalTee(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(word_local));
-        function.instruction(&Instruction::LocalGet(word_local));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::LocalGet(word_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(limb_local));
-        function.instruction(&Instruction::LocalGet(limb_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(u32::MAX as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(word_local));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(word_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(index_local);
-        self.release_temp_local(word_local);
-        self.release_temp_local(limb_local);
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(sign_local);
-    }
-
-    /// Emits the five-byte stub body (`i64.const 0` ×4 + `end`) both Temporal
-    /// calendar helpers use when no Temporal builtin is compiled. The slots are
-    /// reserved unconditionally so the fixed helper offsets never shift with
-    /// the shape of the program; only the bodies are elided.
+    /// Temporal proposal `Temporal.Instant.prototype.toJSON`.
     ///
-    /// It takes the helper it is standing in for because a stub is still that
-    /// helper's body: the elided and real bodies then enter through the same
-    /// door, and neither arm of `if real` can start a body without naming which
-    /// helper it belongs to.
-    fn temporal_calendar_helper_stub(&mut self, helper: RuntimeHelperId) -> Function {
-        let mut function = self.begin_helper_body(helper);
-        for _ in 0..4 {
-            function.instruction(&Instruction::I64Const(0));
+    /// `TemporalInstantToString(instant, AUTO)` — the same body with
+    /// `undefined` options, but a distinct function object. The options
+    /// argument is never read, so `toJSON/basic.js`'s throwing Proxy options
+    /// bag passes without any extra guard.
+    pub(crate) fn emit_temporal_instant_to_json(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_instant_to_string_core(InstantStringOptions::Undefined, function)
+    }
+
+    fn emit_temporal_instant_to_string_core(
+        &mut self,
+        source: InstantStringOptions,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let branded = self.emit_temporal_branded_instant_receiver(f)?;
+        let options = schema.reserve_value_local(f);
+        let zone_value = schema.reserve_value_local(f);
+        let output = schema.reserve_value_local(f);
+        let time_value = schema.reserve_value_local(f);
+        let piece = schema.reserve_value_local(f);
+        let digits = schema.reserve_i64_local(f);
+        let mode_code = schema.reserve_i64_local(f);
+        let unit = schema.reserve_i64_local(f);
+        let precision = schema.reserve_i64_local(f);
+        let increment = schema.reserve_i64_local(f);
+        let quantum_code = schema.reserve_i64_local(f);
+        let present = schema.reserve_i32_local(f);
+        match source {
+            InstantStringOptions::FromArgument => self.emit_builtin_arg_to_value(0, &options, f),
+            InstantStringOptions::Undefined => options.set_undefined(f),
         }
+        self.emit_temporal_duration_options_object(&options, f)?;
+        // Get each option in its normative order, before unit validation and
+        // the later time-zone identifier conversion.
+        self.emit_temporal_plain_time_fractional_digits_option(&options, digits, f)?;
+        self.emit_temporal_duration_rounding_mode_option(
+            &options,
+            TemporalRoundingMode::Trunc,
+            mode_code,
+            f,
+        )?;
+        self.emit_temporal_duration_unit_option(
+            &options,
+            TemporalUnitOptionProperty::SmallestUnit,
+            unit,
+            f,
+        )?;
+        self.emit_temporal_duration_option_get(&options, "timeZone", &zone_value, f)?;
+        self.emit_temporal_seconds_string_precision(
+            digits,
+            unit,
+            precision,
+            increment,
+            RuntimeErrorMessage::INVALID_TEMPORAL_INSTANT_UNIT_OPTION,
+            f,
+        )?;
+        zone_value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Ne);
+        present.store(f);
+        present.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        let utc = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_interned_string_reference("UTC", f)?, f);
+        zone_value.set_reference(&utc, schema, f);
+        utc.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let zone = self.emit_temporal_zoned_date_time_time_zone(
+            &zone_value,
+            TemporalTimeZoneStringGoal::Object,
+            f,
+        )?;
+        self.emit_temporal_plain_time_rounding_quantum(unit, increment, quantum_code, f);
+        let mode = self.emit_temporal_validated_rounding_mode(mode_code, f)?;
+        let quantum = self.emit_temporal_validated_instant_rounding_quantum(quantum_code, f)?;
+        let instant = self.emit_temporal_normalized_instant_from_instant_record(&branded, f)?;
+        let rounded = self.emit_temporal_round_instant_for_string(&instant, &quantum, &mode, f)?;
+        let snapshot = self.emit_temporal_zone_snapshot(&zone, &rounded, f)?;
+        let iso = self.emit_temporal_zone_snapshot_iso_record(&snapshot, f)?;
+        self.emit_temporal_iso_date_string(
+            iso.fields()[0],
+            iso.fields()[1],
+            iso.fields()[2],
+            &output,
+            f,
+        )?;
+        self.emit_temporal_plain_time_record_to_string(
+            &Self::temporal_plain_date_time_time_locals(iso.fields()),
+            precision,
+            &time_value,
+            f,
+        )?;
+        let date = schema
+            .reserve_gc_local(f)
+            .initialize(output.cast_reference::<StringValue>(schema, f), f);
+        self.emit_temporal_append_gc_literal(&date, "T", f)?;
+        let time = schema
+            .reserve_gc_local(f)
+            .initialize(time_value.cast_reference::<StringValue>(schema, f), f);
+        let text = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_concat_gc_strings(&date, &time, f), f);
+        time.clear(f);
+        date.clear(f);
+        output.set_reference(&text, schema, f);
+        text.clear(f);
+        present.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_format_rounded_time_zone_offset(&snapshot, &piece, f)?;
+        f.instruction(&Instruction::Else);
+        let z = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_interned_string_reference("Z", f)?, f);
+        piece.set_reference(&z, schema, f);
+        z.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let left = schema
+            .reserve_gc_local(f)
+            .initialize(output.cast_reference::<StringValue>(schema, f), f);
+        let right = schema
+            .reserve_gc_local(f)
+            .initialize(piece.cast_reference::<StringValue>(schema, f), f);
+        let complete = schema
+            .reserve_gc_local(f)
+            .initialize(self.emit_concat_gc_strings(&left, &right, f), f);
+        self.completion()
+            .value()
+            .set_reference(&complete, schema, f);
+        self.completion().set_normal(self.completion().value(), f);
+        complete.clear(f);
+        right.clear(f);
+        left.clear(f);
+        iso.release(self, f);
+        snapshot.release(self, f);
+        rounded.release(self, f);
+        instant.release(self, f);
+        quantum.release(self, f);
+        mode.release(self, f);
+        zone.release(self, f);
+        schema.release_i32_local(present, f);
+        for local in [quantum_code, increment, precision, unit, mode_code, digits] {
+            schema.release_i64_local(local, f);
+        }
+        piece.clear(f);
+        time_value.clear(f);
+        output.clear(f);
+        zone_value.clear(f);
+        options.clear(f);
+        branded.release(f);
+        Ok(())
+    }
+
+    pub(super) fn temporal_calendar_helper_stub(&mut self, helper: RuntimeHelperId) -> Function {
+        let mut function = self.begin_helper_body(helper);
+        // Planning proves that no Temporal consumer reaches this declaration.
+        // Unreachable is polymorphic over its actual typed result ABI.
+        function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
         self.finish_function(function)
     }
 
-    /// Compiles the `ParseTemporalCalendarString` date-shaped probe helper: one
-    /// inlined copy of the ISO date parser that all three date-ish goals reuse
-    /// by rewriting the string first.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=candidate string
-    /// payload, 1=rewrite form (0 = none/`TemporalDateString`, 1 =
-    /// `TemporalYearMonthString`, 2 = `TemporalMonthDayString`), 2..5 unused,
-    /// 6=calling standard builtin's realm environment (or zero). On success the
-    /// result tuple carries the resolved calendar payload with a normal
-    /// completion; on a parse failure — including a `[u-ca=...]` annotation
-    /// naming a calendar this backend does not ship — it carries a `Throw`
-    /// completion the caller is expected to inspect and discard.
-    ///
-    /// The rewrite runs *before* the parse on purpose: that is what keeps this
-    /// to a single inlined copy of `emit_temporal_parse_iso_string` instead of
-    /// three, which is the difference between compiling and tripping
-    /// Cranelift's per-function code-size limit.
+    /// One typed date parser serves the three date-shaped calendar probes.
+    /// Rewrites precede parsing and retain the omitted-field grammar fact.
+    /// The registered ABI carries GC input, rewrite I32, trusted Environment,
+    /// and the complete five-result JavaScript completion.
     pub(crate) fn compile_temporal_calendar_iso_date_probe_helper(
         &mut self,
         real: bool,
     ) -> Result<Function, EmitError> {
+        use crate::runtime_helpers::{HelperParameters, TemporalCalendarIsoDateProbeParameters};
         if !real {
             return Ok(
                 self.temporal_calendar_helper_stub(RuntimeHelperId::TemporalCalendarIsoDateProbe)
             );
         }
         let mut function = self.begin_helper_body(RuntimeHelperId::TemporalCalendarIsoDateProbe);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-
-        let normalized_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let month_local = self.reserve_temp_local();
-        let day_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let partial_field_empty_local = self.reserve_temp_local();
+        let parameters =
+            self.helper_parameters::<TemporalCalendarIsoDateProbeParameters>(&mut function);
+        let schema = self.runtime_schema();
+        let normalized = schema.reserve_value_local(&mut function);
+        normalized.set_reference(&parameters.input, schema, &mut function);
+        let fields: [I64Local; 3] =
+            std::array::from_fn(|_| schema.reserve_i64_local(&mut function));
+        let calendar = schema.reserve_value_local(&mut function);
+        let missing = schema.reserve_i64_local(&mut function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(partial_field_empty_local));
-
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalSet(normalized_local));
-        function.instruction(&Instruction::LocalGet(1));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        missing.store(&mut function);
+        parameters.rewrite.load(&mut function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, &mut function);
         self.emit_temporal_partial_date_rewrite_string(
-            0,
+            &parameters.input,
             TemporalPartialDateRewrite::YearMonth {
-                day_empty_out: Some(partial_field_empty_local),
+                day_empty_out: Some(missing),
             },
-            normalized_local,
+            &normalized,
             &mut function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(1));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        parameters.rewrite.load(&mut function);
+        function.instruction(&Instruction::I32Const(2));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, &mut function);
         self.emit_temporal_month_day_rewrite_string(
-            0,
-            normalized_local,
-            Some(partial_field_empty_local),
+            &parameters.input,
+            &normalized,
+            Some(missing),
             &mut function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
+        let input = schema.reserve_gc_local(&mut function).initialize(
+            normalized.cast_reference::<StringValue>(schema, &mut function),
+            &mut function,
+        );
         self.emit_temporal_parse_plain_date_string(
-            normalized_local,
-            year_local,
-            month_local,
-            day_local,
-            calendar_payload_local,
-            calendar_tag_local,
+            &input,
+            fields[0],
+            fields[1],
+            fields[2],
+            &calendar,
             &mut function,
         )?;
-
-        // ParseISODateTime rejects non-ISO partial-date annotations before
-        // their omitted field can be replaced by the rewrite's reference date.
-        function.instruction(&Instruction::LocalGet(partial_field_empty_local));
+        let identifier = schema.reserve_gc_local(&mut function).initialize(
+            calendar.cast_reference::<StringValue>(schema, &mut function),
+            &mut function,
+        );
+        let iso = schema.reserve_gc_local(&mut function).initialize(
+            self.emit_interned_string_reference(
+                TemporalCalendarId::DEFAULT.canonical(),
+                &mut function,
+            )?,
+            &mut function,
+        );
+        missing.load(&mut function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(calendar_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-        function.instruction(&Instruction::I64Ne);
+        self.emit_string_payload_equality_i32(&identifier, &iso, &mut function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.PlainDate calendar",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, &mut function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::INVALID_TEMPORAL_PLAINDATE_CALENDAR,
             &mut function,
         )?;
-        self.emit_return_current_completion(&mut function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(calendar_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(partial_field_empty_local);
-        self.release_temp_local(calendar_tag_local);
-        self.release_temp_local(calendar_payload_local);
-        self.release_temp_local(day_local);
-        self.release_temp_local(month_local);
-        self.release_temp_local(year_local);
-        self.release_temp_local(normalized_local);
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.completion().set_normal(&calendar, &mut function);
+        self.completion().emit(&mut function);
+        iso.clear(&mut function);
+        identifier.clear(&mut function);
+        input.clear(&mut function);
+        schema.release_i64_local(missing, &mut function);
+        calendar.clear(&mut function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, &mut function);
+        }
+        normalized.clear(&mut function);
+        parameters.release(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
 
-    /// Compiles the shared `ToTemporalCalendarIdentifier` string-resolution
-    /// helper — `ParseTemporalCalendarString` followed by
-    /// `CanonicalizeCalendar`.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=calendar string
-    /// payload, 1..5 unused, 6=calling standard builtin's realm environment (or
-    /// zero). A normal completion carries the canonical `iso8601` payload; a
-    /// `Throw` completion carries the RangeError.
-    ///
-    /// Order is load-bearing in both directions and must not be "tidied":
-    ///
-    /// * The three ISO date goals run first because `"152330"` is both a legal
-    ///   `AnnotationValue` and a legal `HHMMSS`, and the specification resolves
-    ///   that tie in favor of the ISO parse (`withCalendar/calendar-time-string.js`).
-    /// * The bare `AnnotationValue` compare is hoisted *above* the time attempt
-    ///   so the time parser's own RangeError can fall out as the final answer
-    ///   without a fourth helper to catch it. The hoist is sound exactly while
-    ///   no [`TemporalCalendarId::spellings`] entry is also a legal ISO date or
-    ///   time string; `"iso8601"`, `"gregory"` and `"gregorian"` all satisfy
-    ///   that (they are not `HHMMSS`, not `YYYYMMDD`, and contain letters an
-    ///   ISO date cannot). A calendar spelled out of digits would break it, and
-    ///   would have to move the compare below the time attempt.
-    ///
-    /// The final time attempt selects the resolving time-string policy. This
-    /// is distinct from `ToTemporalTime`, whose call selects
-    /// [`TemporalTimeCalendarUse::Ignore`].
+    /// Date goals precede bare identifiers and the final time goal. A private
+    /// rejected probe is discarded; the final parser's original Throw is kept.
+    /// Current calendar spellings cannot collide with ISO date/time grammar.
     pub(crate) fn compile_temporal_calendar_identifier_helper(
         &mut self,
         real: bool,
     ) -> Result<Function, EmitError> {
+        use crate::runtime_helpers::{
+            HelperParameters, TemporalCalendarIdentifierParameters,
+            TemporalCalendarIsoDateProbeArguments,
+        };
         if !real {
             return Ok(
                 self.temporal_calendar_helper_stub(RuntimeHelperId::TemporalCalendarIdentifier)
             );
         }
-        let probe_helper_index = self
-            .temporal_calendar_iso_date_probe_helper_function_index()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: \
-                     Temporal calendar date-probe helper without heap",
-                )
-            })?;
         let mut function = self.begin_helper_body(RuntimeHelperId::TemporalCalendarIdentifier);
-        self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-
-        let expected_payload_local = self.reserve_temp_local();
-        let resolved_local = self.reserve_temp_local();
-        let probe_payload_local = self.reserve_temp_local();
-        let probe_tag_local = self.reserve_temp_local();
-        let probe_completion_local = self.reserve_temp_local();
-        let probe_aux_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        let hour_local = self.reserve_temp_local();
-        let minute_local = self.reserve_temp_local();
-        let second_local = self.reserve_temp_local();
-        let nanosecond_local = self.reserve_temp_local();
-        // The canonical identifier this helper answers with. It starts at the
-        // default and is overwritten by whichever arm resolves, so a `gregory`
-        // annotation and a bare `"gregory"` both come back as `gregory` rather
-        // than as the default the arms used to hard-code.
-        let result_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .payload(TemporalCalendarId::DEFAULT.canonical()),
-        ));
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(resolved_local));
-
-        for form in 0..3_i64 {
-            function.instruction(&Instruction::LocalGet(resolved_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(0));
-            function.instruction(&Instruction::I64Const(form));
-            for _ in 0..4 {
-                function.instruction(&Instruction::I64Const(0));
-            }
-            function.instruction(&Instruction::LocalGet(6));
-            function.instruction(&Instruction::Call(probe_helper_index));
-            // Deliberately NOT `store_call_results` — the probe's throw must not
-            // become this helper's completion. This is the whole "try and
-            // recover": the four results land in scratch locals and a `Throw`
-            // simply leaves `resolved` at zero so the next form runs.
-            self.store_call_results_to(
-                probe_payload_local,
-                probe_tag_local,
-                probe_completion_local,
-                probe_aux_local,
+        let parameters =
+            self.helper_parameters::<TemporalCalendarIdentifierParameters>(&mut function);
+        let schema = self.runtime_schema();
+        let resolved = schema.reserve_i32_local(&mut function);
+        let rewrite = schema.reserve_i32_local(&mut function);
+        let fold = schema.reserve_i32_local(&mut function);
+        let fields: [I64Local; 4] =
+            std::array::from_fn(|_| schema.reserve_i64_local(&mut function));
+        let answer = schema.reserve_value_local(&mut function);
+        let probe = schema.reserve_completion(&mut function);
+        let default = schema.reserve_gc_local(&mut function).initialize(
+            self.emit_interned_string_reference(
+                TemporalCalendarId::DEFAULT.canonical(),
                 &mut function,
-            );
-            function.instruction(&Instruction::LocalGet(probe_completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            // The probe already ran `CanonicalizeCalendar` on whatever
-            // `[u-ca=...]` the string carried, so its answer is the answer.
-            function.instruction(&Instruction::LocalGet(probe_payload_local));
-            function.instruction(&Instruction::LocalSet(result_payload_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(resolved_local));
+            )?,
+            &mut function,
+        );
+        answer.set_reference(&default, schema, &mut function);
+        default.clear(&mut function);
+        function.instruction(&Instruction::I32Const(0));
+        resolved.store(&mut function);
+        function.instruction(&Instruction::I32Const(1));
+        fold.store(&mut function);
+        // Each rejected probe stays private. It cannot overwrite the final
+        // helper completion before the next grammar alternative is attempted.
+        for form in 0..3_i32 {
+            resolved.load(&mut function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, &mut function);
+            function.instruction(&Instruction::I32Const(form));
+            rewrite.store(&mut function);
+            schema
+                .call_helper(
+                    TemporalCalendarIsoDateProbeArguments::new(
+                        &parameters.input,
+                        rewrite,
+                        &parameters.caller_environment,
+                    ),
+                    self.runtime_helper_base()?,
+                    &mut function,
+                )
+                .store(&probe, &mut function);
+            probe.kind().load(&mut function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, &mut function);
+            answer.copy_from(probe.value(), &mut function);
+            function.instruction(&Instruction::I32Const(1));
+            resolved.store(&mut function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-
-        // `CanonicalizeCalendar` on a bare `AnnotationValue`, over the same
-        // spelling table the constructors use.
-        function.instruction(&Instruction::LocalGet(resolved_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        resolved.load(&mut function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut function);
         for calendar in TemporalCalendarId::ALL {
-            let canonical_payload = self.strings.payload(calendar.canonical());
             for &spelling in calendar.spellings() {
-                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
-                function.instruction(&Instruction::LocalSet(expected_payload_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(case_fold_local));
-                self.emit_string_payload_equality_i32_with_ascii_case_folding(
-                    0,
-                    expected_payload_local,
-                    Some(case_fold_local),
+                let expected = schema.reserve_gc_local(&mut function).initialize(
+                    self.emit_interned_string_reference(spelling, &mut function)?,
                     &mut function,
                 );
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(canonical_payload));
-                function.instruction(&Instruction::LocalSet(result_payload_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(resolved_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    &parameters.input,
+                    &expected,
+                    Some(fold),
+                    &mut function,
+                );
+                expected.clear(&mut function);
+                self.open_frame(ControlFrameKind::If, &mut function);
+                let canonical = schema.reserve_gc_local(&mut function).initialize(
+                    self.emit_interned_string_reference(calendar.canonical(), &mut function)?,
+                    &mut function,
+                );
+                answer.set_reference(&canonical, schema, &mut function);
+                canonical.clear(&mut function);
+                function.instruction(&Instruction::I32Const(1));
+                resolved.store(&mut function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // Last attempt: a bare `TemporalTimeString`. Its RangeError is the
-        // final answer, so nothing catches this one.
-        function.instruction(&Instruction::LocalGet(resolved_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        resolved.load(&mut function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, &mut function);
         self.emit_temporal_parse_plain_time_string(
-            0,
-            hour_local,
-            minute_local,
-            second_local,
-            nanosecond_local,
-            TemporalTimeCalendarUse::Resolve {
-                calendar_payload_local: result_payload_local,
-                calendar_tag_local: probe_tag_local,
-            },
+            &parameters.input,
+            fields[0],
+            fields[1],
+            fields[2],
+            fields[3],
+            TemporalTimeCalendarUse::Resolve { calendar: &answer },
             &mut function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(result_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            result_payload_local,
-            nanosecond_local,
-            second_local,
-            minute_local,
-            hour_local,
-            case_fold_local,
-            probe_aux_local,
-            probe_completion_local,
-            probe_tag_local,
-            probe_payload_local,
-            resolved_local,
-            expected_payload_local,
-        ] {
-            self.release_temp_local(local);
+        self.completion().set_normal(&answer, &mut function);
+        self.completion().emit(&mut function);
+        probe.clear(&mut function);
+        answer.clear(&mut function);
+        for local in fields.into_iter().rev() {
+            schema.release_i64_local(local, &mut function);
         }
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        schema.release_i32_local(fold, &mut function);
+        schema.release_i32_local(rewrite, &mut function);
+        schema.release_i32_local(resolved, &mut function);
+        parameters.release(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
+    }
+    pub(in crate::builtins) fn emit_temporal_string_length(
+        &self,
+        input: &GcLocal<StringValue>,
+        length: I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(input, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        length.store(function);
+        units.clear(function);
+    }
+    pub(in crate::builtins) fn emit_temporal_load_code_unit(
+        &self,
+        input: &GcLocal<StringValue>,
+        index: I64Local,
+        output: I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let length = schema.reserve_i64_local(function);
+        self.emit_temporal_string_length(input, length, function);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        self.emit_gc_string_code_unit_i32(input, index, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::End);
+        output.store(function);
+        schema.release_i64_local(length, function);
+    }
+    pub(in crate::builtins) fn emit_temporal_string_slice(
+        &self,
+        input: &GcLocal<StringValue>,
+        start: I64Local,
+        length: I64Local,
+        function: &mut Function,
+    ) -> GcStackReference<StringValue> {
+        let schema = self.runtime_schema();
+        let end = schema.reserve_i64_local(function);
+        start.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I64Add);
+        end.store(function);
+        let output = self.emit_gc_string_slice(input, start, end, function);
+        schema.release_i64_local(end, function);
+        output
+    }
+    pub(in crate::builtins) fn emit_temporal_parse_instant_string(
+        &mut self,
+        input: &GcLocal<StringValue>,
+        function: &mut Function,
+    ) -> Result<GcLocal<BigIntValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let seconds = schema.reserve_i64_local(function);
+        let nanosecond = schema.reserve_i64_local(function);
+        self.emit_temporal_parse_iso_string(
+            input,
+            TemporalIsoParseGoal::Instant {
+                seconds,
+                nanosecond,
+            },
+            function,
+        )?;
+        let value = self.emit_temporal_epoch_nanoseconds_bigint(seconds, nanosecond, function);
+        schema.release_i64_local(nanosecond, function);
+        schema.release_i64_local(seconds, function);
+        Ok(value)
     }
 }

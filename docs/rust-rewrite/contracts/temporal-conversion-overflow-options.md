@@ -1,7 +1,8 @@
 # Temporal conversion overflow options
 
 Status: normative for overflow-option ownership in the five plain Temporal
-conversion helpers.
+conversion helpers. The current PlainDate shared-helper successor and its
+retargeted controls are authored and await the joined checkpoint.
 
 ## Boundary
 
@@ -13,18 +14,24 @@ a `read_options` Boolean. The 15 internal producers had to allocate, initialize
 and release dummy undefined payload/tag locals only to make the three arguments
 well formed.
 
-The helpers now accept only `TemporalConversionOverflowOptions`:
+The builtin emitters accept `TemporalConversionOverflowOptions`:
 
 | Variant | Ownership |
 | --- | --- |
-| `Read { payload_local, tag_local }` | The public `from` builtin owns a real options value and each observable conversion path reads its `overflow` property at the existing specification point. |
+| `Read(&ValueLocals)` | The public `from` builtin owns a real options value and each observable conversion path reads its `overflow` property at the existing specification point. |
 | `Omit` | The internal algorithm has no conversion overflow options and carries no placeholder locals that could be mistaken for a real options value. |
 
-All five `from` producers construct `Read`; the remaining 15 producers
-construct `Omit`. The five converters consume the domain in 16 direct
-exhaustive matches: three each in PlainDate, PlainYearMonth, PlainTime and
-PlainMonthDay, and four in PlainDateTime. The private domain has no default,
+The public `from` producers construct `Read`; internal conversions without an
+overflow-options operand construct `Omit`. The private domain has no default,
 wildcard, Boolean projection, equality capability or fallback state.
+
+PlainDate's facade maps these variants exhaustively to the registered
+`OptionalValue` helper operand. Presence is separate from the value tag, so
+`Read(undefined)` remains distinct from `Omit`. The complete private conversion
+uses the guarded parameter at each original overflow-read point. The other
+four converters consume the same enum directly. See
+[Shared PlainDate conversion](temporal-plain-date-shared-conversion.md) for
+whole-Completion transport, called-Realm ownership and temporary-record lifetime.
 
 ## Observable witness
 
@@ -43,21 +50,22 @@ cargo test -p lila-aot-wasm --test temporal_conversion_overflow_options_structur
 cargo test -p lila-cli --test cli date::run_wasm_backend_preserves_temporal_conversion_overflow_options -- --exact --test-threads=1
 ```
 
-The bounded structure target owns the exact data-bearing variants, five typed
-consumers, 16 exhaustive decisions, exact five-plus-15 producer census and the
-absence of raw read controls or dummy undefined-local lifecycles. It passes all
-`3/3` tests, and the exact CLI witness passes `1/1`. Workspace Rust formatting
-and the scoped diff check are green.
+The bounded structure target checks the data-bearing variants, actual typed
+consumers, closed optional operand, absence of raw read controls and dummy
+undefined-local lifecycles, plus Normal-only projection and caller throw
+propagation. The current retargeted target has not run. The preceding enum
+checkpoint passed `3/3` structure tests and the CLI witness passed `1/1`; those
+results do not verify the new shared helper.
 
 ## Golden impact and deferrals
 
-This is a source-equivalent closure. It preserves each overflow read's branch
-location and therefore its observable access order. The 15 `Omit` producers no
-longer initialize dummy locals. The shared semantic golden passes `2/2` in
+The original enum closure preserved each overflow read's branch location and
+removed dummy locals from internal producers. Its semantic golden passed `2/2` in
 717.58 seconds with 674 dumps, adds this witness plus the independent Promise
 combinator Realm and GroupBy result-kind witnesses, removes none and leaves all
-671 retained dumps equal after accounting normalization. Broad Date/Temporal
-and Test262 trees remain deferred.
+671 retained dumps equal after accounting normalization. This is historical
+evidence, predating shared PlainDate conversion. Broad Date/Temporal and
+Test262 trees remain deferred.
 
 This closure does not change overflow validation, calendar field preparation,
 arithmetic, time-zone behavior or other Temporal option domains.

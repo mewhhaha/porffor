@@ -1,11 +1,8 @@
-use super::super::profile::{invalid, Profile};
-use super::{preferred, raw, template};
+use super::super::profile::invalid;
+use super::{preferred, raw, records::OffsetPattern};
 use crate::datetime::DateTimeFormatError;
 
-pub(in crate::provider::datetime) fn validate(
-    profile: &Profile,
-) -> Result<(), DateTimeFormatError> {
-    let geography = &profile.geography;
+pub(super) fn geography(geography: &raw::Geography) -> Result<(), DateTimeFormatError> {
     if geography.zones.is_empty()
         || geography.metazones.is_empty()
         || !geography
@@ -63,42 +60,76 @@ pub(in crate::provider::datetime) fn validate(
             return Err(invalid("invalid preferred metazone record"));
         }
     }
-    for locale in &profile.locales {
-        if locale.zones.patterns.len() != 7
-            || template(locale, "hourFormat")? != "+HH:mm;-HH:mm"
-            || locale.zones.zones.len() != geography.zones.len()
-            || locale.zones.metazones.len() != geography.metazones.len()
+    Ok(())
+}
+
+pub(super) fn names(
+    names: &raw::ZoneNames,
+    geography: &raw::Geography,
+    selected: Option<&[Box<str>]>,
+) -> Result<OffsetPattern, DateTimeFormatError> {
+    let offset = OffsetPattern::from_pattern(template(names, "hourFormat")?)?;
+    let zones = geography
+        .zones
+        .iter()
+        .filter(|zone| {
+            selected.is_none_or(|names| {
+                names
+                    .binary_search_by(|name| name.as_ref().cmp(zone.identifier.as_str()))
+                    .is_ok()
+            })
+        })
+        .collect::<Vec<_>>();
+    let used_meta = zones
+        .iter()
+        .flat_map(|zone| zone.periods.iter().map(|period| period.2.as_str()))
+        .collect::<std::collections::BTreeSet<_>>();
+    let metas = geography
+        .metazones
+        .iter()
+        .filter(|meta| selected.is_none() || used_meta.contains(meta.identifier.as_str()))
+        .collect::<Vec<_>>();
+    if names.patterns.len() != 7
+        || names.zones.len() != zones.len()
+        || names.metazones.len() != metas.len()
+    {
+        return Err(invalid("incomplete localized zone profile"));
+    }
+    for key in [
+        "gmtFormat",
+        "regionFormat:generic",
+        "regionFormat:standard",
+        "regionFormat:daylight",
+    ] {
+        validate_template(template(names, key)?, &["{0}"])?;
+    }
+    validate_template(template(names, "fallbackFormat")?, &["{0}", "{1}"])?;
+    validate_template(template(names, "gmtZeroFormat")?, &[])?;
+    for (zone, translated) in zones.iter().zip(&names.zones) {
+        if zone.identifier != translated.identifier
+            || translated.city.is_empty()
+            || translated.country.as_ref().is_some_and(String::is_empty)
+            || translated.location.as_ref().is_some_and(String::is_empty)
+            || (zone.territory == "001") != translated.country.is_none()
+            || !valid_names(&translated.names)
         {
-            return Err(invalid("incomplete localized zone profile"));
-        }
-        for key in [
-            "gmtFormat",
-            "regionFormat:generic",
-            "regionFormat:standard",
-            "regionFormat:daylight",
-        ] {
-            validate_template(template(locale, key)?, &["{0}"])?;
-        }
-        validate_template(template(locale, "fallbackFormat")?, &["{0}", "{1}"])?;
-        validate_template(template(locale, "gmtZeroFormat")?, &[])?;
-        for (zone, translated) in geography.zones.iter().zip(&locale.zones.zones) {
-            if zone.identifier != translated.identifier
-                || translated.city.is_empty()
-                || translated.country.as_ref().is_some_and(String::is_empty)
-                || translated.location.as_ref().is_some_and(String::is_empty)
-                || (zone.territory == "001") != translated.country.is_none()
-                || !valid_names(&translated.names)
-            {
-                return Err(invalid("invalid localized zone names"));
-            }
-        }
-        for (meta, translated) in geography.metazones.iter().zip(&locale.zones.metazones) {
-            if meta.identifier != translated.identifier || !valid_names(&translated.names) {
-                return Err(invalid("invalid localized metazone names"));
-            }
+            return Err(invalid("invalid localized zone names"));
         }
     }
-    Ok(())
+    for (meta, translated) in metas.iter().zip(&names.metazones) {
+        if meta.identifier != translated.identifier || !valid_names(&translated.names) {
+            return Err(invalid("invalid localized metazone names"));
+        }
+    }
+    Ok(offset)
+}
+
+fn template<'a>(names: &'a raw::ZoneNames, key: &str) -> Result<&'a str, DateTimeFormatError> {
+    names
+        .patterns
+        .get(key)
+        .map(String::as_str)
+        .ok_or_else(|| invalid("missing localized zone template"))
 }
 fn valid_names(names: &raw::WidthNames) -> bool {
     [&names.short, &names.long].into_iter().all(|names| {

@@ -1,142 +1,135 @@
 const DATE_METHODS_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_methods.rs");
+const DATE_CONVERSION: &str =
+    include_str!("../src/builtins/temporal_plain_date_methods/convert.rs");
 const MONTH_DAY_SOURCE: &str = include_str!("../src/builtins/temporal_plain_month_day.rs");
+const DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
-        .unwrap_or_else(|| panic!("missing start marker `{start}`"))
+        .unwrap_or_else(|| panic!("missing start: {start}"))
         .1
         .split_once(end)
-        .unwrap_or_else(|| panic!("missing end marker `{end}` after `{start}`"))
+        .unwrap_or_else(|| panic!("missing end: {end}"))
         .0
 }
 
-#[test]
-fn temporal_date_field_read_mode_is_a_closed_four_variant_domain() {
-    let type_declaration = bounded(
-        DATE_METHODS_SOURCE,
-        "#[derive(",
-        "\n\nimpl<'a> FunctionBuilder<'a> {",
-    );
-    let declaration = bounded(
-        DATE_METHODS_SOURCE,
-        "pub(super) enum TemporalDateFieldReadMode {",
-        "\n}\n\nimpl<'a> FunctionBuilder<'a> {",
-    );
-    let variants = declaration
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
+fn compact(source: &str) -> String {
+    source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
 
-    assert_eq!(
-        variants,
-        [
-            "DateConversion,",
-            "DateWith,",
-            "MonthDayConversion,",
-            "MonthDayWith,",
-        ]
-    );
-    assert!(!type_declaration.contains("Default"));
+fn in_order(source: &str, markers: &[&str]) {
+    let mut rest = source;
+    for marker in markers {
+        rest = rest
+            .split_once(marker)
+            .unwrap_or_else(|| panic!("missing ordered marker: {marker}"))
+            .1;
+    }
 }
 
 #[test]
-fn temporal_date_field_reader_selects_calendar_policy_and_shares_month_code_validation() {
+fn temporal_date_field_reader_consumes_the_checked_calendar_owner() {
     let reader = bounded(
         DATE_METHODS_SOURCE,
-        "    pub(super) fn emit_temporal_plain_date_read_fields(",
-        "    /// `CalendarResolveFields` + `RegulateISODate`.",
+        "fn emit_temporal_plain_date_read_fields(",
+        "/// `CalendarResolveFields` + `RegulateISODate`.",
     );
-
-    assert!(reader.contains("mode: TemporalDateFieldReadMode,"));
-    assert_eq!(reader.matches("match mode {").count(), 1);
-    for variant in [
-        "TemporalDateFieldReadMode::DateConversion",
-        "TemporalDateFieldReadMode::DateWith",
-        "TemporalDateFieldReadMode::MonthDayConversion",
-        "TemporalDateFieldReadMode::MonthDayWith",
+    assert!(reader.contains("calendar: &TemporalCalendarSlotLocals"));
+    assert!(reader.contains("calendar.calendar_id()"));
+    for raw_policy in [
+        "read_calendar: bool",
+        "strict_month_code: bool",
+        "TemporalDateFieldReadMode",
     ] {
-        assert_eq!(reader.matches(variant).count(), 1, "variant `{variant}`");
+        assert!(!reader.contains(raw_policy));
     }
-    assert_eq!(
-        reader
-            .matches("self.emit_temporal_month_code_string(")
-            .count(),
-        1
+    let era = bounded(
+        DATE_SOURCE,
+        "fn emit_temporal_read_era_fields(",
+        "fn emit_temporal_resolve_era_to_calendar_year(",
     );
-    assert!(!reader.contains("self.emit_temporal_property_bag_string("));
-    assert!(!reader.contains("read_calendar"));
-    assert!(!reader.contains("strict_month_code"));
-    assert!(!reader.contains(": bool"));
-    assert!(!reader.contains("matches!(mode"));
-    assert!(!reader.contains("=> true"));
-    assert!(!reader.contains("=> false"));
-    assert!(!reader.contains("_ =>"));
-    assert!(!reader.contains("unreachable!"));
+    assert!(era.contains("self.emit_temporal_calendar_has_eras_i32(calendar_id, function)"));
+    in_order(
+        era,
+        &[
+            "self.emit_temporal_calendar_has_eras_i32(",
+            "self.open_frame(ControlFrameKind::If",
+            "\"era\"",
+            "\"eraYear\"",
+        ],
+    );
 }
 
 #[test]
-fn exactly_four_producers_select_their_named_field_read_modes() {
-    let date_conversion = bounded(
+fn temporal_date_field_reader_shares_month_code_validation_in_original_order() {
+    let reader = bounded(
         DATE_METHODS_SOURCE,
-        "    pub(super) fn emit_temporal_to_temporal_date(",
-        "    pub(crate) fn emit_temporal_plain_date_from(",
+        "fn emit_temporal_plain_date_read_fields(",
+        "/// `CalendarResolveFields` + `RegulateISODate`.",
     );
-    assert_eq!(
-        date_conversion
-            .matches("TemporalDateFieldReadMode::DateConversion")
-            .count(),
-        1
+    in_order(
+        reader,
+        &[
+            "self.reserve_temporal_era_slots(",
+            "\"day\"",
+            "self.emit_temporal_read_era_fields(",
+            "\"month\"",
+            "\"monthCode\"",
+            "self.emit_temporal_month_code_string(",
+            "\"year\"",
+        ],
     );
-    assert!(!date_conversion.contains("TemporalDateFieldReadMode::DateWith"));
+    assert!(!reader.contains("self.emit_temporal_property_bag_string("));
+    assert!(!reader.contains("_ =>"));
+}
 
-    let date_with = bounded(
+#[test]
+fn date_and_month_day_producers_pass_their_actual_calendar_before_field_reads() {
+    let kernel = compact(
+        DATE_CONVERSION
+            .split_once("fn emit_temporal_to_temporal_date_kernel(")
+            .unwrap()
+            .1,
+    );
+    let bag = kernel
+        .split_once("letcalendar_value=schema.reserve_value_local(function);")
+        .unwrap()
+        .1;
+    in_order(
+        bag,
+        &[
+            "self.emit_temporal_duration_option_get(argument,\"calendar\"",
+            "self.emit_temporal_to_temporal_calendar_identifier(",
+            "self.emit_temporal_plain_date_read_fields(",
+            "overflow_options.emit_if_present(",
+            "self.emit_temporal_resolve_era_to_calendar_year(",
+            "self.emit_temporal_plain_date_resolve_fields(",
+        ],
+    );
+    let date_with = compact(bounded(
         DATE_METHODS_SOURCE,
-        "    pub(crate) fn emit_temporal_plain_date_with(",
-        "    pub(super) fn emit_temporal_plain_date_add_or_subtract(",
-    );
-    assert_eq!(
-        date_with
-            .matches("TemporalDateFieldReadMode::DateWith")
-            .count(),
-        1
-    );
-    assert!(!date_with.contains("TemporalDateFieldReadMode::DateConversion"));
-
-    let month_day_conversion = bounded(
-        MONTH_DAY_SOURCE,
-        "    pub(super) fn emit_temporal_to_temporal_month_day(",
-        "    /// Temporal proposal 10.2.2 `Temporal.PlainMonthDay.from`.",
-    );
-    assert_eq!(
-        month_day_conversion
-            .matches("TemporalDateFieldReadMode::MonthDayConversion")
-            .count(),
-        1
-    );
-    assert!(!month_day_conversion.contains("TemporalDateFieldReadMode::MonthDayWith"));
-
-    let month_day_with = bounded(
-        MONTH_DAY_SOURCE,
-        "    pub(crate) fn emit_temporal_plain_month_day_with(",
-        "    /// `Temporal.PlainMonthDay.prototype.toLocaleString`.",
-    );
-    assert_eq!(
-        month_day_with
-            .matches("TemporalDateFieldReadMode::MonthDayWith")
-            .count(),
-        1
-    );
-    assert!(!month_day_with.contains("TemporalDateFieldReadMode::MonthDayConversion"));
-
-    assert_eq!(
-        DATE_METHODS_SOURCE
-            .matches("self.emit_temporal_plain_date_read_fields(")
-            .count()
-            + MONTH_DAY_SOURCE
-                .matches("self.emit_temporal_plain_date_read_fields(")
-                .count(),
-        4
-    );
+        "fn emit_temporal_plain_date_with(",
+        "fn emit_temporal_plain_date_with_calendar(",
+    ));
+    assert!(date_with.contains("self.emit_temporal_plain_date_read_fields(&argument,&calendar"));
+    for (start, end) in [
+        (
+            "fn emit_temporal_to_temporal_month_day(",
+            "fn emit_temporal_plain_month_day_from(",
+        ),
+        (
+            "fn emit_temporal_plain_month_day_with(",
+            "fn emit_temporal_plain_month_day_to_locale_string(",
+        ),
+    ] {
+        let body = compact(bounded(MONTH_DAY_SOURCE, start, end));
+        assert!(
+            body.contains("self.emit_temporal_plain_date_read_fields(argument,&calendar")
+                || body.contains("self.emit_temporal_plain_date_read_fields(&argument,&calendar")
+        );
+    }
 }

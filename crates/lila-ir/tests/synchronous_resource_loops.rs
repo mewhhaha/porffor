@@ -1,7 +1,7 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, AsyncTryPlanIr, BlockIr, FunctionProtocolIr, ScriptIr, StatementIr,
-    SynchronousLoopBodyError, SynchronousLoopBodyIr, TypedExpr, ValueKind,
+    lower, AsyncTryPlanIr, BlockIr, FunctionProtocolIr, ResumableRegionProtocolIr, ScriptIr,
+    StatementIr, SynchronousLoopBodyError, SynchronousLoopBodyIr, TypedExpr, ValueKind,
 };
 
 fn lower_script(source: &str) -> ScriptIr {
@@ -16,7 +16,7 @@ fn lower_script(source: &str) -> ScriptIr {
 }
 
 #[test]
-fn eager_loop_clauses_do_not_reserve_states_between_adjacent_awaits() {
+fn resource_loop_phases_keep_adjacent_awaits_disjoint() {
     for loop_source in [
         "for (using value = null; false;) { try {} catch (error) {} finally {} }",
         "for (using value of [null]) { try {} catch (error) {} finally {} }",
@@ -30,41 +30,43 @@ fn eager_loop_clauses_do_not_reserve_states_between_adjacent_awaits() {
             .find(|function| function.name == "task")
             .unwrap();
         assert_eq!(function.protocol, FunctionProtocolIr::Async);
-        let states: Vec<_> = function
-            .body
-            .statements
-            .iter()
-            .filter_map(|statement| {
-                if let StatementIr::AsyncAwait {
-                    suspend_state,
-                    resume_state,
-                    ..
-                } = statement
-                {
-                    Some((*suspend_state, *resume_state))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert_eq!(states, [(0, 1), (1, 2)], "{loop_source}");
-        let body = function
-            .body
-            .statements
-            .iter()
-            .find_map(|statement| match statement {
-                StatementIr::For { body, .. } | StatementIr::ForOfIterator { body, .. } => {
-                    Some(body)
-                }
-                _ => None,
-            })
-            .expect("resource loop remains synchronous");
-        assert!(SynchronousLoopBodyIr::new(body).is_ok());
+        let [StatementIr::AsyncAwait {
+            suspend_state: 0,
+            resume_state: 1,
+            ..
+        }, loop_statement, StatementIr::AsyncAwait {
+            suspend_state,
+            resume_state,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!("two source awaits surround the complete resource loop");
+        };
+        let (entry, exit, body) = match loop_statement {
+            StatementIr::AsyncGeneratorLoop(plan) => {
+                assert_eq!(plan.execution(), ResumableRegionProtocolIr::Async);
+                assert!(plan.resource().is_some());
+                (plan.entry_state(), plan.exit_state(), plan.body())
+            }
+            StatementIr::AsyncGeneratorForOf(plan) => {
+                assert_eq!(plan.execution(), ResumableRegionProtocolIr::Async);
+                assert!(plan.resource().is_some());
+                (plan.entry_state(), plan.exit_state(), plan.body())
+            }
+            _ => panic!("the original resource loop retains its checked phases"),
+        };
+        assert_eq!(entry, 1);
+        assert_eq!(exit, *suspend_state);
+        assert_eq!(*resume_state, exit + 1);
+        assert!(
+            body.end_state() > body.entry_state(),
+            "try clauses own their dispatch phases"
+        );
     }
 }
 
 #[test]
-fn every_eager_source_suspension_is_rejected_before_region_lowering() {
+fn resource_source_suspensions_belong_to_complete_async_loop_owners() {
     for loop_source in [
         "for (using value = await null; false;) {}",
         "for (using value = null; await false;) {}",
@@ -79,16 +81,27 @@ fn every_eager_source_suspension_is_rejected_before_region_lowering() {
         "for (using value of [null]) { class Local { [await 0] = 1; } }",
     ] {
         let source = format!("async function task() {{ {loop_source} }}");
-        let parsed = parse(&source, ParseOptions::script()).expect(&source);
-        let program = lower(&parsed);
-        assert!(!program.is_wasm_supported(), "{source}");
-        assert!(
-            program.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("suspension inside a synchronous resource loop")),
-            "{source}: {:?}",
-            program.diagnostics
-        );
+        let script = lower_script(&source);
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "task")
+            .unwrap();
+        assert_eq!(function.protocol, FunctionProtocolIr::Async);
+        let [statement] = function.body.statements.as_slice() else {
+            panic!("one complete source resource loop");
+        };
+        match statement {
+            StatementIr::AsyncGeneratorLoop(plan) => {
+                assert_eq!(plan.execution(), ResumableRegionProtocolIr::Async);
+                assert!(plan.resource().is_some());
+            }
+            StatementIr::AsyncGeneratorForOf(plan) => {
+                assert_eq!(plan.execution(), ResumableRegionProtocolIr::Async);
+                assert!(plan.resource().is_some());
+            }
+            _ => panic!("suspensions require their actual whole-loop owner: {source}"),
+        }
     }
 }
 
@@ -100,19 +113,26 @@ fn nested_function_and_deferred_field_owners_do_not_suspend_the_loop() {
 }
 
 #[test]
-fn generator_owners_do_not_acquire_the_plain_async_admission() {
-    for prefix in ["function*", "async function*"] {
+fn generator_resource_owners_retain_their_actual_execution_protocol() {
+    for (prefix, execution) in [
+        ("function*", ResumableRegionProtocolIr::Generator),
+        ("async function*", ResumableRegionProtocolIr::AsyncGenerator),
+    ] {
         let source = format!("{prefix} task() {{ for (using value of [null]) {{}} }}");
-        let parsed = parse(&source, ParseOptions::script()).unwrap();
-        let program = lower(&parsed);
-        assert!(!program.is_wasm_supported());
-        assert!(
-            program.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("synchronous resource loop in a generator")),
-            "{:?}",
-            program.diagnostics
-        );
+        let script = lower_script(&source);
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "task")
+            .unwrap();
+        let [StatementIr::AsyncGeneratorForOf(plan)] = function.body.statements.as_slice() else {
+            panic!("one complete resource iterator");
+        };
+        assert_eq!(plan.execution(), execution);
+        assert!(matches!(
+            plan.resource().unwrap().capability(),
+            lila_ir::AsyncGeneratorResourceCapabilityIr::Sync(_)
+        ));
     }
 }
 

@@ -1,35 +1,35 @@
 use super::*;
 
-pub(super) fn set(function: &mut Function, local: u32, value: u64) {
+pub(super) fn set(function: &mut Function, local: I64Local, value: u64) {
     function.instruction(&Instruction::I64Const(value as i64));
-    function.instruction(&Instruction::LocalSet(local));
+    local.store(function);
 }
-pub(super) fn copy(function: &mut Function, target: u32, source: u32) {
-    function.instruction(&Instruction::LocalGet(source));
-    function.instruction(&Instruction::LocalSet(target));
+pub(super) fn copy(function: &mut Function, target: I64Local, source: I64Local) {
+    source.load(function);
+    target.store(function);
 }
-pub(super) fn load(function: &mut Function, pointer: u32, offset: u64, target: u32) {
-    function.instruction(&Instruction::LocalGet(pointer));
+pub(super) fn load(function: &mut Function, pointer: I64Local, offset: u64, target: I64Local) {
+    pointer.load(function);
     function.instruction(&Instruction::I32WrapI64);
     function.instruction(&Instruction::I64Load(MemArg {
         offset,
         align: 3,
         memory_index: 0,
     }));
-    function.instruction(&Instruction::LocalSet(target));
+    target.store(function);
 }
-pub(super) fn store(function: &mut Function, pointer: u32, offset: u64, source: u32) {
-    function.instruction(&Instruction::LocalGet(pointer));
+pub(super) fn store(function: &mut Function, pointer: I64Local, offset: u64, source: I64Local) {
+    pointer.load(function);
     function.instruction(&Instruction::I32WrapI64);
-    function.instruction(&Instruction::LocalGet(source));
+    source.load(function);
     function.instruction(&Instruction::I64Store(MemArg {
         offset,
         align: 3,
         memory_index: 0,
     }));
 }
-pub(super) fn store_const(function: &mut Function, pointer: u32, offset: u64, value: u64) {
-    function.instruction(&Instruction::LocalGet(pointer));
+pub(super) fn store_const(function: &mut Function, pointer: I64Local, offset: u64, value: u64) {
+    pointer.load(function);
     function.instruction(&Instruction::I32WrapI64);
     function.instruction(&Instruction::I64Const(value as i64));
     function.instruction(&Instruction::I64Store(MemArg {
@@ -38,16 +38,16 @@ pub(super) fn store_const(function: &mut Function, pointer: u32, offset: u64, va
         memory_index: 0,
     }));
 }
-pub(super) fn eq(function: &mut Function, local: u32, value: u64) {
-    function.instruction(&Instruction::LocalGet(local));
+pub(super) fn eq(function: &mut Function, local: I64Local, value: u64) {
+    local.load(function);
     function.instruction(&Instruction::I64Const(value as i64));
     function.instruction(&Instruction::I64Eq);
 }
-pub(super) fn between(function: &mut Function, local: u32, first: u64, last: u64) {
-    function.instruction(&Instruction::LocalGet(local));
+pub(super) fn between(function: &mut Function, local: I64Local, first: u64, last: u64) {
+    local.load(function);
     function.instruction(&Instruction::I64Const(first as i64));
     function.instruction(&Instruction::I64GeU);
-    function.instruction(&Instruction::LocalGet(local));
+    local.load(function);
     function.instruction(&Instruction::I64Const(last as i64));
     function.instruction(&Instruction::I64LeU);
     function.instruction(&Instruction::I32And);
@@ -55,18 +55,18 @@ pub(super) fn between(function: &mut Function, local: u32, first: u64, last: u64
 pub(super) fn peek(
     compiler: &CompilerLocals,
     function: &mut Function,
-    cursor: u32,
+    cursor: I64Local,
     delta: u64,
-    target: u32,
+    target: I64Local,
 ) {
-    function.instruction(&Instruction::LocalGet(cursor));
+    cursor.load(function);
     function.instruction(&Instruction::I64Const(delta as i64));
     function.instruction(&Instruction::I64Add);
-    function.instruction(&Instruction::LocalGet(compiler.unit_count));
+    compiler.unit_count.load(function);
     function.instruction(&Instruction::I64LtU);
     function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-    function.instruction(&Instruction::LocalGet(compiler.units));
-    function.instruction(&Instruction::LocalGet(cursor));
+    compiler.units.load(function);
+    cursor.load(function);
     function.instruction(&Instruction::I64Const(delta as i64));
     function.instruction(&Instruction::I64Add);
     function.instruction(&Instruction::I64Const(8));
@@ -81,7 +81,7 @@ pub(super) fn peek(
     function.instruction(&Instruction::Else);
     function.instruction(&Instruction::I64Const(-1));
     function.instruction(&Instruction::End);
-    function.instruction(&Instruction::LocalSet(target));
+    target.store(function);
 }
 
 impl FunctionBuilder<'_> {
@@ -89,14 +89,14 @@ impl FunctionBuilder<'_> {
         &mut self,
         compiler: &CompilerLocals,
         kind: NodeKind,
-        parent: u32,
-        node: u32,
-        address: u32,
+        parent: I64Local,
+        node: I64Local,
+        address: I64Local,
         function: &mut Function,
     ) {
-        self.emit_increment_local(compiler.node_count, 1, function);
-        function.instruction(&Instruction::LocalGet(compiler.node_count));
-        function.instruction(&Instruction::LocalGet(compiler.node_capacity));
+        self.emit_regexp_scratch_increment(compiler.node_count, 1, function);
+        compiler.node_count.load(function);
+        compiler.node_capacity.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_compile_failure(
@@ -109,17 +109,67 @@ impl FunctionBuilder<'_> {
         self.emit_regexp_node_address(compiler, node, address, function);
         store_const(function, address, NodeWord::Kind as u64, kind as u64);
         store(function, address, NodeWord::Parent as u64, parent);
+        // A group's direction belongs to its containing sequence. Its child
+        // sequences inherit ordinary groups, but assertions choose their own
+        // direction independently of the containing assertion.
+        let parent_address = self.runtime_schema().reserve_i64_local(function);
+        let parent_kind = self.runtime_schema().reserve_i64_local(function);
+        let direction = self.runtime_schema().reserve_i64_local(function);
+        set(function, direction, 0);
+        eq(function, parent, 0);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_node_address(compiler, parent, parent_address, function);
+        load(function, parent_address, NodeWord::Kind as u64, parent_kind);
+        load(
+            function,
+            parent_address,
+            NodeWord::Direction as u64,
+            direction,
+        );
+        for (group, child_direction) in [
+            (NodeKind::PositiveLookahead, 0),
+            (NodeKind::NegativeLookahead, 0),
+            (NodeKind::PositiveLookbehind, 1),
+            (NodeKind::NegativeLookbehind, 1),
+        ] {
+            eq(function, parent_kind, group as u64);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            set(function, direction, child_direction);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
+        store(function, address, NodeWord::Direction as u64, direction);
+        self.runtime_schema().release_i64_local(direction, function);
+        self.runtime_schema()
+            .release_i64_local(parent_kind, function);
+        self.runtime_schema()
+            .release_i64_local(parent_address, function);
         store_const(function, address, NodeWord::Minimum as u64, 1);
         store_const(function, address, NodeWord::Maximum as u64, 1);
+        store_const(
+            function,
+            address,
+            NodeWord::MaximumKind as u64,
+            RegExpRepeatMaximumKind::Finite.word(),
+        );
+        for word in [
+            NodeWord::MinimumDigitsStart,
+            NodeWord::MinimumDigitsEnd,
+            NodeWord::MaximumDigitsStart,
+            NodeWord::MaximumDigitsEnd,
+        ] {
+            store_const(function, address, word as u64, 0);
+        }
         store(
             function,
             address,
             NodeWord::SourceOffset as u64,
             compiler.cursor,
         );
-        function.instruction(&Instruction::LocalGet(address));
+        address.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(compiler.capture_count));
+        compiler.capture_count.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Store(MemArg {
@@ -131,13 +181,13 @@ impl FunctionBuilder<'_> {
     pub(super) fn emit_regexp_parser_append(
         &mut self,
         compiler: &CompilerLocals,
-        parent: u32,
-        child: u32,
+        parent: I64Local,
+        child: I64Local,
         function: &mut Function,
     ) {
-        let address = self.reserve_temp_local();
-        let last = self.reserve_temp_local();
-        let last_address = self.reserve_temp_local();
+        let address = self.runtime_schema().reserve_i64_local(function);
+        let last = self.runtime_schema().reserve_i64_local(function);
+        let last_address = self.runtime_schema().reserve_i64_local(function);
         self.emit_regexp_node_address(compiler, parent, address, function);
         load(function, address, NodeWord::Last as u64, last);
         eq(function, last, 0);
@@ -148,8 +198,9 @@ impl FunctionBuilder<'_> {
         store(function, last_address, NodeWord::Next as u64, child);
         function.instruction(&Instruction::End);
         store(function, address, NodeWord::Last as u64, child);
-        self.release_temp_local(last_address);
-        self.release_temp_local(last);
-        self.release_temp_local(address);
+        self.runtime_schema()
+            .release_i64_local(last_address, function);
+        self.runtime_schema().release_i64_local(last, function);
+        self.runtime_schema().release_i64_local(address, function);
     }
 }

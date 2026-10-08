@@ -1,43 +1,22 @@
-use wasmtime::{Collector, Config};
+use lila_ir::{WasmWeakReachabilityCapability, PRODUCT_WASM_WEAK_REACHABILITY};
+use wasmtime::{Collector, Config, Engine};
 
-/// The strongest garbage-collection capability provided by the pinned product
-/// runtime.
+/// The required collector capability of the pinned Wasmtime runtime.
 ///
-/// Naming the missing property in the only variant keeps the current lower
-/// bound honest: Wasmtime 38's DRC collector reclaims acyclic garbage but
-/// cannot collect cycles. Adding a cycle-capable collector must add a new
-/// variant and update the exhaustive configuration/reporting matches below.
+/// Copying collects unreachable cycles in the semantic Wasm-GC graph. The
+/// compiler's strong reference ABI and rooted host boundary use this required
+/// collector; weak/ephemeron reachability remains a separate runtime capability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmGcCapability {
-    DeferredReferenceCountingWithoutCycleCollection,
+    CopyingWithCycleCollection,
 }
 
 impl WasmGcCapability {
     pub const fn report(self) -> &'static str {
         match self {
-            Self::DeferredReferenceCountingWithoutCycleCollection => {
-                "collector=deferred-reference-counting cycle-collection=unavailable"
+            Self::CopyingWithCycleCollection => {
+                "collector=copying cycle-collection=available js-semantic-heap=wasm-gc"
             }
-        }
-    }
-}
-
-/// The weak-reachability capability provided by the pinned product runtime.
-///
-/// This is deliberately separate from [`WasmGcCapability`]. Wasm GC and its
-/// collector can manage strong references without exposing the weak-reference
-/// and ephemeron operations required by WeakRef, FinalizationRegistry, WeakMap
-/// and WeakSet. Adding such a facility must add a variant and update the
-/// exhaustive product-policy matches below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WasmWeakReachabilityCapability {
-    Unavailable,
-}
-
-impl WasmWeakReachabilityCapability {
-    pub const fn report(self) -> &'static str {
-        match self {
-            Self::Unavailable => "weak-references=unavailable ephemerons=unavailable",
         }
     }
 }
@@ -54,8 +33,8 @@ pub(crate) struct WasmtimeRuntimePolicy {
 }
 
 pub(crate) const PRODUCT_WASMTIME_POLICY: WasmtimeRuntimePolicy = WasmtimeRuntimePolicy {
-    gc: WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection,
-    weak_reachability: WasmWeakReachabilityCapability::Unavailable,
+    gc: WasmGcCapability::CopyingWithCycleCollection,
+    weak_reachability: PRODUCT_WASM_WEAK_REACHABILITY,
 };
 
 impl WasmtimeRuntimePolicy {
@@ -69,14 +48,57 @@ impl WasmtimeRuntimePolicy {
 
     pub(crate) fn report(self) -> String {
         format!(
-            "reference-types=required function-references=required gc=required exceptions=required {} {}",
+            "reference-types=required function-references=required gc=required exceptions=required threads=required shared-memory=required {} {}",
             self.gc.report(),
             self.weak_reachability.report(),
         )
     }
 
+    /// Validate the instantiated engine before either native profile is cached.
+    /// The public getters are the pinned47 authority, rather than compiler
+    /// defaults or an inference from enabled Cargo feature names.
+    pub(crate) fn verify_engine(self, engine: &Engine) -> Result<(), &'static str> {
+        let features = engine.get_wasm_features();
+        if !features.gc_types() {
+            return Err("required Wasm GC runtime support is unavailable");
+        }
+        match self.gc {
+            WasmGcCapability::CopyingWithCycleCollection => {
+                if engine.get_collector() != Some(Collector::Copying) {
+                    return Err("required copying collector was not explicitly selected");
+                }
+            }
+        }
+        if !features.reference_types() {
+            return Err("required Wasm reference types are unavailable");
+        }
+        if !features.function_references() {
+            return Err("required Wasm typed function references are unavailable");
+        }
+        if !features.gc() {
+            return Err("required Wasm GC structs and arrays are unavailable");
+        }
+        if !features.exceptions() {
+            return Err("required Wasm exceptions are unavailable");
+        }
+        if !features.threads() {
+            return Err("required Wasm threads are unavailable");
+        }
+        if !engine.get_shared_memory() {
+            return Err("required Wasmtime shared-memory allocation is unavailable");
+        }
+        match self.weak_reachability {
+            WasmWeakReachabilityCapability::Unavailable => {}
+        }
+        Ok(())
+    }
+
     pub(crate) fn configure(self, config: &mut Config) {
+        config.gc_support(true);
         config.wasm_threads(true);
+        // Wasmtime 47 gates host shared-memory allocation separately from
+        // the Wasm threads proposal. Both are required by this product.
+        config.shared_memory(true);
         config.wasm_multi_memory(true);
         config.wasm_reference_types(true);
         config.wasm_function_references(true);
@@ -85,8 +107,8 @@ impl WasmtimeRuntimePolicy {
         config.wasm_tail_call(true);
 
         match self.gc {
-            WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection => {
-                config.collector(Collector::DeferredReferenceCounting);
+            WasmGcCapability::CopyingWithCycleCollection => {
+                config.collector(Collector::Copying);
             }
         }
 

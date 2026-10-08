@@ -1,0 +1,36 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/undeclared-and-unused",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "script",
+      "identity": "entry.js",
+      "source": "var missing = 'unused.js';\nimport(missing).then(() => { throw 'undeclared source resolution'; }, error => {\n if (!(error instanceof TypeError)) throw 'wrong denial';\n print('embedded-undeclared:denied');\n});\n262;\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "unused.js",
+        "source": "print('undeclared-module-body'); export const value = 1;",
+        "meta_url": "lila://unused.js"
+      },
+      {
+        "identity": "broken.js",
+        "source": "export const =",
+        "meta_url": "lila://broken.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "unlocated"
+        },
+        "specifier": "worker-only",
+        "attributes": [],
+        "target": "unused.js"
+      }
+    ]
+  }
+}

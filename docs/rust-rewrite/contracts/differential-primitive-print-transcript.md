@@ -1,10 +1,11 @@
 # Differential primitive-completion and print-transcript protocol
 
-Status: normative for differential corpus and report schema v3.
+Status: normative for the observation dimensions of schemas v3 and v4. V4's
+graph-owned source path remains uncompiled and unexecuted.
 
 ## Bounded claim
 
-Schema v3 compares three report dimensions that the engine already observes
+Schemas v3 and v4 compare three report dimensions that the engine already observes
 without additional execution or coercion:
 
 1. the top-level normal-or-throw completion kind;
@@ -15,7 +16,11 @@ without additional execution or coercion:
 A green result establishes equality only for those dimensions. It retains the
 report's `semantic_equivalence: not_established` value and makes no claim about
 object or Symbol identity, error realms, descriptors, prototypes, arbitrary
-side effects, panics, host crashes or spec-exec timeout enforcement.
+side effects. The 2026-10-04 worker source separately adds panic/host-crash
+isolation and a parent attempt deadline for both backends. This is a bounded
+process-lifecycle claim whose current executable acceptance remains pending;
+it adds no semantic comparison dimension. See the
+[worker lifecycle](differential-worker-lifecycle.md).
 
 ## Closed protocol domain
 
@@ -27,6 +32,7 @@ projection fixes the admitted wire pair and output policy:
 | v1 | `self_checking_no_output` | both captured transcripts must be empty |
 | v2 | `primitive_completion_no_output` | both captured transcripts must be empty |
 | v3 | `primitive_completion_print_transcript` | both transcripts must be captured and compared exactly |
+| v4 | `primitive_completion_print_transcript` | both transcripts must be captured and compared exactly; source authority is an embedded graph |
 
 Wire decoding rejects every version/contract cross-pair. The output policy is
 a closed Rust enum selected by the protocol; replay has no boolean or caller
@@ -34,21 +40,23 @@ default that can silently turn transcript comparison off. Adding a protocol or
 policy therefore requires updating exhaustive matches in decoding, projection,
 comparison, fingerprinting and the schema-v1 arithmetic campaign.
 
-Schemas v1 and v2 keep their existing JSON field order, bytes, fingerprints,
-mismatch signatures, verdicts and fixtures. Schema v3 is strictly additive.
+Schemas v1/v2/v3 keep their existing JSON field order, bytes, fingerprints,
+mismatch signatures, verdicts and fixtures. Schema v4 is strictly additive.
 
-All three schemas currently admit only Scripts with an outer source closed over
+The v1/v2/v3 schemas admit only Scripts with an outer source closed over
 module requests. Module goals and actual or conservatively possible outer
 Script dynamic imports are rejected because the wire carries no dependency
 graph. Imports synthesized by eval or Function construction in spec-exec meet
 the mandatory reject-all loader rather than ambient files; Wasm-AOT retains its
 dynamic-source diagnostic. The independent admission/runtime invariant and
-future graph requirements are normative in
+graph-owned v4 admission are normative in
 [`differential-source-closure.md`](differential-source-closure.md).
+V4 admits Script or Module entries through the actual shared embedded graph;
+it changes source authority while reusing this bounded observation contract.
 
 ## Primitive completion observation
 
-V3 reuses v2's primitive domain and canonicalization:
+V3 and v4 reuse v2's primitive domain and canonicalization:
 
 - `undefined` and `null` retain their distinct types;
 - Boolean retains its value;
@@ -69,7 +77,7 @@ property read, debug rendering or backend identity guess is permitted.
 once, in their original order, to `OutputEventsObservation::Captured`. It does
 not call `print` again or coerce an argument a second time.
 
-V3 requires `Captured` from both backends. `Unavailable` is a contract
+V3 and v4 require `Captured` from both backends. `Unavailable` is a contract
 violation, not an empty transcript. Captured transcripts compare as exact
 ordered sequences of Rust strings: event count, event boundaries, empty lines,
 text and order all matter. Thus `[]`, `[""]`, `["ab", "c"]` and
@@ -79,10 +87,15 @@ The transcript belongs to the root observed execution, including the root job
 checkpoint or module evaluation performed by that execution. Agent-produced
 output remains outside the v3 semantic claim: the current Wasm worker and
 spec-exec capture boundaries do not provide a common agent ordering contract,
-so corpus authors and report consumers must not treat agent lines as a
+so v3/v4 corpus authors and report consumers must not treat agent lines as a
 backend-comparable transcript.
 
 ## Verdict decision
+
+Before semantic projection comparison, any WorkerFailure makes the report
+`worker_failure`, even if both attempts fail identically. Only validated
+committed print frames survive as `Incomplete`; that prefix cannot satisfy the
+captured-transcript contract or acquire a mismatch signature.
 
 After both backend observations have been projected:
 
@@ -98,7 +111,7 @@ After both backend observations have been projected:
 - a v1-only projected execution shape reaching v3 is
   `observation_contract_violated`.
 
-Only the distinct v3 match verdict is green for schema v3. Shared failures,
+Only the distinct primitive-plus-print match verdict is green for schemas v3/v4. Shared failures,
 contract violations and mismatches remain red.
 
 ## Stable mismatch signatures
@@ -119,6 +132,13 @@ backend digests. This makes event boundaries and all enclosing fields
 unambiguous while keeping reports useful for triage through their full
 structured observations.
 
+V4 reuses those typed backend observation encodings under a separate enclosing
+versioned mismatch domain. Its case fingerprint retains the entire graph
+SHA-256, and its mismatch signature retains that complete case identity.
+Changing an unused source, edge or independent metadata URL therefore changes
+v4 identity. The exact format is normative in the
+[`embedded graph contract`](differential-embedded-module-graph.md).
+
 ## Durable witness and nonclaims
 
 The committed v3 foundation case prints two distinct lines in order and
@@ -128,9 +148,9 @@ signatures, completion mismatches, unavailable output, unsupported values and
 backend failures. A feature-gated end-to-end gate replays the fixture through
 Wasm-AOT and spec-exec.
 
-This slice does not change either engine, runtime output capture, the product
+The earlier schema-v3 observation slice did not change either engine, runtime output capture, the product
 host surface, v1 generation/reduction, Test262, snapshots, fuzzing, object or
-Symbol comparison, external-engine support, panic isolation, performance
-budgets or CI scheduling. It does not provide module replay; current corpus
-protocols reject outer module requests and deterministically reject requests
-created at runtime until an embedded-graph protocol exists.
+Symbol comparison, external-engine support, performance
+budgets or CI scheduling. V1/v2/v3 retain their dependency-sealed Script and
+RejectAll policy. The additive v4 source path supplies module replay using the
+same observation dimensions; its seven finite paired cases remain unexecuted.

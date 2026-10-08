@@ -4,7 +4,7 @@
 //! Runtime dispatch uses the complete specifier/phase/attribute identity; no
 //! runtime source parser or JavaScript interpreter is involved.
 //!
-//! Canonical synchronous Module-entry graphs use compiler-owned async
+//! Canonical Module- and Script-entry graphs use compiler-owned async
 //! dispatchers. Operands are evaluated at the user call site. The dispatcher
 //! creates its intrinsic promise before ToString and import-options reads;
 //! these coercions still run synchronously and any abrupt value rejects it.
@@ -23,10 +23,9 @@
 //! Dynamic-only load/link syntax failures are emitted in the importing job.
 //! Static dependency failures still reject the entry before execution.
 //!
-//! TLA, Script-entry and source-phase graphs retain the merged-scope driver.
-//! Its targets still evaluate eagerly and its dispatcher uses mutable global
-//! Promise/error/descriptor operations. Those capability and scheduling gaps
-//! are explicit; the synchronous driver does not admit them.
+//! Source Text Module source requests reject with a fresh intrinsic SyntaxError
+//! after loading and parsing, before dependency loading or evaluation. They
+//! allocate no source object. Top-level-await targets share the canonical jobs.
 
 use crate::*;
 
@@ -83,41 +82,47 @@ impl DynamicComponentIr {
 
 /// Discovers every statically knowable `import()` target in the loaded graph.
 ///
-/// A call site with a computed specifier registers nothing: it resolves at
-/// runtime against whatever the registry already holds, and rejects if nothing
-/// matches. That is the entire dynamic-source story — there is no fallback
-/// path that reaches a parser.
+/// Loaded closures retain their static discovery rule. Complete catalogs
+/// project each site's known specifier and attributes onto every exact declared
+/// host key; computed operands select only those compiled variants at runtime.
+/// An unmatched key rejects, with no fallback that reaches a parser.
 ///
 /// The returned set is intentionally wider than the artifact registry. Graph
 /// classification needs edges from every loaded unit to decide which units
 /// materialize; after that fixed point, `modules::graph::link` retains only
 /// components whose referrer can run.
-pub(super) fn discover_components(graph: &ModuleGraphIr) -> Vec<DynamicComponentIr> {
+pub(super) fn discover_components(
+    graph: &ModuleGraphIr,
+    admission: super::admission::GraphAdmission,
+) -> Vec<DynamicComponentIr> {
     let mut components: Vec<DynamicComponentIr> = Vec::new();
     for index in 0..graph.units.len() {
         let referrer = ModuleUnitId::try_from(index)
             .expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
         let sites = graph.units[index].record.dynamic_import_sites.clone();
         for site in sites {
-            let Some(request) = site.discovery_request() else {
-                continue;
-            };
-            let Some(module) = graph.resolve_request(referrer, &request) else {
-                continue;
-            };
-            if components
-                .iter()
-                .any(|existing| existing.referrer == referrer && existing.request == request)
-            {
-                continue;
+            let keys = graph
+                .resolutions
+                .keys()
+                .filter_map(|(owner, key)| (*owner == referrer).then_some(key));
+            for request in admission.occurrences(&site, keys) {
+                let Some(module) = graph.resolve_request(referrer, &request) else {
+                    continue;
+                };
+                if components
+                    .iter()
+                    .any(|existing| existing.referrer == referrer && existing.request == request)
+                {
+                    continue;
+                }
+                let key = graph.unit(module).record.key.clone();
+                components.push(DynamicComponentIr {
+                    key,
+                    request,
+                    referrer,
+                    module,
+                });
             }
-            let key = graph.unit(module).record.key.clone();
-            components.push(DynamicComponentIr {
-                key,
-                request,
-                referrer,
-                module,
-            });
         }
     }
     components
@@ -143,21 +148,6 @@ impl ModuleGraphIr {
             .iter()
             .find(|component| component.referrer() == referrer && component.request() == request)
     }
-
-    /// Modules a `import.source()` call site can hand out a module source object
-    /// for.
-    ///
-    /// `modules::namespace` owns the objects themselves and asks this for the
-    /// dynamic half of the set, so a module reached *only* by
-    /// `import.source("m")` still gets one declared.
-    #[must_use]
-    pub fn dynamic_source_modules(&self) -> BTreeSet<ModuleUnitId> {
-        self.dynamic_components()
-            .iter()
-            .filter(|component| component.request().phase() == ImportPhaseIr::Source)
-            .map(DynamicComponentIr::target)
-            .collect()
-    }
 }
 
 /// Lowers `import(specifier, options)` to [`ExprIr::DynamicImport`].
@@ -172,8 +162,8 @@ impl ModuleGraphIr {
 /// an error.
 ///
 /// Every phase lowers the same way. What a phase changes is which object the
-/// promise is settled with — an evaluated namespace, a *deferred* namespace or
-/// a module source object — and that is
+/// promise is settled with — an evaluated/deferred namespace or the source
+/// phase rejection for the loaded Source Text Module — and that is
 /// [`ModuleGraphIr::dynamic_import_dispatchers`]'s decision, not this one's.
 ///
 /// # Errors
@@ -363,13 +353,56 @@ pub(super) fn module_dispatcher_intrinsic(name: &str) -> Option<StandardBuiltinI
 /// `$` is an identifier character in JavaScript, so these are ordinary names in
 /// the merged top-level scope rather than anything the parser treats specially.
 /// "Ordinary" would mean "collidable" if nothing checked, so
-/// [`ModuleGraphIr::check_dynamic_import_linkable`] rejects a graph in which a
-/// module declares a top-level name starting with this prefix.
+/// Source-record admission rejects parsed identifiers starting with this prefix,
+/// including nested bindings that could capture a rewritten import call.
 pub const LINKER_NAME_PREFIX: &str = "$lila$module$";
 
-enum DynamicImportDispatcherReference {
-    ModuleLocal,
-    ScriptEntryExport,
+/// Validate parsed identifiers before any linker-private names enter the source.
+/// Properties and string literals remain ordinary user data; identifier
+/// references and bindings cannot expose or shadow the private dispatcher names.
+pub(super) fn validate_linker_identifiers(
+    node: boa_ast::visitor::NodeRef<'_>,
+    interner: &Interner,
+    key: &ModuleKey,
+) -> Result<(), Vec<IrDiagnostic>> {
+    struct IdentifierScan<'a> {
+        interner: &'a Interner,
+        collisions: BTreeSet<String>,
+    }
+    impl<'ast> Visitor<'ast> for IdentifierScan<'_> {
+        type BreakTy = core::convert::Infallible;
+
+        fn visit_identifier(
+            &mut self,
+            node: &'ast boa_ast::expression::Identifier,
+        ) -> ControlFlow<Self::BreakTy> {
+            let name = self.interner.resolve_expect(node.sym()).to_string();
+            if name.starts_with(LINKER_NAME_PREFIX) {
+                self.collisions.insert(name);
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    let mut scan = IdentifierScan {
+        interner,
+        collisions: BTreeSet::new(),
+    };
+    let _ = scan.visit(node);
+    if scan.collisions.is_empty() {
+        Ok(())
+    } else {
+        Err(scan
+            .collisions
+            .into_iter()
+            .map(|name| {
+                IrDiagnostic::unsupported(format!(
+                    "unsupported in lila wasm-aot: module {}: identifier `{name}` collides \
+                     with a linker-synthesized name",
+                    key.as_str()
+                ))
+            })
+            .collect())
+    }
 }
 
 /// Merged-scope name of the `import()` dispatcher `unit`'s call sites call.
@@ -391,18 +424,6 @@ fn dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String {
     }
 }
 
-/// Name the Script entry of a script graph calls its dispatcher by.
-///
-/// The dispatcher itself is a `function` declaration inside the strict wrapper
-/// that holds every module of the graph, so the Script cannot name it: a
-/// function declaration is scoped to that wrapper. The wrapper therefore assigns
-/// it to this outer `var`, which has to be a *different* name — assigning to the
-/// dispatcher's own name inside the wrapper would just overwrite the inner
-/// binding.
-fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String {
-    format!("{}$call", dispatcher_name(unit, phase))
-}
-
 /// Merged-scope binding a dispatcher resolves a component with.
 ///
 /// This is the whole phase distinction, in one place:
@@ -412,17 +433,18 @@ fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String 
 /// * defer — the independent deferred namespace cell. `import.defer('m')`
 ///   and `import defer * as ns from 'm'` share this identity even when an
 ///   evaluation-phase request also evaluates the module eagerly;
-/// * source — the module source object, which is not a namespace at all: the
-///   module is loaded and parsed but never instantiated.
-fn component_resolution_cell(component: &DynamicComponentIr) -> MergedName {
+/// * source — no cell: a Source Text Module has no source representation.
+fn component_resolution_cell(component: &DynamicComponentIr) -> Option<MergedName> {
     match component.request().phase() {
-        ImportPhaseIr::Evaluation => {
-            MergedName::minted(component.target(), UnitCellRole::Namespace)
-        }
-        ImportPhaseIr::Defer => {
-            MergedName::minted(component.target(), UnitCellRole::DeferredNamespace)
-        }
-        ImportPhaseIr::Source => MergedName::minted(component.target(), UnitCellRole::ModuleSource),
+        ImportPhaseIr::Evaluation => Some(MergedName::minted(
+            component.target(),
+            UnitCellRole::Namespace,
+        )),
+        ImportPhaseIr::Defer => Some(MergedName::minted(
+            component.target(),
+            UnitCellRole::DeferredNamespace,
+        )),
+        ImportPhaseIr::Source => None,
     }
 }
 
@@ -458,8 +480,26 @@ impl ModuleGraphIr {
         self.import_dispatchers(DynamicImportDispatcherExecution::RetainedMerged)
     }
 
-    pub(super) fn module_execution_dynamic_import_prelude(&self) -> String {
-        self.import_dispatchers(DynamicImportDispatcherExecution::CompiledModuleJobs)
+    pub(super) fn module_initialization_dispatchers(&self, script_entry: bool) -> String {
+        self.materialized_units()
+            .filter(|(id, _, _)| (self.entry_is_script && *id == self.entry) == script_entry)
+            .flat_map(|(referrer, _, unit)| {
+                unit.record
+                    .dynamic_import_sites
+                    .iter()
+                    .map(|site| site.phase)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(move |phase| {
+                        self.dispatcher_source(
+                            referrer,
+                            phase,
+                            DynamicImportDispatcherExecution::CompiledModuleJobs,
+                        )
+                    })
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     fn import_dispatchers(&self, execution: DynamicImportDispatcherExecution) -> String {
@@ -513,6 +553,26 @@ impl ModuleGraphIr {
             component.referrer() == referrer && component.request().phase() == phase
         }) {
             append_component_condition(&mut text, component.request());
+            // Source-phase ContinueDynamicImport rejects the loaded Source Text
+            // Module before LoadRequestedModules or any evaluator/cell access.
+            if phase == ImportPhaseIr::Source {
+                text.push_str(if synchronous {
+                    " throw new $lila$module$SyntaxError("
+                } else {
+                    " throw new SyntaxError("
+                });
+                text.push_str(&js_string_literal(
+                    &ModuleLinkErrorIr::SourceUnavailable {
+                        referrer,
+                        request: component.request().clone(),
+                    }
+                    .message(),
+                ));
+                text.push_str("); }");
+                continue;
+            }
+            let resolution = component_resolution_cell(component)
+                .expect("namespace phases own a resolution cell");
             if synchronous {
                 // ContinueDynamicImport first reacts to LoadRequestedModules.
                 text.push_str(" await void 0;");
@@ -530,15 +590,15 @@ impl ModuleGraphIr {
                         text.push(';');
                     }
                     ImportPhaseIr::Source => {
-                        unreachable!("canonical execution graph excludes source phase")
+                        unreachable!("source rejection precedes namespace continuation")
                     }
                 }
                 text.push_str(" return ");
-                text.push_str(component_resolution_cell(component).as_str());
+                text.push_str(resolution.as_str());
                 text.push_str("; }");
             } else {
                 text.push_str(" resolve(");
-                text.push_str(component_resolution_cell(component).as_str());
+                text.push_str(resolution.as_str());
                 text.push_str("); return; }");
             }
         }
@@ -612,61 +672,19 @@ impl ModuleGraphIr {
         unit: ModuleUnitId,
         source: &str,
     ) -> Result<String, String> {
-        self.rewrite_calls(unit, DynamicImportDispatcherReference::ModuleLocal, source)
-    }
-
-    /// [`Self::rewrite_dynamic_import_calls`] for the Script entry of a script
-    /// graph, whose dispatchers are declared inside the module wrapper and
-    /// reached through the `var` bindings
-    /// [`Self::script_entry_dispatcher_exports`] names.
-    ///
-    /// # Errors
-    /// As [`Self::rewrite_dynamic_import_calls`].
-    ///
-    /// # Panics
-    /// Panics if the graph has no entry unit.
-    pub fn rewrite_script_entry_import_calls(&self, source: &str) -> Result<String, String> {
-        self.rewrite_calls(
-            self.entry,
-            DynamicImportDispatcherReference::ScriptEntryExport,
-            source,
+        self.rewrite_dynamic_import_source(
+            unit,
+            super::callable_source::OriginalUnitSource::new(source),
         )
+        .map(super::callable_source::OriginalUnitSource::into_text)
     }
 
-    /// `(exported name, dispatcher name)` for every phase the Script entry
-    /// writes an `import()` in.
-    ///
-    /// Empty for a module graph, and for a Script that writes no `import()` at
-    /// all.
-    #[must_use]
-    pub fn script_entry_dispatcher_exports(&self) -> Vec<(String, String)> {
-        let Some(unit) = self.units.get(self.entry as usize) else {
-            return Vec::new();
-        };
-        let phases: BTreeSet<ImportPhaseIr> = unit
-            .record
-            .dynamic_import_sites
-            .iter()
-            .map(|site| site.phase)
-            .collect();
-        phases
-            .into_iter()
-            .map(|phase| {
-                (
-                    exported_dispatcher_name(self.entry, phase),
-                    dispatcher_name(self.entry, phase),
-                )
-            })
-            .collect()
-    }
-
-    fn rewrite_calls(
+    pub(super) fn rewrite_dynamic_import_source(
         &self,
         unit: ModuleUnitId,
-        dispatcher_reference: DynamicImportDispatcherReference,
-        source: &str,
-    ) -> Result<String, String> {
-        let sites = ImportCallScanner::new(source).run()?;
+        mut source: super::callable_source::OriginalUnitSource,
+    ) -> Result<super::callable_source::OriginalUnitSource, String> {
+        let sites = ImportCallScanner::new(source.text()).run()?;
         // The cross-check runs *before* the empty-sites shortcut, or the
         // shortcut becomes a hole exactly the shape of this check: a scanner
         // false negative would return the source unrewritten, the merged script
@@ -711,24 +729,16 @@ impl ModuleGraphIr {
             }
         }
         if sites.is_empty() {
-            return Ok(source.to_string());
+            return Ok(source);
         }
 
-        let mut rewritten = String::with_capacity(source.len() + sites.len() * 32);
-        let mut cursor = 0usize;
-        for site in sites {
-            rewritten.push_str(&source[cursor..site.start]);
-            let name = match dispatcher_reference {
-                DynamicImportDispatcherReference::ModuleLocal => dispatcher_name(unit, site.phase),
-                DynamicImportDispatcherReference::ScriptEntryExport => {
-                    exported_dispatcher_name(unit, site.phase)
-                }
-            };
-            rewritten.push_str(&name);
-            cursor = site.end;
+        // Reverse source order keeps every scanner span valid until its one
+        // edit is applied, including nested import calls and UTF-8 trivia.
+        for site in sites.into_iter().rev() {
+            let name = dispatcher_name(unit, site.phase);
+            source.replace(site.start, site.end, &name);
         }
-        rewritten.push_str(&source[cursor..]);
-        Ok(rewritten)
+        Ok(source)
     }
 
     /// Every reason this graph's `import()` usage cannot be desugared.
@@ -746,18 +756,7 @@ impl ModuleGraphIr {
         for (_, _, unit) in self.materialized_units() {
             let key = unit.record.key.as_str();
             for binding in &unit.record.environment {
-                // The merged spelling: the collision is with a name the linker
-                // declares in the *merged* scope, so both sides are D3. A
-                // `[[LocalName]]` of `*default*` has already become `$d{u}$`
-                // here and cannot be mistaken for a linker name.
                 let merged = unit.record.merged(&binding.name);
-                if merged.as_str().starts_with(LINKER_NAME_PREFIX) {
-                    diagnostics.push(IrDiagnostic::unsupported(format!(
-                        "unsupported in lila wasm-aot: module {key}: top-level `{}` collides \
-                         with a linker-synthesized name",
-                        merged.as_str()
-                    )));
-                }
                 // The `$m<unit>$…` / `$d<unit>$` range is minted by
                 // `MergedName::minted` and `MergedName::anonymous_default`, and
                 // `merged_in` is the identity on a source name — so a module
@@ -766,7 +765,7 @@ impl ModuleGraphIr {
                 // Left unchecked that is a duplicate-declaration SyntaxError
                 // from the merged script for a legal module. Pathological, but
                 // it is the same merged-name hazard invariant M3 governs, and
-                // the linker-prefix check beside it covers a different family.
+                // parsed linker-prefix admission covers a different family.
                 //
                 // Asked of the *source* spelling, not of `merged`. `merged_in`
                 // is the identity on a `LocalName::Source`, so for that variant
@@ -789,10 +788,8 @@ impl ModuleGraphIr {
             }
         }
 
-        // A Script entry is emitted as itself, outside the wrapper that holds
-        // the graph's modules, so it cannot also be *a* module of that graph: it
-        // would either be emitted twice or hand out a namespace over bindings
-        // that are not in the wrapper's scope.
+        // A Script entry owns root statements rather than a module activation,
+        // so no request can evaluate it as a module or expose a module namespace.
         if self.entry_is_script
             && self
                 .resolutions
@@ -848,10 +845,8 @@ impl ModuleGraphIr {
     /// export *be* another module's namespace: resolving the outer one hands the
     /// inner object to the program even though no `import()` named it.
     fn component_namespace_modules(&self) -> BTreeSet<(ModuleUnitId, ModuleNamespaceModeIr)> {
-        // A source-phase component reaches a module *source* object, not a
-        // namespace: its module is never instantiated, so it has no exports to
-        // expose and asking for a namespace it must not have would report every
-        // such module as unlinkable.
+        // Source phase rejects before any namespace is requested. Evaluation
+        // and Defer retain their separate namespace identities.
         let mut observed: BTreeSet<(ModuleUnitId, ModuleNamespaceModeIr)> = self
             .dynamic_components()
             .iter()
@@ -1456,6 +1451,7 @@ mod tests {
         resolutions: Vec<(ModuleUnitId, ModuleRequestKeyIr, ModuleUnitId)>,
     ) -> ModuleGraphSources {
         ModuleGraphSources {
+            realm_requests: Default::default(),
             entry: ModuleUnitId::try_from(entry).expect("entry index fits"),
             modules: sources
                 .iter()
@@ -1485,15 +1481,15 @@ mod tests {
         ModuleRequestKeyIr::plain(specifier)
     }
 
-    fn attributed(specifier: &str, key: &str, value: &str) -> ModuleRequestKeyIr {
+    fn attributed(specifier: &str, attributes: &[(&str, &str)]) -> ModuleRequestKeyIr {
         ModuleRequestKeyIr::try_new(
             specifier,
-            vec![ImportAttributeIr {
-                key: key.to_string(),
-                value: value.to_string(),
-            }],
+            attributes.iter().map(|(key, value)| ImportAttributeIr {
+                key: (*key).to_string(),
+                value: (*value).to_string(),
+            }),
         )
-        .expect("the test attribute key is unique")
+        .expect("the test attribute keys are unique")
     }
 
     /// The `d.mjs` shape the lane exists for: a dispatcher that answers the
@@ -1556,13 +1552,17 @@ mod tests {
                 ("typed", "export const value = 'typed';"),
                 (
                     "d",
-                    "import('./a.mjs'); import('./a.mjs', { with: { type: 'json' } });",
+                    "import('./a.mjs'); import('./a.mjs', { with: { type: 'javascript', mode: 'stable' } });",
                 ),
             ],
             2,
             vec![
                 (2, request_key("./a.mjs"), 0),
-                (2, attributed("./a.mjs", "type", "json"), 1),
+                (
+                    2,
+                    attributed("./a.mjs", &[("type", "javascript"), ("mode", "stable")]),
+                    1,
+                ),
             ],
         );
         let graph = graph_of(&sources);
@@ -1579,8 +1579,9 @@ mod tests {
         );
         assert!(
             prelude.contains(
-                "key === \"./a.mjs\" && attributeKeys.length === 1 && attributeKeys[0] === \
-                 \"type\" && attributeValues[0] === \"json\""
+                "key === \"./a.mjs\" && attributeKeys.length === 2 && attributeKeys[0] === \
+                 \"mode\" && attributeValues[0] === \"stable\" && attributeKeys[1] === \
+                 \"type\" && attributeValues[1] === \"javascript\""
             ),
             "attributed request branch missing: {prelude}"
         );
@@ -1645,15 +1646,31 @@ mod tests {
     }
 
     #[test]
-    fn a_script_entry_call_site_is_rewritten_to_the_exported_dispatcher() {
-        let source = "import(\"./a.mjs\").then(f);";
-        let sources = sources_of(&[("d", source)], 0, Vec::new());
-        let graph = graph_of(&sources);
+    fn a_script_entry_call_site_uses_the_same_canonical_dispatcher() {
+        let source = "import(\"./a.mjs\").then(f); import.defer(\"./a.mjs\");";
+        let ParsedSource::Script(parsed) =
+            lila_front::parse(source, lila_front::ParseOptions::script())
+                .expect("Script entry parses")
+        else {
+            panic!("Script parse goal");
+        };
+        let sources = ModuleGraphSources {
+            realm_requests: Default::default(),
+            modules: vec![ModuleSourceIr::from_parsed_script(
+                ModuleKey::from_host("d"),
+                "file:///d".into(),
+                parsed,
+            )],
+            entry: 0,
+            resolutions: Vec::new(),
+        };
+        let mut graph = graph_of(&sources);
+        graph.entry_is_script = true;
         assert_eq!(
             graph
-                .rewrite_script_entry_import_calls(source)
+                .rewrite_dynamic_import_calls(graph.entry, source)
                 .expect("rewrite should succeed"),
-            "$lila$module$import$0$call(\"./a.mjs\").then(f);"
+            "$lila$module$import$0(\"./a.mjs\").then(f); $lila$module$import$0$defer(\"./a.mjs\");"
         );
     }
 
@@ -1829,12 +1846,10 @@ mod tests {
         assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
     }
 
-    /// `import.defer()` must not evaluate its target eagerly and
-    /// `import.source()` must not produce a namespace at all, so the two phases
-    /// resolve with different objects than the evaluation phase does — and the
-    /// source-phase target contributes no body.
+    /// Deferred requests share their deferred namespace cell. Source Text
+    /// Module source jobs reject instead of manufacturing an object.
     #[test]
-    fn each_phase_resolves_with_its_own_object() {
+    fn deferred_phase_resolves_and_source_phase_rejects_without_a_cell() {
         let sources = sources_of(
             &[
                 ("a", "export const value = 41;"),
@@ -1862,11 +1877,10 @@ mod tests {
             "defer resolves with the (deferred) namespace object, got: {prelude}"
         );
         assert!(
-            prelude.contains(&format!(
-                "if (key === \"./b.mjs\" && attributeKeys.length === 0) {{ resolve({}); return; }}",
-                MergedName::minted(1, UnitCellRole::ModuleSource).as_str()
-            )),
-            "source resolves with the module source object, got: {prelude}"
+            prelude.contains(
+                "if (key === \"./b.mjs\" && attributeKeys.length === 0) { throw new SyntaxError("
+            ),
+            "Source Text Modules have no source cell: {prelude}"
         );
         assert!(
             !prelude.contains(&format!(
@@ -1930,8 +1944,8 @@ mod tests {
     fn a_user_binding_in_the_reserved_prefix_is_reported() {
         let source = format!("const {LINKER_NAME_PREFIX}namespace$0 = 1;\nimport(x);");
         let sources = sources_of(&[("d", source.as_str())], 0, Vec::new());
-        let graph = graph_of(&sources);
-        let diagnostics = graph.check_dynamic_import_linkable();
+        let diagnostics = crate::modules::build_graph(&sources)
+            .expect_err("reserved identifiers cannot enter a source record");
         assert!(
             diagnostics
                 .iter()

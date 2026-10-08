@@ -1,5 +1,29 @@
 # Callable `%Function.prototype%`
 
+## Current atomic GC source — 2026-10-05
+
+`%Function.prototype%` is published as the actual native FunctionObject with
+its catalog identity, immutable FunctionContext and defining Realm. The common
+GC bootstrap supplies the same typed Realm/function-prototype context to entry
+and created Realms before publication. Function headers are completed during
+allocation; the previous Object-placeholder and post-allocation repair are
+historical representations.
+
+The maintained `callable_function_prototype_structure` target retains its
+existing CLI callable/Realm witness. Exact raw allocator, offset and duplicated
+created-Realm materializer assertions are retired. The earlier specialized
+prototype refusal and source census below do not describe the new typed
+callable-family factories. See [NativeHost GC values](native-host-gc-values.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 `%Function.prototype%` is both the ordinary-function prototype and a built-in
 function object. Its identity, value kind and call target are one intrinsic;
 bootstrap may not publish an Object-shaped placeholder and repair callability

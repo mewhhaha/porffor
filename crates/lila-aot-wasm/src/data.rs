@@ -1,218 +1,86 @@
 use super::*;
-use crate::runtime_helpers::RegExpMatcherFailure;
-use icu_normalizer::{
-    properties::{CanonicalCombiningClassMapBorrowed, CanonicalCompositionBorrowed},
-    properties::{CanonicalDecompositionBorrowed, Decomposed},
-    DecomposingNormalizerBorrowed,
-};
 use icu_properties::{props, CodePointSetData};
 use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
     RegExpCompileErrorKind, RegExpProgram, ResumableLoopIterationEnvironmentIr,
-    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
+    StaticRegExpCompilation, BUILTIN_REGEXP_FUNCTION_ID,
     BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
     REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_OPCODE_NAMED_BACKREFERENCE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
 };
 use std::sync::OnceLock;
 
+mod temporal_east_asian_years;
+pub(crate) use temporal_east_asian_years::{
+    TemporalEastAsianCalendar, TemporalEastAsianYearImage, TemporalEastAsianYearRowSlot,
+    EAST_ASIAN_LEAP_ORDINAL_SHIFT, EAST_ASIAN_MEAN_LUNAR_MONTH_MILLIS,
+    EAST_ASIAN_MEAN_SOLAR_TERM_MILLIS, EAST_ASIAN_MEAN_YEAR_MILLIS, EAST_ASIAN_MILLIS_PER_DAY,
+    EAST_ASIAN_MONTH_MASK, EAST_ASIAN_NEW_YEAR_OFFSET_SHIFT, EAST_ASIAN_YEAR_ROW_BYTES,
+    TEMPORAL_EAST_ASIAN_YEAR_ENVELOPE,
+};
+
+mod regexp_unicode_properties;
+pub(crate) use regexp_unicode_properties::{
+    RegExpUnicodePropertyImage, RegExpUnicodePropertyImageKind,
+    RegExpUnicodePropertyImageStringWord, RegExpUnicodePropertyImageWord,
+};
+
+mod intl_supported_values;
+use intl_supported_values::{CompiledSupportedValuesTables, SupportedValuesPoolError};
+
+mod normalization;
+use normalization::NormalizationMapping;
+
 pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
     "unhandled rejection diagnostic ToString threw";
 
-/// Runtime-error message literals that no other interning path reaches.
-///
-/// Why this table exists at all, stated once so it is not rediscovered a fourth
-/// time. `emit_runtime_error_object` (`builtins/errors.rs`) used to define the
-/// error's `message` property from its *name* payload and throw the message
-/// argument away, so `e.message === e.name` for every error the runtime threw.
-/// The obvious one-token repair could not land alone: `StringPool::payload`
-/// takes `&self`, cannot extend the pool during emission, and **panics** with
-/// ``string `..` must exist in pool``. Because that function never asked the
-/// pool for a message, the messages that reach only it were never required to
-/// be interned -- and were not. Landing the repair without this table turns
-/// `null.x` into a compiler panic.
-///
-/// The list is measured, not guessed. Every call site of the seven throw entry
-/// points (`emit_throw_runtime_error`, `_to_active_handler`,
-/// `_with_prototype_local` and the four `emit_throw_current_function_realm_*`
-/// wrappers) was walked transitively through the `&str` parameters they forward
-/// through, giving 908 reachable message literals; the 137 below plus the two
-/// typed RegExp matcher failures are the ones absent from both this file and
-/// `builtins::intl_date_time_format_pool_strings()`.
-///
-/// It over-approximates on purpose. A string interned twice costs nothing --
-/// `intern_string` returns early on a hit -- while a string missed once is a
-/// compiler panic on a program as ordinary as `null.x`. Two families here are
-/// reachable only through an enum-selected `match` arm
-/// (`Map`/`WeakMap`/`Set`/`WeakSet` constructor messages, `yield*` iterator
-/// protocol messages), which a call-site-literal audit alone does not see.
-///
-/// KNOWN INCOMPLETENESS, and the reason this is a table rather than a claim:
-/// a static audit cannot resolve every `&'static str` that reaches a throw
-/// through a local binding or a helper's parameter. If a message is still
-/// missing, the pool says so loudly at run time by name. That is the correct
-/// failure mode and it is deliberately not softened -- see the standing
-/// instruction on `emit_runtime_error_object` never to fall back to the name.
-///
-/// RegExp matcher failures are excluded from this list. Their messages are
-/// derived from [`RegExpMatcherFailure::ALL`] below, so their ABI word, error
-/// route and interned text cannot become parallel tables.
-///
-/// The right long-term shape is one `RUNTIME_ERROR_MESSAGES` domain that the
-/// emitters index into, so "add a message" is one edit and "forgot to intern"
-/// is a compile error. That is a refactor across ~1,120 call sites and does not
-/// belong to this lane; this table is the honest intermediate.
-pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
-    "%TypedArray% cannot be called or constructed directly",
-    "Atomics.wait cannot suspend the current agent",
-    "BigInt division by zero",
-    "BigInt shift result exceeds the engine resource limit",
-    "BigInts do not support unsigned right shift",
-    "Cannot add property to non-extensible array",
-    "Cannot assign inherited typed array index on receiver",
-    "Cannot assign to arguments index",
-    "Cannot assign to arguments property",
-    "Cannot assign to arguments.callee",
-    "Cannot assign to arguments.length",
-    "Cannot assign to array index",
-    "Cannot assign to array length",
-    "Cannot assign to array property",
-    "Cannot assign to inherited accessor without setter",
-    "Cannot assign to inherited read only property",
-    "Cannot assign to property",
-    "Cannot assign to super property",
-    "Cannot change enumerable flag of non-configurable arguments accessor",
-    "Cannot change enumerable flag of non-configurable arguments property",
-    "Cannot change enumerable flag of non-configurable arguments.callee",
-    "Cannot change kind of non-configurable arguments.callee",
-    "Cannot change non-configurable arguments accessor",
-    "Cannot change non-configurable arguments.callee accessor",
-    "Cannot change non-writable arguments.callee",
-    "Cannot change value of non-writable arguments property",
-    "Cannot define arguments index on a non-extensible object",
-    "Cannot define array index beyond non-writable length",
-    "Cannot define array length",
-    "Cannot make non-configurable arguments property writable",
-    "Cannot make non-configurable arguments.callee writable",
-    "Cannot read properties of null or undefined",
-    "Cannot redefine array index property",
-    "Cannot redefine non-configurable arguments accessor",
-    "Cannot redefine non-configurable arguments property",
-    "Cannot redefine non-configurable arguments.callee",
-    "Cannot replace non-configurable accessor arguments property",
-    "Cannot replace non-configurable data arguments property",
-    "Function has non-object prototype in instanceof check",
-    "Get target is not an object",
-    "Map constructor iterator method is not callable",
-    "Map constructor iterator method must return an object",
-    "Map constructor iterator next method is not callable",
-    "Map constructor iterator next result must be an object",
-    "Map constructor iterator value must be an object",
-    "Map constructor requires new",
-    "Map constructor set method is not callable",
-    "Map.prototype.forEach callback must be callable",
-    "Math.sumPrecise input is not iterable",
-    "Math.sumPrecise iterable contains too many values",
-    "Math.sumPrecise iterator method must return an object",
-    "Math.sumPrecise iterator next method is not callable",
-    "Math.sumPrecise iterator next result must be an object",
-    "Object.prototype.__proto__ setter called on null or undefined",
-    "Object.prototype.__proto__ setter could not set prototype",
-    "Object.prototype.hasOwnProperty called on null or undefined",
-    "Promise cannot resolve to itself",
-    "Promise capability constructor is not a constructor",
-    "Promise capability did not initialize callable resolving functions",
-    "Promise capability executor called more than once",
-    "Promise constructor property is not an object",
-    "Promise constructor requires new",
-    "Promise executor is not callable",
-    "Promise species is not a constructor",
-    "Promise.all constructor resolve property is not callable",
-    "Promise.all input is not iterable",
-    "Promise.all iterable contains too many values",
-    "Promise.all iterator method is not callable",
-    "Promise.all iterator method must return an object",
-    "Promise.all iterator next method is not callable",
-    "Promise.all iterator next result must be an object",
-    "Promise.prototype.finally called on non-object receiver",
-    "Promise.prototype.then called on incompatible receiver",
-    "Promise.race constructor resolve property is not callable",
-    "Promise.race input is not iterable",
-    "Promise.race iterator method is not callable",
-    "Promise.race iterator method must return an object",
-    "Promise.race iterator next method is not callable",
-    "Promise.race iterator next result must be an object",
-    "Proxy ownKeys trap result contained a duplicate key",
-    "Proxy ownKeys trap result contained a non-property key",
-    "Proxy ownKeys trap result contains an extra key for a non-extensible target",
-    "Proxy ownKeys trap result does not match non-extensible target",
-    "Proxy ownKeys trap result must be an object",
-    "RegExp.prototype[Symbol.matchAll] receiver is not object",
-    "RegExp.prototype[Symbol.replace] exec result is not an object or null",
-    "RegExp.prototype[Symbol.replace] receiver is not an object",
-    "RegExp.prototype[Symbol.split] constructor is not an object",
-    "RegExp.prototype[Symbol.split] exec result is not an object or null",
-    "RegExp.prototype[Symbol.split] species is not a constructor",
-    "Set constructor add method is not callable",
-    "Set constructor iterator method is not callable",
-    "Set constructor iterator method must return an object",
-    "Set constructor iterator next method is not callable",
-    "Set constructor iterator next result must be an object",
-    "Set constructor requires new",
-    "Set.prototype.forEach callback must be callable",
-    "String method RegExp flags must contain g",
-    "TypedArray allocation size is too large",
-    "TypedArray iterator method must be callable",
-    "TypedArray iterator method must return an object",
-    "TypedArray iterator next method must be callable",
-    "TypedArray iterator next result must be an object",
-    "WeakMap constructor iterator method is not callable",
-    "WeakMap constructor iterator method must return an object",
-    "WeakMap constructor iterator next method is not callable",
-    "WeakMap constructor iterator next result must be an object",
-    "WeakMap constructor iterator value must be an object",
-    "WeakMap constructor requires new",
-    "WeakMap constructor set method is not callable",
-    "assignment to constant binding",
-    "assignment to unresolvable reference",
-    "cannot get function realm from a revoked Proxy",
-    "eval declaration conflicts with lexical binding",
-    "for-await-of async iterator next result must be object",
-    "for-await-of async iterator return result must be object",
-    "for-await-of iterator method must be callable",
-    "for-await-of iterator method must return object",
-    "for-await-of iterator next must be callable",
-    "for-await-of iterator next result must be object",
-    "for-await-of iterator return must be callable",
-    "for-await-of iterator return result must be object",
-    "for-await-of target is not iterable",
-    "global declaration conflicts with existing lexical binding",
-    "global function declaration is not permitted",
-    "global lexical declaration conflicts with non-configurable property",
-    "global variable declaration is not permitted",
-    "lexical binding accessed before initialization",
-    "private accessor has no getter",
-    "private element already installed on object",
-    "private element cannot be installed on non-extensible object",
-    "private element has no setter",
-    "private environment is missing its declared name",
-    "right-hand side of private in is not an object",
-    "unbound identifier",
-    "yield* iterator has no throw method",
-    "yield* iterator method must be callable",
-    "yield* iterator method must return object",
-    "yield* iterator result must be object",
-    "yield* next method must be callable",
-    "yield* return method must be callable",
-    "yield* target is not iterable",
-    "yield* throw method must be callable",
-];
+mod runtime_error_message;
+pub(crate) use runtime_error_message::{
+    IntlErrorOption, RuntimeErrorMessage, SourceRuntimeErrorMessage,
+};
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PooledStringIndex(u32);
+impl PooledStringIndex {
+    fn for_insertion(existing: usize) -> Self {
+        let next_length = existing
+            .checked_add(1)
+            .and_then(|length| u32::try_from(length).ok())
+            .expect("pooled strings fit a GC array");
+        Self(next_length - 1)
+    }
+
+    pub(crate) const fn ordinal(self) -> u32 {
+        self.0
+    }
+}
 
 #[derive(Debug)]
 struct StringRef {
+    // Interning assigns this once. Source literals cannot renumber an already
+    // collected builtin literal merely by sorting before it.
+    index: PooledStringIndex,
     offset: u32,
     len: u32,
+    code_units: PooledCodeUnits,
+}
+
+/// A slice of the module's compiler-owned passive UTF-16 image. Only string
+/// interning creates these bounds; GC construction cannot accept raw offsets.
+#[derive(Debug)]
+pub(crate) struct PooledCodeUnits {
+    byte_offset: u32,
+    length: u32,
+}
+
+impl PooledCodeUnits {
+    pub(crate) const DATA_SEGMENT: u32 = 0;
+
+    pub(crate) fn emit_bounds(&self, function: &mut Function) {
+        function.instruction(&Instruction::I32Const(self.byte_offset as i32));
+        function.instruction(&Instruction::I32Const(self.length as i32));
+    }
 }
 
 /// Pointer/byte-length ownership of one immutable descriptor allocation.
@@ -254,23 +122,6 @@ struct UppercaseTables {
 }
 
 static UPPERCASE_TABLES: OnceLock<UppercaseTables> = OnceLock::new();
-
-struct NormalizationMapping {
-    codepoint: u32,
-    sequence_index: u32,
-    sequence_len: u32,
-}
-
-struct NormalizationTables {
-    canonical_mappings: Vec<NormalizationMapping>,
-    canonical_sequences: Vec<u32>,
-    compatibility_mappings: Vec<NormalizationMapping>,
-    compatibility_sequences: Vec<u32>,
-    combining_classes: Vec<(u32, u8)>,
-    compositions: Vec<(u32, u32, u32)>,
-}
-
-static NORMALIZATION_TABLES: OnceLock<NormalizationTables> = OnceLock::new();
 
 impl RegExpProgramStaticKey {
     pub(crate) fn from_program(program: &RegExpProgram) -> Self {
@@ -372,8 +223,8 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// false-`InvalidSyntax` candidate rather than as unrelated noise.**
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
 /// A static compiler capability gap. Like a cache miss, this enters the
-/// emitted compiler. Only its explicit Unsupported status retains the old
-/// fallback matcher; a capability gap alone never invents a SyntaxError.
+/// emitted compiler. Its explicit Unsupported status exits through the typed
+/// T19 semantic rejection; a capability gap never invents a JavaScript error.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
 
 mod runtime_regexp_entry_kind;
@@ -404,6 +255,17 @@ pub(crate) use runtime_regexp_entry_kind::RuntimeRegExpEntryKind;
 /// row. `Option<RegExpProgramRef>` would not do it — `unwrap_or`, `if let` and
 /// `continue` are all one keystroke away, and `continue` is exactly what was
 /// written here.
+pub(crate) enum RuntimeRegExpCandidateProgram<'a> {
+    Program(&'a ValidatedRegExpProgram),
+    Rejected,
+    Unsupported,
+}
+pub(crate) struct RuntimeRegExpCandidate<'a> {
+    pub(crate) source: &'a str,
+    pub(crate) flags: &'a str,
+    pub(crate) program: RuntimeRegExpCandidateProgram<'a>,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum RuntimeRegExpEntry {
     /// `RegExpProgram::compile` accepted the pair; this is its static data.
@@ -438,11 +300,41 @@ pub(crate) struct RegExpCaseFoldingTable {
     pub(crate) count: u32,
 }
 
+/// Where the compiler-owned phase of a pool ends. Everything before it is the
+/// runtime module's data and is identical for every program; everything after
+/// it belongs to the program module.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PoolBoundary {
+    static_bytes: usize,
+    code_unit_bytes: usize,
+    strings: u32,
+}
+
+impl PoolBoundary {
+    /// Pooled strings the runtime owns; the program's slots start here.
+    pub(crate) const fn strings(self) -> u32 {
+        self.strings
+    }
+
+    pub(crate) const fn static_len(self) -> usize {
+        self.static_bytes
+    }
+
+    /// Linear-memory address of the first byte the program owns.
+    pub(crate) fn program_static_address(self) -> u32 {
+        STATIC_DATA_OFFSET + self.static_bytes as u32
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
+    compiler_owned: PoolBoundary,
+    intl_supported_values: Option<Result<CompiledSupportedValuesTables, SupportedValuesPoolError>>,
+    intl_default_locale: Option<lila_intl::CanonicalLocaleId>,
     pub(crate) bytes: Vec<u8>,
-    pub(crate) template_objects: BTreeMap<u64, TemplateObjectIr>,
+    pooled_code_unit_bytes: Vec<u8>,
     refs: BTreeMap<String, StringRef>,
+    source_runtime_error_messages: BTreeMap<String, i64>,
     script_string_literals: BTreeSet<String>,
     runtime_regexp_candidate_literals: BTreeSet<String>,
     /// Pattern strings the script names **directly at a RegExp construction
@@ -468,6 +360,8 @@ pub(crate) struct StringPool {
     pending_regexp_programs: Vec<RegExpProgramStaticKey>,
     needed_regexp_case_folding: BTreeSet<RegExpCaseFolding>,
     regexp_case_folding_tables: BTreeMap<RegExpCaseFolding, RegExpCaseFoldingTable>,
+    regexp_unicode_property_image: Option<RegExpUnicodePropertyImage>,
+    temporal_east_asian_year_image: Option<TemporalEastAsianYearImage>,
     runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
     pub(crate) runtime_regexp_program_table_ptr: u32,
@@ -492,35 +386,78 @@ pub(crate) struct StringPool {
 }
 
 impl StringPool {
+    pub(crate) fn intl_default_locale(&self) -> Result<&lila_intl::CanonicalLocaleId, EmitError> {
+        self.intl_default_locale
+            .as_ref()
+            .ok_or_else(|| EmitError::unsupported("missing selected Unicode case DefaultLocale"))
+    }
+
+    /// Compiler-owned strings and tables first, script-derived data after.
+    ///
+    /// Builtin and helper bodies embed pool slots and linear-memory addresses.
+    /// [`CompilerOwnedPool`] lays out everything they can reference and is the
+    /// only way to start script collection, so a program's literals cannot
+    /// shift a compiler-owned constant.
     pub(crate) fn collect(
         script: &ScriptIr,
         function_metas: &BTreeMap<FunctionId, WasmFunctionMeta>,
         compiled_standard_builtins: &[StandardBuiltinId],
-    ) -> Self {
-        let mut pool = Self::default();
-        // `RegExpPrototypeCompile` is what makes the `CallMethod` arm below
-        // able to serve its stated purpose. That arm collects the pattern
-        // argument of `r.compile("…")` but deliberately does not set this flag,
-        // and for the `var r = /[ab]/; function go() { r.compile("xy"); }`
-        // spelling there is no *other* setter — so before this disjunct the
-        // collected literal was written into a set that was never read, the
-        // table was never built, and `emit_runtime_regexp_program_slots`
-        // early-returned on a zero row count.
-        //
-        // Keyed off the compiled-builtin set rather than off call shape because
-        // that set is precise in the direction that matters: `RegExpConstructor`
-        // does **not** root its prototype methods (checked in
-        // `planning.rs::require_standard_builtin` — the dependency edge runs the
-        // other way, `RegExpPrototypeCompile => roots RegExpConstructor`), so
-        // this is true only for a module that actually compiled a `.compile`
-        // call site. `RegExpConstructor` itself must NOT be added the same way
-        // without measuring: it is rooted by any RegExp literal at all, and the
-        // fallback candidate set is every script string literal.
-        pool.needs_runtime_regexp_programs = script.functions.iter().any(|function| {
-            function.super_constructor_target.as_deref() == Some(BUILTIN_REGEXP_FUNCTION_ID)
-        }) || compiled_standard_builtins
-            .contains(&StandardBuiltinId::RegExpPrototypeSymbolSplit)
-            || compiled_standard_builtins.contains(&StandardBuiltinId::RegExpPrototypeCompile);
+        uses_temporal_calendar: bool,
+        intl_selection: &lila_intl::IntlDataSelection,
+    ) -> Result<Self, EmitError> {
+        CompilerOwnedPool::collect(
+            function_metas,
+            compiled_standard_builtins,
+            uses_temporal_calendar,
+            intl_selection,
+        )?
+        .collect_script(script, function_metas)
+    }
+}
+
+/// Builtins and the compiler-generated empty dynamic-function bodies: every
+/// function whose body the runtime half of the module owns.
+fn is_runtime_owned_function(id: &str, meta: &WasmFunctionMeta) -> bool {
+    meta.standard_builtin.is_some()
+        || meta.host_builtin.is_some()
+        || crate::builtins::is_empty_dynamic_function_id(id)
+}
+
+/// A [`StringPool`] whose compiler-owned strings and tables are complete.
+///
+/// Only this type can start script collection, so script-derived strings and
+/// bytes always land after every constant builtin bodies can reference.
+struct CompilerOwnedPool(StringPool);
+
+impl CompilerOwnedPool {
+    fn collect(
+        function_metas: &BTreeMap<FunctionId, WasmFunctionMeta>,
+        compiled_standard_builtins: &[StandardBuiltinId],
+        uses_temporal_calendar: bool,
+        intl_selection: &lila_intl::IntlDataSelection,
+    ) -> Result<Self, EmitError> {
+        let mut pool = StringPool::default();
+        if compiled_standard_builtins.iter().any(|builtin| {
+            matches!(
+                builtin,
+                StandardBuiltinId::StringPrototypeToLocaleLowerCase
+                    | StandardBuiltinId::StringPrototypeToLocaleUpperCase
+            )
+        }) {
+            pool.intl_default_locale = Some(
+                intl_selection
+                    .selected()
+                    .map_err(|error| {
+                        EmitError::unsupported(format!(
+                            "failed to select Unicode case DefaultLocale: {error}"
+                        ))
+                    })?
+                    .identity()
+                    .default_locale()
+                    .clone(),
+            );
+        }
+        || compiled_standard_builtins.contains(&StandardBuiltinId::RegExpPrototypeCompile);
         for value in [
             "",
             " ",
@@ -634,7 +571,6 @@ impl StringPool {
             "\\w",
             "\\d+",
             "[a-z]",
-            "RegExp legacy static accessor receiver must be RegExp",
             "constructor",
             "withResolvers",
             "try",
@@ -651,7 +587,6 @@ impl StringPool {
             "toLocaleLowerCase",
             "toLocaleUpperCase",
             "fromCodePoint",
-            "String.fromCodePoint argument must be an integer from 0 through 0x10FFFF",
             "padStart",
             "padEnd",
             "repeat",
@@ -667,6 +602,7 @@ impl StringPool {
             "length",
             "name",
             "message",
+            "stack",
             "error",
             "suppressed",
             "cause",
@@ -749,6 +685,19 @@ impl StringPool {
             "search",
             "split",
             "concat",
+            // Object.prototype.toString builds its tag with rooted GC strings.
+            "[object ",
+            "]",
+            "Object",
+            "Array",
+            "Arguments",
+            "Function",
+            "Error",
+            "Boolean",
+            "Number",
+            "String",
+            "Date",
+            "RegExp",
             "[object Undefined]",
             "[object Null]",
             "[object Boolean]",
@@ -797,27 +746,11 @@ impl StringPool {
             "hasOwnProperty",
             "__proto__",
             "propertyIsEnumerable",
-            "Object.prototype.propertyIsEnumerable called on null or undefined",
             "toString",
             "$IsHTMLDDA",
             "Symbol.iterator",
-            "array spread value is not iterable",
-            "array spread iterator method must return object",
-            "array spread iterator next must be callable",
-            "array spread iterator next result must be object",
-            "for-of target is not iterable",
-            "for-of iterator method must return object",
-            "for-of iterator next must be callable",
-            "for-of iterator next result must be object",
-            "destructuring value is not iterable",
-            "destructuring iterator method must return object",
-            "destructuring iterator next must be callable",
-            "destructuring iterator next result must be object",
             "iterator next result must be object",
-            "Cannot destructure undefined or null",
             "return",
-            "IteratorClose return method must be callable",
-            "IteratorClose return result must be object",
             "$ArrayIterator.array",
             "$ArrayIterator.index",
             "$ArrayIterator.done",
@@ -834,12 +767,6 @@ impl StringPool {
             "Map Iterator",
             "Set Iterator",
             "Generator",
-            "Generator method called on incompatible receiver",
-            "Generator is already running",
-            "AsyncGenerator method called on incompatible receiver",
-            "Promise.resolve receiver is not an object",
-            "Promise keyed constructor resolve property is not callable",
-            "Promise keyed input must be an object",
             "allKeyed",
             "allSettledKeyed",
             "status",
@@ -847,50 +774,13 @@ impl StringPool {
             "rejected",
             "value",
             "reason",
-            "Array.prototype iterator method called on null or undefined",
-            "Array Iterator next called on incompatible receiver",
             "Array Iterator next called on out-of-bounds TypedArray",
-            "String Iterator next called on incompatible receiver",
-            "Map Iterator.prototype.next receiver does not have [[Map]]",
-            "Map Iterator.prototype.next receiver is not an object",
-            "Map.groupBy items cannot be null or undefined",
-            "Map.groupBy callback must be callable",
-            "Map.groupBy iterator method must be callable",
-            "Map.groupBy iterator method must return an object",
-            "Map.groupBy iterator next method must be callable",
-            "Map.groupBy iterator produced too many values",
-            "Map.groupBy iterator next result must be an object",
-            "Map.prototype.getOrInsertComputed callback must be callable",
-            "Map method receiver does not have [[MapData]]",
-            "Map method receiver is not an object",
             "WeakMap",
-            "WeakMap.prototype.getOrInsertComputed callback must be callable",
-            "WeakMap method receiver does not have [[WeakMapData]]",
-            "WeakMap method receiver is not an object",
-            "WeakMap key must be an object or unregistered symbol",
             "WeakSet",
-            "WeakSet constructor requires new",
-            "WeakSet constructor add method is not callable",
-            "WeakSet constructor iterator method is not callable",
-            "WeakSet constructor iterator method must return an object",
-            "WeakSet constructor iterator next method is not callable",
-            "WeakSet constructor iterator next result must be an object",
-            "WeakSet method receiver does not have [[WeakSetData]]",
-            "WeakSet method receiver is not an object",
-            "WeakSet value must be an object or unregistered symbol",
             "WeakRef",
-            "WeakRef constructor requires new",
-            "WeakRef target cannot be held weakly",
-            "WeakRef.prototype.deref receiver does not have [[WeakRefTarget]]",
             "FinalizationRegistry",
             "register",
             "unregister",
-            "FinalizationRegistry constructor requires new",
-            "FinalizationRegistry cleanup callback is not callable",
-            "FinalizationRegistry target cannot be held weakly",
-            "FinalizationRegistry target and holdings must not be the same value",
-            "FinalizationRegistry unregister token cannot be held weakly",
-            "FinalizationRegistry method receiver does not have [[Cells]]",
             // `AsyncDisposableStack`: the property keys its intrinsic installer
             // defines, plus every message its emitters throw. A key or message
             // spelled at an emitter and missing here is a compile-time panic in
@@ -903,51 +793,12 @@ impl StringPool {
             "move",
             "disposed",
             "disposeAsync",
-            "AsyncDisposableStack constructor requires new",
-            "AsyncDisposableStack method receiver is not an object",
-            "AsyncDisposableStack method receiver does not have [[AsyncDisposableState]]",
-            "AsyncDisposableStack is already disposed",
-            "AsyncDisposableStack.prototype.use value is not an object",
-            "AsyncDisposableStack.prototype.use value is not disposable",
-            "AsyncDisposableStack.prototype.use dispose method is not callable",
-            "AsyncDisposableStack.prototype.adopt onDisposeAsync is not callable",
-            "AsyncDisposableStack.prototype.defer onDisposeAsync is not callable",
             // `%DisposableStack%`: the method keys are already interned by the
             // async stack and Iterator surfaces above. Keep every synchronous
             // receiver/registration error here beside the constructor error so
             // a new emitter spelling that bypasses the pool fails during
             // bootstrap instead of becoming a latent runtime-only path.
             "DisposableStack",
-            "DisposableStack constructor requires new",
-            "DisposableStack method receiver is not an object",
-            "DisposableStack method receiver does not have [[DisposableState]]",
-            "DisposableStack is already disposed",
-            "DisposableStack.prototype.use value is not an object",
-            "DisposableStack.prototype.use value is not disposable",
-            "DisposableStack.prototype.use dispose method is not callable",
-            "DisposableStack.prototype.adopt onDispose is not callable",
-            "DisposableStack.prototype.defer onDispose is not callable",
-            "Object.groupBy items cannot be null or undefined",
-            "Object.groupBy callback must be callable",
-            "Object.groupBy iterator method must be callable",
-            "Object.groupBy iterator method must return an object",
-            "Object.groupBy iterator next method must be callable",
-            "Object.groupBy iterator produced too many values",
-            "Object.groupBy iterator next result must be an object",
-            "Set Iterator.prototype.next receiver does not have [[Set]]",
-            "Set Iterator.prototype.next receiver is not an object",
-            "Set method receiver does not have [[SetData]]",
-            "Set method receiver is not an object",
-            "Set method argument is not a set-like object",
-            "Set-like size is NaN",
-            "Set-like size is negative",
-            "Set-like has method is not callable",
-            "Set-like keys method is not callable",
-            "Set-like keys method must return an object",
-            "Set-like iterator next method is not callable",
-            "Set-like iterator next result must be an object",
-            "RegExp String Iterator next called on incompatible receiver",
-            "RegExp String Iterator exec returned non-object",
             "Iterator",
             "toArray",
             "forEach",
@@ -960,41 +811,8 @@ impl StringPool {
             "filter",
             "take",
             "drop",
-            "Iterator constructor cannot be called",
             "Iterator Helper",
-            "Iterator helper called on incompatible receiver",
-            "Iterator.from called on null or undefined",
-            "Iterator.from iterator method must return object",
-            "Iterator.from iterator method must be callable",
             "Iterator.from next method must be callable",
-            "Iterator.prototype.forEach called on null or undefined",
-            "Iterator.prototype.forEach callback must be callable",
-            "Iterator.prototype.forEach next method must be callable",
-            "Iterator.prototype.forEach next result must be object",
-            "Iterator.prototype.every called on null or undefined",
-            "Iterator.prototype.every callback must be callable",
-            "Iterator.prototype.every next method must be callable",
-            "Iterator.prototype.every next result must be object",
-            "Iterator.prototype.some called on null or undefined",
-            "Iterator.prototype.some callback must be callable",
-            "Iterator.prototype.some next method must be callable",
-            "Iterator.prototype.some next result must be object",
-            "Iterator.prototype.find called on null or undefined",
-            "Iterator.prototype.find callback must be callable",
-            "Iterator.prototype.find next method must be callable",
-            "Iterator.prototype.find next result must be object",
-            "Iterator.prototype.reduce called on null or undefined",
-            "Iterator.prototype.reduce reducer must be callable",
-            "Iterator.prototype.reduce next method must be callable",
-            "Iterator.prototype.reduce next result must be object",
-            "Iterator.prototype.reduce of empty iterator with no initial value",
-            "Iterator.prototype.map called on null or undefined",
-            "Iterator.prototype.map mapper must be callable",
-            "Iterator.prototype.map next method must be callable",
-            "Iterator map helper next called on incompatible receiver",
-            "Iterator map helper is already running",
-            "Iterator map helper next result must be object",
-            "Iterator map helper return called on incompatible receiver",
             "Iterator map helper return method must be callable",
             "Iterator map helper return result must be object",
             "$IteratorMapIterator",
@@ -1003,40 +821,6 @@ impl StringPool {
             "$IteratorMapIndex",
             "$IteratorMapDone",
             "$IteratorMapExecuting",
-            "Iterator.zip called with a non-object iterables value",
-            "Iterator.zip iterator method must be callable",
-            "Iterator.zip iterator method must return object",
-            "Iterator.zip next method must be callable",
-            "Iterator.zip next result must be object",
-            "Iterator.zip options must be an object or undefined",
-            "Iterator.zip mode must be a string or undefined",
-            "Iterator.zip mode must be shortest, longest, or strict",
-            "Iterator.zip padding must be an object or undefined",
-            "Iterator.zip strict mode has iterators of different lengths",
-            "Iterator.zipKeyed called with a non-object iterables value",
-            "Iterator.zipKeyed property value must be an object",
-            "Iterator.zipKeyed iterator method must be callable",
-            "Iterator.zipKeyed iterator method must return object",
-            "Iterator.zipKeyed options must be an object or undefined",
-            "Iterator.zipKeyed mode must be a string or undefined",
-            "Iterator.zipKeyed mode must be shortest, longest, or strict",
-            "Iterator.zipKeyed padding must be an object or undefined",
-            "Object.fromEntries iterator method is not callable",
-            "Object.fromEntries iterator method must return an object",
-            "Object.fromEntries iterator next method is not callable",
-            "Object.fromEntries iterator next result must be an object",
-            "Object.fromEntries iterator value must be an object",
-            "Iterator.concat arguments must be objects",
-            "Iterator.concat iterator method must be callable",
-            "Iterator.concat iterator method must return object",
-            "Iterator.concat next method must be callable",
-            "Iterator.concat next result must be object",
-            "Iterator concat helper called on incompatible receiver",
-            "Iterator concat helper is already running",
-            "Iterator zip helper next called on incompatible receiver",
-            "Iterator zip helper is already running",
-            "Iterator zip helper next result must be object",
-            "Iterator zip helper return called on incompatible receiver",
             "$IteratorZipIterators",
             "$IteratorZipNextMethods",
             "$IteratorZipOpen",
@@ -1060,13 +844,6 @@ impl StringPool {
             "longest",
             "strict",
             "zipKeyed",
-            "Iterator.prototype.filter called on null or undefined",
-            "Iterator.prototype.filter predicate must be callable",
-            "Iterator.prototype.filter next method must be callable",
-            "Iterator filter helper next called on incompatible receiver",
-            "Iterator filter helper is already running",
-            "Iterator filter helper next result must be object",
-            "Iterator filter helper return called on incompatible receiver",
             "Iterator filter helper return method must be callable",
             "Iterator filter helper return result must be object",
             "$IteratorFilterIterator",
@@ -1076,17 +853,6 @@ impl StringPool {
             "$IteratorFilterDone",
             "$IteratorFilterExecuting",
             "flatMap",
-            "Iterator.prototype.flatMap called on null or undefined",
-            "Iterator.prototype.flatMap mapper must be callable",
-            "Iterator.prototype.flatMap next method must be callable",
-            "Iterator.prototype.flatMap mapper result must be object",
-            "Iterator.prototype.flatMap inner iterator method must be callable",
-            "Iterator.prototype.flatMap inner iterator method must return object",
-            "Iterator.prototype.flatMap inner iterator next method must be callable",
-            "Iterator flatMap helper next called on incompatible receiver",
-            "Iterator flatMap helper is already running",
-            "Iterator flatMap helper next result must be object",
-            "Iterator flatMap helper return called on incompatible receiver",
             "Iterator flatMap helper return method must be callable",
             "Iterator flatMap helper return result must be object",
             "$IteratorFlatMapIterator",
@@ -1098,128 +864,27 @@ impl StringPool {
             "$IteratorFlatMapInnerIterator",
             "$IteratorFlatMapInnerNext",
             "$IteratorFlatMapInnerActive",
-            "Iterator.prototype.take called on null or undefined",
-            "Iterator.prototype.take next method must be callable",
-            "Iterator.prototype.take limit must be a non-negative number",
             "$IteratorTakeIterator",
             "$IteratorTakeNext",
             "$IteratorTakeRemaining",
             "$IteratorTakeDone",
             "$IteratorTakeExecuting",
-            "Iterator take helper next called on incompatible receiver",
-            "Iterator take helper is already running",
-            "Iterator take helper next result must be object",
-            "Iterator take helper return called on incompatible receiver",
             "Iterator take helper return method must be callable",
             "Iterator take helper return result must be object",
-            "Iterator.prototype.drop called on null or undefined",
-            "Iterator.prototype.drop next method must be callable",
-            "Iterator.prototype.drop limit must be a non-negative number",
             "$IteratorDropIterator",
             "$IteratorDropNext",
             "$IteratorDropRemaining",
             "$IteratorDropDone",
             "$IteratorDropExecuting",
-            "Iterator drop helper next called on incompatible receiver",
-            "Iterator drop helper is already running",
-            "Iterator drop helper next result must be object",
-            "Iterator drop helper return called on incompatible receiver",
             "Iterator drop helper return method must be callable",
             "Iterator drop helper return result must be object",
-            "Iterator.prototype.toArray called on null or undefined",
-            "Iterator.prototype.toArray called on incompatible receiver",
-            "Iterator.prototype.toArray next method must be callable",
-            "Iterator.prototype.toArray next result must be object",
-            "Iterator.prototype[Symbol.dispose] return method must be callable",
-            "Iterator.prototype.constructor setter called on incompatible receiver",
-            "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
-            "Cannot assign to read only property 'constructor' of %Iterator.prototype%",
-            "Cannot assign to read only property Symbol.toStringTag of %Iterator.prototype%",
-            "Iterator.from wrapper next called on incompatible receiver",
-            "Iterator.from wrapper next method must be callable",
-            "Iterator.from wrapper next result must be object",
-            "Iterator.from wrapper return called on incompatible receiver",
-            "Iterator.from wrapper return method must be callable",
-            "Iterator.from wrapper return result must be object",
             "$LilaIteratorFromWrapper",
             "$IteratorFromIterator",
             "$IteratorFromNext",
             "Array.prototype.values called on null or undefined",
-            "Array.from iterator method must return object",
-            "Array.from iterator method must be callable",
-            "Array.from iterator next must be callable",
-            "Array.from iterator next result must be object",
-            "Array.from mapper is not callable",
-            "Array.from called on null or undefined",
-            "Array.from index property is non-configurable",
-            "Array.from target is not extensible",
-            "Array.fromAsync mapper is not callable",
-            "Array.fromAsync input is null or undefined",
-            "Array.fromAsync iterator method is not callable",
-            "Array.fromAsync iterator method must return object",
-            "Array.fromAsync iterator next is not callable",
-            "Array.fromAsync iterator next result must be object",
-            "Array.fromAsync iterator produced too many values",
-            "AsyncIterator asyncDispose receiver is null or undefined",
-            "AsyncIterator asyncDispose return method is not callable",
-            "Array.of index property is non-configurable",
-            "Array.of target is not extensible",
-            "TypedArray.from receiver is not a constructor",
-            "TypedArray.from mapper is not callable",
-            "TypedArray.from iterator next must be callable",
-            "TypedArray.from iterator next result must be object",
             "TypedArray.from constructed target is not a typed array",
             "TypedArray.from constructed target is too small",
-            "TypedArray.of receiver is not a constructor",
-            "TypedArray constructor requires new",
-            "TypedArray constructor source and target content types differ",
-            "TypedArray byteOffset out of range",
-            "TypedArray byteOffset must be aligned",
-            "TypedArray byteLength out of range",
-            "TypedArray byteLength must be aligned",
-            "TypedArray backing buffer is detached",
-            "TypedArray byteLength out of bounds",
-            "TypedArray length out of range",
-            "TypedArray iterator method requires a TypedArray",
-            "TypedArray find method requires a TypedArray",
-            "TypedArray.prototype.includes requires a TypedArray",
-            "TypedArray.prototype.indexOf requires a TypedArray",
-            "TypedArray.prototype.lastIndexOf requires a TypedArray",
-            "TypedArray.prototype.slice requires a TypedArray",
-            "TypedArray.prototype.slice has unknown element type",
-            "TypedArray.prototype.slice constructor property is not an object",
-            "TypedArray.prototype.slice species is not a constructor",
-            "TypedArray.prototype.slice species content type differs",
-            "TypedArray.prototype.find predicate is not callable",
-            "TypedArray.prototype.findIndex predicate is not callable",
-            "TypedArray.prototype.findLast predicate is not callable",
-            "TypedArray.prototype.findLastIndex predicate is not callable",
-            "TypedArray every method requires a TypedArray",
-            "TypedArray some method requires a TypedArray",
-            "TypedArray.prototype.every callback is not callable",
-            "TypedArray.prototype.some callback is not callable",
-            "TypedArray.prototype.map requires a TypedArray",
-            "TypedArray.prototype.map callback is not callable",
-            "TypedArray.prototype.map has unknown element type",
-            "TypedArray.prototype.map constructor property is not an object",
-            "TypedArray.prototype.map species is not a constructor",
-            "TypedArray.prototype.map species content type differs",
-            "TypedArray.prototype.filter requires a TypedArray",
-            "TypedArray.prototype.filter callback is not callable",
-            "TypedArray.prototype.filter has unknown element type",
-            "TypedArray.prototype.filter constructor property is not an object",
-            "TypedArray.prototype.filter species is not a constructor",
-            "TypedArray.prototype.filter species content type differs",
-            "TypedArray.prototype.forEach requires a TypedArray",
-            "TypedArray.prototype.forEach callback is not callable",
-            "TypedArray.prototype.reduce requires a TypedArray",
-            "TypedArray.prototype.reduce callback is not callable",
-            "TypedArray.prototype.reduceRight requires a TypedArray",
-            "TypedArray.prototype.reduceRight callback is not callable",
-            "Reduce of empty typed array with no initial value",
             "TypedArray.prototype.toString requires TypedArray",
-            "TypedArray.prototype.join requires a TypedArray",
-            "TypedArray.prototype.toLocaleString requires TypedArray",
             "construct",
             "ownKeys",
             "has",
@@ -1373,18 +1038,12 @@ impl StringPool {
             "function return() { [native code] }",
             "function throw() { [native code] }",
             "Symbol.toPrimitive",
-            "Symbol is not a constructor",
-            "Symbol.keyFor argument must be a symbol",
             "Symbol.asyncIterator",
             "Symbol.hasInstance",
             "Symbol.unscopables",
             "Symbol.asyncDispose",
             "Symbol",
             "Symbol(",
-            "Symbol.prototype.description requires that 'this' be a Symbol",
-            "Symbol.prototype.toString requires that 'this' be a Symbol",
-            "Symbol.prototype.valueOf requires that 'this' be a Symbol",
-            "Symbol.prototype[Symbol.toPrimitive] requires that 'this' be a Symbol",
             "Cannot create property on symbol",
             "iterator",
             "asyncIterator",
@@ -1420,36 +1079,11 @@ impl StringPool {
             "wait",
             "waitAsync",
             "xor",
-            "Atomics.add requires an integer typed array",
-            "Atomics.and requires an integer typed array",
-            "Atomics.compareExchange requires an integer typed array",
-            "Atomics.exchange requires an integer typed array",
-            "Atomics.load requires an integer typed array",
-            "Atomics.notify requires an Int32Array or BigInt64Array",
-            "Atomics.or requires an integer typed array",
-            "Atomics.pause iterationNumber must be a finite integral Number",
-            "Atomics.store requires an integer typed array",
-            "Atomics.sub requires an integer typed array",
-            "Atomics.wait requires a shared Int32Array or BigInt64Array",
-            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
-            "Atomics.xor requires an integer typed array",
-            "Atomics.add index out of range",
-            "Atomics.and index out of range",
-            "Atomics.compareExchange index out of range",
-            "Atomics.exchange index out of range",
-            "Atomics.load index out of range",
-            "Atomics.notify index out of range",
-            "Atomics.or index out of range",
-            "Atomics.store index out of range",
-            "Atomics.sub index out of range",
             "Atomics.wait blocking wait queues unsupported in wasm-aot",
-            "Atomics.wait index out of range",
             "Atomics.waitAsync blocking wait queues unsupported in wasm-aot",
-            "Atomics.waitAsync index out of range",
             "not-equal",
             "timed-out",
             "ok",
-            "Atomics.xor index out of range",
             "toJSON",
             "hasIndices",
             "unicodeSets",
@@ -1463,30 +1097,17 @@ impl StringPool {
             "s",
             "u",
             "RegExp constructor is unsupported in wasm-aot",
-            "Invalid regular expression flags",
-            "Invalid regular expression pattern",
-            "RegExp.prototype.flags getter receiver is not an object",
-            "RegExp.prototype.exec receiver is not RegExp",
             "RegExp.prototype.exec source is not string",
             "RegExp.prototype.exec unsupported pattern",
-            "RegExp.prototype.test receiver is not an object",
-            "RegExp.prototype.test exec result is not an object or null",
             "RegExp.prototype[Symbol.match] flags is not string",
-            "RegExp.prototype[Symbol.match] exec result is not object or null",
             "RegExp.prototype[Symbol.match] is unsupported in wasm-aot",
             ".(.).",
             "^|\\udf06",
             "RegExp.prototype[Symbol.matchAll] receiver is not RegExp",
             "RegExp.prototype[Symbol.matchAll] source is not string",
             "RegExp.prototype[Symbol.matchAll] flags is not string",
-            "RegExp.prototype[Symbol.matchAll] species is not a constructor",
-            "RegExp.prototype[Symbol.matchAll] is unsupported in wasm-aot",
-            "RegExp.prototype[Symbol.search] receiver is not RegExp",
             "RegExp.prototype[Symbol.search] source is not string",
             "RegExp.prototype[Symbol.search] flags is not string",
-            "RegExp.prototype[Symbol.search] exec result is not object or null",
-            "RegExp.prototype[Symbol.search] is unsupported in wasm-aot",
-            "RegExp.prototype[Symbol.split] receiver must be an object",
             "\u{20BB7}",
             "\u{10FFFF}",
             "\u{20BB7}a\u{20BB7}b\u{20BB7}",
@@ -1494,9 +1115,6 @@ impl StringPool {
             "\\p{Script=Han}",
             "\\P{ASCII}",
             "String.prototype.matchAll RegExp flags must contain g",
-            "String.prototype.matchAll RegExp @@matchAll is not callable",
-            "Invalid JSON.parse text",
-            "Invalid JSON.rawJSON text",
             "standard builtin body is not emitted unless referenced directly",
             "Cannot redefine JSON reviver property",
             "Cannot add JSON reviver property",
@@ -1519,99 +1137,10 @@ impl StringPool {
             "configurable",
             "$Proxy.target",
             "$Proxy.handler",
-            "Proxy target must be object",
-            "Proxy handler must be object",
-            "Constructor Proxy requires 'new'",
-            "Proxy get trap is not callable",
-            "Proxy has trap is not callable",
-            "Proxy getPrototypeOf trap is not callable",
-            "Proxy getPrototypeOf trap result must be object or null",
-            "Proxy getPrototypeOf trap result does not match target",
-            "Proxy isExtensible trap is not callable",
-            "Proxy isExtensible trap result does not match target",
-            "Proxy setPrototypeOf trap is not callable",
-            "Proxy setPrototypeOf trap result incompatible with non-extensible target",
-            "Proxy handler is null",
-            "Proxy set trap returned false",
-            "Proxy set trap is not callable",
-            "Proxy set trap result is incompatible with target descriptor",
-            "Proxy get trap returned inconsistent frozen data property",
-            "Proxy get trap returned value for accessor without getter",
-            "Proxy getOwnPropertyDescriptor trap is not callable",
-            "Proxy getOwnPropertyDescriptor trap result must be object or undefined",
-            "Proxy getOwnPropertyDescriptor trap returned undefined for non-configurable target property",
-            "Proxy getOwnPropertyDescriptor trap returned undefined for non-extensible target",
-            "Proxy getOwnPropertyDescriptor trap result incompatible with non-extensible target",
-            "Proxy getOwnPropertyDescriptor trap result cannot report configurable for non-configurable target property",
-            "Proxy getOwnPropertyDescriptor trap result cannot report non-configurable target property",
-            "Proxy getOwnPropertyDescriptor trap result cannot report non-writable target property",
-            "Proxy getOwnPropertyDescriptor trap result is incompatible with target property",
-            "Proxy preventExtensions trap is not callable",
-            "Proxy preventExtensions trap returned false",
-            "Proxy preventExtensions trap returned true for extensible target",
-            "Proxy defineProperty trap is not callable",
-            "Proxy defineProperty trap returned false",
-            "Proxy defineProperty trap cannot add property to non-extensible target",
-            "Proxy defineProperty trap cannot define non-configurable target property",
-            "Proxy defineProperty trap result is incompatible with target descriptor",
             "Proxy defineProperty trap cannot define non-writable target property",
-            "Proxy defineProperty trap cannot report a writable target property as non-writable",
-            "Cannot define incompatible TypedArray index descriptor",
-            "TypedArray.prototype.subarray requires TypedArray",
-            "TypedArray.prototype.subarray has unknown element type",
-            "TypedArray.prototype.subarray constructor property is not an object",
-            "TypedArray.prototype.subarray species is not a constructor",
-            "TypedArray.prototype.subarray species did not return a TypedArray",
-            "TypedArray.prototype.subarray species content type differs",
-            "Constructed target is not a typed array",
-            "Constructed typed array is too small",
-            "TypedArray.prototype.set requires TypedArray",
             "TypedArray.prototype.set backing buffer is detached",
-            "TypedArray.prototype.set offset is out of range",
             "TypedArray.prototype.set source buffer is detached",
-            "TypedArray.prototype.set source and target content types differ",
-            "TypedArray.prototype.set source is too large",
-            "TypedArray.prototype.reverse requires TypedArray",
-            "TypedArray.prototype.copyWithin requires TypedArray",
-            "TypedArray.prototype.fill requires TypedArray",
-            "TypedArray.prototype.fill backing buffer is immutable",
-            "TypedArray.prototype.sort requires TypedArray",
-            "TypedArray.prototype.toReversed requires TypedArray",
-            "TypedArray.prototype.toReversed has unknown element type",
-            "TypedArray.prototype.toSorted requires TypedArray",
-            "TypedArray.prototype.toSorted has unknown element type",
-            "TypedArray.prototype.with requires TypedArray",
-            "TypedArray.prototype.with index out of range",
-            "TypedArray.prototype.with has unknown element type",
-            "Reflect.defineProperty target must be object",
-            "Reflect.defineProperty attributes must be object",
-            "Accessor must be callable",
-            "Property descriptor getter/setter must be callable or undefined",
-            "Property descriptor cannot be both accessor and data",
-            "Reflect.get target must be object",
-            "Reflect.has target must be object",
-            "Reflect.getPrototypeOf target must be object",
-            "Reflect.getOwnPropertyDescriptor target must be object",
-            "Reflect.set target must be object",
             "deleteProperty",
-            "Reflect.deleteProperty target must be object",
-            "Reflect.isExtensible target must be object",
-            "Reflect.preventExtensions target must be object",
-            "Reflect.ownKeys target must be object",
-            "Object.seal could not prevent extensions",
-            "Object.seal could not make an own property non-configurable",
-            "Object.freeze could not prevent extensions",
-            "Object.freeze could not make an own property non-configurable and non-writable",
-            "Proxy deleteProperty trap is not callable",
-            "Proxy deleteProperty trap returned true for non-configurable target property",
-            "Proxy deleteProperty trap returned true for non-extensible target property",
-            "Proxy apply trap is not callable",
-            "Proxy construct trap returned non-object",
-            "Proxy construct trap is not callable",
-            "Proxy has trap returned false for non-configurable target property",
-            "Proxy has trap returned false for non-extensible target property",
-            "Proxy ownKeys trap is not callable",
-            "Proxy ownKeys trap result omitted target property",
             "2",
             "3",
             "4",
@@ -1621,151 +1150,47 @@ impl StringPool {
             "f",
             "v",
             LILA_GENERATOR_THROW_SLOT,
-            DATE_VALUE_SLOT,
             "EvalError",
             "AggregateError",
             "RangeError",
             "SyntaxError",
-            "TypeError",
             "URIError",
-            "URI contains a trailing high surrogate",
-            "URI contains a high surrogate without a following low surrogate",
-            "URI contains an unpaired low surrogate",
-            "URI percent encoding starts with an invalid UTF-8 byte",
-            "URI percent encoding contains an invalid UTF-8 continuation byte",
-            "URI percent encoding is not a shortest-form Unicode scalar",
-            "URI contains an incomplete percent escape",
-            "URI UTF-8 continuation byte is not percent-escaped",
-            "URI percent escape contains a non-hex digit",
             "ReferenceError",
-            "class constructor cannot be invoked without `new`",
-            "Math.sumPrecise non-number element",
             "Function.prototype.call receiver is not callable",
-            "Function.prototype.apply receiver is not callable",
-            "Function.prototype.bind receiver is not callable",
-            "Function.prototype.toString receiver is not callable",
-            "value is not callable",
             "Function.prototype.call primitive thisArg boxing unsupported",
             "Function.prototype.apply primitive thisArg boxing unsupported",
             "Function.prototype.call/apply thisArg adaptation failed",
             "Function.prototype.apply argument list must be array or arguments",
-            "Object.prototype.toLocaleString called on null or undefined",
-            "Object.prototype.toLocaleString target is not callable",
             "Array.prototype.concat receiver is not array",
-            "Array.prototype.concat called on null or undefined",
-            "Array.prototype.toLocaleString called on null or undefined",
-            "Array.prototype.toLocaleString element method is not callable",
-            "TypedArray.prototype.toLocaleString element method is not callable",
-            "Array.prototype.flat receiver is not array",
-            "Array.prototype.flat called on null or undefined",
-            "Array.prototype.flat constructor is not object",
             "Array.prototype.flatMap receiver is not array",
             "Array.prototype.flatMap called on null or undefined",
-            "Array.prototype.flatMap mapper is not callable",
-            "Array.prototype.flatMap result exceeds the maximum safe length",
             "Array.prototype.flatMap constructor is not object",
-            "Array.prototype.flatMap cannot add property to non-extensible target",
-            "Array.prototype.flatMap cannot define non-configurable target property",
-            "Array.prototype.at called on null or undefined",
-            "TypedArray.prototype.at called on incompatible receiver",
             "Array.prototype.includes receiver is not array",
             "Array.prototype.includes called on null or undefined",
-            "Array.prototype.indexOf called on null or undefined",
-            "Array.prototype.lastIndexOf called on null or undefined",
             "Array.prototype.find called on null or undefined",
             "Array.prototype.findIndex called on null or undefined",
             "Array.prototype.findLast called on null or undefined",
             "Array.prototype.findLastIndex called on null or undefined",
-            "Array.prototype.find predicate is not callable",
-            "Array.prototype.findIndex predicate is not callable",
-            "Array.prototype.findLast predicate is not callable",
-            "Array.prototype.findLastIndex predicate is not callable",
-            "Array.prototype.reduce callback is not callable",
-            "Array.prototype.reduceRight callback is not callable",
-            "Reduce of empty array with no initial value",
-            "First argument to String.prototype.endsWith must not be a RegExp",
-            "First argument to String.prototype.includes must not be a RegExp",
-            "String.prototype.match RegExp @@match is not callable",
-            "Array.prototype.concat constructor is not object",
-            "Array.prototype.concat cannot add property to non-extensible target",
-            "Array.prototype.concat cannot define non-configurable target property",
-            "Array species constructor is not a constructor",
-            "Cannot add property to non-extensible target",
-            "Cannot define non-configurable target property",
             "Array.prototype.map receiver is not array",
             "Array.prototype.map called on null or undefined",
-            "Array.prototype.map mapper is not callable",
             "Array.prototype.map constructor is not object",
             "Array.prototype.every receiver is not array",
             "Array.prototype.every called on null or undefined",
-            "Array.prototype.every callback is not callable",
             "Array.prototype.every constructor is not object",
             "Array.prototype.some receiver is not array",
             "Array.prototype.some called on null or undefined",
-            "Array.prototype.some callback is not callable",
             "Array.prototype.some constructor is not object",
             "Array.prototype.filter receiver is not array",
             "Array.prototype.filter called on null or undefined",
-            "Array.prototype.filter callback is not callable",
             "Array.prototype.filter constructor is not object",
             "Array.prototype.filter cannot add property to non-extensible target",
             "Array.prototype.filter cannot define non-configurable target property",
-            "Invalid array length",
-            "Array accumulation index exceeds exact backend range",
-            "Array.prototype.with index out of range",
-            "Array.prototype.toSpliced result exceeds maximum safe length",
-            "Array.prototype.concat result exceeds maximum safe length",
             "Object.prototype.valueOf called on null or undefined",
-            "Cannot convert undefined or null to object",
-            "Object.setPrototypeOf target must be object",
-            "Object.setPrototypeOf prototype must be object or null",
-            "Object.setPrototypeOf returned false",
-            "Object.hasOwn called on null or undefined",
-            "Object.getOwnPropertyDescriptor called on null or undefined",
-            "Object.getOwnPropertyNames called on null or undefined",
-            "Object.getOwnPropertySymbols called on null or undefined",
             "Object.keys requires object",
             "Object.values requires object",
-            "Object.assign called on null or undefined",
-            "Object.entries called on null or undefined",
-            "Object.keys called on null or undefined",
-            "Object.getOwnPropertyDescriptors called on null or undefined",
-            "Object.values called on null or undefined",
-            "String.prototype method requires a String receiver",
-            "Number.prototype method requires a Number receiver",
-            "Boolean.prototype method requires a Boolean receiver",
-            "Number.prototype.toString radix out of range",
-            "BigInt.prototype.toString radix out of range",
-            "Number.prototype.toFixed fraction digits out of range",
-            "Number.prototype.toExponential fraction digits out of range",
-            "Number.prototype.toPrecision precision out of range",
-            "Cannot convert a Symbol value to a number",
             "4294967295",
             "Array.prototype.pop receiver is not array",
-            "Array.prototype.push receiver is not array",
-            "Array.prototype.push length exceeds safe integer",
-            "Array.prototype.push length is not writable",
-            "Cannot assign to read only property",
-            "Cannot assign to module namespace property",
-            "Cannot redefine module namespace property",
-            "Cannot delete property",
-            "Cannot add property to non-extensible object",
-            "Array.prototype.push index write failed",
-            "Array.prototype.unshift called on null or undefined",
-            "Array.prototype.unshift cannot modify a string",
-            "Array.prototype.unshift length exceeds safe integer",
-            "Array.prototype.unshift cannot delete destination property",
-            "Array.prototype.shift called on null or undefined",
-            "Array.prototype.shift cannot modify a string",
-            "Array.prototype.shift cannot delete property",
-            "Array.prototype.splice receiver is not array",
             "Array.prototype.sort receiver is not array",
-            "TypedArray accessor requires TypedArray",
-            "Date method receiver is not Date",
-            "Date value is not finite",
-            "Date toISOString method is not callable",
-            "Date.prototype[Symbol.toPrimitive] receiver is not an object",
-            "Date.prototype[Symbol.toPrimitive] hint must be \"default\", \"number\", or \"string\"",
             "Invalid Date",
             "Sun",
             "Mon",
@@ -1788,6 +1213,7 @@ impl StringPool {
             "Dec",
             ", ",
             " GMT",
+            " (",
             " GMT+0000 (Coordinated Universal Time)",
             "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)",
             "Thu, 01 Jan 1970 00:00:00 GMT",
@@ -1818,12 +1244,6 @@ impl StringPool {
             // per-family and cannot sit behind any one family's gate. They
             // join the unconditional block beside the two property names the
             // same emitter reads.
-            "Temporal era must be a string",
-            "Temporal eraYear must be finite",
-            "Temporal era and eraYear must be provided together",
-            "Invalid Temporal era for this calendar",
-            "Temporal era and year must agree",
-            "Temporal.PlainMonthDay year is outside the supported range",
             "dayOfWeek",
             "dayOfYear",
             "weekOfYear",
@@ -1847,29 +1267,23 @@ impl StringPool {
             "script",
             "region",
             "baseName",
-            "Intl.Locale constructor requires new",
-            "Intl.Locale tag must be a string or an object",
-            "Intl.Locale options must not be null",
-            "Intl.Locale.prototype method called on incompatible receiver",
-            "Invalid Intl.Locale language option",
-            "Invalid Intl.Locale script option",
-            "Invalid Intl.Locale region option",
             "calendar",
-            "Invalid Intl.Locale calendar option",
             "collation",
-            "Invalid Intl.Locale collation option",
             "firstDayOfWeek",
-            "Invalid Intl.Locale firstDayOfWeek option",
+            "firstDay",
+            "weekend",
+            "getWeekInfo",
+            "getNumberingSystems",
+            "getHourCycles",
+            "getTextInfo",
+            "direction",
+            "ltr",
+            "rtl",
             "hourCycle",
-            "Invalid Intl.Locale hourCycle option",
             "caseFirst",
-            "Invalid Intl.Locale caseFirst option",
             "numeric",
-            "Invalid Intl.Locale numeric option",
             "numberingSystem",
-            "Invalid Intl.Locale numberingSystem option",
             "variants",
-            "Invalid Intl.Locale variants option",
             "und-",
             "0",
             "1",
@@ -1903,11 +1317,6 @@ impl StringPool {
             "false",
             "true",
             "Intl.getCanonicalLocales argument must be an object",
-            "Intl.getCanonicalLocales locale must be a string or an object",
-            "Invalid language tag",
-            "Temporal.Instant constructor requires new",
-            "Temporal.Instant.from requires a string or Temporal.Instant",
-            "Invalid Temporal.Instant string",
             "ZonedDateTime",
             "Temporal.ZonedDateTime",
             "timeZoneId",
@@ -1934,145 +1343,18 @@ impl StringPool {
             "M10",
             "M11",
             "M12",
+            "M13",
             "toInstant",
             "UTC",
-            "Temporal.ZonedDateTime constructor requires new",
-            "Temporal.ZonedDateTime time zone must be a string",
-            "Invalid Temporal.ZonedDateTime time zone",
-            "Invalid Temporal time zone identifier",
-            "Temporal time zone string requires an offset or bracketed time zone",
-            "Temporal time zone offset must use minute precision",
-            "Temporal.ZonedDateTime calendar must be a string",
-            "Invalid Temporal.ZonedDateTime calendar",
-            "Temporal.ZonedDateTime receiver does not have [[InitializedTemporalZonedDateTime]]",
-            "Temporal.Instant receiver does not have [[InitializedTemporalInstant]]",
-            "Temporal.Instant epoch nanoseconds are outside the supported range",
-            "Temporal.Instant.fromEpochMilliseconds requires an integral Number",
-            "Temporal.Instant does not support implicit conversion; use compare() or equals()",
-            "Temporal.Instant arithmetic does not accept date units",
-            "Temporal.Instant.prototype.round requires a roundTo argument",
-            "Temporal.Instant.prototype.round requires smallestUnit",
-            "Invalid Temporal.Instant unit option",
-            "Invalid Temporal.Instant rounding increment",
-            "RegExp.escape input must be a string",
-            "RegExp.prototype.compile receiver is not a direct RegExp instance",
-            "RegExp.prototype.compile flags must be undefined when pattern is RegExp",
-            "invalid regular-expression flag",
-            "duplicate regular-expression flag",
             "Array.prototype.forEach receiver is not array",
-            "Array.prototype.forEach called on null or undefined",
-            "Array.prototype.forEach callback is not callable",
-            "Cannot convert object to number",
-            "Error.prototype.toString receiver is not object",
-            "String.prototype HTML method receiver is null or undefined",
-            "String.prototype method receiver is null or undefined",
-            "repeat count must be non-negative and finite",
-            "repeat result would exceed maximum string length",
-            "First argument to String.prototype.startsWith must not be a RegExp",
             "String.prototype RegExp/string fallback is unsupported in wasm-aot",
-            "String.prototype symbol hook is not callable",
             "AggregateError errors input must be array or arguments",
-            "AggregateError errors input must be iterable",
-            "AggregateError iterator method must return object",
-            "AggregateError iterator next must be callable",
-            "AggregateError iterator next result must be object",
-            "assert.throws expected a throw",
-            "assert.throws expected an error object",
-            "assert.throws received the wrong error constructor",
-            "assert.throws requires a function callback",
-            "assert.throws callback is a class constructor",
-            "target is not a constructor",
-            "Reflect.construct target is not a constructor",
-            "Reflect.construct newTarget is not a constructor",
-            "Reflect.construct argumentsList must be an array",
-            "Reflect.construct argumentsList must be array-like",
-            "Reflect.apply argumentsList must be an array",
-            "Reflect.apply argumentsList must be array-like",
-            "Reflect.apply target must be callable",
-            "Function.prototype.apply argument list must be array-like",
-            "Object.create prototype must be object or null",
-            "Object.defineProperties target must be object",
-            "Object.defineProperties properties must not be null or undefined",
-            "Object.defineProperties descriptor must be object",
-            "Object.defineProperty attributes must be object",
-            "Cannot convert object to primitive value",
-            "ArrayBuffer byteLength getter requires ArrayBuffer",
-            "ArrayBuffer detached getter requires ArrayBuffer",
-            "ArrayBuffer slice receiver is not ArrayBuffer",
-            "ArrayBuffer slice receiver is detached",
-            "ArrayBuffer slice source is shorter than the resolved final bound",
-            "ArrayBuffer species constructor returned invalid ArrayBuffer",
-            "ArrayBuffer constructor requires new",
-            "ArrayBuffer maxByteLength getter requires ArrayBuffer",
-            "ArrayBuffer resizable getter requires ArrayBuffer",
-            "ArrayBuffer resize receiver is not resizable ArrayBuffer",
-            "ArrayBuffer resize length is out of range",
             "ArrayBuffer resize is not supported by this host",
-            "ArrayBuffer transfer receiver is not ArrayBuffer",
-            "ArrayBuffer transfer receiver is detached",
-            "ArrayBuffer transfer length is out of range",
-            "ArrayBuffer receiver is immutable",
             "ArrayBuffer receiver is SharedArrayBuffer",
-            "ArrayBuffer allocation size is too large",
             "SharedArrayBuffer allocation exceeds the wasm-aot shared-memory limit",
             "TypedArray allocation exceeds the wasm-aot buffer-memory limit",
-            "SharedArrayBuffer getter requires SharedArrayBuffer",
-            "SharedArrayBuffer slice receiver is not SharedArrayBuffer",
-            "SharedArrayBuffer species constructor returned invalid SharedArrayBuffer",
-            "SharedArrayBuffer grow receiver is not growable SharedArrayBuffer",
-            "SharedArrayBuffer grow length is out of range",
-            "SharedArrayBuffer grow length is smaller than its current byte length",
-            "detachArrayBuffer expects an ArrayBuffer",
-            "detachArrayBuffer key does not match the ArrayBuffer detach key",
-            "failed to start Test262 agent",
-            "agent.broadcast requires SharedArrayBuffer",
-            "Test262 agent stopped before receiving a broadcast",
-            "DataView accessor requires DataView",
-            "DataView backing buffer is detached",
-            "DataView backing buffer is immutable",
-            "DataView constructor requires new",
-            "DataView constructor requires ArrayBuffer",
-            "DataView byteOffset out of bounds",
-            "DataView byteLength out of bounds",
-            "DataView getUint8 index out of bounds",
-            "DataView getInt8 index out of bounds",
-            "DataView setUint8 index out of bounds",
-            "DataView getUint16 index out of bounds",
-            "DataView getInt16 index out of bounds",
-            "DataView setUint16 index out of bounds",
-            "DataView getUint32 index out of bounds",
-            "DataView getInt32 index out of bounds",
-            "DataView setUint32 index out of bounds",
-            "DataView getFloat16 index out of bounds",
-            "DataView setFloat16 index out of bounds",
-            "DataView getFloat32 index out of bounds",
-            "DataView setFloat32 index out of bounds",
-            "DataView getFloat64 index out of bounds",
-            "DataView setFloat64 index out of bounds",
-            "DataView getBigInt64 index out of bounds",
-            "DataView getBigUint64 index out of bounds",
-            "DataView setBigInt64 index out of bounds",
-            "DataView setBigUint64 index out of bounds",
-            "cannot convert Number to BigInt",
-            "cannot convert non-integer Number to BigInt",
-            "cannot convert value to BigInt",
-            "Cannot convert BigInt to number",
-            "Cannot mix BigInt and other types",
-            "BigInt exponent must be non-negative",
-            "Do not know how to serialize a BigInt",
-            "Converting circular structure to JSON",
-            "Cannot convert Symbol to number",
-            "Cannot convert a Symbol value to a string",
-            "BigInt is not a constructor",
-            "right-hand side of `in` is not an object",
-            "Right-hand side of 'instanceof' is not callable",
-            "must call super() before accessing `this`",
             "derived constructor must call super() before returning",
-            "derived constructor may only return object or undefined",
-            "super() called twice in derived constructor",
             "super() invalid in class extending null",
-            "super property access on null base",
-            "private field access on wrong object",
             GLOBAL_THIS_NAME,
             PRINT_NAME,
             IS_CONSTRUCTOR_NAME,
@@ -2107,6 +1389,9 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
+        if compiled_standard_builtins.contains(&StandardBuiltinId::IntlSupportedValuesOf) {
+            pool.collect_intl_supported_values(intl_selection);
+        }
         // Keep additional literals after the fixed seed: inserting them into
         // its prefix changes every following packed string offset.
         pool.intern_string("get ");
@@ -2118,12 +1403,7 @@ impl StringPool {
         // reachable from any program at all. Gating them behind a feature
         // predicate would reintroduce the exact `string must exist in pool`
         // panic this table exists to prevent.
-        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
-            pool.intern_string(value);
-        }
-        for failure in RegExpMatcherFailure::ALL {
-            pool.intern_string(failure.message());
-        }
+        pool.intern_runtime_error_catalog();
         // Every `TemporalCalendarId` spelling and canonical form, plus every
         // `Era` code, derived from the tables the emitters read rather than
         // listed again. Listing them was a standing drift risk in both
@@ -2143,6 +1423,10 @@ impl StringPool {
             pool.intern_string(calendar.canonical());
             for spelling in calendar.spellings() {
                 pool.intern_string(spelling);
+            }
+            // Suitability and canonical output share this closed code census.
+            for code in calendar.month_code_spellings() {
+                pool.intern_string(code);
             }
             // Every era spelling, not just `code()`: `code()` is defined as
             // `spellings()[0]`, and `CalendarResolveFields` matches an incoming
@@ -2168,108 +1452,45 @@ impl StringPool {
         for value in crate::builtins::intl_date_time_format_pool_strings()
             .into_iter()
             .chain(crate::builtins::intl_number_format_pool_strings())
+            .chain(crate::builtins::intl_plural_rules_pool_strings())
+            .chain(crate::builtins::intl_list_format_pool_strings())
+            .chain(crate::builtins::intl_collator_pool_strings())
+            .chain(crate::builtins::intl_display_names_pool_strings())
+            .chain(crate::builtins::intl_relative_time_pool_strings())
+            .chain(crate::builtins::intl_segmenter_pool_strings())
+            .chain(crate::builtins::intl_durationformat_pool_strings())
         {
             pool.intern_string(&value);
         }
         for index in 0..=31 {
             pool.intern_string(&index.to_string());
         }
-        for binding in script.global_bindings.iter() {
-            pool.intern_string(&binding.name);
-        }
-        for prepared in &script.prepared_dynamic_functions {
-            for argument in &prepared.arguments {
-                pool.intern_string(argument);
-            }
-            if let lila_ir::PreparedDynamicFunctionOutcome::SyntaxError { message } =
-                &prepared.outcome
-            {
-                pool.intern_string(message);
-            }
-        }
-        for meta in function_metas.values() {
-            pool.intern_string(&meta.name);
-            pool.intern_string(meta.runtime_name());
-            pool.intern_string(&meta.to_string_value);
-        }
-        if script.host_builtins.contains(&HostBuiltinId::CreateRealm) {
-            // Created-Realm record keys are host-authored, so user-source
-            // collection cannot discover them.
-            pool.intern_string(REALM_EVAL_SCRIPT_METHOD_NAME);
-        }
-        for builtin in StandardBuiltinId::all_functions() {
-            pool.intern_string(&format!(
-                "standard builtin body is not emitted unless referenced directly: {}",
-                builtin.debug_name()
-            ));
-        }
-        for function in &script.functions {
-            if let Some(plan) = &function.class_instance_element_plan {
-                for private_name_id in &plan.private_method_brands {
-                    pool.intern_string(&private_brand_key(*private_name_id));
-                }
-                for element in &plan.elements {
-                    let key = match element {
-                        ClassInstanceElementIr::Field(field) => &field.key,
-                        ClassInstanceElementIr::AutoAccessorBacking(accessor) => {
-                            pool.intern_string(&private_data_key(
-                                accessor.backing_name.private_name_id(),
-                            ));
-                            pool.intern_string(&private_brand_key(
-                                accessor.backing_name.private_name_id(),
-                            ));
-                            continue;
-                        }
-                    };
-                    match key {
-                        ClassFieldKeyIr::Public(key) => pool.intern_string(key.as_str()),
-                        ClassFieldKeyIr::ComputedPublic(_) => {}
-                        ClassFieldKeyIr::Private(private_name_id) => {
-                            pool.intern_string(&private_data_key(*private_name_id));
-                            pool.intern_string(&private_brand_key(*private_name_id));
-                        }
+        // Native accessor metadata is selected by its closed captured slot.
+        for slot in crate::gc_types::RegExpLegacySlot::ALL {
+            for name in slot.names() {
+                for prefix in ["get", "set"] {
+                    if prefix == "set" && slot != crate::gc_types::RegExpLegacySlot::Input {
+                        continue;
                     }
+                    let name = format!("{prefix} {name}");
+                    pool.intern_string(&name);
+                    pool.intern_string(
+                        &lila_ir::CallableToStringRepresentation::NativeNamed(name).materialize(),
+                    );
                 }
             }
-            pool.collect_eval_environment(function.eval_environment.as_ref());
-            for param in &function.params {
-                pool.intern_string(&param.name);
-                if let Some(default_init) = &param.default_init {
-                    pool.collect_expr(default_init);
-                }
-            }
-            for binding in &function.owned_env_bindings {
-                pool.intern_string(&binding.name);
-            }
-            for binding in &function.captured_bindings {
-                pool.intern_string(&binding.name);
-            }
-            pool.collect_block(&function.body);
         }
-        pool.collect_eval_environment(script.eval_environment.as_ref());
-        for body in script.executable_script_bodies() {
-            pool.collect_block(body);
-        }
-        for prepared in &script.prepared_scripts {
-            pool.intern_string(&prepared.source);
-            match &prepared.outcome {
-                PreparedScriptOutcome::DeferredSyntaxError { message } => {
-                    pool.intern_string(message)
-                }
-                PreparedScriptOutcome::Executable(_) => {}
-            }
-        }
-        for unit in script.prepared_script_units() {
-            pool.collect_eval_environment(unit.eval_environment.as_ref());
-            for binding in &unit.owned_env_bindings {
-                pool.intern_string(&binding.name);
-            }
-            for binding in &unit.global_bindings {
-                pool.intern_string(&binding.name);
-            }
-            for name in unit.global_bindings.lexical_names() {
-                pool.intern_string(name);
-            }
+        // Created-Realm record keys are host-authored, so user-source
+        // collection cannot discover them. Every heap-backed module compiles
+        // `createRealm`.
+        if !compiled_standard_builtins.is_empty() {
+            pool.intern_string(REALM_EVAL_SCRIPT_METHOD_NAME);
+            pool.intern_string("$262");
+            pool.intern_string("detachArrayBuffer");
+            pool.intern_string("AbstractModuleSource");
+            // Builtin bodies compute `typeof` results whether or not the
+            // script spells a `typeof`.
+            pool.collect_typeof_result_strings();
         }
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
@@ -2280,22 +1501,14 @@ impl StringPool {
         }) {
             pool.intern_string("ς");
         }
-        if pool.needs_runtime_regexp_programs {
-            pool.queue_runtime_regexp_programs();
+        // Computed patterns and scoped i modifiers may require either
+        // character domain without any statically known backreference.
+        // Compiler sets, boundaries and matcher references share these tables.
+        for folding in [RegExpCaseFolding::Legacy, RegExpCaseFolding::Unicode] {
+            pool.needed_regexp_case_folding.insert(folding);
         }
-        for message in [
-            "RegExp runtime compiler exceeded its addressable resource limit",
-            "RegExp runtime compiler produced an invalid program",
-        ] {
-            pool.intern_string(message);
-        }
-        pool.append_regexp_programs();
-        // The emitted compiler can encounter an i flag absent from every
-        // statically compiled pattern. Its literals/classes and references
-        // must all use the same retained legacy canonicalization table.
-        pool.needed_regexp_case_folding
-            .insert(RegExpCaseFolding::Legacy);
         pool.append_regexp_case_folding_tables();
+        pool.append_regexp_unicode_property_image();
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
                 builtin,
@@ -2327,8 +1540,11 @@ impl StringPool {
         // constructor object is initialized regardless of what the script
         // references, so `install_temporal_plain_date_constructor_intrinsics`
         // needs them unconditionally.
-        if compiled_standard_builtins.iter().any(|builtin| {
-            matches!(
+        // The calendar-helper gate also emits the shared PlainDate converter,
+        // before discovery necessarily roots its public builtin consumers.
+        if uses_temporal_calendar
+            || compiled_standard_builtins.iter().any(|builtin| {
+                matches!(
                 builtin,
                 StandardBuiltinId::TemporalPlainDateConstructor
                     | StandardBuiltinId::TemporalPlainDateFrom
@@ -2336,6 +1552,11 @@ impl StringPool {
                     // Zoned field replacement shares the PlainDate field
                     // reader and resolver, including their diagnostics.
                     | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+                    // `Duration` round/total/compare resolve `relativeTo`
+                    // through `ToTemporalDateTime` and the ISO calendar math.
+                    | StandardBuiltinId::TemporalDurationPrototypeRound
+                    | StandardBuiltinId::TemporalDurationPrototypeTotal
+                    | StandardBuiltinId::TemporalDurationCompare
             ) || builtin
                 .debug_name()
                 .starts_with("Temporal.PlainDate.prototype.")
@@ -2348,7 +1569,8 @@ impl StringPool {
                 || builtin.debug_name().contains("Temporal.PlainDateTime")
                 || builtin.debug_name().contains("Temporal.PlainYearMonth")
                 || builtin.debug_name().contains("Temporal.PlainMonthDay")
-        }) {
+            })
+        {
             for value in [
                 "calendarId",
                 "year",
@@ -2387,48 +1609,9 @@ impl StringPool {
                 "M10",
                 "M11",
                 "M12",
-                "Temporal.PlainDate constructor requires new",
-                "Temporal.PlainDate year must be an integer",
-                "Temporal.PlainDate month must be an integer",
-                "Temporal.PlainDate day must be an integer",
-                "Temporal.PlainDate calendar must be a string",
-                "Invalid Temporal.PlainDate calendar",
-                "Temporal.PlainDate receiver does not have [[InitializedTemporalDate]]",
-                "Temporal.PlainDate expects a string, a property bag, or a Temporal.PlainDate",
-                "Temporal.PlainDate monthCode must be a string",
-                "Temporal.PlainDate fields must be finite",
-                "Temporal.PlainDate fields require year",
-                "Temporal.PlainDate fields require day",
-                "Temporal.PlainDate fields require month or monthCode",
-                "Invalid Temporal.PlainDate monthCode",
-                "Temporal.PlainDate month and monthCode must agree",
-                "Temporal.PlainDate month and day must be positive",
-                "Temporal.PlainDate options must be an object or undefined",
-                "Invalid Temporal.PlainDate overflow option",
+                "M13",
                 // `until`/`since` reject an out-of-range smallestUnit or
                 // largestUnit with this one message for both options.
-                "Invalid Temporal.PlainDate unit option",
-                // `CalendarEquals` in `DifferenceTemporal*`. One message per
-                // family, spelled by `TemporalDifferenceGuard` and nowhere
-                // else. These three entries keep their historical position in
-                // this array on purpose: pool offsets are assignment-ordered,
-                // so deleting them in favour of the walk below is a pure
-                // reordering that still moves every later string's offset, and
-                // that needs rung G. The walk is idempotent
-                // (`intern_string` returns early on a hit), so it adds nothing
-                // here and only fills the case this gate misses.
-                TemporalDifferenceGuard::PlainDateSameCalendar.message(),
-                TemporalDifferenceGuard::PlainDateTimeSameCalendar.message(),
-                TemporalDifferenceGuard::PlainYearMonthSameCalendar.message(),
-                "Invalid Temporal.PlainDate calendarName option",
-                "Temporal.PlainDate.prototype.with requires an object",
-                "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",
-                "Temporal.PlainDate.prototype.with does not accept a Temporal object",
-                "Temporal.PlainDate.prototype.with requires at least one date field",
-                "Temporal.PlainDate string must not use the UTC designator",
-                "Invalid Temporal.PlainDate calendar annotation",
-                "Invalid Temporal.PlainDate string",
-                "Temporal.PlainDate does not support implicit conversion; use compare() or equals()",
             ] {
                 pool.intern_string(value);
             }
@@ -2451,25 +1634,12 @@ impl StringPool {
                 // ISO-date parser and is emitted for every calendar-bearing
                 // Temporal family, so its PlainDate diagnostics cannot stay
                 // behind the PlainDate-only gate above.
-                "Invalid Temporal.PlainDate calendar annotation",
-                "Invalid Temporal.PlainDate string",
                 // ZonedDateTime differences now emit AddISODate directly.
                 // Its RejectISODate diagnostics are shared arithmetic inputs,
                 // even when no Plain-family builtin body is compiled.
-                "Temporal.PlainDate is not a valid ISO date",
-                "Temporal.PlainDate is outside the supported date range",
                 // The same shared helper's final time-string arm resolves
                 // calendar annotations rather than using PlainTime's
                 // ignore-calendar policy.
-                "Invalid Temporal time-string calendar annotation",
-                "Invalid Temporal.PlainMonthDay calendarName option",
-                "Invalid Temporal.PlainMonthDay monthCode",
-                "Invalid Temporal.PlainMonthDay overflow option",
-                "Invalid Temporal.PlainYearMonth calendarName option",
-                "Invalid Temporal.PlainYearMonth largestUnit",
-                "Invalid Temporal.PlainYearMonth monthCode",
-                "Invalid Temporal.PlainYearMonth overflow option",
-                "Invalid Temporal.PlainYearMonth smallestUnit",
                 "M01",
                 "M02",
                 "M03",
@@ -2482,69 +1652,21 @@ impl StringPool {
                 "M10",
                 "M11",
                 "M12",
+                "M13",
                 "PlainMonthDay",
                 "PlainYearMonth",
-                "Temporal partial-date strings must not carry a UTC designator",
-                "Temporal.PlainDate string must not use the UTC designator",
                 "Temporal.PlainMonthDay",
-                "Temporal.PlainMonthDay constructor requires new",
-                "Temporal.PlainMonthDay day must be an integer",
-                "Temporal.PlainMonthDay does not support implicit conversion; use compare() or equals()",
-                "Temporal.PlainMonthDay expects a string, a property bag, or a Temporal.PlainMonthDay",
-                "Temporal.PlainMonthDay fields require day",
-                "Temporal.PlainMonthDay fields require month or monthCode",
-                "Temporal.PlainMonthDay is not a valid ISO date",
                 // `ToTemporalMonthDay` step (k): a non-ISO calendar bounds the
                 // *parsed* date by `ISODateWithinLimits`, so this is thrown by
                 // the shared `emit_temporal_iso_date_within_limits` rather than
                 // by a `Temporal.PlainDate` emitter, and it needs its own row.
-                "Temporal.PlainMonthDay is outside the supported date range",
-                "Temporal.PlainMonthDay month and day must be positive",
-                "Temporal.PlainMonthDay month and monthCode must agree",
                 // `ToTemporalMonthDay` step (g). `emit_throw_*_range_error`
                 // resolves its message through `StringPool::payload`, which
                 // panics rather than interning, so an emitter made reachable
                 // without a row here is a compiler panic on every program that
                 // touches `Temporal.PlainMonthDay.from` or `.prototype.equals`,
                 // not a test failure.
-                "Temporal.PlainMonthDay month-day string with a non-ISO calendar requires a year",
-                "Temporal.PlainMonthDay month must be an integer",
-                "Temporal.PlainMonthDay options must be an object or undefined",
-                "Temporal.PlainMonthDay receiver does not have [[InitializedTemporalMonthDay]]",
-                "Temporal.PlainMonthDay reference year must be an integer",
-                "Temporal.PlainMonthDay year must be finite",
-                "Temporal.PlainMonthDay.prototype.toPlainDate requires a year",
-                "Temporal.PlainMonthDay.prototype.toPlainDate requires an object",
-                "Temporal.PlainMonthDay.prototype.with does not accept calendar or timeZone",
-                "Temporal.PlainMonthDay.prototype.with does not accept a Temporal object",
-                "Temporal.PlainMonthDay.prototype.with requires an object",
-                "Temporal.PlainMonthDay.prototype.with requires at least one field",
                 "Temporal.PlainYearMonth",
-                "Temporal.PlainYearMonth arithmetic accepts only years and months",
-                "Temporal.PlainYearMonth constructor requires new",
-                "Temporal.PlainYearMonth day must be finite",
-                "Temporal.PlainYearMonth day must be positive",
-                "Temporal.PlainYearMonth does not support implicit conversion; use compare() or equals()",
-                "Temporal.PlainYearMonth expects a string, a property bag, or a Temporal.PlainYearMonth",
-                "Temporal.PlainYearMonth fields must be finite",
-                "Temporal.PlainYearMonth fields require month or monthCode",
-                "Temporal.PlainYearMonth fields require year",
-                "Temporal.PlainYearMonth is not a valid ISO date",
-                "Temporal.PlainYearMonth is outside the supported range",
-                "Temporal.PlainYearMonth month and monthCode must agree",
-                "Temporal.PlainYearMonth month must be an integer",
-                "Temporal.PlainYearMonth month must be positive",
-                "Temporal.PlainYearMonth monthCode must be a string",
-                "Temporal.PlainYearMonth options must be an object or undefined",
-                "Temporal.PlainYearMonth receiver does not have [[InitializedTemporalYearMonth]]",
-                "Temporal.PlainYearMonth reference day must be an integer",
-                "Temporal.PlainYearMonth year must be an integer",
-                "Temporal.PlainYearMonth.prototype.toPlainDate requires a day",
-                "Temporal.PlainYearMonth.prototype.toPlainDate requires an object",
-                "Temporal.PlainYearMonth.prototype.with does not accept calendar or timeZone",
-                "Temporal.PlainYearMonth.prototype.with does not accept a Temporal object",
-                "Temporal.PlainYearMonth.prototype.with requires an object",
-                "Temporal.PlainYearMonth.prototype.with requires at least one field",
                 "[!u-ca=",
                 "[u-ca=",
                 "]",
@@ -2577,7 +1699,6 @@ impl StringPool {
                 "roundingMode",
                 "since",
                 "smallestUnit",
-                "smallestUnit must be smaller than largestUnit",
                 "subtract",
                 "timeZone",
                 "toJSON",
@@ -2610,26 +1731,6 @@ impl StringPool {
                 "timeZone",
                 ":",
                 "0000-01-01T",
-                "Temporal.PlainTime constructor requires new",
-                "Temporal.PlainTime field must be an integer",
-                "Temporal.PlainTime field must be finite",
-                "Temporal.PlainTime field is out of range",
-                "Temporal.PlainTime receiver does not have [[InitializedTemporalTime]]",
-                "Temporal.PlainTime requires at least one time field",
-                "Temporal.PlainTime expects a string, a property bag, or a Temporal.PlainTime",
-                "Invalid Temporal.PlainTime overflow option",
-                "Invalid Temporal.PlainTime unit option",
-                "Invalid Temporal.PlainTime rounding increment",
-                "Invalid Temporal.PlainTime fractionalSecondDigits option",
-                "Invalid Temporal.PlainTime string",
-                "Temporal.PlainTime string must not use the UTC designator",
-                "Ambiguous Temporal.PlainTime string requires the T designator",
-                "Temporal.PlainTime.prototype.with requires an object",
-                "Temporal.PlainTime.prototype.with does not accept calendar or timeZone",
-                "Temporal.PlainTime.prototype.with does not accept a Temporal object",
-                "Temporal.PlainTime.prototype.round requires a roundTo argument",
-                "Temporal.PlainTime.prototype.round requires smallestUnit",
-                "Temporal.PlainTime does not support implicit conversion; use compare() or equals()",
             ] {
                 pool.intern_string(value);
             }
@@ -2707,25 +1808,13 @@ impl StringPool {
                 "daysInYear",
                 "monthsInYear",
                 "inLeapYear",
-                "Temporal.ZonedDateTime options must be an object or undefined",
-                "Invalid Temporal.ZonedDateTime calendarName option",
-                "Invalid Temporal.ZonedDateTime offset option",
-                "Invalid Temporal.PlainDate calendar",
-                "Invalid Temporal.ZonedDateTime timeZoneName option",
                 "direction",
                 "plainTime",
                 "hoursInDay",
                 "previous",
-                "Temporal.ZonedDateTime transition direction must be a string or object",
-                "Invalid Temporal.ZonedDateTime transition direction",
-                "Temporal.ZonedDateTime.prototype.round requires a roundTo argument",
-                "Temporal.ZonedDateTime.prototype.round requires smallestUnit",
-                "Invalid Temporal.ZonedDateTime rounding increment",
                 "Temporal.ZonedDateTime rounded ISO date is outside the supported range",
-                "Invalid Temporal.ZonedDateTime unit option",
                 "[!",
                 "timeZoneName",
-                "Temporal.PlainYearMonth year-month string with a non-ISO calendar requires a day",
                 "",
                 "-",
                 "+",
@@ -2747,43 +1836,20 @@ impl StringPool {
                 "M10",
                 "M11",
                 "M12",
+                "M13",
                 "Temporal.PlainDateTime",
                 "withPlainTime",
                 "toPlainDate",
                 "toPlainTime",
                 "toZonedDateTime",
                 "T",
-                "Temporal.PlainDateTime constructor requires new",
-                "Temporal.PlainDateTime field must be an integer",
-                "Temporal.PlainDateTime fields must be finite",
                 "Temporal.PlainDateTime is not a valid ISO date",
-                "Temporal.PlainDateTime is outside the supported date range",
-                "Temporal.PlainDateTime calendar must be a string",
                 "Invalid Temporal.PlainDateTime calendar",
-                "Invalid Temporal.PlainDateTime string",
-                "Invalid Temporal.PlainDateTime calendar annotation",
-                "Temporal.PlainDateTime string must not use the UTC designator",
-                "Temporal.PlainDateTime receiver does not have [[InitializedTemporalDateTime]]",
-                "Temporal.PlainDateTime expects a string, a property bag, or a Temporal.PlainDateTime",
                 "Temporal.PlainDateTime fields require year",
                 "Temporal.PlainDateTime fields require day",
                 "Temporal.PlainDateTime fields require month or monthCode",
                 "Invalid Temporal.PlainDateTime monthCode",
                 "Temporal.PlainDateTime month and monthCode must agree",
-                "Temporal.PlainDateTime month and day must be positive",
-                "Invalid Temporal.PlainDateTime overflow option",
-                "Invalid Temporal.PlainDateTime calendarName option",
-                "Invalid Temporal.PlainDateTime unit option",
-                "Invalid Temporal.PlainDateTime rounding increment",
-                "Temporal.PlainDateTime options must be an object or undefined",
-                "Temporal.PlainDateTime.prototype.with requires an object",
-                "Temporal.PlainDateTime.prototype.with does not accept calendar or timeZone",
-                "Temporal.PlainDateTime.prototype.with does not accept a Temporal object",
-                "Temporal.PlainDateTime.prototype.with requires at least one date or time field",
-                "Temporal.PlainDateTime.prototype.round requires a roundTo argument",
-                "Temporal.PlainDateTime.prototype.round requires smallestUnit",
-                "Temporal.PlainDateTime.prototype.toZonedDateTime requires a time zone",
-                "Temporal.PlainDateTime does not support implicit conversion; use compare() or equals()",
             ] {
                 pool.intern_string(value);
             }
@@ -2862,40 +1928,50 @@ impl StringPool {
                 ".",
                 "0",
                 "",
-                "Temporal.Duration constructor requires new",
-                "Temporal.Duration receiver does not have [[InitializedTemporalDuration]]",
-                "Temporal.Duration field must be an integer",
-                "Invalid Temporal.Duration: fields must not exceed the supported range",
-                "Temporal.Duration expects a string, a property bag, or a Temporal.Duration",
-                "Temporal.Duration requires at least one duration field",
-                "Invalid Temporal.Duration string",
-                "Temporal.Duration options must be an object or undefined",
-                "Temporal.Duration.prototype.with requires an object",
-                "Temporal.Duration.prototype.with does not accept a Temporal.Duration",
-                "Invalid Temporal.Duration unit option",
-                "Invalid Temporal.Duration rounding mode",
-                "Invalid Temporal.Duration rounding increment",
-                "Temporal.Duration.prototype.round requires largestUnit, smallestUnit, or both",
-                "Temporal.Duration.prototype.total requires a unit",
-                "Temporal.Duration operation requires relativeTo for calendar units",
-                "Temporal.Duration does not support implicit conversion; use compare()",
-                "smallestUnit must be smaller than largestUnit",
+                "Temporal.Duration relativeTo target is outside the representable range",
             ] {
                 pool.intern_string(value);
             }
         }
-        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom)
+        // Both complete converters are emitted with the calendar helpers. Their
+        // literals must use the same gate during every dependency-discovery pass,
+        // including a pass that only sees a PlainDate consumer.
+        if uses_temporal_calendar
+            || compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom)
             || compiled_standard_builtins
                 .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeWith)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime)
+            // `Duration` round/total/compare resolve zoned `relativeTo`
+            // strings through the same two-pass parse.
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalDurationPrototypeRound)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalDurationPrototypeTotal)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalDurationCompare)
+            // These bodies use shared inverse/offset policy, and equals,
+            // compare, until and since also convert through the compiled From.
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeAdd)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeUntil)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeSince)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeRound)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeEquals)
+            || compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeCompare)
         {
             for value in [
-                "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
-                "Temporal.ZonedDateTime.from options must be an object or undefined",
-                "Temporal.ZonedDateTime.prototype.with requires an object",
-                "Temporal.ZonedDateTime.prototype.with does not accept a Temporal object",
-                "Temporal.ZonedDateTime.prototype.with does not accept calendar or timeZone",
-                "Temporal.ZonedDateTime.prototype.with requires at least one date, time, or offset field",
-                "Temporal.ZonedDateTime.prototype.with options must be an object or undefined",
+                "Temporal.PlainDate.prototype.toZonedDateTime options must be an object or undefined",
                 "calendar",
                 "day",
                 "hour",
@@ -2921,83 +1997,28 @@ impl StringPool {
                 "M10",
                 "M11",
                 "M12",
+                "M13",
                 "UTC",
                 "iso8601",
-                "disambiguation",
-                "compatible",
-                "earlier",
-                "later",
-                "reject",
-                "use",
-                "prefer",
-                "ignore",
-                "overflow",
-                "constrain",
-                "Temporal.ZonedDateTime monthCode must be a string",
-                "Temporal.ZonedDateTime offset must be a string",
-                "Temporal.ZonedDateTime property bag requires year",
-                "Temporal.ZonedDateTime property bag requires day",
-                "Temporal.ZonedDateTime property bag requires timeZone",
-                "Temporal.ZonedDateTime property bag requires month or monthCode",
-                "Invalid Temporal.ZonedDateTime monthCode",
-                "Temporal.ZonedDateTime month and monthCode must agree",
-                "Temporal.ZonedDateTime month and day must be positive",
-                "Temporal.ZonedDateTime property bag field must be finite",
-                "Temporal.ZonedDateTime property bag year is outside the supported instant range",
-                "Temporal.ZonedDateTime property bag month is out of range",
-                "Temporal.ZonedDateTime property bag date-time field is out of range",
-                "Temporal.ZonedDateTime time zone must be a string",
-                "Invalid Temporal.ZonedDateTime time zone",
-                "Temporal.ZonedDateTime calendar must be a string",
-                "Invalid Temporal.ZonedDateTime calendar",
-                "Invalid Temporal.ZonedDateTime disambiguation option",
-                "Invalid Temporal.ZonedDateTime offset option",
-                "Invalid Temporal.ZonedDateTime overflow option",
-                "Invalid Temporal.ZonedDateTime string",
-                "Temporal.ZonedDateTime string requires one bracketed time zone",
                 "Invalid Temporal.ZonedDateTime calendar annotation",
                 "Temporal.ZonedDateTime offset does not match its fixed time zone",
             ] {
                 pool.intern_string(value);
             }
-        }
-        // Every `DifferenceTemporal*` guard message, derived from the domain the
-        // emitters read rather than listed again — the same construction as the
-        // `TemporalCalendarId::ALL -> eras() -> spellings()` walk above, and for
-        // the same reason.
-        //
-        // The message is a pool string read back with `StringPool::payload`,
-        // which *panics* rather than degrading when the string was never
-        // interned. Batch 6 added the two `Temporal.ZonedDateTime` guards
-        // (`builtins/temporal_zoned_date_time_methods.rs`) as bare `&str`
-        // literals with no matching entry here, and
-        // `cargo test -p lila-aot-wasm --lib` went **24 red** on
-        // ``string `...` must exist in pool`` — every test that emits a full
-        // bootstrap, not only the Temporal ones, because the panic is in the
-        // bootstrap and not in the feature.
-        //
-        // Walking the domain is what stops the fifth family repeating it: a
-        // `TemporalDifferenceGuard` variant cannot compile without a `message()`
-        // and an `emitting_builtins()` arm, and this loop then interns it with
-        // no edit in this file. The per-guard gate is what keeps a program that
-        // touches no `until`/`since` from carrying the text.
-        for guard in TemporalDifferenceGuard::ALL {
-            if guard
-                .emitting_builtins()
-                .iter()
-                .any(|builtin| compiled_standard_builtins.contains(builtin))
-            {
-                pool.intern_string(guard.message());
+            // The unconditional runtime-error catalog already pools every
+            // typed diagnostic. This closed option walk adds the property and
+            // accepted spellings for every policy/converter consumer.
+            for key in ZonedDateTimeOptionKey::ALL {
+                pool.intern_string(key.property());
+                for (spelling, _) in key.allowed() {
+                    pool.intern_string(spelling);
+                }
             }
         }
-        if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize)
-            || compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeLocaleCompare)
-        {
+        if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize) {
             for form in StringNormalizationForm::ALL {
                 pool.intern_string(form.spelling());
             }
-            pool.intern_string("String.prototype.normalize receiver is null or undefined");
-            pool.intern_string("String.prototype.normalize form must be NFC, NFD, NFKC, or NFKD");
             pool.append_normalization_tables();
         }
         for &(name, _) in lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS
@@ -3017,85 +2038,158 @@ impl StringPool {
             "omitPadding",
             "read",
             "written",
-            "Uint8Array codec requires a Uint8Array receiver",
-            "Uint8Array codec input must be a string",
-            "Uint8Array codec options must be an object or undefined",
-            "Uint8Array base64 alphabet must be base64 or base64url",
-            "Uint8Array codec backing buffer is immutable",
-            "Uint8Array base64 lastChunkHandling must be loose, strict, or stop-before-partial",
-            "Invalid base64 string",
-            "Hexadecimal string length must be even",
-            "Invalid hexadecimal digit",
-            "Hexadecimal output is too large",
-            "Base64 output is too large",
         ] {
             pool.intern_string(value);
         }
-        pool
+        if uses_temporal_calendar {
+            pool.append_temporal_east_asian_year_image()?;
+        }
+        // Unconditional: gating on script heap use would shift later slots.
+        for symbol in lila_ir::WellKnownSymbol::ALL {
+            pool.intern_string(symbol.description());
+        }
+        // Every created Realm installs these globals by name.
+        for binding in crate::builtins::created_realm_global_bindings() {
+            pool.intern_string(&binding.name);
+        }
+        // Runtime-owned function names and `toString` text are embedded in
+        // builtin and bootstrap bodies, so they belong to this phase. The
+        // script's own functions are interned by `collect_script`.
+        for meta in function_metas
+            .iter()
+            .filter(|(id, meta)| is_runtime_owned_function(id, meta))
+            .map(|(_, meta)| meta)
+        {
+            pool.intern_string(&meta.name);
+            pool.intern_string(meta.runtime_name());
+            pool.intern_string(&meta.to_string_value);
+        }
+        // The compiler-generated empty dynamic-function bodies bind these in
+        // every heap-backed program.
+        for name in [
+            lila_ir::LEXICAL_ARGUMENTS_NAME,
+            lila_ir::LEXICAL_NEW_TARGET_NAME,
+            lila_ir::LEXICAL_THIS_NAME,
+        ] {
+            pool.intern_string(name);
+        }
+        pool.compiler_owned = pool.boundary();
+        Ok(Self(pool))
     }
 
-    fn append_normalization_tables(&mut self) {
-        let tables = NORMALIZATION_TABLES.get_or_init(|| {
-            let nfd = DecomposingNormalizerBorrowed::new_nfd();
-            let nfkd = DecomposingNormalizerBorrowed::new_nfkd();
-            let combining_classes = CanonicalCombiningClassMapBorrowed::new();
-            let compositions = CanonicalCompositionBorrowed::new();
-            let canonical_decomposition = CanonicalDecompositionBorrowed::new();
-            let mut tables = NormalizationTables {
-                canonical_mappings: Vec::new(),
-                canonical_sequences: Vec::new(),
-                compatibility_mappings: Vec::new(),
-                compatibility_sequences: Vec::new(),
-                combining_classes: Vec::new(),
-                compositions: Vec::new(),
-            };
-
-            for codepoint in (0..=char::MAX as u32).filter_map(char::from_u32) {
-                let source = codepoint.to_string();
-                let canonical: Vec<u32> = nfd.normalize(&source).chars().map(u32::from).collect();
-                if canonical.as_slice() != [u32::from(codepoint)] {
-                    tables.canonical_mappings.push(NormalizationMapping {
-                        codepoint: u32::from(codepoint),
-                        sequence_index: tables.canonical_sequences.len() as u32,
-                        sequence_len: canonical.len() as u32,
-                    });
-                    tables.canonical_sequences.extend(canonical);
-                }
-
-                let compatibility: Vec<u32> =
-                    nfkd.normalize(&source).chars().map(u32::from).collect();
-                if compatibility.as_slice() != [u32::from(codepoint)] {
-                    tables.compatibility_mappings.push(NormalizationMapping {
-                        codepoint: u32::from(codepoint),
-                        sequence_index: tables.compatibility_sequences.len() as u32,
-                        sequence_len: compatibility.len() as u32,
-                    });
-                    tables.compatibility_sequences.extend(compatibility);
-                }
-
-                let combining_class = combining_classes.get_u8(codepoint);
-                if combining_class != 0 {
-                    tables
-                        .combining_classes
-                        .push((u32::from(codepoint), combining_class));
-                }
-
-                if let Decomposed::Expansion(first, second) =
-                    canonical_decomposition.decompose(codepoint)
-                {
-                    if let Some(composed) = compositions.compose(first, second) {
-                        tables.compositions.push((
-                            u32::from(first),
-                            u32::from(second),
-                            u32::from(composed),
-                        ));
+    fn collect_script(
+        self,
+        script: &ScriptIr,
+        function_metas: &BTreeMap<FunctionId, WasmFunctionMeta>,
+    ) -> Result<StringPool, EmitError> {
+        let mut pool = self.0;
+        // `RegExpPrototypeCompile` is what makes the `CallMethod` arm below
+        // able to serve its stated purpose. That arm collects the pattern
+        // argument of `r.compile("…")` but deliberately does not set this flag,
+        // and for the `var r = /[ab]/; function go() { r.compile("xy"); }`
+        // spelling there is no *other* setter — so before this disjunct the
+        // collected literal was written into a set that was never read, the
+        // table was never built, and `emit_runtime_regexp_program_slots`
+        // early-returned on a zero row count.
+        //
+        // Keyed off whether the script references those builtins, not off the
+        // compiled-builtin set: every heap-backed module compiles all builtins,
+        // and the fallback candidate set is every script string literal, so
+        // this table is program-owned data. `RegExpConstructor` itself must
+        // NOT be added the same way without measuring: any RegExp literal
+        // references it.
+        pool.needs_runtime_regexp_programs =
+            script.functions.iter().any(|function| {
+                function.super_constructor_target.as_deref() == Some(BUILTIN_REGEXP_FUNCTION_ID)
+            }) || crate::planning::script_references_standard_builtin(
+                script,
+                StandardBuiltinId::RegExpPrototypeSymbolSplit,
+            ) || crate::planning::script_references_standard_builtin(
+                script,
+                StandardBuiltinId::RegExpPrototypeCompile,
+            );
+        for binding in script.global_bindings.iter() {
+            pool.intern_string(&binding.name);
+        }
+        for prepared in &script.prepared_dynamic_functions {
+            for argument in &prepared.arguments {
+                pool.intern_string(argument);
+            }
+            pool.intern_source_runtime_error_message(SourceRuntimeErrorMessage::PreparedFunction(
+                &prepared.outcome,
+            ));
+        }
+        for meta in function_metas
+            .iter()
+            .filter(|(id, meta)| !is_runtime_owned_function(id, meta))
+            .map(|(_, meta)| meta)
+        {
+            pool.intern_string(&meta.name);
+            pool.intern_string(meta.runtime_name());
+            pool.intern_string(&meta.to_string_value);
+        }
+        for function in &script.functions {
+            if let Some(plan) = &function.class_instance_element_plan {
+                for element in &plan.elements {
+                    let key = match element {
+                        ClassInstanceElementIr::Field(field) => &field.key,
+                        ClassInstanceElementIr::AutoAccessorBacking(_) => continue,
+                    };
+                    match key {
+                        ClassFieldKeyIr::Public(key) => pool.intern_string(key.as_str()),
+                        ClassFieldKeyIr::ComputedPublic(_) => {}
+                        ClassFieldKeyIr::Private(_) => {}
                     }
                 }
             }
-            tables.compositions.sort_unstable();
-            tables.compositions.dedup();
-            tables
-        });
+            pool.collect_eval_environment(function.eval_environment.as_ref());
+            for param in &function.params {
+                pool.intern_string(&param.name);
+                if let Some(default_init) = &param.default_init {
+                    pool.collect_expr(default_init);
+                }
+            }
+            for binding in &function.owned_env_bindings {
+                pool.intern_string(&binding.name);
+            }
+            for binding in &function.captured_bindings {
+                pool.intern_string(&binding.name);
+            }
+            pool.collect_block(&function.body);
+        }
+        pool.collect_eval_environment(script.eval_environment.as_ref());
+        for body in script.executable_script_bodies() {
+            pool.collect_block(body);
+        }
+        for prepared in &script.prepared_scripts {
+            pool.intern_string(&prepared.source);
+            pool.intern_source_runtime_error_message(SourceRuntimeErrorMessage::PreparedScript(
+                &prepared.outcome,
+            ));
+        }
+        for unit in script.prepared_script_units() {
+            pool.collect_eval_environment(unit.eval_environment.as_ref());
+            for binding in &unit.owned_env_bindings {
+                pool.intern_string(&binding.name);
+            }
+            for binding in &unit.global_bindings {
+                pool.intern_string(&binding.name);
+            }
+            for name in unit.global_bindings.lexical_names() {
+                pool.intern_string(name);
+            }
+        }
+        if pool.needs_runtime_regexp_programs {
+            pool.queue_runtime_regexp_programs();
+        }
+        pool.append_regexp_programs();
+        Ok(pool)
+    }
+}
+
+impl StringPool {
+    fn append_normalization_tables(&mut self) {
+        let tables = normalization::tables();
 
         let canonical_sequences_ptr = self.append_codepoints(&tables.canonical_sequences);
         self.canonical_decomposition_table_ptr =
@@ -3397,6 +2491,7 @@ impl StringPool {
             StatementIr::Return(value) => self.collect_expr(value),
             StatementIr::Throw(value) => self.collect_expr(value),
             StatementIr::Var(declarators) => self.collect_var_declarators(declarators),
+            StatementIr::EmptyStatementCompletion(item) => self.collect_statement(item.statement()),
             StatementIr::LexicalBlock(statements)
             | StatementIr::ParameterInitialization { statements, .. } => {
                 for statement in statements {
@@ -3406,12 +2501,7 @@ impl StringPool {
             StatementIr::SyncDisposableScope {
                 resources, body, ..
             } => {
-                for value in [
-                    "Symbol.dispose",
-                    "using declaration resource is not an object",
-                    "using declaration resource has no [Symbol.dispose] method",
-                    "using declaration [Symbol.dispose] method is not callable",
-                ] {
+                for value in ["Symbol.dispose"] {
                     self.intern_string(value);
                 }
                 for resource in resources.iter() {
@@ -3422,14 +2512,7 @@ impl StringPool {
             StatementIr::AsyncDisposableScope {
                 resources, body, ..
             } => {
-                for value in [
-                    "Symbol.asyncDispose",
-                    "Symbol.dispose",
-                    "await using declaration resource is not an object",
-                    "await using declaration resource has no disposal method",
-                    "await using declaration [Symbol.dispose] method is not callable",
-                    "await using declaration [Symbol.asyncDispose] method is not callable",
-                ] {
+                for value in ["Symbol.asyncDispose", "Symbol.dispose"] {
                     self.intern_string(value);
                 }
                 for resource in resources.iter() {
@@ -3493,6 +2576,13 @@ impl StringPool {
                     self.collect_statement(else_branch);
                 }
             }
+            StatementIr::AsyncFunctionWhile(plan) => {
+                for statement in plan.condition_prefix() {
+                    self.collect_statement(statement);
+                }
+                self.collect_expr(plan.condition());
+                self.collect_statement(plan.body());
+            }
             StatementIr::While { condition, body } => {
                 self.collect_expr(condition);
                 self.collect_statement(body);
@@ -3521,6 +2611,174 @@ impl StringPool {
                     self.collect_expr(update);
                 }
                 self.collect_statement(body);
+            }
+            StatementIr::OrdinaryGeneratorLoop(plan) => {
+                if let Some(environment) = plan.lexical_environment() {
+                    self.collect_eval_environment(environment.eval_environment.as_ref());
+                }
+                for region in plan.regions() {
+                    self.collect_block(region.block());
+                }
+                self.collect_expr(plan.test().value());
+                if let Some(update) = plan.update() {
+                    self.collect_expr(update.value());
+                }
+            }
+            StatementIr::AsyncGeneratorLoop(plan) => {
+                if plan.resource().is_some() {
+                    self.uses_heap = true;
+                    for key in ["Symbol.dispose", "Symbol.asyncDispose"] {
+                        self.intern_string(key);
+                    }
+                }
+                if let Some(environment) = plan.lexical_environment() {
+                    self.collect_eval_environment(environment.eval_environment.as_ref());
+                }
+                for region in plan.regions() {
+                    self.collect_block(region.block());
+                }
+                self.collect_expr(plan.test().value());
+                if let Some(update) = plan.update() {
+                    self.collect_expr(update.value());
+                }
+            }
+            StatementIr::OrdinaryGeneratorIf(plan) => {
+                self.collect_expr(plan.condition());
+                self.collect_block(plan.then_branch().block());
+                self.collect_block(plan.else_branch().block());
+            }
+            StatementIr::AsyncGeneratorIf(plan) => {
+                self.collect_block(plan.condition().region().block());
+                self.collect_expr(plan.condition().value());
+                self.collect_block(plan.then_branch().block());
+                self.collect_block(plan.else_branch().block());
+            }
+            StatementIr::AsyncGeneratorSwitch(plan) => {
+                if plan.resource().is_some() {
+                    self.uses_heap = true;
+                    for key in ["Symbol.dispose", "Symbol.asyncDispose"] {
+                        self.intern_string(key);
+                    }
+                }
+                self.collect_lexical_environment(plan.lexical_environment());
+                for declaration in plan.lexical_declarations() {
+                    self.collect_statement(declaration);
+                }
+                for region in plan.regions() {
+                    self.collect_block(region.block());
+                }
+                for expression in plan.expressions() {
+                    self.collect_expr(expression);
+                }
+            }
+            StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => {
+                self.uses_heap = true;
+                for key in ["Symbol.iterator", "next", "done", "value", "return"] {
+                    self.intern_string(key);
+                }
+                self.collect_expr(plan.raw_source());
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorResourceScope(plan) => {
+                self.uses_heap = true;
+                for key in ["Symbol.dispose", "Symbol.asyncDispose"] {
+                    self.intern_string(key);
+                }
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorResourceRegistration(operation) => {
+                self.collect_expr(operation.initializer())
+            }
+            StatementIr::AsyncGeneratorArrayDestructuring(plan) => {
+                self.uses_heap = true;
+                for key in ["Symbol.iterator", "next", "done", "value", "return"] {
+                    self.intern_string(key);
+                }
+                self.collect_expr(plan.raw_source());
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::AsyncFunctionArrayDestructuring(plan) => {
+                self.uses_heap = true;
+                for key in ["Symbol.iterator", "next", "done", "value", "return"] {
+                    self.intern_string(key);
+                }
+                self.collect_expr(plan.raw_source());
+                self.collect_block(plan.body());
+            }
+            StatementIr::OrdinaryGeneratorWith(plan) => {
+                self.uses_heap = true;
+                self.collect_block(plan.head().region().block());
+                self.collect_expr(plan.head().value());
+                self.collect_lexical_environment(Some(plan.lexical_environment()));
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorWith(plan) => {
+                self.uses_heap = true;
+                self.collect_block(plan.head().region().block());
+                self.collect_expr(plan.head().value());
+                self.collect_lexical_environment(Some(plan.lexical_environment()));
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::AsyncFunctionWith(plan) => {
+                self.uses_heap = true;
+                self.collect_block(plan.head());
+                self.collect_expr(plan.head_value());
+                self.collect_lexical_environment(Some(plan.lexical_environment()));
+                self.collect_block(plan.body());
+            }
+            StatementIr::AsyncGeneratorForIn(plan) => {
+                self.uses_heap = true;
+                self.collect_for_in_of_environment(plan.lexical_environment());
+                self.collect_block(plan.head().region().block());
+                self.collect_expr(plan.head().value());
+                self.collect_block(plan.initialization());
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::AsyncGeneratorForOf(plan) => {
+                self.uses_heap = true;
+                if plan.resource().is_some() {
+                    for key in ["Symbol.dispose", "Symbol.asyncDispose"] {
+                        self.intern_string(key);
+                    }
+                }
+                for key in [
+                    "Symbol.iterator",
+                    "Symbol.asyncIterator",
+                    "next",
+                    "done",
+                    "value",
+                    "return",
+                ] {
+                    self.intern_string(key);
+                }
+                self.collect_for_in_of_environment(plan.lexical_environment());
+                self.collect_block(plan.head().region().block());
+                self.collect_expr(plan.head().value());
+                self.collect_block(plan.initialization().block());
+                self.collect_block(plan.body().block());
+            }
+            StatementIr::ArrayDestructuringOperation(_) => {
+                self.uses_heap = true;
+                for key in ["Symbol.iterator", "next", "done", "value", "return"] {
+                    self.intern_string(key);
+                }
+            }
+            StatementIr::OrdinaryGeneratorSwitch(plan) => {
+                self.collect_block(plan.discriminant().region().block());
+                self.collect_expr(plan.discriminant().value());
+                if let Some(environment) = plan.lexical_environment() {
+                    self.collect_eval_environment(environment.eval_environment.as_ref());
+                }
+                for declaration in plan.lexical_declarations() {
+                    self.collect_statement(declaration);
+                }
+                for case in plan.cases() {
+                    if let Some(selector) = case.selector() {
+                        self.collect_block(selector.region().block());
+                        self.collect_expr(selector.value());
+                    }
+                    self.collect_block(case.body().block());
+                }
             }
             StatementIr::GeneratorLoop {
                 init,
@@ -3551,6 +2809,14 @@ impl StringPool {
                 }
             }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                self.collect_for_in_of_environment(plan.head_environment());
+                self.collect_resumable_iteration_environment(plan.iteration_environment());
+                self.collect_expr(iterable);
+                for statement in plan.body().statements() {
+                    self.collect_statement(statement);
+                }
+            }
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
                 self.collect_for_in_of_environment(plan.head_environment());
                 self.collect_resumable_iteration_environment(plan.iteration_environment());
                 self.collect_expr(iterable);
@@ -3612,25 +2878,13 @@ impl StringPool {
                 match head {
                     ForOfIteratorHeadIr::Assignment { .. } => {}
                     ForOfIteratorHeadIr::SyncDisposable(head) => {
-                        for value in [
-                            "Symbol.dispose",
-                            "using declaration resource is not an object",
-                            "using declaration resource has no [Symbol.dispose] method",
-                            "using declaration [Symbol.dispose] method is not callable",
-                        ] {
+                        for value in ["Symbol.dispose"] {
                             self.intern_string(value);
                         }
                         self.intern_string(head.binding_name());
                     }
                     ForOfIteratorHeadIr::AsyncDisposable(head) => {
-                        for value in [
-                            "Symbol.asyncDispose",
-                            "Symbol.dispose",
-                            "await using declaration resource is not an object",
-                            "await using declaration resource has no disposal method",
-                            "await using declaration [Symbol.dispose] method is not callable",
-                            "await using declaration [Symbol.asyncDispose] method is not callable",
-                        ] {
+                        for value in ["Symbol.asyncDispose", "Symbol.dispose"] {
                             self.intern_string(value);
                         }
                         self.intern_string(head.binding_name());
@@ -3638,6 +2892,22 @@ impl StringPool {
                 }
                 self.collect_expr(iterable);
                 self.collect_statement(body);
+            }
+            StatementIr::AsyncFunctionSwitch(plan) => {
+                self.collect_lexical_environment(plan.lexical_environment());
+                self.collect_expr(plan.discriminant());
+                for declaration in plan.lexical_declarations() {
+                    self.collect_statement(declaration);
+                }
+                for case in plan.cases() {
+                    for statement in case.condition_prefix() {
+                        self.collect_statement(statement);
+                    }
+                    if let Some(condition) = case.condition() {
+                        self.collect_expr(condition);
+                    }
+                    self.collect_block(case.body());
+                }
             }
             StatementIr::Switch {
                 discriminant,
@@ -3746,6 +3016,27 @@ impl StringPool {
 
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
+            ExprIr::JsonModuleValue(plan) => {
+                self.uses_heap = true;
+                let mut pending = vec![plan.value()];
+                while let Some(value) = pending.pop() {
+                    match value {
+                        lila_ir::JsonValue::String(units) => {
+                            self.intern_string(&lila_ir::encode_js_string_utf16(units));
+                        }
+                        lila_ir::JsonValue::Array(values) => pending.extend(values.iter()),
+                        lila_ir::JsonValue::Object(entries) => {
+                            for (key, value) in entries {
+                                self.intern_string(&lila_ir::encode_js_string_utf16(key));
+                                pending.push(value);
+                            }
+                        }
+                        lila_ir::JsonValue::Null
+                        | lila_ir::JsonValue::Boolean(_)
+                        | lila_ir::JsonValue::Number(_) => {}
+                    }
+                }
+            }
             ExprIr::EnvironmentIdentifier(identifier) => {
                 self.uses_heap = true;
                 self.intern_string(&identifier.name);
@@ -3770,8 +3061,6 @@ impl StringPool {
             | ExprIr::ModuleHasAsyncDependencies(_)
             | ExprIr::ModuleDeferredImportEvaluate(_) => {
                 self.uses_heap = true;
-                self.intern_string("module binding accessed before initialization");
-                self.intern_string("deferred module is not ready for synchronous evaluation");
             }
             ExprIr::ModuleNamespacePublish { namespace, .. } => self.collect_expr(namespace),
             ExprIr::ImportMeta { .. } => self.uses_heap = true,
@@ -3797,7 +3086,9 @@ impl StringPool {
                     self.collect_expr(description);
                 }
             }
+            ExprIr::WellKnownSymbol(_) => self.uses_heap = true,
             ExprIr::String(value) => {
+                self.uses_heap = true;
                 self.intern_string(value);
                 self.script_string_literals.insert(value.clone());
             }
@@ -3810,57 +3101,38 @@ impl StringPool {
                     self.intern_string(raw);
                 }
                 self.intern_string("raw");
-                if let Some(previous) = self
-                    .template_objects
-                    .insert(template.site_id, template.clone())
-                {
-                    debug_assert_eq!(previous, *template);
-                }
             }
             ExprIr::RegExpLiteral {
                 source,
                 flags,
-                program,
+                static_compilation,
             } => {
                 self.uses_heap = true;
                 self.intern_string(source);
                 self.intern_string(flags);
-                if let Some(program) = program {
-                    self.queue_regexp_program(program);
+                match static_compilation {
+                    Some(StaticRegExpCompilation::Program(program)) => {
+                        self.queue_regexp_program(program)
+                    }
+                    Some(compilation @ StaticRegExpCompilation::InvalidSyntax { .. }) => {
+                        self.intern_source_runtime_error_message(
+                            SourceRuntimeErrorMessage::RegExp(compilation),
+                        );
+                    }
+                    None => {}
                 }
             }
-            ExprIr::BigInt(_) => {}
+            ExprIr::BigInt(_) => self.uses_heap = true,
             ExprIr::ObjectLiteral(properties) => {
                 self.uses_heap = true;
                 for property in properties {
-                    match property {
-                        ObjectPropertyIr::PrototypeSetter { value } => {
-                            self.collect_expr(value);
-                        }
-                        ObjectPropertyIr::Spread { source } => {
-                            self.collect_expr(source);
-                        }
-                        ObjectPropertyIr::Data { key, value, .. }
-                        | ObjectPropertyIr::NonEnumerableData { key, value } => {
-                            self.intern_string(key);
-                            self.collect_expr(value);
-                        }
-                        ObjectPropertyIr::ComputedData { key, value, .. } => {
-                            self.collect_expr(key);
-                            self.collect_expr(value);
-                        }
-                        ObjectPropertyIr::ComputedMethod { key, .. }
-                        | ObjectPropertyIr::ComputedGetter { key, .. }
-                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
-                            self.collect_expr(key);
-                        }
-                        ObjectPropertyIr::Method { key, .. }
-                        | ObjectPropertyIr::Getter { key, .. }
-                        | ObjectPropertyIr::Setter { key, .. } => {
-                            self.intern_string(key);
-                        }
-                    }
+                    self.collect_object_property(property);
                 }
+            }
+            ExprIr::ObjectPropertyDefinition(definition) => {
+                self.uses_heap = true;
+                self.collect_expr(definition.target());
+                self.collect_object_property(definition.property());
             }
             ExprIr::ArrayLiteral(elements) => {
                 self.uses_heap = true;
@@ -3909,6 +3181,27 @@ impl StringPool {
                     }
                 }
             }
+            ExprIr::DeleteOptionalPropertyChain(deletion) => {
+                let target = deletion.target();
+                let chain = deletion.prefix();
+                self.uses_heap = true;
+                self.collect_expr(target);
+                for operation in chain {
+                    match operation {
+                        OptionalChainOperationIr::Property { key, .. } => {
+                            self.collect_property_key(key);
+                        }
+                        OptionalChainOperationIr::PrivateProperty { .. } => {}
+                        OptionalChainOperationIr::Call { args, .. } => {
+                            for arg in args {
+                                self.collect_expr(arg);
+                            }
+                        }
+                    }
+                }
+
+                self.collect_property_key(deletion.key());
+            }
             ExprIr::PropertyWrite {
                 target, key, value, ..
             } => {
@@ -3928,6 +3221,15 @@ impl StringPool {
                 self.collect_expr(assignment.base_and_receiver());
                 self.collect_property_key(assignment.referenced_name());
                 self.collect_expr(assignment.rhs());
+            }
+            ExprIr::OrdinaryPropertyGetCapture(capture) => {
+                self.uses_heap = true;
+                self.collect_expr(capture.base_and_receiver());
+                self.collect_property_key(capture.referenced_name());
+            }
+            ExprIr::CapturedOrdinaryPropertyWrite(write) => {
+                self.uses_heap = true;
+                self.collect_expr(write.rhs());
             }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.uses_heap = true;
@@ -3962,9 +3264,7 @@ impl StringPool {
                 if matches!(operation, SpecOperationIr::IsLooselyEqual) {
                     self.uses_heap = true;
                 }
-                if matches!(operation, SpecOperationIr::ToIndex) {
-                    self.intern_string("ToIndex out of range");
-                }
+                if matches!(operation, SpecOperationIr::ToIndex) {}
                 if matches!(operation, SpecOperationIr::CreateDataPropertyOrThrow) {
                     self.uses_heap = true;
                     self.intern_string("value");
@@ -3974,9 +3274,6 @@ impl StringPool {
                     self.intern_string(
                         "CreateDataPropertyOrThrow symbol property keys are not supported",
                     );
-                    self.intern_string("CreateDataPropertyOrThrow target is not an object");
-                    self.intern_string("Cannot redefine non-configurable property");
-                    self.intern_string("Cannot define property on non-extensible object");
                 }
                 if matches!(operation, SpecOperationIr::CopyDataProperties) {
                     self.uses_heap = true;
@@ -3985,19 +3282,16 @@ impl StringPool {
                 if matches!(operation, SpecOperationIr::Set) {
                     self.uses_heap = true;
                     self.intern_string("Set symbol property keys are not supported");
-                    self.intern_string("Set target is not an object");
                 }
                 if matches!(operation, SpecOperationIr::HasOwnProperty) {
                     self.uses_heap = true;
-                    self.intern_string("HasOwnProperty target is not an object");
                 }
                 if matches!(operation, SpecOperationIr::GetMethod) {
                     self.uses_heap = true;
-                    self.intern_string("GetMethod target is not callable");
                 }
                 if matches!(operation, SpecOperationIr::Construct) {
                     self.uses_heap = true;
-                    self.intern_string("target is not a constructor");
+
                     self.intern_string("Spread argument is not an array");
                 }
                 if matches!(operation, SpecOperationIr::DeletePropertyOrThrow) {
@@ -4005,8 +3299,6 @@ impl StringPool {
                     self.intern_string(
                         "DeletePropertyOrThrow symbol property keys are not supported",
                     );
-                    self.intern_string("DeletePropertyOrThrow target is not an object");
-                    self.intern_string("Cannot delete property");
                 }
                 for operand in operands {
                     self.collect_expr(operand);
@@ -4026,17 +3318,13 @@ impl StringPool {
                 self.collect_expr(expr);
             }
             ExprIr::TypeOfUnresolvedIdentifier { name } => {
+                self.uses_heap = true;
                 self.intern_string(name);
                 self.collect_typeof_result_strings();
             }
             ExprIr::StringFromCharCode { code } => {
                 self.uses_heap = true;
                 self.collect_expr(code);
-            }
-            ExprIr::StringCharCodeAt { target, index } => {
-                self.uses_heap = true;
-                self.collect_expr(target);
-                self.collect_expr(index);
             }
             ExprIr::NewTarget => {}
             ExprIr::UpdateIdentifier { name, .. } => self.intern_string(name),
@@ -4106,6 +3394,25 @@ impl StringPool {
                 pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
                 self.collect_object_destructuring_pattern_strings(pattern);
             }
+            ExprIr::ObjectDestructuringOperation(operation) => {
+                self.uses_heap = true;
+                for key in [
+                    "enumerable",
+                    "Symbol.iterator",
+                    "next",
+                    "done",
+                    "value",
+                    "return",
+                ] {
+                    self.intern_string(key);
+                }
+                operation.visit_expressions(&mut |expr| self.collect_expr(expr));
+                if let lila_ir::ObjectDestructuringOperationView::PutTarget { target, .. } =
+                    operation.use_view()
+                {
+                    self.collect_destructuring_target_strings(target);
+                }
+            }
             ExprIr::Conditional {
                 condition,
                 then_expr,
@@ -4160,48 +3467,45 @@ impl StringPool {
                     self.collect_expr(arg);
                 }
             }
+            ExprIr::CaptureOptionalCallReference(capture) => {
+                for operand in capture.operands() {
+                    self.collect_expr(operand);
+                }
+            }
+            ExprIr::CaptureArgumentList(capture) => {
+                self.uses_heap = true;
+                for argument in capture.arguments() {
+                    self.collect_expr(argument);
+                }
+            }
+            ExprIr::CapturedArgumentList(list) => self.collect_expr(list.binding()),
             ExprIr::SpreadArgument(spread) => {
                 self.uses_heap = true;
-                for message in [
-                    "Spread argument is not iterable",
-                    "Spread iterator method must return object",
-                    "Spread iterator next must be callable",
-                    "Spread iterator next result must be object",
-                ] {
-                    self.intern_string(message);
-                }
                 self.collect_expr(&spread.value);
             }
             ExprIr::AssertSameValue {
-                actual,
-                expected,
-                message,
+                actual, expected, ..
             } => {
                 self.uses_heap = true;
                 self.intern_string(ERROR_NAME);
-                self.intern_string(message);
+                self.intern_source_runtime_error_message(SourceRuntimeErrorMessage::Expression(
+                    expr,
+                ));
                 self.collect_expr(actual);
                 self.collect_expr(expected);
             }
-            ExprIr::RuntimeThrow { name, message } => {
+            ExprIr::RuntimeThrow { name, .. } => {
                 self.uses_heap = true;
                 self.intern_string(name.as_str());
-                self.intern_string(message);
+                self.intern_source_runtime_error_message(SourceRuntimeErrorMessage::Expression(
+                    expr,
+                ));
             }
             ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {
                 self.uses_heap = true;
                 self.intern_string(name);
             }
             ExprIr::GlobalPropertyWrite { name, value, .. } => {
-                self.uses_heap = true;
-                self.intern_string(name);
-                self.collect_expr(value);
-            }
-            ExprIr::GlobalPropertyUpdate { name, .. } => {
-                self.uses_heap = true;
-                self.intern_string(name);
-            }
-            ExprIr::GlobalPropertyCompoundAssign { name, value, .. } => {
                 self.uses_heap = true;
                 self.intern_string(name);
                 self.collect_expr(value);
@@ -4253,11 +3557,12 @@ impl StringPool {
                                     | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
                             )
                         });
-                if static_regexp_compilation.is_none() && resolved_regexp_callee {
+                if resolved_regexp_callee || static_regexp_compilation.is_some() {
                     self.needs_runtime_regexp_programs = true;
                 }
-                if static_regexp_compilation.is_none()
-                    && (resolved_regexp_callee || callee_names_regexp_compile(callee))
+                if resolved_regexp_callee
+                    || static_regexp_compilation.is_some()
+                    || callee_names_regexp_compile(callee)
                 {
                     // The pattern argument is the one string the script is
                     // demonstrably asking the RegExp compiler about. Offer it
@@ -4277,8 +3582,10 @@ impl StringPool {
                         StaticRegExpCompilation::Program(program) => {
                             self.queue_regexp_program(program)
                         }
-                        StaticRegExpCompilation::InvalidSyntax { message } => {
-                            self.intern_string(message);
+                        StaticRegExpCompilation::InvalidSyntax { .. } => {
+                            self.intern_source_runtime_error_message(
+                                SourceRuntimeErrorMessage::RegExp(compilation),
+                            );
                         }
                     }
                 }
@@ -4290,32 +3597,18 @@ impl StringPool {
                     self.collect_expr(arg);
                 }
             }
-            ExprIr::JsonParseStaticReviver {
-                callee,
-                input,
-                value,
-                reviver,
-            } => {
-                self.uses_heap = true;
-                self.collect_expr(callee);
-                self.collect_expr(input);
-                self.collect_expr(reviver);
-                self.collect_json_static_value(value);
-                self.intern_string("");
-                self.intern_string("source");
-            }
             ExprIr::Construct {
                 callee,
                 args,
                 static_regexp_compilation,
             } => {
                 self.uses_heap = true;
-                if static_regexp_compilation.is_none()
-                    && (matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
-                        || callee
-                            .function_targets
-                            .known_targets()
-                            .contains(BUILTIN_REGEXP_FUNCTION_ID))
+                if static_regexp_compilation.is_some()
+                    || matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
+                    || callee
+                        .function_targets
+                        .known_targets()
+                        .contains(BUILTIN_REGEXP_FUNCTION_ID)
                 {
                     self.needs_runtime_regexp_programs = true;
                     // Same reasoning as the `CallIndirect` arm above: `new
@@ -4334,8 +3627,10 @@ impl StringPool {
                         StaticRegExpCompilation::Program(program) => {
                             self.queue_regexp_program(program)
                         }
-                        StaticRegExpCompilation::InvalidSyntax { message } => {
-                            self.intern_string(message);
+                        StaticRegExpCompilation::InvalidSyntax { .. } => {
+                            self.intern_source_runtime_error_message(
+                                SourceRuntimeErrorMessage::RegExp(compilation),
+                            );
                         }
                     }
                 }
@@ -4421,6 +3716,15 @@ impl StringPool {
                     self.collect_expr(arg);
                 }
             }
+            ExprIr::SuperNewTarget | ExprIr::SuperConstructor => {
+                self.uses_heap = true;
+            }
+            ExprIr::PreparedSuperConstruct(prepared) => {
+                self.uses_heap = true;
+                for operand in prepared.operands() {
+                    self.collect_expr(operand);
+                }
+            }
             ExprIr::SuperPropertyRead { key, receiver } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
@@ -4442,31 +3746,39 @@ impl StringPool {
                 self.collect_property_key(mutation.referenced_name());
                 self.collect_expr(mutation.receiver());
                 match mutation.operation() {
-                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
-                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. }
+                    | SuperPropertyMutationOperationIr::Capture(_) => {}
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. }
+                    | SuperPropertyMutationOperationIr::PutCaptured { value: result, .. } => {
                         self.collect_expr(result);
                     }
                 }
             }
             ExprIr::ClassDefinition(class) => {
+                match &class.name_inference {
+                    ClassNameInferenceIr::FieldInitializer(ClassFieldNameIr::Static(name)) => {
+                        self.intern_string(name);
+                    }
+                    ClassNameInferenceIr::None
+                    | ClassNameInferenceIr::PropertyKeyBinding(_)
+                    | ClassNameInferenceIr::FieldInitializer(ClassFieldNameIr::Computed(_)) => {}
+                }
                 if let Some(name_binding) = &class.name_binding {
                     self.collect_lexical_environment(Some(&name_binding.environment));
                 }
                 self.uses_heap = true;
+                for description in class.private_name_ids.keys() {
+                    self.intern_string(description);
+                }
                 self.intern_string("prototype");
                 self.intern_string("constructor");
                 self.intern_string("$IsHTMLDDA");
-                self.intern_string("class extends value is not a constructor or null");
-                self.intern_string("class extends prototype is not an object or null");
                 for definition in &class.element_plan.definitions {
                     match definition {
                         ClassElementDefinitionIr::PublicMethod(method) => {
                             self.collect_property_key(&method.key);
                         }
-                        ClassElementDefinitionIr::PrivateMethod(method) => {
-                            self.intern_string(&private_data_key(method.private_name_id));
-                            self.intern_string(&private_brand_key(method.private_name_id));
-                        }
+                        ClassElementDefinitionIr::PrivateMethod(_) => {}
                         ClassElementDefinitionIr::ComputedFieldKey { key, .. } => {
                             self.collect_property_key(key);
                         }
@@ -4477,41 +3789,21 @@ impl StringPool {
                             match &accessor.key {
                                 ClassFieldKeyIr::Public(key) => self.intern_string(key),
                                 ClassFieldKeyIr::ComputedPublic(_) => {}
-                                ClassFieldKeyIr::Private(private_name_id) => {
-                                    self.intern_string(&private_data_key(*private_name_id));
-                                    self.intern_string(&private_brand_key(*private_name_id));
-                                }
+                                ClassFieldKeyIr::Private(_) => {}
                             }
-                            self.intern_string(&private_data_key(
-                                accessor.backing_name.private_name_id(),
-                            ));
-                            self.intern_string(&private_brand_key(
-                                accessor.backing_name.private_name_id(),
-                            ));
                         }
                     }
                 }
                 for static_element in &class.element_plan.static_elements {
                     let key = match static_element {
                         ClassStaticElementIr::Field(field) => &field.key,
-                        ClassStaticElementIr::AutoAccessorBacking(accessor) => {
-                            self.intern_string(&private_data_key(
-                                accessor.backing_name.private_name_id(),
-                            ));
-                            self.intern_string(&private_brand_key(
-                                accessor.backing_name.private_name_id(),
-                            ));
-                            continue;
-                        }
+                        ClassStaticElementIr::AutoAccessorBacking(_) => continue,
                         ClassStaticElementIr::Block(_) => continue,
                     };
                     match key {
                         ClassFieldKeyIr::Public(key) => self.intern_string(key),
                         ClassFieldKeyIr::ComputedPublic(_) => {}
-                        ClassFieldKeyIr::Private(private_name_id) => {
-                            self.intern_string(&private_data_key(*private_name_id));
-                            self.intern_string(&private_brand_key(*private_name_id));
-                        }
+                        ClassFieldKeyIr::Private(_) => {}
                     }
                 }
                 if let Some(heritage) = &class.heritage {
@@ -4538,6 +3830,7 @@ impl StringPool {
             | ExprIr::Number(_)
             | ExprIr::FunctionValue(_)
             | ExprIr::This
+            | ExprIr::ExecutionGlobalObject
             | ExprIr::Arguments
             | ExprIr::Identifier(_) => {}
         }
@@ -4549,35 +3842,6 @@ impl StringPool {
             PropertyKeyIr::ArrayLength => {}
             PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                 self.collect_expr(expr)
-            }
-        }
-    }
-
-    fn collect_json_static_value(&mut self, value: &JsonStaticValueIr) {
-        match value {
-            JsonStaticValueIr::Null { source }
-            | JsonStaticValueIr::Boolean { source, .. }
-            | JsonStaticValueIr::Number { source, .. } => {
-                self.intern_string(source);
-            }
-            JsonStaticValueIr::String {
-                value: string_value,
-                source,
-            } => {
-                self.intern_string(string_value);
-                self.intern_string(source);
-            }
-            JsonStaticValueIr::Array(values) => {
-                for (index, value) in values.iter().enumerate() {
-                    self.intern_string(&index.to_string());
-                    self.collect_json_static_value(value);
-                }
-            }
-            JsonStaticValueIr::Object(properties) => {
-                for (key, value) in properties {
-                    self.intern_string(key);
-                    self.collect_json_static_value(value);
-                }
             }
         }
     }
@@ -4602,18 +3866,30 @@ impl StringPool {
             DestructuringTargetIr::Binding { mode: _, name } => {
                 self.intern_string(name);
             }
-            DestructuringTargetIr::AssignmentIdentifier(reference) => {
+            DestructuringTargetIr::ResolvedVarBinding { reference, .. }
+            | DestructuringTargetIr::AssignmentIdentifier(reference) => {
                 self.intern_string(reference.name());
                 match reference.write_disposition() {
+                    IdentifierWriteDisposition::WithObject {
+                        referenced_name,
+                        selection,
+                        fallback_storage_name,
+                        ..
+                    } => {
+                        self.intern_string(referenced_name);
+                        self.intern_string(fallback_storage_name);
+                        self.collect_expr(selection);
+                    }
                     IdentifierWriteDisposition::Global {
                         referenced_name, ..
                     }
                     | IdentifierWriteDisposition::Environment {
                         referenced_name, ..
                     } => self.intern_string(referenced_name),
-                    IdentifierWriteDisposition::Throw { error } => {
-                        self.intern_string(error.message())
-                    }
+                    IdentifierWriteDisposition::Throw { error } => self
+                        .intern_source_runtime_error_message(
+                            SourceRuntimeErrorMessage::IdentifierWrite(error),
+                        ),
                     IdentifierWriteDisposition::MutableBinding { .. }
                     | IdentifierWriteDisposition::IgnoreImmutableBinding => {}
                 }
@@ -4624,6 +3900,15 @@ impl StringPool {
             // Private elements are addressed by brand token, not by a pooled
             // string; the class definition interns their keys.
             DestructuringTargetIr::AssignmentPrivate { .. } => {}
+            DestructuringTargetIr::AssignmentSuper {
+                capture,
+                value_binding,
+                put,
+            } => {
+                self.intern_string(value_binding);
+                self.collect_expr(capture);
+                self.collect_expr(put);
+            }
             DestructuringTargetIr::NestedArray(pattern) => {
                 self.collect_array_destructuring_pattern_strings(pattern);
             }
@@ -4657,6 +3942,36 @@ impl StringPool {
         }
     }
 
+    fn collect_object_property(&mut self, property: &ObjectPropertyIr) {
+        match property {
+            ObjectPropertyIr::PrototypeSetter { value } => {
+                self.collect_expr(value);
+            }
+            ObjectPropertyIr::Spread { source } => {
+                self.collect_expr(source);
+            }
+            ObjectPropertyIr::Data { key, value, .. }
+            | ObjectPropertyIr::NonEnumerableData { key, value } => {
+                self.intern_string(key);
+                self.collect_expr(value);
+            }
+            ObjectPropertyIr::ComputedData { key, value, .. } => {
+                self.collect_expr(key);
+                self.collect_expr(value);
+            }
+            ObjectPropertyIr::ComputedMethod { key, .. }
+            | ObjectPropertyIr::ComputedGetter { key, .. }
+            | ObjectPropertyIr::ComputedSetter { key, .. } => {
+                self.collect_expr(key);
+            }
+            ObjectPropertyIr::Method { key, .. }
+            | ObjectPropertyIr::Getter { key, .. }
+            | ObjectPropertyIr::Setter { key, .. } => {
+                self.intern_string(key);
+            }
+        }
+    }
+
     fn collect_object_destructuring_pattern_strings(
         &mut self,
         pattern: &ObjectDestructuringPatternIr,
@@ -4674,14 +3989,33 @@ impl StringPool {
         if self.refs.contains_key(value) {
             return;
         }
+        // Validate the resulting table length before mutating either image.
+        let index = PooledStringIndex::for_insertion(self.refs.len());
         let offset = STATIC_DATA_OFFSET + self.bytes.len() as u32;
         let bytes = Self::runtime_bytes_for_string(value);
         self.bytes.extend_from_slice(&bytes);
+        let units = Self::runtime_code_units_for_string(value);
+        let code_units = PooledCodeUnits {
+            byte_offset: u32::try_from(self.pooled_code_unit_bytes.len())
+                .expect("pooled UTF-16 byte offset fits the Wasm data index domain"),
+            length: u32::try_from(units.len()).expect("pooled UTF-16 length fits a GC array"),
+        };
+        code_units
+            .length
+            .checked_mul(2)
+            .and_then(|byte_length| code_units.byte_offset.checked_add(byte_length))
+            .expect("pooled UTF-16 slice fits the Wasm data segment byte domain");
+        for unit in units {
+            self.pooled_code_unit_bytes
+                .extend_from_slice(&unit.to_le_bytes());
+        }
         self.refs.insert(
             value.to_string(),
             StringRef {
+                index,
                 offset,
                 len: bytes.len() as u32,
+                code_units,
             },
         );
     }
@@ -4965,6 +4299,166 @@ impl StringPool {
         }
     }
 
+    fn boundary(&self) -> PoolBoundary {
+        PoolBoundary {
+            static_bytes: self.bytes.len(),
+            code_unit_bytes: self.pooled_code_unit_bytes.len(),
+            strings: self.pooled_string_count(),
+        }
+    }
+
+    pub(crate) fn compiler_owned_boundary(&self) -> PoolBoundary {
+        self.compiler_owned
+    }
+
+    /// The pool of the runtime module: nothing past the compiler-owned phase.
+    pub(crate) fn require_runtime_only(&self) -> Result<(), EmitError> {
+        if self.boundary() == self.compiler_owned {
+            Ok(())
+        } else {
+            Err(EmitError::unsupported(
+                "compiler invariant violated: the runtime module's pool holds program data",
+            ))
+        }
+    }
+
+    /// The runtime module's data: the passive UTF-16 image, then the compiler
+    /// tables as the active static segment.
+    pub(crate) fn append_runtime_data(&self, section: &mut wasm_encoder::DataSection) {
+        assert_eq!(section.len(), PooledCodeUnits::DATA_SEGMENT);
+        let boundary = self.compiler_owned;
+        section.passive(
+            self.pooled_code_unit_bytes[..boundary.code_unit_bytes]
+                .iter()
+                .copied(),
+        );
+        section.active(
+            0,
+            &wasm_encoder::ConstExpr::i32_const(STATIC_DATA_OFFSET as i32),
+            self.bytes[..boundary.static_bytes].iter().copied(),
+        );
+    }
+
+    /// The program module's data, both passive: its UTF-16 image and the
+    /// static bytes `main` copies behind the runtime's.
+    pub(crate) fn append_program_data(&self, section: &mut wasm_encoder::DataSection) {
+        assert_eq!(section.len(), PooledCodeUnits::DATA_SEGMENT);
+        let boundary = self.compiler_owned;
+        section.passive(
+            self.pooled_code_unit_bytes[boundary.code_unit_bytes..]
+                .iter()
+                .copied(),
+        );
+        section.passive(self.bytes[boundary.static_bytes..].iter().copied());
+    }
+
+    /// Segment index of the program's passive static bytes.
+    pub(crate) const PROGRAM_STATIC_DATA_SEGMENT: u32 = 1;
+
+    pub(crate) fn program_static_len(&self) -> u32 {
+        (self.bytes.len() - self.compiler_owned.static_bytes) as u32
+    }
+
+    /// Pooled strings the program adds, with bounds into its own passive
+    /// UTF-16 segment.
+    pub(crate) fn program_pooled_string_initializers(
+        &self,
+    ) -> impl Iterator<Item = (PooledStringIndex, PooledCodeUnits)> + '_ {
+        let boundary = self.compiler_owned;
+        self.refs
+            .values()
+            .filter(move |reference| reference.index.ordinal() >= boundary.strings)
+            .map(move |reference| {
+                (
+                    reference.index,
+                    PooledCodeUnits {
+                        byte_offset: reference.code_units.byte_offset
+                            - boundary.code_unit_bytes as u32,
+                        length: reference.code_units.length,
+                    },
+                )
+            })
+    }
+
+    pub(crate) fn pooled_string_count(&self) -> u32 {
+        u32::try_from(self.refs.len()).expect("pooled strings fit a GC array")
+    }
+    pub(crate) fn pooled_string_initializers(
+        &self,
+    ) -> impl Iterator<Item = (PooledStringIndex, &PooledCodeUnits)> {
+        self.refs
+            .values()
+            .map(|reference| (reference.index, &reference.code_units))
+    }
+    pub(crate) fn pooled_string_index(&self, value: &str) -> Result<PooledStringIndex, EmitError> {
+        self.refs
+            .get(value)
+            .map(|reference| reference.index)
+            .ok_or_else(|| {
+                EmitError::unsupported(format!("string `{value}` was not collected in this module"))
+            })
+    }
+    pub(crate) fn runtime_error_string_index(
+        &self,
+        message: RuntimeErrorMessage,
+    ) -> Result<PooledStringIndex, EmitError> {
+        if let Some(text) = message.catalog_text() {
+            return self.pooled_string_index(text);
+        }
+        // A collected source message carries the pool's checked compiler-only
+        // handle. Resolve it here; that handle never becomes a JavaScript value.
+        let handle = self.runtime_error_payload(message);
+        self.refs
+            .values()
+            .find_map(|reference| {
+                let candidate =
+                    (((reference.offset as u64) << 32) | u64::from(reference.len)) as i64;
+                (candidate == handle).then_some(reference.index)
+            })
+            .ok_or_else(|| {
+                EmitError::unsupported("runtime diagnostic does not belong to this string pool")
+            })
+    }
+    pub(crate) fn runtime_code_units_for_string(value: &str) -> Vec<u16> {
+        let mut units = Vec::new();
+        let mut chars = value.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch != JS_STRING_SURROGATE_SENTINEL {
+                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+                continue;
+            }
+            if chars.peek().copied() == Some(JS_STRING_SURROGATE_SENTINEL) {
+                chars.next();
+                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+                continue;
+            }
+            let mut consumed = Vec::new();
+            let mut unit = 0u16;
+            let mut marker = true;
+            for _ in 0..4 {
+                let Some(hex) = chars.next() else {
+                    marker = false;
+                    break;
+                };
+                consumed.push(hex);
+                let Some(value) = hex.to_digit(16) else {
+                    marker = false;
+                    break;
+                };
+                unit = (unit << 4) | value as u16;
+            }
+            if marker && (0xD800..=0xDFFF).contains(&unit) {
+                units.push(unit);
+            } else {
+                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+                for ch in consumed {
+                    units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+                }
+            }
+        }
+        units
+    }
+
     pub(crate) fn payload(&self, value: &str) -> i64 {
         let string = self
             .refs
@@ -4987,6 +4481,36 @@ impl StringPool {
             return self.property_key_symbol_payload(value);
         }
         self.payload(value)
+    }
+
+    pub(crate) fn runtime_regexp_candidates(
+        &self,
+    ) -> impl Iterator<Item = RuntimeRegExpCandidate<'_>> {
+        self.runtime_regexp_programs
+            .iter()
+            .map(|(source, flags, entry)| {
+                let program = match entry {
+                    RuntimeRegExpEntry::Program(reference) => {
+                        let validated = self
+                            .regexp_programs
+                            .iter()
+                            .find_map(|(program, candidate)| {
+                                (candidate.payload == reference.payload).then_some(&program.0)
+                            })
+                            .expect(
+                                "native runtime candidate belongs to its validated program catalog",
+                            );
+                        RuntimeRegExpCandidateProgram::Program(validated)
+                    }
+                    RuntimeRegExpEntry::Rejected => RuntimeRegExpCandidateProgram::Rejected,
+                    RuntimeRegExpEntry::Unsupported => RuntimeRegExpCandidateProgram::Unsupported,
+                };
+                RuntimeRegExpCandidate {
+                    source,
+                    flags,
+                    program,
+                }
+            })
     }
 
     pub(crate) fn regexp_program(&self, program: &RegExpProgram) -> RegExpProgramRef {
@@ -5066,22 +4590,15 @@ fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String
         }
         ExprIr::ObjectLiteral(properties) => {
             for property in properties {
-                match property {
-                    ObjectPropertyIr::PrototypeSetter { value }
-                    | ObjectPropertyIr::Spread { source: value }
-                    | ObjectPropertyIr::Data { value, .. }
-                    | ObjectPropertyIr::NonEnumerableData { value, .. }
-                    | ObjectPropertyIr::ComputedData { value, .. } => {
-                        collect_finite_string_choices(value, choices);
-                    }
-                    ObjectPropertyIr::ComputedMethod { .. }
-                    | ObjectPropertyIr::ComputedGetter { .. }
-                    | ObjectPropertyIr::ComputedSetter { .. }
-                    | ObjectPropertyIr::Method { .. }
-                    | ObjectPropertyIr::Getter { .. }
-                    | ObjectPropertyIr::Setter { .. } => {}
-                }
+                collect_object_property_finite_string_choices(property, choices);
             }
+        }
+        ExprIr::ObjectPropertyDefinition(definition) => {
+            collect_finite_string_choices(definition.target(), choices);
+            collect_object_property_finite_string_choices(definition.property(), choices);
+        }
+        ExprIr::ObjectDestructuringOperation(operation) => {
+            operation.visit_expressions(&mut |expr| collect_finite_string_choices(expr, choices));
         }
         ExprIr::Conditional {
             then_expr,
@@ -5092,6 +4609,27 @@ fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String
             collect_finite_string_choices(else_expr, choices);
         }
         _ => {}
+    }
+}
+
+fn collect_object_property_finite_string_choices(
+    property: &ObjectPropertyIr,
+    choices: &mut BTreeSet<String>,
+) {
+    match property {
+        ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Spread { source: value }
+        | ObjectPropertyIr::Data { value, .. }
+        | ObjectPropertyIr::NonEnumerableData { value, .. }
+        | ObjectPropertyIr::ComputedData { value, .. } => {
+            collect_finite_string_choices(value, choices);
+        }
+        ObjectPropertyIr::ComputedMethod { .. }
+        | ObjectPropertyIr::ComputedGetter { .. }
+        | ObjectPropertyIr::ComputedSetter { .. }
+        | ObjectPropertyIr::Method { .. }
+        | ObjectPropertyIr::Getter { .. }
+        | ObjectPropertyIr::Setter { .. } => {}
     }
 }
 
@@ -5119,13 +4657,51 @@ mod host_created_realm_property_name_pool_tests {
             .expect("script should lower");
         assert!(script.host_builtins.contains(&HostBuiltinId::CreateRealm));
 
-        let pool = StringPool::collect(&script, &BTreeMap::new(), &[]);
+        let pool = StringPool::collect(
+            &script,
+            &BTreeMap::new(),
+            &[],
+            false,
+            &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
+        )
+        .expect("host-name pool should collect");
         let payload = pool.payload(REALM_EVAL_SCRIPT_METHOD_NAME);
         let length = (payload as u64 & 0xFFFF_FFFF) as usize;
         assert_eq!(
             length,
             StringPool::runtime_bytes_for_string(REALM_EVAL_SCRIPT_METHOD_NAME).len()
         );
+    }
+
+    #[test]
+    fn create_realm_pools_its_host_published_dollar262_names() {
+        const SOURCE: &str = "__lilaCreateRealm();";
+        assert!(!SOURCE.contains("$262"));
+        assert!(!SOURCE.contains("detachArrayBuffer"));
+
+        let parsed = parse(SOURCE, ParseOptions::script()).expect("script should parse");
+        let script = lower_with_host_surface_policy(&parsed, HostSurfacePolicy::Test262)
+            .script
+            .expect("script should lower");
+        assert!(script.host_builtins.contains(&HostBuiltinId::CreateRealm));
+
+        let pool = StringPool::collect(
+            &script,
+            &BTreeMap::new(),
+            &[],
+            false,
+            &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
+        )
+        .expect("host-name pool should collect");
+        for name in ["$262", "detachArrayBuffer"] {
+            let payload = pool.payload(name);
+            let length = (payload as u64 & 0xFFFF_FFFF) as usize;
+            assert_eq!(
+                length,
+                StringPool::runtime_bytes_for_string(name).len(),
+                "created-realm $262 member `{name}` must be pooled"
+            );
+        }
     }
 }
 
@@ -5135,38 +4711,25 @@ mod runtime_error_message_pool_tests {
     use lila_front::{parse, ParseOptions};
     use lila_ir::lower;
 
-    /// The pool has no silent miss, and this is what makes the standing
-    /// instruction on `emit_runtime_error_object` enforceable rather than
-    /// advisory: a message that was never interned must *panic by name*, not
-    /// quietly resolve to something plausible.
-    ///
-    /// The old behaviour -- defining `message` from the error's `name` -- was
-    /// exactly a silent fallback, and it survived several batches because
-    /// nothing in the tree observed it. Softening `payload` into an
-    /// `Option`-returning lookup with a name fallback would restore that,
-    /// harder to find. So the panic is asserted.
     #[test]
     #[should_panic(expected = "must exist in pool")]
-    fn payload_panics_for_a_message_that_was_never_interned() {
+    fn payload_panics_for_a_string_that_was_never_interned() {
         let pool = StringPool::default();
-        let _ = pool.payload("a message that is deliberately absent from the pool");
+        let _ = pool.payload("a string that is deliberately absent from the pool");
     }
 
-    /// Build the pool the way emission builds it.
-    ///
-    /// The empty script is deliberate and is the strongest available form of
-    /// the assertion: the interning loop in `collect` is documented as
-    /// unconditional, so a pool built from a program that references nothing
-    /// must still resolve every literal. Interning the table by hand and then
-    /// reading it back -- which this test used to do -- proves only that the
-    /// table is *internable*, and stays green with the production loop
-    /// (`collect`'s `for value in RUNTIME_ERROR_MESSAGE_LITERALS`) deleted.
-    /// Deleting it turns `null.x` into a `must exist in pool` panic on every
-    /// program, so that one wire is the one this module most needs under test.
+    /// Exercise production collection, including its unconditional error catalog.
     fn production_pool_for_an_empty_script() -> StringPool {
         let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
         let script = lower(&parsed).script.expect("empty script should lower");
-        StringPool::collect(&script, &BTreeMap::new(), &[])
+        StringPool::collect(
+            &script,
+            &BTreeMap::new(),
+            &[],
+            false,
+            &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
+        )
+        .expect("empty-script pool should collect")
     }
 
     #[test]
@@ -5179,7 +4742,14 @@ mod runtime_error_message_pool_tests {
             StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
             StandardBuiltinId::TemporalPlainDateFrom,
         ] {
-            let pool = StringPool::collect(&script, &BTreeMap::new(), &[builtin]);
+            let pool = StringPool::collect(
+                &script,
+                &BTreeMap::new(),
+                &[builtin],
+                false,
+                &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
+            )
+            .expect("literal pool should collect");
             for message in [
                 "Temporal.PlainDate is not a valid ISO date",
                 "Temporal.PlainDate is outside the supported date range",
@@ -5199,6 +4769,67 @@ mod runtime_error_message_pool_tests {
     }
 
     #[test]
+    fn zoned_policy_and_converter_literals_follow_arithmetic_and_conversion_consumers() {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        // A source need not spell From/With or supply options to compile these
+        // shared branches. No sibling builtin may supply their missing pool.
+        for builtin in [
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeRound,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
+            StandardBuiltinId::TemporalZonedDateTimeCompare,
+        ] {
+            let pool = StringPool::collect(
+                &script,
+                &BTreeMap::new(),
+                &[builtin],
+                false,
+                &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
+            )
+            .expect("literal pool should collect");
+            for message in [
+                "Invalid Temporal.ZonedDateTime disambiguation option",
+                "Invalid Temporal.ZonedDateTime offset option",
+                "Invalid Temporal.ZonedDateTime overflow option",
+                "Temporal.ZonedDateTime.prototype.with options must be an object or undefined",
+                "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
+                "Temporal.ZonedDateTime.from options must be an object or undefined",
+                "Temporal.ZonedDateTime property bag requires timeZone",
+                "Temporal.ZonedDateTime property bag year is outside the supported instant range",
+                "Invalid Temporal.ZonedDateTime string",
+                "Temporal.ZonedDateTime string requires one bracketed time zone",
+                "Invalid Temporal.ZonedDateTime calendar annotation",
+                "Temporal.ZonedDateTime offset does not match its fixed time zone",
+                "disambiguation",
+                "compatible",
+                "earlier",
+                "later",
+                "reject",
+                "offset",
+                "use",
+                "prefer",
+                "ignore",
+                "overflow",
+                "constrain",
+            ] {
+                let payload = pool.payload(message) as u64;
+                let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+                let len = (payload & 0xFFFF_FFFF) as usize;
+                assert_eq!(
+                    &pool.bytes[offset..offset + len],
+                    message.as_bytes(),
+                    "missing shared zoned literal for {}",
+                    builtin.debug_name(),
+                );
+            }
+        }
+    }
+
+    #[test]
     fn zoned_field_replacement_pools_shared_date_field_diagnostics() {
         let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
         let script = lower(&parsed).script.expect("empty script should lower");
@@ -5206,7 +4837,10 @@ mod runtime_error_message_pool_tests {
             &script,
             &BTreeMap::new(),
             &[StandardBuiltinId::TemporalZonedDateTimePrototypeWith],
-        );
+            false,
+            &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
+        )
+        .expect("literal pool should collect");
         for message in [
             "Temporal.PlainDate monthCode must be a string",
             "Invalid Temporal.PlainDate monthCode",
@@ -5240,71 +4874,103 @@ mod runtime_error_message_pool_tests {
     }
 
     #[test]
-    fn every_runtime_error_message_literal_resolves_to_a_payload() {
+    fn every_catalog_error_message_resolves_in_the_production_pool() {
         let pool = production_pool_for_an_empty_script();
-        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
-            // `payload` panics on a miss, so reaching the assertion is the
-            // check; the assertion pins the encoding as well.
-            let payload = pool.payload(value);
-            let len = (payload as u64 & 0xFFFF_FFFF) as usize;
+        for &message in RuntimeErrorMessage::CATALOG {
+            let text = message
+                .catalog_text()
+                .expect("catalog row carries static text");
+            let payload = pool.runtime_error_payload(message) as u64;
+            let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+            let len = (payload & 0xffff_ffff) as usize;
             assert_eq!(
-                len,
-                StringPool::runtime_bytes_for_string(value).len(),
-                "`{value}` interned with the wrong byte length"
-            );
-        }
-        for failure in RegExpMatcherFailure::ALL {
-            let message = failure.message();
-            let payload = pool.payload(message);
-            let len = (payload as u64 & 0xFFFF_FFFF) as usize;
-            assert_eq!(
-                len,
-                StringPool::runtime_bytes_for_string(message).len(),
-                "typed RegExp matcher failure message `{message}` interned with the wrong byte length"
+                &pool.bytes[offset..offset + len],
+                StringPool::runtime_bytes_for_string(text)
             );
         }
     }
+}
 
-    /// Sorted and unique. Not cosmetic: this table is maintained by hand, it is
-    /// appended to under time pressure exactly when a `must exist in pool`
-    /// panic has just fired, and a duplicate or an out-of-order insert is how a
-    /// hand-maintained list starts drifting from the audit that produced it.
+#[cfg(test)]
+mod pooled_string_index_tests {
+    use super::*;
+
     #[test]
-    fn the_runtime_error_message_table_is_sorted_and_unique() {
-        let mut previous: Option<&str> = None;
-        for &value in RUNTIME_ERROR_MESSAGE_LITERALS {
-            assert!(!value.is_empty(), "empty message literal in the table");
-            if let Some(previous) = previous {
-                assert!(
-                    previous < value,
-                    "`{previous}` and `{value}` are out of order or duplicated"
-                );
-            }
-            previous = Some(value);
-        }
-        assert!(
-            RUNTIME_ERROR_MESSAGE_LITERALS.len() >= 125,
-            "the table shrank; a message removed from it is a `must exist in pool` panic waiting \
-             for whichever program still throws it"
+    fn later_literals_preserve_collected_slots_and_initialization_data() {
+        let mut pool = StringPool::default();
+        let literal = "middle\0\u{10000}";
+        pool.intern_string(literal);
+        let original_index = pool.pooled_string_index(literal).unwrap().ordinal();
+        let original_data = pool.pooled_code_unit_bytes.clone();
+        pool.intern_string(literal);
+        assert_eq!(pool.pooled_string_count(), 1);
+        assert_eq!(pool.pooled_code_unit_bytes, original_data);
+
+        // One literal sorts before the original and one after it. The GC slot
+        // must retain its identity regardless of the map's traversal order.
+        pool.intern_string("!earlier");
+        pool.intern_string("zzlater");
+        assert_eq!(
+            pool.pooled_string_index(literal).unwrap().ordinal(),
+            original_index
         );
+        assert!(pool.pooled_string_index("absent").is_err());
+        let mut initialized = BTreeMap::new();
+        for (index, units) in pool.pooled_string_initializers() {
+            let start = units.byte_offset as usize;
+            let end = start + units.length as usize * 2;
+            let bytes = pool.pooled_code_unit_bytes[start..end].to_vec();
+            assert!(initialized.insert(index.ordinal(), bytes).is_none());
+        }
+        assert_eq!(
+            initialized.keys().copied().collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        for text in [literal, "!earlier", "zzlater"] {
+            let index = pool.pooled_string_index(text).unwrap().ordinal();
+            let expected = StringPool::runtime_code_units_for_string(text)
+                .into_iter()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>();
+            assert_eq!(initialized[&index], expected);
+        }
     }
 
-    /// A spot check against the reason the table exists: the message
-    /// `null.x` throws must be present. It is the single most reachable
-    /// runtime-thrown message in the language and it was one of the strings
-    /// with zero occurrences in this file before this table landed.
     #[test]
-    fn the_most_reachable_runtime_error_message_is_in_the_table() {
-        for value in [
-            "Cannot read properties of null or undefined",
-            "unbound identifier",
-            "lexical binding accessed before initialization",
-        ] {
-            assert!(
-                RUNTIME_ERROR_MESSAGE_LITERALS.contains(&value),
-                "`{value}` must be interned; it is thrown from the most ordinary programs there are"
+    fn source_diagnostics_resolve_their_original_collected_slot() {
+        let mut pool = StringPool::default();
+        let source = SourceRuntimeErrorMessage::IdentifierWrite(
+            lila_ir::IdentifierWriteErrorIr::ImmutableBinding,
+        );
+        pool.intern_source_runtime_error_message(source);
+        let message = pool.source_runtime_error_message(source).unwrap();
+        let original_index = pool.runtime_error_string_index(message).unwrap().ordinal();
+        pool.intern_string("!earlier source literal");
+        pool.intern_runtime_error_catalog();
+        assert_eq!(
+            pool.runtime_error_string_index(message).unwrap().ordinal(),
+            original_index
+        );
+        for &message in RuntimeErrorMessage::CATALOG {
+            let text = message.catalog_text().expect("catalog text");
+            assert_eq!(
+                pool.runtime_error_string_index(message).unwrap().ordinal(),
+                pool.pooled_string_index(text).unwrap().ordinal()
             );
         }
+    }
+
+    #[test]
+    fn pooled_slot_admission_preserves_a_representable_table_length() {
+        let last_existing = u32::MAX as usize - 1;
+        assert_eq!(
+            PooledStringIndex::for_insertion(last_existing).ordinal(),
+            u32::MAX - 1
+        );
+        assert!(
+            std::panic::catch_unwind(|| PooledStringIndex::for_insertion(u32::MAX as usize))
+                .is_err()
+        );
     }
 }
 

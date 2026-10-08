@@ -1,5 +1,16 @@
 # Duplicate named-group pattern
 
+Status: retired by the T19 ordinary `@@match` protocol batch. The compiled
+RegExp program owns matching for every published RegExp; the former compact
+catalogue and its unused child owner are deleted. This file retains historical
+source-equivalent extraction receipts. Its three obsolete structure tests were
+removed with the owner; those tests pinned source layout, not feature semantics.
+The expanded existing `wasm_regexp_exec_result_modes.js` fixture and surviving
+compiled matcher/protocol guards retain semantic and architectural coverage.
+Combined product verification remains pending.
+
+## Historical owner and receipts
+
 Status: implemented and verified for the two specialized duplicate-named-group
 RegExp patterns in the String matcher.
 
@@ -50,7 +61,7 @@ the narrowed seven-line calls have SHA-256
 and
 `354f3a010a275a988edfee244f03b57064e7d1bbd72aa2febcdd2e149683a50a`.
 
-## Verification
+## Historical verification
 
 At the Batch AC shared checkpoint, `cargo xc` is green, the bounded structure
 target passes `3/3`, the exact CLI fixture passes `1/1`, and the exact String

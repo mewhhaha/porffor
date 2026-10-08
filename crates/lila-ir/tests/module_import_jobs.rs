@@ -26,6 +26,7 @@ fn sources(files: &[(&str, &str)]) -> ModuleGraphSources {
         }
     }
     ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions,

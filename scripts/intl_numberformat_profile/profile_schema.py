@@ -91,9 +91,24 @@ def validate(profile):
         pattern(row["per_pattern"], "per")
     if profile["default_locale"] not in profile["locales"]:
         raise ValueError("missing default locale")
-    if len(profile["numbering_systems"]) != 77:
+    if len(profile["numbering_systems"]) != 78:
         raise ValueError("incomplete decimal numbering-system inventory")
     for row in tables["profiles"]:
-        if len(row["numbering"]) != 77 or not 0 <= row["default_numbering"] < 77 or len(row["units"]) != 3:
+        if len(row["numbering"]) != 78 or not 0 <= row["default_numbering"] < 78 or len(row["units"]) != 3:
             raise ValueError("incomplete locale profile")
+    categories = {"zero", "one", "two", "few", "many", "other"}
+    for name in ("plural_rules", "ordinal_rules"):
+        for rules in tables[name]:
+            seen = set()
+            for category, alternatives in rules:
+                if category not in categories or category in seen or bool(alternatives) == (category == "other"):
+                    raise ValueError(f"invalid {name} rule")
+                seen.add(category)
+                for conjunction in alternatives:
+                    if not conjunction:
+                        raise ValueError(f"empty {name} conjunction")
+    for row in tables["profiles"]:
+        for name in ("plural_rules", "ordinal_rules", "plural_ranges"):
+            if not 0 <= row[name] < len(tables[name]):
+                raise ValueError(f"invalid locale {name} association")
     return {"validated_pattern_roles": len(checked), "locale_count": len(profile["locales"])}

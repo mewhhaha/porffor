@@ -1,761 +1,990 @@
 //! Intrinsic module Promise completion, async parents and deferred-import joins.
 
-use super::runtime::ModuleRuntimeOperation;
 use super::*;
 use crate::builtins::ModuleReactionContinuation;
 
 impl FunctionBuilder<'_> {
     pub(super) fn emit_module_cache_throw(
         &self,
-        record: u32,
-        payload: u32,
-        tag: u32,
+        record: &GcLocal<ModuleRecord>,
+        error: &ValueLocals,
         function: &mut Function,
     ) {
-        self.store_i64_local_at_offset(record, MODULE_ERROR_PAYLOAD_OFFSET, payload, function);
-        self.store_i64_local_at_offset(record, MODULE_ERROR_TAG_OFFSET, tag, function);
-        self.store_i64_const_at_offset(
-            record,
-            MODULE_COMPLETION_OFFSET,
-            ModuleEvaluationCompletion::Throw.word(),
+        let schema = self.runtime_schema();
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(error, function),
             function,
         );
-        self.store_i64_const_at_offset(
-            record,
-            MODULE_STATE_OFFSET,
-            ModuleEvaluationState::Evaluated.word(),
-            function,
-        );
-        self.store_i64_const_at_offset(record, MODULE_ASYNC_ORDER_OFFSET, 0, function);
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::ERROR)
+            .write(
+                record,
+                GcOperand::reference(&stored, schema),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::COMPLETION)
+            .write(
+                record,
+                GcOperand::constant(ModuleEvaluationCompletion::Throw),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::STATE)
+            .write(
+                record,
+                GcOperand::constant(ModuleEvaluationState::Evaluated),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::ASYNC_ORDER)
+            .write(record, GcOperand::i64(0), schema, function);
+        stored.clear(function);
     }
 
     pub(super) fn emit_module_settle_evaluation_if_terminal(
         &mut self,
-        module: u32,
+        module: &GcLocal<ModuleRecord>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let promise = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let state = self.reserve_temp_local();
-        let payload = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            module,
-            MODULE_EVALUATION_PROMISE_OFFSET,
-            promise,
+        let schema = self.runtime_schema();
+        let state = schema.reserve_i32_local(function);
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::EVALUATION_PROMISE)
+                .read(module, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(promise));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
+        promise.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_load_module_state_strict(module, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationState::Evaluated.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            promise,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record,
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationState::Evaluated,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let selected = schema.reserve_gc_local(function).initialize(
+            promise.load(schema, function).require_non_null(function),
             function,
         );
+        let value = schema.reserve_value_local(function);
         self.emit_load_module_completion_strict(module, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(module, MODULE_ERROR_PAYLOAD_OFFSET, payload, function);
-        self.load_i64_to_local_from_offset(module, MODULE_ERROR_TAG_OFFSET, tag, function);
-        self.emit_settle_promise_record(record, PromiseSettlement::Reject, payload, tag, function)?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Normal.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag));
-        self.emit_settle_promise_record(
-            record,
-            PromiseSettlement::Fulfill,
-            payload,
-            tag,
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::ERROR)
+                .read(module, schema, function)
+                .reference(),
             function,
-        )?;
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &value, schema, function);
+        self.emit_settle_promise_record(&selected, PromiseSettlement::Reject, &value, function)?;
+        stored.clear(function);
+        function.instruction(&Instruction::Else);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Normal,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        value.set_undefined(function);
+        self.emit_settle_promise_record(&selected, PromiseSettlement::Fulfill, &value, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        value.clear(function);
+        selected.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        for local in [tag, payload, state, record, promise] {
-            self.release_temp_local(local);
-        }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        promise.clear(function);
+        schema.release_i32_local(state, function);
         Ok(())
     }
 
+    /// The job that resumes a module body. Only a program with module bodies
+    /// can have queued one, so a program without them never installs the hook.
     pub(crate) fn emit_run_module_body_reaction(
         &mut self,
-        reaction: u32,
-        rejected: u32,
-        payload: u32,
-        tag: u32,
+        module: &GcLocal<ModuleRecord>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.functions.module_execution_record_count() == 0 {
-            function.instruction(&Instruction::Unreachable);
-            return Ok(());
-        }
-        let module = self.reserve_temp_local();
-        let state = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            reaction,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            module,
+        let schema = self.runtime_schema();
+        self.emit_program_hook_dispatch(
+            crate::runtime_helpers::ProgramHook::ModuleBodyReaction,
+            |_, hook, function| {
+                schema.call_hook(
+                    hook,
+                    ModuleBodyReactionArguments::new(module, rejected, argument),
+                    function,
+                );
+                Ok(())
+            },
+            |_, function| {
+                function.instruction(&Instruction::Unreachable);
+                Ok(())
+            },
             function,
-        );
+        )?;
+        self.completion().initialize(function);
+        Ok(())
+    }
+
+    pub(crate) fn compile_module_body_reaction_hook(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::ModuleBodyReaction);
+        let parameters = self.helper_parameters::<ModuleBodyReactionParameters>(&mut function);
+        self.push_scope();
+        self.emit_module_body_reaction_runtime(
+            &parameters.module,
+            parameters.rejected,
+            &parameters.argument,
+            &mut function,
+        )?;
+        self.pop_scope();
+        parameters.release(&mut function);
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    fn emit_module_body_reaction_runtime(
+        &mut self,
+        module: &GcLocal<ModuleRecord>,
+        rejected: I32Local,
+        argument: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let state = schema.reserve_i32_local(function);
+        let result = schema.reserve_completion(function);
         self.emit_load_module_body_state_strict(module, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleBodyState::Executing.word() as i64
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleBodyState::Executing,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            module,
-            MODULE_BODY_STATE_OFFSET,
-            ModuleBodyState::Completed.word(),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(rejected));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_module_runtime_call(
-            ModuleRuntimeOperation::Rejected,
-            &[module, payload, tag],
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::BODY_STATE)
+            .write(
+                module,
+                GcOperand::constant(ModuleBodyState::Completed),
+                schema,
+                function,
+            );
+        rejected.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(
+                ModuleRejectedArguments::new(module, argument),
+                base,
+                function,
+            )
+            .store(&result, function);
         function.instruction(&Instruction::Else);
-        self.emit_module_runtime_call(
-            ModuleRuntimeOperation::Fulfilled,
-            &[module],
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(
+                ModuleFulfilledArguments::new(module, argument),
+                base,
+                function,
+            )
+            .store(&result, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.release_temp_local(state);
-        self.release_temp_local(module);
+        result.clear(function);
+        schema.release_i32_local(state, function);
+        self.completion().initialize(function);
         Ok(())
     }
 
     pub(super) fn emit_module_rejected_runtime(
         &mut self,
+        initial: &GcLocal<ModuleRecord>,
+        reason: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let graph = self.reserve_temp_local();
-        let limit = self.reserve_temp_local();
-        let queue = self.reserve_temp_local();
-        let count = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let address = self.reserve_temp_local();
-        let module = self.reserve_temp_local();
-        let occurrence = self.reserve_temp_local();
-        let parent = self.reserve_temp_local();
-        let state = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(0, MODULE_GRAPH_OFFSET, graph, function);
-        self.load_i64_to_local_from_offset(graph, MODULE_GRAPH_COUNT_OFFSET, limit, function);
-        self.emit_module_allocate_words(limit, 8, queue, function)?;
-        for local in [count, index] {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
-        self.emit_load_module_completion_strict(0, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_module_state_strict(0, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationState::EvaluatingAsync.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let graph = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::GRAPH)
+                .read(initial, schema, function)
+                .reference(),
+            function,
+        );
+        let queue = self.emit_module_graph_list(&graph, function);
+        let count = schema.reserve_i64_local(function);
+        let index = schema.reserve_i64_local(function);
+        let state = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        count.store(function);
+        function.instruction(&Instruction::I64Const(0));
+        index.store(function);
+        self.emit_load_module_completion_strict(initial, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_load_module_state_strict(initial, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationState::EvaluatingAsync,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_module_cache_throw(0, 1, 2, function);
-        self.emit_module_bounded_append(queue, count, limit, 0, function);
+        self.emit_module_cache_throw(initial, reason, function);
+        self.emit_module_bounded_append(&queue, count, initial, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
+        self.open_frame(ControlFrameKind::Block, function);
+        let again = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_module_array_address(queue, index, 8, address, function);
-        self.load_i64_to_local_from_offset(address, 0, module, function);
-        self.emit_module_settle_evaluation_if_terminal(module, function)?;
-        self.load_i64_to_local_from_offset(
-            module,
-            MODULE_ASYNC_PARENTS_HEAD_OFFSET,
-            occurrence,
+        let module = self.emit_module_list_entry(&queue, index, function);
+        self.emit_module_settle_evaluation_if_terminal(&module, function)?;
+        let occurrence = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::ASYNC_PARENTS_HEAD)
+                .read(&module, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(occurrence));
-        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::Block, function);
+        let parents = self.open_frame(ControlFrameKind::Loop, function);
+        occurrence.load(schema, function).is_null(function);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            occurrence,
-            MODULE_PARENT_MODULE_OFFSET,
-            parent,
+        let selected = schema.reserve_gc_local(function).initialize(
+            occurrence.load(schema, function).require_non_null(function),
             function,
         );
-        self.emit_load_module_completion_strict(parent, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_module_state_strict(parent, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationState::EvaluatingAsync.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let parent = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleParent>()
+                .field(ModuleParentSchema::MODULE)
+                .read(&selected, schema, function)
+                .reference(),
+            function,
+        );
+        self.emit_load_module_completion_strict(&parent, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_load_module_state_strict(&parent, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationState::EvaluatingAsync,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_module_cache_throw(parent, 1, 2, function);
-        self.emit_module_bounded_append(queue, count, limit, parent, function);
+        self.emit_module_cache_throw(&parent, reason, function);
+        self.emit_module_bounded_append(&queue, count, &parent, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            occurrence,
-            MODULE_PARENT_NEXT_OFFSET,
-            occurrence,
+        occurrence.replace(
+            schema
+                .struct_type::<ModuleParent>()
+                .field(ModuleParentSchema::NEXT)
+                .read(&selected, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Br(0));
+        parent.clear(function);
+        selected.clear(function);
+        self.emit_branch_to_target(parents, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_module_increment(index, 1, function);
-        function.instruction(&Instruction::Br(0));
+        occurrence.clear(function);
+        module.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        index.store(function);
+        self.emit_branch_to_target(again, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_statement_result(function, ValueKind::Undefined);
-        for local in [
-            state, parent, occurrence, module, address, index, count, queue, limit, graph,
-        ] {
-            self.release_temp_local(local);
-        }
+        result.initialize(function);
+        schema.release_i32_local(state, function);
+        schema.release_i64_local(index, function);
+        schema.release_i64_local(count, function);
+        queue.clear(function);
+        graph.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_run_module_join_reaction(
         &mut self,
-        reaction: u32,
-        rejected: u32,
-        payload: u32,
-        tag: u32,
+        join: &GcLocal<ModuleJoin>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.functions.module_execution_record_count() == 0 {
-            function.instruction(&Instruction::Unreachable);
-            return Ok(());
-        }
-        let join = self.reserve_temp_local();
-        let remaining = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let undefined = self.reserve_temp_local();
-        let undefined_tag = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            reaction,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            join,
-            function,
-        );
-        self.load_i64_to_local_from_offset(join, MODULE_JOIN_REMAINING_OFFSET, remaining, function);
-        function.instruction(&Instruction::LocalGet(remaining));
+        let schema = self.runtime_schema();
+        let remaining = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<ModuleJoin>()
+            .field(ModuleJoinSchema::REMAINING)
+            .read(join, schema, function)
+            .store_i64(remaining, function);
+        remaining.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_module_increment(remaining, -1, function);
-        self.store_i64_local_at_offset(join, MODULE_JOIN_REMAINING_OFFSET, remaining, function);
-        self.load_i64_to_local_from_offset(
-            join,
-            MODULE_JOIN_PROMISE_RECORD_OFFSET,
-            record,
+        remaining.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        remaining.store(function);
+        schema
+            .struct_type::<ModuleJoin>()
+            .field(ModuleJoinSchema::REMAINING)
+            .write(join, GcOperand::i64_local(remaining), schema, function);
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleJoin>()
+                .field(ModuleJoinSchema::PROMISE)
+                .read(join, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(rejected));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_settle_promise_record(record, PromiseSettlement::Reject, payload, tag, function)?;
+        rejected.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_settle_promise_record(&promise, PromiseSettlement::Reject, argument, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(remaining));
+        remaining.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag));
+        self.open_frame(ControlFrameKind::If, function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
         self.emit_settle_promise_record(
-            record,
+            &promise,
             PromiseSettlement::Fulfill,
-            undefined,
-            undefined_tag,
+            &undefined,
             function,
         )?;
+        undefined.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        for local in [undefined_tag, undefined, record, remaining, join] {
-            self.release_temp_local(local);
-        }
+        promise.clear(function);
+        schema.release_i64_local(remaining, function);
+        self.completion().initialize(function);
         Ok(())
     }
 
     pub(super) fn emit_module_deferred_import_runtime(
         &mut self,
+        module: &GcLocal<ModuleRecord>,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let dependencies = self.reserve_temp_local();
-        let count = self.reserve_temp_local();
-        let promises = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let address = self.reserve_temp_local();
-        let module = self.reserve_temp_local();
-        let join = self.reserve_temp_local();
-        let promise = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let selected_promise = self.reserve_temp_local();
-        let selected_record = self.reserve_temp_local();
-        let selected_tag = self.reserve_temp_local();
-        self.emit_module_runtime_call(
-            ModuleRuntimeOperation::Gather,
-            &[0],
-            dependencies,
-            count,
+        let schema = self.runtime_schema();
+        let dependencies = self.emit_module_gather_call(module, function)?;
+        let count = schema.reserve_i32_local(function);
+        dependencies.count.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        count.store(function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let empty = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&undefined, function),
             function,
-        )?;
-        self.emit_module_allocate_words(count, 8, promises, function)?;
-        let realm = self.emit_module_execution_realm_context(0, function);
-        let context = self.emit_async_execution_promise_allocation_context(&realm, function);
-        self.emit_alloc_promise_with_prototype(context, promise, record, function)?;
-        self.emit_heap_alloc_const(MODULE_JOIN_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(join));
-        self.store_i64_local_at_offset(join, MODULE_JOIN_PROMISE_OFFSET, promise, function);
-        self.store_i64_local_at_offset(join, MODULE_JOIN_PROMISE_RECORD_OFFSET, record, function);
-        self.store_i64_local_at_offset(join, MODULE_JOIN_REMAINING_OFFSET, count, function);
-        self.load_i64_to_local_from_offset(0, MODULE_REALM_OFFSET, selected_record, function);
-        self.store_i64_local_at_offset(join, MODULE_JOIN_REALM_OFFSET, selected_record, function);
+        );
+        // This is a compiler List of exact returned promises, not a JavaScript
+        // Array and not a second module-record registry.
+        let promises = schema.reserve_gc_local(function).initialize(
+            schema.array_type::<ValueArray>().filled(
+                GcOperand::reference(&empty, schema),
+                count,
+                function,
+            ),
+            function,
+        );
+        let realm = self.emit_module_execution_realm_context(module, function);
+        let promise = self.emit_alloc_promise_in_realm(realm.realm(), function)?;
+        let join = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<ModuleJoin>().construct(
+                (
+                    GcOperand::reference(&promise, schema),
+                    GcOperand::i64_local(dependencies.count),
+                    GcOperand::reference(realm.realm(), schema),
+                ),
+                function,
+            ),
+            function,
+        );
+        let index = schema.reserve_i64_local(function);
+        let position = schema.reserve_i32_local(function);
+        let evaluation = schema.reserve_completion(function);
+        let failed = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
+        index.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        failed.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let evaluate = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        dependencies.count.load(function);
+        function.instruction(&Instruction::I64GeU);
+        failed.load(function);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::BrIf(1));
+        let target = self.emit_module_list_entry(&dependencies.modules, index, function);
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(ModuleEvaluateArguments::new(&target), base, function)
+            .store(&evaluation, function);
+        evaluation.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(&evaluation, function);
+        function.instruction(&Instruction::I32Const(1));
+        failed.store(function);
+        function.instruction(&Instruction::Else);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(evaluation.value(), function),
+            function,
+        );
+        index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        position.store(function);
+        schema.array_type::<ValueArray>().write(
+            &promises,
+            position,
+            GcOperand::reference(&stored, schema),
+            schema,
+            function,
+        );
+        stored.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        target.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        index.store(function);
+        self.emit_branch_to_target(evaluate, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        // Complete every selected Evaluate before registering the first reaction.
+        // Settled promises enqueue jobs; interleaving changes first-Await order.
+        failed.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const(0));
+        index.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let register = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        dependencies.count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_module_array_address(dependencies, index, 8, address, function);
-        self.load_i64_to_local_from_offset(address, 0, module, function);
-        self.emit_module_runtime_call(
-            ModuleRuntimeOperation::Evaluate,
-            &[module],
-            selected_promise,
-            selected_tag,
+        index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        position.store(function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ValueArray>()
+                .read(&promises, position, schema, function)
+                .reference(),
             function,
-        )?;
-        self.emit_module_array_address(promises, index, 8, address, function);
-        self.store_i64_local_at_offset(address, 0, selected_promise, function);
-        self.emit_module_increment(index, 1, function);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        // Evaluate every selected target before registering any join reaction.
-        // Already-settled promises enqueue jobs, so interleaving these loops
-        // would change the order relative to later targets' first source Await.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_module_array_address(promises, index, 8, address, function);
-        self.load_i64_to_local_from_offset(address, 0, selected_promise, function);
-        self.load_i64_to_local_from_offset(
-            selected_promise,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            selected_record,
+        );
+        schema.struct_type::<StoredValue>().read_into(
+            &stored,
+            evaluation.value(),
+            schema,
+            function,
+        );
+        let selected = schema.reserve_gc_local(function).initialize(
+            evaluation
+                .value()
+                .cast_reference::<PromiseObject>(schema, function),
             function,
         );
         self.emit_module_promise_reactions(
-            join,
-            selected_record,
+            &selected,
             &realm,
-            ModuleReactionContinuation::Join,
+            ModuleReactionContinuation::Join(&join),
             function,
         )?;
-        self.emit_module_increment(index, 1, function);
-        function.instruction(&Instruction::Br(0));
+        selected.clear(function);
+        stored.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        index.store(function);
+        self.emit_branch_to_target(register, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_async_execution_realm_context(realm);
-        function.instruction(&Instruction::LocalGet(count));
+        dependencies.count.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_settle_promise_record(
-            record,
+            &promise,
             PromiseSettlement::Fulfill,
-            self.result_local,
-            self.result_tag_local,
+            &undefined,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(promise));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        for local in [
-            selected_tag,
-            selected_record,
-            selected_promise,
-            record,
-            promise,
-            join,
-            module,
-            address,
-            index,
-            promises,
-            count,
-            dependencies,
-        ] {
-            self.release_temp_local(local);
-        }
+        result.initialize(function);
+        result.value().set_reference(&promise, schema, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(failed, function);
+        evaluation.clear(function);
+        schema.release_i32_local(position, function);
+        schema.release_i64_local(index, function);
+        join.clear(function);
+        promise.clear(function);
+        self.release_async_execution_realm_context(realm, function);
+        promises.clear(function);
+        empty.clear(function);
+        undefined.clear(function);
+        schema.release_i32_local(count, function);
+        dependencies.clear(schema, function);
         Ok(())
     }
+
     pub(super) fn emit_module_fulfilled_runtime(
         &mut self,
+        initial: &GcLocal<ModuleRecord>,
+        _value: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let graph = self.reserve_temp_local();
-        let limit = self.reserve_temp_local();
-        let queue = self.reserve_temp_local();
-        let queue_count = self.reserve_temp_local();
-        let queue_index = self.reserve_temp_local();
-        let executions = self.reserve_temp_local();
-        let execution_count = self.reserve_temp_local();
-        let execution_index = self.reserve_temp_local();
-        let address = self.reserve_temp_local();
-        let module = self.reserve_temp_local();
-        let occurrence = self.reserve_temp_local();
-        let parent = self.reserve_temp_local();
-        let root = self.reserve_temp_local();
-        let state = self.reserve_temp_local();
-        let found = self.reserve_temp_local();
-        let pending = self.reserve_temp_local();
-        let order = self.reserve_temp_local();
-        let smallest_order = self.reserve_temp_local();
-        let selected = self.reserve_temp_local();
-        let selected_address = self.reserve_temp_local();
-        let kind = self.reserve_temp_local();
-        self.emit_load_module_completion_strict(0, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_load_module_state_strict(0, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationState::EvaluatingAsync.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let state = schema.reserve_i32_local(function);
+        self.emit_load_module_completion_strict(initial, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_load_module_state_strict(initial, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationState::EvaluatingAsync,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            0,
-            MODULE_STATE_OFFSET,
-            ModuleEvaluationState::Evaluated.word(),
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::STATE)
+            .write(
+                initial,
+                GcOperand::constant(ModuleEvaluationState::Evaluated),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::COMPLETION)
+            .write(
+                initial,
+                GcOperand::constant(ModuleEvaluationCompletion::Normal),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::ASYNC_ORDER)
+            .write(initial, GcOperand::i64(0), schema, function);
+        self.emit_module_settle_evaluation_if_terminal(initial, function)?;
+        let graph = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::GRAPH)
+                .read(initial, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_const_at_offset(
-            0,
-            MODULE_COMPLETION_OFFSET,
-            ModuleEvaluationCompletion::Normal.word(),
-            function,
-        );
-        self.store_i64_const_at_offset(0, MODULE_ASYNC_ORDER_OFFSET, 0, function);
-        self.emit_module_settle_evaluation_if_terminal(0, function)?;
-        self.load_i64_to_local_from_offset(0, MODULE_GRAPH_OFFSET, graph, function);
-        self.load_i64_to_local_from_offset(graph, MODULE_GRAPH_COUNT_OFFSET, limit, function);
-        self.emit_module_allocate_words(limit, 8, queue, function)?;
-        self.emit_module_allocate_words(limit, 8, executions, function)?;
+        let queue = self.emit_module_graph_list(&graph, function);
+        let executions = self.emit_module_graph_list(&graph, function);
+        let queue_count = schema.reserve_i64_local(function);
+        let queue_index = schema.reserve_i64_local(function);
+        let execution_count = schema.reserve_i64_local(function);
+        let execution_index = schema.reserve_i64_local(function);
+        let pending = schema.reserve_i64_local(function);
+        let order = schema.reserve_i64_local(function);
+        let smallest = schema.reserve_i64_local(function);
+        let found = schema.reserve_i32_local(function);
+        let kind = schema.reserve_i32_local(function);
+        let selected_index = schema.reserve_i32_local(function);
+        let position = schema.reserve_i32_local(function);
+        let selected = schema
+            .reserve_gc_local::<ModuleRecord, Nullable>(function)
+            .initialize_null(schema, function);
+        let execution = schema.reserve_completion(function);
         for local in [queue_count, queue_index, execution_count] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
+            local.store(function);
         }
-        self.emit_module_bounded_append(queue, queue_count, limit, 0, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(queue_index));
-        function.instruction(&Instruction::LocalGet(queue_count));
+        self.emit_module_bounded_append(&queue, queue_count, initial, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let gather = self.open_frame(ControlFrameKind::Loop, function);
+        queue_index.load(function);
+        queue_count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_module_array_address(queue, queue_index, 8, address, function);
-        self.load_i64_to_local_from_offset(address, 0, module, function);
-        self.load_i64_to_local_from_offset(
-            module,
-            MODULE_ASYNC_PARENTS_HEAD_OFFSET,
-            occurrence,
+        let module = self.emit_module_list_entry(&queue, queue_index, function);
+        let occurrence = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::ASYNC_PARENTS_HEAD)
+                .read(&module, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(occurrence));
-        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::Block, function);
+        let parents = self.open_frame(ControlFrameKind::Loop, function);
+        occurrence.load(schema, function).is_null(function);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            occurrence,
-            MODULE_PARENT_MODULE_OFFSET,
-            parent,
+        let entry = schema.reserve_gc_local(function).initialize(
+            occurrence.load(schema, function).require_non_null(function),
             function,
         );
-        self.emit_module_list_contains(executions, execution_count, parent, found, function);
-        self.emit_load_module_completion_strict(parent, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // A later sibling can abort DFS before this parent's SCC closes.
-        // Its cached failure is final even though CycleRoot is still empty.
-        self.load_i64_to_local_from_offset(parent, MODULE_CYCLE_ROOT_OFFSET, root, function);
-        function.instruction(&Instruction::LocalGet(root));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.emit_load_module_completion_strict(root, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(found));
-        function.instruction(&Instruction::I64Eqz);
+        let parent = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleParent>()
+                .field(ModuleParentSchema::MODULE)
+                .read(&entry, schema, function)
+                .reference(),
+            function,
+        );
+        self.emit_module_list_contains(&executions, execution_count, &parent, found, function);
+        self.emit_load_module_completion_strict(&parent, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        // A later sibling can fail before this parent's SCC closes. That cached
+        // failure is final even while its CycleRoot is still absent.
+        let cycle = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::CYCLE_ROOT)
+                .read(&parent, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        self.emit_load_module_completion_strict(&cycle, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        found.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_module_state_strict(parent, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationState::EvaluatingAsync.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_load_module_state_strict(&parent, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationState::EvaluatingAsync,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            parent,
-            MODULE_PENDING_ASYNC_DEPENDENCIES_OFFSET,
-            pending,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(pending));
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::PENDING_ASYNC_DEPENDENCIES)
+            .read(&parent, schema, function)
+            .store_i64(pending, function);
+        pending.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_module_increment(pending, -1, function);
-        self.store_i64_local_at_offset(
-            parent,
-            MODULE_PENDING_ASYNC_DEPENDENCIES_OFFSET,
-            pending,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(pending));
+        pending.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        pending.store(function);
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::PENDING_ASYNC_DEPENDENCIES)
+            .write(&parent, GcOperand::i64_local(pending), schema, function);
+        pending.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_module_bounded_append(executions, execution_count, limit, parent, function);
-        self.emit_load_module_activation_kind_strict(parent, kind, function);
-        function.instruction(&Instruction::LocalGet(kind));
-        function.instruction(&Instruction::I64Const(
-            ModuleActivationKind::Synchronous.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_module_bounded_append(queue, queue_count, limit, parent, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_module_bounded_append(&executions, execution_count, &parent, function);
+        self.emit_load_module_activation_kind_strict(&parent, kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleActivationKind::Synchronous,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_module_bounded_append(&queue, queue_count, &parent, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        cycle.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            occurrence,
-            MODULE_PARENT_NEXT_OFFSET,
-            occurrence,
+        occurrence.replace(
+            schema
+                .struct_type::<ModuleParent>()
+                .field(ModuleParentSchema::NEXT)
+                .read(&entry, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Br(0));
+        parent.clear(function);
+        entry.clear(function);
+        self.emit_branch_to_target(parents, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_module_increment(queue_index, 1, function);
-        function.instruction(&Instruction::Br(0));
+        occurrence.clear(function);
+        module.clear(function);
+        queue_index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        queue_index.store(function);
+        self.emit_branch_to_target(gather, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        // Gather every eligible synchronous ancestor before executing source,
-        // then choose the exact global async-evaluation order. A same-cycle
-        // peer is not a barrier unless a registered dependency requires it.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        for local in [selected, execution_index] {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
+        // Gather all eligible synchronous ancestors before invoking any body,
+        // then select their actual global async-evaluation order.
+        self.open_frame(ControlFrameKind::Block, function);
+        let execute = self.open_frame(ControlFrameKind::Loop, function);
+        selected.set_null(schema, function);
+        function.instruction(&Instruction::I64Const(0));
+        execution_index.store(function);
         function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(smallest_order));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(execution_index));
-        function.instruction(&Instruction::LocalGet(execution_count));
+        smallest.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let choose = self.open_frame(ControlFrameKind::Loop, function);
+        execution_index.load(function);
+        execution_count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_module_array_address(executions, execution_index, 8, address, function);
-        self.load_i64_to_local_from_offset(address, 0, parent, function);
-        function.instruction(&Instruction::LocalGet(parent));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(parent, MODULE_ASYNC_ORDER_OFFSET, order, function);
-        function.instruction(&Instruction::LocalGet(order));
-        function.instruction(&Instruction::LocalGet(smallest_order));
+        execution_index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        position.store(function);
+        let candidate = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleRegistry>()
+                .read(&executions, position, schema, function)
+                .reference(),
+            function,
+        );
+        candidate.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let parent = schema.reserve_gc_local(function).initialize(
+            candidate.load(schema, function).require_non_null(function),
+            function,
+        );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::ASYNC_ORDER)
+            .read(&parent, schema, function)
+            .store_i64(order, function);
+        order.load(function);
+        smallest.load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        for (source, target) in [
-            (parent, selected),
-            (order, smallest_order),
-            (address, selected_address),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(target));
-        }
+        self.open_frame(ControlFrameKind::If, function);
+        selected.replace(parent.load(schema, function).nullable(), function);
+        order.load(function);
+        smallest.store(function);
+        position.load(function);
+        selected_index.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        parent.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_module_increment(execution_index, 1, function);
-        function.instruction(&Instruction::Br(0));
+        candidate.clear(function);
+        execution_index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        execution_index.store(function);
+        self.emit_branch_to_target(choose, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(selected));
-        function.instruction(&Instruction::I64Eqz);
+        selected.load(schema, function).is_null(function);
         function.instruction(&Instruction::BrIf(1));
-        self.store_i64_const_at_offset(selected_address, 0, 0, function);
-        self.emit_load_module_completion_strict(selected, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(
-            ModuleEvaluationCompletion::Throw.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_module_activation_kind_strict(selected, kind, function);
-        self.emit_module_runtime_call(
-            ModuleRuntimeOperation::Execute,
-            &[selected],
-            self.result_local,
-            self.result_tag_local,
+        schema.array_type::<ModuleRegistry>().write(
+            &executions,
+            selected_index,
+            GcOperand::null(schema),
+            schema,
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(kind));
-        function.instruction(&Instruction::I64Const(
-            ModuleActivationKind::Synchronous.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_module_runtime_call(
-            ModuleRuntimeOperation::Rejected,
-            &[selected, self.result_local, self.result_tag_local],
-            self.result_local,
-            self.result_tag_local,
+        );
+        let parent = schema.reserve_gc_local(function).initialize(
+            selected.load(schema, function).require_non_null(function),
             function,
-        )?;
+        );
+        self.emit_load_module_completion_strict(&parent, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleEvaluationCompletion::Throw,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_load_module_activation_kind_strict(&parent, kind, function);
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(ModuleExecuteArguments::new(&parent), base, function)
+            .store(&execution, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ModuleActivationKind::Synchronous,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        execution.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(
+                ModuleRejectedArguments::new(&parent, execution.value()),
+                base,
+                function,
+            )
+            .store(&execution, function);
         function.instruction(&Instruction::Else);
-        self.store_i64_const_at_offset(
-            selected,
-            MODULE_STATE_OFFSET,
-            ModuleEvaluationState::Evaluated.word(),
-            function,
-        );
-        self.store_i64_const_at_offset(
-            selected,
-            MODULE_COMPLETION_OFFSET,
-            ModuleEvaluationCompletion::Normal.word(),
-            function,
-        );
-        self.store_i64_const_at_offset(selected, MODULE_ASYNC_ORDER_OFFSET, 0, function);
-        self.emit_module_settle_evaluation_if_terminal(selected, function)?;
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::STATE)
+            .write(
+                &parent,
+                GcOperand::constant(ModuleEvaluationState::Evaluated),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::COMPLETION)
+            .write(
+                &parent,
+                GcOperand::constant(ModuleEvaluationCompletion::Normal),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ModuleRecord>()
+            .field(ModuleRecordSchema::ASYNC_ORDER)
+            .write(&parent, GcOperand::i64(0), schema, function);
+        self.emit_module_settle_evaluation_if_terminal(&parent, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
+        parent.clear(function);
+        self.emit_branch_to_target(execute, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_statement_result(function, ValueKind::Undefined);
+        execution.clear(function);
+        selected.clear(function);
+        schema.release_i32_local(position, function);
+        schema.release_i32_local(selected_index, function);
+        schema.release_i32_local(kind, function);
+        schema.release_i32_local(found, function);
         for local in [
-            kind,
-            selected_address,
-            selected,
-            smallest_order,
+            smallest,
             order,
             pending,
-            found,
-            state,
-            root,
-            parent,
-            occurrence,
-            module,
-            address,
             execution_index,
             execution_count,
-            executions,
             queue_index,
             queue_count,
-            queue,
-            limit,
-            graph,
         ] {
-            self.release_temp_local(local);
+            schema.release_i64_local(local, function);
         }
+        executions.clear(function);
+        queue.clear(function);
+        graph.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.initialize(function);
+        schema.release_i32_local(state, function);
         Ok(())
     }
 }

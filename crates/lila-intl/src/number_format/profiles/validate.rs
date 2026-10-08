@@ -184,6 +184,21 @@ impl NumberProfiles {
     }
 
     pub(super) fn validate(&self) -> Result<(), InvalidNumberProfile> {
+        self.validate_selection(None, None)
+    }
+
+    pub(super) fn validate_projected(
+        &self,
+        catalogue: &crate::number_image::projection::NumberCatalogue<'_>,
+    ) -> Result<(), InvalidNumberProfile> {
+        self.validate_selection(catalogue.currency_codes(), catalogue.numbering_systems())
+    }
+
+    fn validate_selection(
+        &self,
+        currency_codes: Option<&[CurrencyCode]>,
+        numbering_systems: Option<&[crate::number_format::NumberingSystemOption]>,
+    ) -> Result<(), InvalidNumberProfile> {
         for (index, pattern) in self.patterns.iter().enumerate() {
             for token in &pattern.0 {
                 match token {
@@ -390,12 +405,23 @@ impl NumberProfiles {
         for (index, set) in self.currency_sets.iter().enumerate() {
             let table = NumberProfileTable::CurrencySets;
             require(
-                !set.0.is_empty() && ordered(set.0.iter().map(|row| row.code)),
+                (currency_codes.is_some() || !set.0.is_empty())
+                    && ordered(set.0.iter().map(|row| row.code)),
                 table,
                 index,
                 NumberProfileError::Order,
             )?;
             for row in &set.0 {
+                require(
+                    currency_codes.is_none_or(|codes| {
+                        codes
+                            .binary_search_by_key(&row.code, |code| code.clone().ascii())
+                            .is_ok()
+                    }),
+                    table,
+                    index,
+                    NumberProfileError::UnknownCode,
+                )?;
                 require(
                     row.symbol.0 < self.texts.len()
                         && row.narrow.0 < self.texts.len()
@@ -439,44 +465,48 @@ impl NumberProfiles {
             }
             self.pattern_role(set.per_pattern, PatternRole::Per)?;
         }
-        for (index, rules) in self.plural_rules.iter().enumerate() {
-            let mut seen = [false; 6];
-            for rule in &rules.0 {
-                let table = NumberProfileTable::PluralRules;
-                require(
-                    !seen[rule.category.index()],
-                    table,
-                    index,
-                    NumberProfileError::Order,
-                )?;
-                seen[rule.category.index()] = true;
-                require(
-                    rule.alternatives.is_empty() == (rule.category == CardinalCategory::Other),
-                    table,
-                    index,
-                    NumberProfileError::Cardinality,
-                )?;
-                for conjunction in &rule.alternatives {
+        for (table, all_rules) in [
+            (NumberProfileTable::PluralRules, &self.plural_rules),
+            (NumberProfileTable::OrdinalRules, &self.ordinal_rules),
+        ] {
+            for (index, rules) in all_rules.iter().enumerate() {
+                let mut seen = [false; 6];
+                for rule in &rules.0 {
                     require(
-                        !conjunction.is_empty(),
+                        !seen[rule.category.index()],
+                        table,
+                        index,
+                        NumberProfileError::Order,
+                    )?;
+                    seen[rule.category.index()] = true;
+                    require(
+                        rule.alternatives.is_empty() == (rule.category == CardinalCategory::Other),
                         table,
                         index,
                         NumberProfileError::Cardinality,
                     )?;
-                    for relation in conjunction {
+                    for conjunction in &rule.alternatives {
                         require(
-                            !relation.ranges.is_empty()
-                                && relation.ranges.iter().all(|&(lower, upper)| lower <= upper),
+                            !conjunction.is_empty(),
                             table,
                             index,
-                            NumberProfileError::InvalidRange,
+                            NumberProfileError::Cardinality,
                         )?;
+                        for relation in conjunction {
+                            require(
+                                !relation.ranges.is_empty()
+                                    && relation.ranges.iter().all(|&(lower, upper)| lower <= upper),
+                                table,
+                                index,
+                                NumberProfileError::InvalidRange,
+                            )?;
+                        }
                     }
                 }
             }
         }
         require(
-            self.systems.len() == 77 && ordered(self.system_names.iter().copied()),
+            self.systems.len() == 78 && ordered(self.system_names.iter().map(AsRef::as_ref)),
             NumberProfileTable::NumberingSystems,
             0,
             NumberProfileError::Cardinality,
@@ -507,7 +537,7 @@ impl NumberProfiles {
                     .unit_names
                     .iter()
                     .zip(SingleUnit::ALL)
-                    .all(|(name, unit)| *name == unit.name()),
+                    .all(|(name, unit)| name.as_ref() == unit.name()),
             NumberProfileTable::Units,
             0,
             NumberProfileError::Cardinality,
@@ -516,7 +546,24 @@ impl NumberProfiles {
             let table = NumberProfileTable::Profiles;
             require(
                 profile.numbering.len() == self.systems.len()
-                    && usize::from(profile.default_numbering) < self.systems.len(),
+                    && usize::from(profile.default_numbering) < self.systems.len()
+                    && profile
+                        .numbering
+                        .get(usize::from(profile.default_numbering))
+                        .is_some_and(Option::is_some)
+                    && profile
+                        .numbering
+                        .iter()
+                        .enumerate()
+                        .all(|(system, record)| {
+                            let required = numbering_systems.is_none_or(|selected| {
+                                system == usize::from(profile.default_numbering)
+                                    || selected.iter().any(|value| {
+                                        value.name() == self.system_names[system].as_ref()
+                                    })
+                            });
+                            record.is_some() == required
+                        }),
                 table,
                 index,
                 NumberProfileError::Cardinality,
@@ -525,8 +572,10 @@ impl NumberProfiles {
                 profile
                     .numbering
                     .iter()
+                    .flatten()
                     .all(|id| id.0 < self.numbering_profiles.len())
                     && profile.plural_rules.0 < self.plural_rules.len()
+                    && profile.ordinal_rules.0 < self.ordinal_rules.len()
                     && profile.plural_ranges.0 < self.plural_ranges.len()
                     && profile.currencies.0 < self.currency_sets.len()
                     && profile.units.iter().all(|id| id.0 < self.unit_sets.len()),
@@ -535,20 +584,43 @@ impl NumberProfiles {
                 NumberProfileError::Index,
             )?;
         }
+        // The immutable profile publishes masks and matrices together; every
+        // reachable cardinal pair must stay inside that locale's category set.
+        for (index, profile) in self.profiles.iter().enumerate() {
+            let categories = self.rules(profile.plural_rules).categories();
+            for start in CardinalCategory::ALL {
+                for end in CardinalCategory::ALL {
+                    require(
+                        !categories.contains(start)
+                            || !categories.contains(end)
+                            || categories.contains(self.range_category(
+                                profile.plural_ranges,
+                                start,
+                                end,
+                            )),
+                        NumberProfileTable::PluralRanges,
+                        index,
+                        NumberProfileError::Cardinality,
+                    )?;
+                }
+            }
+        }
         require(
             self.locales.len() == self.locale_profiles.len()
-                && ordered(self.locales.iter().copied()),
+                && ordered(self.locales.iter().map(AsRef::as_ref)),
             NumberProfileTable::Locales,
             0,
             NumberProfileError::Order,
         )?;
         require(
-            self.locales.binary_search(&"en-US").is_ok(),
+            self.locales
+                .binary_search_by(|name| name.as_ref().cmp("en-US"))
+                .is_ok(),
             NumberProfileTable::Locales,
             0,
             NumberProfileError::MissingDefaultLocale,
         )?;
-        for (index, (&locale, profile)) in self
+        for (index, (locale, profile)) in self
             .locales
             .iter()
             .zip(self.locale_profiles.iter())

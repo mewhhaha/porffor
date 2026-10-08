@@ -1,22 +1,16 @@
 use super::*;
 
 fn group_with_worker(worker: WasmAgentWorker) -> WasmAgentGroup {
-    let engine = WasmtimeEngine::default();
+    let engine = shared_wasm_engine().expect("required runtime for the lifecycle fixture");
     let realm = RealmBuilder::new().build();
     let started_at = realm.host_clock().monotonic_instant();
     let memory = WasmtimeSharedMemory::new(&engine, wasmtime::MemoryType::shared(1, 1))
         .expect("one shared page for the lifecycle fixture");
     WasmAgentGroup {
         engine,
+        native_compilation_mode: WasmNativeCompilationMode::Fast,
         realm,
-        shared_memory_backing: Arc::new(WasmSharedMemoryBacking {
-            memory,
-            next_offset: Mutex::new(8),
-            async_waiters: Mutex::new(WasmAgentAsyncWaiterRegistry {
-                next_id: 1,
-                waiters: VecDeque::new(),
-            }),
-        }),
+        shared_memory_backing: WasmSharedMemoryBacking::new(memory),
         prelude: Arc::from(""),
         compile_policy: WasmAgentCompilePolicy::from_root(&CompileOptions::default()),
         timeout_ms: Some(1_000),
@@ -42,10 +36,12 @@ fn broadcast_retains_a_disconnected_worker_until_its_failure_is_joined() {
     let group = group_with_worker(WasmAgentWorker { commands, join });
     assert_eq!(
         group.broadcast(WasmAgentBroadcast {
-            data_offset: 0,
-            byte_length: 0,
-            max_byte_length: 0,
-            flags: 0,
+            resource: group
+                .shared_memory_backing
+                .allocate(0, 0, false)
+                .expect("valid fixed resource")
+                .expect("bounded resource allocation"),
+            id: 0,
         }),
         0
     );
@@ -84,7 +80,7 @@ fn structured_root_throw_and_worker_capability_keep_both_failures() {
         )?;
         engine
             .execute_with_wasm_bytes_inner_with_agents(
-                &artifact.bytes,
+                artifact.program(),
                 // Cold worker compilation runs inside Agent.start's root
                 // execution deadline, as in the integration regression.
                 Some(120_000),

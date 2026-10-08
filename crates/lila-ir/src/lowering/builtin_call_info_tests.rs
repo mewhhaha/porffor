@@ -11,6 +11,56 @@ fn lower_test262(source: &str) -> ProgramIr {
     crate::lower_with_host_surface_policy(&source, HostSurfacePolicy::Test262)
 }
 
+#[test]
+fn regexp_call_retains_open_callable_pattern_targets() {
+    let program = lower(
+        "function pattern(value) { return value + 1; } \
+         pattern[Symbol.match] = true; pattern.constructor = RegExp; RegExp(pattern);",
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let pattern = source_function(&program, "pattern");
+    let script = program.script.as_ref().unwrap();
+    let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+        panic!("the original RegExp Call is the final expression");
+    };
+    assert!(result.possible_kinds.contains(ValueKind::Function));
+    assert!(result.possible_kinds.contains(ValueKind::Object));
+    assert!(result.heap_shape.is_none());
+    assert!(matches!(
+        result.function_targets,
+        FunctionTargetKnowledge::Open(_)
+    ));
+    assert!(result
+        .function_targets
+        .known_targets()
+        .contains(&pattern.id));
+}
+
+#[test]
+fn regexp_returned_function_constructor_keeps_dynamic_source_candidate_admission() {
+    let program = lower(
+        "const pattern = Function; pattern[Symbol.match] = true; pattern.constructor = RegExp; \
+         const constructor = RegExp(pattern); constructor('value', 'return value + 2;');",
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .script
+            .as_ref()
+            .unwrap()
+            .prepared_dynamic_functions
+            .iter()
+            .any(|prepared| {
+                prepared.arguments == ["value", "return value + 2;"]
+                    && matches!(
+                        prepared.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )
+            }),
+        "the retained Function candidate must register the actual finite source"
+    );
+}
+
 fn assert_realm_eval_is_not_typed(program: &ProgramIr) {
     assert!(!program.diagnostics.iter().any(|diagnostic| {
         diagnostic.unsupported_feature()
@@ -101,7 +151,7 @@ fn later_argument_prototype_change_invalidates_the_captured_descriptor_shape() {
 #[test]
 fn define_property_observes_a_descriptor_field_getter_receiver() {
     let program = lower(
-        "Object.defineProperty({}, 'x', { marker: 1, get set() { return this.marker ? function selected(value) {} : undefined; } });",
+        "Object.defineProperty({}, 'x', { __proto__: null, marker: 1, get set() { return this.marker ? function selected(value) {} : undefined; } });",
     );
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     let script = program.script.as_ref().expect("script IR should exist");
@@ -413,4 +463,38 @@ fn promise_resolve_function_with_an_object_resolution_invalidates_caller_flow() 
         matches!(result.expr, ExprIr::CoerciveAdd { .. }),
         "{source}: {result:?}"
     );
+}
+
+#[test]
+fn get_own_property_descriptor_accepts_non_object_and_missing_targets() {
+    for source in [
+        "Object.getOwnPropertyDescriptor('abc', 'length');",
+        "Object.getOwnPropertyDescriptor(1, 'x');",
+        "Object.getOwnPropertyDescriptor(undefined, 'x');",
+        "Object.getOwnPropertyDescriptor();",
+    ] {
+        let program = lower(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn data_view_constructor_accepts_any_buffer_argument() {
+    for source in [
+        "new DataView({});",
+        "new DataView();",
+        "new DataView(1);",
+        "try { new DataView(new Array(1)); } catch (e) {}",
+    ] {
+        let program = lower(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
 }

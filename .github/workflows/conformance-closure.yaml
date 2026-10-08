@@ -1,0 +1,44 @@
+name: Pinned Test262 release closure
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  differential:
+    uses: ./.github/workflows/differential-corpus.yaml
+    with:
+      exhaustive: true
+  closure:
+    needs: differential
+    # Full pinned runs require a dedicated Linux host with systemd user cgroup
+    # delegation. The launcher rejects a missing cap instead of running uncapped.
+    runs-on: [self-hosted, linux, lila-conformance]
+    timeout-minutes: 4320
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check the actual closure admission and verdict controls
+        run: |
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked --release -p lila-test262 --lib conformance_closure::tests -- --test-threads=1
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked --release -p lila-cli --test conformance_closure -- --test-threads=1
+      - name: Build the product compiler under the aggregate budget
+        run: python3 scripts/limited_verification.py --memory-mib 4096 -- cargo build --locked --release -p lila-cli
+      - name: Execute and gate two fresh full pinned families
+        env:
+          CLOSURE_EVIDENCE_DIR: ${{ runner.temp }}/lila-test262-closure-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/check-test262-closure.sh
+      - name: Retain complete or incomplete evidence on every verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-test262-closure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lila-test262-closure-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+      - name: Record the consumed release verdict
+        run: echo 'Both independently fresh full pinned Wasm-AOT families passed the native closure validator.'

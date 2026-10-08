@@ -47,7 +47,7 @@ fn output_comparison_policy_is_the_exact_private_no_capability_domain() {
     let declaration = bounded(
         OWNER_SOURCE,
         "impl From<ObservationContract> for DifferentialProtocol {",
-        "/// The complete program admitted by the current corpus protocols.",
+        "/// A program whose loading authority was admitted with its source.",
     );
     assert_eq!(
         normalized(declaration),
@@ -59,6 +59,12 @@ fn output_comparison_policy_is_the_exact_private_no_capability_domain() {
             ObservationContract::PrimitiveCompletionNoOutput => Self::V2PrimitiveCompletionNoOutput,
             ObservationContract::PrimitiveCompletionPrintTranscript => {
                 Self::V3PrimitiveCompletionPrintTranscript
+            }
+            ObservationContract::SelectedObjectProbePrintTranscript => {
+                Self::V5SelectedObjectProbePrintTranscript
+            }
+            ObservationContract::RootedCompletionGraphPrintTranscript => {
+                Self::V7Test262HostRootedCompletionGraphPrintTranscript
             }
         }
     }
@@ -117,7 +123,11 @@ fn every_protocol_projects_one_exact_output_policy() {
             Self::V1SelfCheckingNoOutput | Self::V2PrimitiveCompletionNoOutput => {
                 OutputComparisonPolicy::RequireCapturedEmpty
             }
-            Self::V3PrimitiveCompletionPrintTranscript => {
+            Self::V3PrimitiveCompletionPrintTranscript
+            | Self::V4EmbeddedGraphPrimitivePrintTranscript
+            | Self::V6Test262HostPrimitivePrintTranscript
+            | Self::V7Test262HostRootedCompletionGraphPrintTranscript
+            | Self::V5SelectedObjectProbePrintTranscript => {
                 OutputComparisonPolicy::CompareCapturedPrintTranscript
             }
         }
@@ -130,35 +140,27 @@ fn every_protocol_projects_one_exact_output_policy() {
 }
 
 #[test]
-fn replay_checks_the_exact_output_policy_before_projecting_backend_observations() {
-    let comparison_prefix = bounded(
+fn replay_checks_the_exact_output_policy_only_after_worker_failure_classification() {
+    let comparison = normalized(bounded(
         OWNER_SOURCE,
-        "fn compare_executions(",
-        "    let verdict = if !output_policy_satisfied {",
+        "fn compare_observations(",
+        "fn obeys_output_policy(",
+    ));
+    for observation in ["&wasm_aot.output_events", "&spec_exec.output_events"] {
+        assert!(comparison.contains(observation));
+    }
+    let failure = comparison
+        .find("DifferentialVerdict::WorkerFailure")
+        .unwrap();
+    let contract = comparison
+        .find("DifferentialVerdict::ObservationContractViolated")
+        .unwrap();
+    assert!(
+        failure < contract,
+        "incomplete workers never become semantic mismatch evidence"
     );
-    assert_eq!(
-        normalized(comparison_prefix),
-        normalized(
-            r#"
-    case: &DifferentialCase,
-    wasm_execution: BackendExecution,
-    spec_execution: BackendExecution,
-) -> DifferentialReport {
-    let protocol = case.protocol();
-    let output_policy_satisfied = obeys_output_policy(
-        protocol.output_policy(),
-        &wasm_execution.output_events,
-        &spec_execution.output_events,
-    );
-    let wasm_disposition = wasm_execution.result.disposition();
-    let spec_disposition = spec_execution.result.disposition();
-    let wasm_aot = project_backend_execution(protocol, wasm_execution);
-    let spec_exec = project_backend_execution(protocol, spec_execution);
-
-"#,
-        )
-    );
-
+    assert!(comparison.contains("matches!(verdict,DifferentialVerdict::Mismatch).then"));
+    assert!(!comparison.contains("project_backend_execution("));
     let consumer = bounded(
         OWNER_SOURCE,
         "fn obeys_output_policy(",

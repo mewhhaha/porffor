@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "release": "47.0.0",
+  "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "source_manifest": {
+    "path": "crates/lila-intl/data/number-cldr-47/source-manifest.json",
+    "sha256": "582f922168284a76255554a4b74c6200f0e954853ef2eaf49bceb393a2d48b49"
+  },
+  "archive": {
+    "path": "crates/lila-intl/data/number-cldr-47/sources.tar.gz",
+    "sha256": "f85496f1e76ca0a12a0d7603c5f3243a94e2506926176f6ec7fe178327ffcebf",
+    "bytes": 9576417
+  },
+  "files": [
+    {
+      "path": "common/main/pl.xml",
+      "archive_member": "reference/cldr/common/main/pl.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/main/pl.xml",
+      "git_blob_sha1": "37a90613a550519682bfcc1e56002e394b7b2c93",
+      "sha256": "57dfcb94f55aea5878d0f0d9198beb781d0d8dc681a6b0ece04d8cf1c2799cdc",
+      "bytes": 758091
+    },
+    {
+      "path": "common/main/pl_PL.xml",
+      "archive_member": "reference/cldr/common/main/pl_PL.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/main/pl_PL.xml",
+      "git_blob_sha1": "8346833519858a38565c38b8cf39025616de26ea",
+      "sha256": "a0eb2483f1e1b65f054072808eed0ce0c9f25577e21aa8161faa79168c4c93cc",
+      "bytes": 459
+    }
+  ],
+  "locale_admission": [
+    "pl"
+  ],
+  "region_alias_source": "pl_PL is retained as genuine source authority; native lookup admits pl and resolves requested pl-PL through it.",
+  "public_capability_admission": false
+}

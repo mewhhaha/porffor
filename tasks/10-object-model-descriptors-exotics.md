@@ -8,6 +8,13 @@
 
 ## Current repository state
 
+The 2026-10-03 dry Reflect migration removes its copied descriptor conversion
+loop. The actual allocator now requires the shared factory's validated owner,
+with partial presence preserved through object and definition projections.
+Existing completion, Proxy dispatch and ordinary definition policies remain
+unchanged. Source review is complete; executable verification is pending. See
+the [descriptor contract](../docs/rust-rewrite/contracts/reflect-to-property-descriptor-owner.md).
+
 `Object.prototype.toString` and the intrinsic fallback used by
 `Array.prototype.toString` now share the existing typed, Proxy-aware `IsArray`
 authority before either reads `@@toStringTag`. Both emitters cover the complete
@@ -599,6 +606,18 @@ single producer/consumer census and source invariant are recorded in
 `docs/rust-rewrite/contracts/arguments-callee-descriptor-boundary.md`; focused
 execution is deferred to the shared T10 verification checkpoint.
 
+The source-only object-rest repair prepared on 2026-10-03 compares excluded
+keys and `Reflect.ownKeys` results in the same internal PropertyKey domain
+before any descriptor lookup. Symbol keys retain identity rather than being
+compared across marked internal and unmarked observable payloads; string keys
+retain content equality. Descriptor trap arguments remain ordinary JavaScript
+values. The existing object-assignment-rest CLI fixture now contains binding
+and assignment cases with distinct same-description symbols, mixed string and
+index keys, an excluded-key descriptor trap that throws if reached, and exact
+computed-key evaluation and copy ordering. Compilation, fixture execution and
+the unchanged pinned object-rest witness remain pending for the combined batch
+verification checkpoint; this preparation makes no passing claim.
+
 ## Objective
 
 Implement the ECMAScript object internal-method model and exact property descriptor semantics as a reusable runtime/compiler layer. Arrays, typed arrays, strings, module namespaces and proxies should extend this protocol rather than bypass it with unrelated representations.
@@ -670,3 +689,15 @@ cargo test -p lila-cli wasm_object --quiet
 ```
 
 Include tests with accessors, symbols, proxies, inherited properties, non-extensible targets and cross-realm descriptor functions.
+
+## Dry boxed String write implementation, 2026-10-03
+
+
+Unverified boxed String assignment source now dispatches the general object-write
+path through the existing OrdinarySet helper before raw entry-table mutation.
+It reuses the selected target/receiver, normalized key, evaluated RHS and
+Reference strictness for immutable length/code-unit descriptors and ordinary
+own/inherited properties. Three focused Wasm-AOT regressions and the exact
+`S15.5.5.1_A4_T1.js`/`S15.5.5.1_A4_T2.js` pinned cohort are prepared. The work
+is source-only and uncompiled; current runtime and complete exotic conformance
+remain unverified.

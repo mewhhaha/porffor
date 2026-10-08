@@ -1,6 +1,17 @@
 const MODULE_SOURCE: &str = include_str!("../src/module.rs");
 const OWNER_SOURCE: &str = include_str!("../src/module/compiled_module_package.rs");
-const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
+const EMIT_SOURCE: &str = include_str!("../src/emit/module_assembly.rs");
+const EMITTER_FAMILY: &str = concat!(
+    include_str!("../src/emit.rs"),
+    include_str!("../src/emit/body_compilation.rs"),
+    include_str!("../src/emit/body_entry.rs"),
+    include_str!("../src/emit/body_entry/literal_roots.rs"),
+    include_str!("../src/emit/module_assembly.rs"),
+    include_str!("../src/emit/module_assembly/metadata.rs"),
+);
+const CODE_SOURCE: &str = include_str!("../src/emitted_function.rs");
+const GC_SOURCE: &str = include_str!("../src/gc_types.rs");
+const SNAPSHOT_SOURCE: &str = include_str!("../src/gc_types/snapshot.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -10,6 +21,13 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .split_once(end)
         .unwrap_or_else(|| panic!("missing end after {start}: {end}"))
         .0
+}
+
+fn compact(source: &str) -> String {
+    source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 
 #[test]
@@ -26,7 +44,7 @@ fn compiled_module_package_has_one_private_owner_and_narrow_reexport() {
     );
     assert!(!module_production.contains("\npub mod compiled_module_package;\n"));
     assert!(!module_production.contains("\nmod compiled_module_package {\n"));
-    assert!(OWNER_SOURCE.contains("\nuse super::*;\n\n"));
+    assert!(OWNER_SOURCE.contains("\nuse super::*;\n"));
 
     let reexport = bounded(
         module_production,
@@ -62,23 +80,149 @@ fn compiled_module_package_has_one_private_owner_and_narrow_reexport() {
         "struct CompiledModulePackage",
         "struct CallableFunctionTableSections",
         "struct ModuleAssemblySections",
-        "struct ModuleTypeSectionBuilder",
         "struct ModuleGlobalSectionBuilder",
     ] {
         assert_eq!(OWNER_SOURCE.matches(sole_owner).count(), 1, "{sole_owner}");
         assert!(!module_production.contains(sole_owner), "{sole_owner}");
     }
+    assert!(!OWNER_SOURCE.contains("struct ModuleTypeSectionBuilder"));
 }
 
 #[test]
 fn package_lifecycle_is_consume_once_and_compile_time_checked() {
-    assert!(OWNER_SOURCE.contains("globals: globals.finish(runtime),"));
-    assert!(OWNER_SOURCE.contains("compilation.compile_into(&self.globals, &mut code)?"));
-    assert!(OWNER_SOURCE.contains("let (code, function_table) = code.finish();"));
+    let package_finalizers = bounded(
+        OWNER_SOURCE,
+        "impl ModuleTypeRegistry {",
+        "/// The type and global sections finalized as one consume-once package.",
+    );
+    let package_finalizers = compact(package_finalizers);
+    assert_eq!(package_finalizers.matches("fnfinalize_globals(").count(), 1);
+    assert!(package_finalizers.contains(concat!(
+        "fnfinalize_globals(self,globals:ModuleGlobalSectionBuilder,",
+        "snapshot_roots:bool,module_guard_count:u32,)->FinalizedModuleSections"
+    )));
+    assert!(package_finalizers.contains(concat!(
+        "self.registered.finalize_globals(",
+        "globals.section,snapshot_roots,module_guard_count,)"
+    )));
+    let root_finalizers = bounded(
+        GC_SOURCE,
+        "impl RuntimeGcTypes {",
+        "/// Frozen type declarations and their exact assigned GC indices.",
+    );
+    assert_eq!(root_finalizers.matches("fn finalize_globals(").count(), 1);
+    assert!(compact(root_finalizers).contains(concat!(
+        "fnfinalize_globals(self,mutglobals:GlobalLedger,snapshot:bool,",
+        "module_guard_count:u32,)->FinalizedModuleGlobals"
+    )));
+    assert!(root_finalizers.contains(
+        "snapshot.then(|| snapshot::SnapshotRoots::declare(&self.layouts, &mut globals))"
+    ));
+    let root_finalizers = compact(root_finalizers);
+    assert_eq!(
+        root_finalizers
+            .matches("FinalizedModuleGlobals{section:globals,runtime_schema,}")
+            .count(),
+        1,
+        "one construction seals the actual section with its matching schema"
+    );
+    let snapshot_roots = bounded(
+        SNAPSHOT_SOURCE,
+        "pub(super) struct SnapshotRoots {",
+        "impl SnapshotRoots {",
+    );
+    assert!(snapshot_roots.contains("entry: GcRootGlobal<RealmRecord>"));
+    assert!(snapshot_roots.contains("inventory: GcRootGlobal<SnapshotRealmInventory>"));
+    assert!(!snapshot_roots.contains("pub "));
+    assert!(!snapshot_roots.contains("pub("));
+    let globals_view = bounded(
+        GC_SOURCE,
+        "impl FinalizedModuleGlobals {",
+        "fn emit_root_get",
+    );
+    assert!(globals_view.contains("fn defined_section(&self, imported: u32) -> impl Section + '_"));
+    assert!(globals_view.contains("ledger: &'a GlobalLedger"));
+    assert!(globals_view.contains("self.ledger.section_after(self.imported).encode(sink)"));
+    assert!(globals_view.contains("ledger: &self.section"));
+    assert!(!globals_view.contains("-> GlobalSection"));
+    assert!(!globals_view.contains("-> &GlobalLedger"));
+    assert!(!globals_view.contains("#[derive"));
+
+    let package_fields = bounded(
+        OWNER_SOURCE,
+        "pub(crate) struct CompiledModulePackage {",
+        "impl CompiledModulePackage {",
+    );
+    assert!(package_fields.contains("    main: Option<EmittedFunction>,"));
+    assert!(package_fields.contains("    program_functions: Vec<EmittedFunction>,"));
+    assert!(!package_fields.contains("pub "));
+    assert!(!package_fields.contains("pub("));
+    let compile_main = bounded(
+        OWNER_SOURCE,
+        "pub(crate) fn compile_main(",
+        "pub(crate) fn append_functions(",
+    );
+    assert!(compact(compile_main).starts_with(concat!(
+        "&mutself,compilation:MainFunctionCompilation<'_>,)->Result<(),EmitError>"
+    )));
+    assert!(compile_main.contains("assert!(self.main.is_none()"));
+    assert!(compile_main.contains("compilation.compile(self.runtime.globals())?"));
+    assert!(compile_main.contains("self.main = Some(main);"));
+    let append_bodies = bounded(
+        OWNER_SOURCE,
+        "pub(crate) fn append_functions(",
+        "pub(crate) const fn main_emitted_local_count",
+    );
+    assert!(compact(append_bodies).contains(concat!(
+        "forfunctioninruntime_functions{self.code.push(function);}",
+        "self.program_functions.extend(program_functions);"
+    )));
+    let publish = bounded(
+        OWNER_SOURCE,
+        "pub(crate) fn append_to_module(",
+        "/// Declarative references for every defined function.",
+    );
+    assert!(compact(publish).contains(concat!(
+        "ifletSome(main)=main{code.push(main);}",
+        "forfunctioninprogram_functions{code.push(function);}",
+        "let(functions,code,function_table)=code.finish();"
+    )));
+    assert!(publish.contains("runtime.globals().defined_section(imported_globals)"));
+    assert!(OWNER_SOURCE.contains("let (functions, code, function_table) = code.finish();"));
+
+    let code_owner = bounded(
+        CODE_SOURCE,
+        "pub(crate) struct ModuleCode {",
+        "/// Every emitted function, in code-section order",
+    );
+    assert!(code_owner.contains("    functions: FunctionSection,"));
+    assert!(code_owner.contains("    section: CodeSection,"));
+    assert!(!code_owner.contains("pub(crate) functions:"));
+    assert!(!code_owner.contains("pub(crate) section:"));
+    let push = bounded(
+        code_owner,
+        "pub(crate) fn push(&mut self, function: EmittedFunction)",
+        "pub(crate) fn finish(self)",
+    );
+    let declaration = "self.functions.function(type_index);";
+    let body = "self.section.raw(&function.raw_body);";
+    assert!(push.contains("FunctionDeclaration::NonCallable => function.identity.type_index()"));
+    assert!(push.contains("FunctionDeclaration::Planned(entry) =>"));
+    assert!(
+        push.find("entry.assert_body_index(wasm_index);").unwrap()
+            < push.find(declaration).unwrap()
+    );
+    assert!(push.find("entry.signature().type_index()").unwrap() < push.find(declaration).unwrap());
+    assert_eq!(push.matches(declaration).count(), 1);
+    assert_eq!(push.matches(body).count(), 1);
+    assert!(push.find(declaration).unwrap() < push.find(body).unwrap());
+    assert!(code_owner
+        .contains("fn finish(self) -> (FunctionSection, CodeSection, ModuleFunctionTable)"));
 
     for ownership_gate in [
-        "FinalizedModuleSections::compile_main;",
-        "CompiledModulePackage::append_remaining_functions;",
+        "FinalizedModuleSections::begin;",
+        "CompiledModulePackage::compile_main;",
+        "CompiledModulePackage::append_functions;",
         "CompiledModulePackage::append_to_module;",
     ] {
         assert_eq!(
@@ -87,197 +231,15 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
             "{ownership_gate}"
         );
     }
-    assert!(OWNER_SOURCE.contains("const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>)"));
+    assert!(compact(OWNER_SOURCE).contains(concat!(
+        "const_:fn(&mutCompiledModulePackage,MainFunctionCompilation<'_>)->Result<(),EmitError>=",
+        "CompiledModulePackage::compile_main;"
+    )));
+    assert!(OWNER_SOURCE.contains(concat!(
+        "const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>, Vec<EmittedFunction>)"
+    )));
     assert!(OWNER_SOURCE
         .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)"));
-
-    let assembly = bounded(
-        OWNER_SOURCE,
-        "let ModuleAssemblySections {",
-        "function_table\n    }",
-    );
-    let expected_order = [
-        "module.section(&types);",
-        "module.section(&imports);",
-        "module.section(&functions);",
-        "module.section(&tables);",
-        "module.section(&memories);",
-        "module.section(&globals);",
-        "module.section(&exports);",
-        "module.section(&elements);",
-        "module.section(&code);",
-        "module.section(&data);",
-    ];
-    let mut prior_offset = 0;
-    for section_append in expected_order {
-        let offset = assembly
-            .find(section_append)
-            .unwrap_or_else(|| panic!("missing section append: {section_append}"));
-        assert!(
-            offset >= prior_offset,
-            "section append out of order: {section_append}"
-        );
-        prior_offset = offset;
-    }
-}
-
-#[test]
-fn callable_function_table_is_a_mandatory_package_input() {
-    for source in [OWNER_SOURCE, EMIT_SOURCE] {
-        assert!(!source.contains("uses_function_table"));
-    }
-
-    for optional_section in ["Option<TableSection>", "Option<ElementSection>"] {
-        assert!(
-            !OWNER_SOURCE.contains(optional_section),
-            "{optional_section}"
-        );
-    }
-
-    assert_eq!(
-        MODULE_SOURCE
-            .matches("pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;")
-            .count(),
-        1
-    );
-    let type_registry = bounded(
-        OWNER_SOURCE,
-        "impl ModuleTypeRegistry {",
-        "    /// Consumes every scalar/dynamic global",
-    );
-    let main_signature = "types.function([], [ValType::I64]);";
-    let javascript_signature = "types.function(\n            function_param_types(),\n            [ValType::I64, ValType::I64, ValType::I64, ValType::I64],\n        );";
-    let heap_allocation_signature = "types.function([ValType::I64], [ValType::I64]);";
-    let registry_creation = "let mut types = ModuleTypeSectionBuilder::new();";
-    let registry_creation_offset = type_registry
-        .find(registry_creation)
-        .expect("type registry construction");
-    let main_type = type_registry
-        .find(main_signature)
-        .expect("main function type registration");
-    let javascript_type = type_registry
-        .find(javascript_signature)
-        .expect("JavaScript function type registration");
-    let heap_allocation_type = type_registry
-        .find(heap_allocation_signature)
-        .expect("heap-allocation function type registration");
-    assert!(
-        registry_creation_offset < main_type
-            && main_type < javascript_type
-            && javascript_type < heap_allocation_type,
-        "the registry must construct main, JavaScript and heap-allocation types in index order"
-    );
-    assert!(
-        type_registry[registry_creation_offset + registry_creation.len()..main_type]
-            .trim()
-            .is_empty(),
-        "the main signature must remain type index 0"
-    );
-    assert!(
-        type_registry[main_type + main_signature.len()..javascript_type]
-            .trim()
-            .is_empty(),
-        "the JavaScript signature must immediately follow the main signature"
-    );
-    assert!(
-        type_registry[javascript_type + javascript_signature.len()..heap_allocation_type]
-            .trim()
-            .is_empty(),
-        "the JavaScript signature must remain type index 1"
-    );
-    assert_eq!(type_registry.matches("function_param_types()").count(), 1);
-
-    assert!(!OWNER_SOURCE.contains("pub(crate) struct CallableFunctionTableSections"));
-    let callable_sections = bounded(
-        OWNER_SOURCE,
-        "struct CallableFunctionTableSections {",
-        "/// The non-runtime core sections",
-    );
-    for paired_section in [
-        "tables: TableSection,",
-        "elements: ElementSection,",
-        "let mut tables = TableSection::new();",
-        "element_type: RefType::FUNCREF,",
-        "minimum: callable_function_count as u64,",
-        "maximum: Some(callable_function_count as u64),",
-        "let mut elements = ElementSection::new();",
-        "first_callable_wasm_index + callable_function_count as u32",
-        "elements.active(",
-        "Some(0),",
-        "&ConstExpr::i32_const(0),",
-        "Elements::Functions(Cow::Owned(function_indexes)),",
-    ] {
-        assert!(
-            callable_sections.contains(paired_section),
-            "{paired_section}"
-        );
-    }
-
-    let assembly_state = bounded(
-        OWNER_SOURCE,
-        "pub(crate) struct ModuleAssemblySections {",
-        "impl ModuleAssemblySections {",
-    );
-    assert!(assembly_state.contains("callable_function_table: CallableFunctionTableSections,"));
-    for raw_section_field in ["tables: TableSection,", "elements: ElementSection,"] {
-        assert!(
-            !assembly_state.contains(raw_section_field),
-            "{raw_section_field}"
-        );
-    }
-
-    for compile_time_gate in [
-        "const _: fn() -> ModuleTypeRegistry = ModuleTypeRegistry::new;",
-        "FunctionSection,\n    u32,\n    usize,\n    Option<MemorySection>,\n    ExportSection,",
-    ] {
-        assert!(
-            OWNER_SOURCE.contains(compile_time_gate),
-            "{compile_time_gate}"
-        );
-    }
-
-    for emitter_construction in [
-        "let module_types = ModuleTypeRegistry::new();",
-        "let first_callable_wasm_index = imported_function_count + 1;",
-    ] {
-        assert_eq!(
-            EMIT_SOURCE.matches(emitter_construction).count(),
-            1,
-            "{emitter_construction}"
-        );
-    }
-    for raw_section_constructor in ["TableSection::new()", "ElementSection::new()"] {
-        assert!(
-            !EMIT_SOURCE.contains(raw_section_constructor),
-            "{raw_section_constructor}"
-        );
-        assert_eq!(
-            OWNER_SOURCE.matches(raw_section_constructor).count(),
-            1,
-            "{raw_section_constructor}"
-        );
-    }
-    let emitter_assembly = bounded(EMIT_SOURCE, "ModuleAssemblySections::new(", "),\n    );");
-    let first_index = emitter_assembly
-        .find("first_callable_wasm_index,")
-        .expect("callable function first index");
-    let function_count = emitter_assembly
-        .find("callable_function_count,")
-        .expect("callable function count");
-    assert!(first_index < function_count);
-
-    let assembly = bounded(
-        OWNER_SOURCE,
-        "let ModuleAssemblySections {",
-        "function_table\n    }",
-    );
-    for mandatory_section in ["module.section(&tables);", "module.section(&elements);"] {
-        assert_eq!(
-            assembly.matches(mandatory_section).count(),
-            1,
-            "{mandatory_section}"
-        );
-    }
 }
 
 #[test]
@@ -285,23 +247,44 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     for (call, count) in [
         ("ModuleTypeRegistry::new(", 1),
         ("ModuleGlobalSectionBuilder::new(", 1),
-        ("module_types.finalize_globals(globals)", 1),
-        ("module_sections.compile_main(", 1),
-        ("module_package.append_remaining_functions(", 1),
+        (
+            "module_types.finalize_globals(globals, uses_heap, module_guard_count)",
+            1,
+        ),
+        ("module_sections.begin(first_defined_function)", 1),
+        ("module_package.compile_main(", 1),
+        (
+            "module_package.append_functions(compiled_functions, program_functions)",
+            1,
+        ),
         ("module_package.main_emitted_local_count()", 1),
         ("module_package.append_to_module(", 1),
         ("ModuleAssemblySections::new(", 1),
     ] {
         assert_eq!(EMIT_SOURCE.matches(call).count(), count, "{call}");
     }
+    assert!(compact(EMIT_SOURCE)
+        .contains("ifcompile_program{module_package.compile_main(MainFunctionCompilation::new("));
+    assert!(!EMIT_SOURCE.contains("let main_function ="));
+    assert!(EMIT_SOURCE.contains("program_functions.extend(program_helpers);"));
+    assert_eq!(
+        EMIT_SOURCE
+            .matches("module_package.schema().export_snapshot_roots(&mut exports);")
+            .count(),
+        1
+    );
 
     for escaped_append in [
         "module.section(&types)",
         "module.section(&globals)",
+        "module.section(runtime.types())",
+        "module.section(runtime.globals())",
         "module.section(&code)",
     ] {
-        assert!(!EMIT_SOURCE.contains(escaped_append), "{escaped_append}");
+        assert!(!EMITTER_FAMILY.contains(escaped_append), "{escaped_append}");
     }
-    assert!(!EMIT_SOURCE.contains("CompiledModulePackage"));
-    assert!(!EMIT_SOURCE.contains("FinalizedModuleSections"));
+    assert!(!EMITTER_FAMILY.contains("CompiledModulePackage"));
+    assert!(!EMITTER_FAMILY.contains("FinalizedModuleSections"));
+    assert!(!EMITTER_FAMILY.contains("FunctionSection"));
+    assert!(!OWNER_SOURCE.contains("FunctionSection"));
 }

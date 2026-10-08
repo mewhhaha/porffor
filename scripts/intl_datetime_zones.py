@@ -50,7 +50,8 @@ def localized_zone_names(leaves, countries, geography):
             raise ValueError(f"unsupported localized zone name: {source}")
     required = {"hourFormat", "gmtFormat", "gmtZeroFormat", "fallbackFormat",
                 "regionFormat:generic", "regionFormat:standard", "regionFormat:daylight"}
-    if set(patterns) != required or patterns["hourFormat"] != "+HH:mm;-HH:mm":
+    if set(patterns) != required or patterns["hourFormat"] not in (
+            "+HH:mm;-HH:mm", "+HH:mm;−HH:mm"):
         raise ValueError("required localized zone pattern domain differs from the renderer")
     for key, value in patterns.items():
         slots = ["{0}", "{1}"] if key == "fallbackFormat" else ["{0}"] if key == "gmtFormat" or key.startswith("regionFormat:") else []

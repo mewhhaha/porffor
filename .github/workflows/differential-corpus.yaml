@@ -1,0 +1,136 @@
+name: Differential whole corpus
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/limited_verification.py'
+      - 'scripts/run-differential-campaign-tier.sh'
+      - 'scripts/run-robustness-campaign-tier.py'
+      - 'scripts/tests/test_robustness_campaign_tier.py'
+      - 'scripts/tests/test_limited_verification.py'
+      - '.github/workflows/differential-corpus.yaml'
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      exhaustive:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: differential-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  corpus:
+    # The delegated Linux host must provide a cgroup-v2 systemd user manager.
+    # limited_verification.py verifies the actual kernel cap before each payload.
+    runs-on: [self-hosted, linux, lila-conformance]
+    timeout-minutes: 360
+    env:
+      CARGO_BUILD_JOBS: '1'
+      LILA_JOBS: '1'
+      RUST_TEST_THREADS: '1'
+      RAYON_NUM_THREADS: '1'
+      CAMPAIGN_TIER: ${{ (github.event_name == 'schedule' || inputs.exhaustive == true) && 'nightly' || 'pr-fast' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Default CLI refuses the unlinked oracle
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          cargo test --locked -p lila-cli --test differential_corpus
+          unlinked_oracle_refuses_whole_corpus_before_output_or_worker_lookup -- --exact
+      - name: Build the actual feature-enabled CLI and named library worker
+        id: oracle_build
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          cargo build --locked -p lila-cli -p lila-test262
+          --features lila-cli/spec-exec-oracle,lila-test262/spec-exec-oracle --bins
+      - name: Replay every compiled corpus entry and retain red evidence
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          ./target/debug/lila --jobs 1 differential replay-corpus
+          --output-dir "${{ runner.temp }}/differential-corpus"
+          --oracle spec-exec
+      - name: Run whole-corpus library and CLI controls
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --test differential_corpus
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-cli --features spec-exec-oracle --test differential_corpus
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-cli --features spec-exec-oracle --lib differential_corpus::tests
+      - name: Run the generated grammar and campaign controls
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib differential::generated
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --test differential_generated_campaign
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-cli --features spec-exec-oracle --lib differential_campaign::tests
+      - name: Run all eleven grammar campaigns serially
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: bash scripts/run-differential-campaign-tier.sh ./target/debug/lila "${{ runner.temp }}/differential-campaigns" "$CAMPAIGN_TIER"
+      - name: Run robustness driver and native wire controls
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 scripts/limited_verification.py --memory-mib 4096 -- python3 -m unittest discover -s scripts/tests -p 'test_robustness_campaign_tier.py'
+          python3 scripts/limited_verification.py --memory-mib 4096 -- python3 -m unittest discover -s scripts/tests -p 'test_limited_verification.py'
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib differential::robustness
+      - name: Run the serial native robustness seed tier
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          python3 scripts/run-robustness-campaign-tier.py ./target/debug/lila
+          "${{ runner.temp }}/robustness-campaigns" "$CAMPAIGN_TIER"
+      - name: Build the optimized developer oracle for nightly and release validation
+        id: optimized_build
+        if: always() && steps.oracle_build.outcome == 'success' && (github.event_name == 'schedule' || inputs.exhaustive == true)
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          cargo build --locked --release -p lila-cli -p lila-test262
+          --features lila-cli/spec-exec-oracle,lila-test262/spec-exec-oracle --bins
+      - name: Replay the complete optimized corpus
+        if: always() && steps.optimized_build.outcome == 'success'
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          ./target/release/lila --jobs 1 differential replay-corpus
+          --output-dir "${{ runner.temp }}/differential-corpus-optimized" --oracle spec-exec
+      - name: Run all optimized grammar campaigns serially
+        if: always() && steps.optimized_build.outcome == 'success'
+        run: bash scripts/run-differential-campaign-tier.sh ./target/release/lila "${{ runner.temp }}/differential-campaigns-optimized" nightly
+      - name: Run the complete optimized native robustness seed tier
+        if: always() && steps.optimized_build.outcome == 'success'
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          python3 scripts/run-robustness-campaign-tier.py ./target/release/lila
+          "${{ runner.temp }}/robustness-campaigns-optimized" nightly
+      - name: Retain aggregate, every input and every complete or red case report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/differential-corpus/
+            ${{ runner.temp }}/differential-campaigns/
+            ${{ runner.temp }}/differential-corpus-optimized/
+            ${{ runner.temp }}/differential-campaigns-optimized/
+            ${{ runner.temp }}/robustness-campaigns/
+            ${{ runner.temp }}/robustness-campaigns-optimized/
+          if-no-files-found: warn
+          retention-days: 14
+
+# Performance reporting is opt-in on an identified idle machine; see
+# docs/rust-rewrite/contracts/performance-reporting.md. This shared corpus job
+# does not manufacture timing acceptance.

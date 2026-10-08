@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "archive": "sources.tar.gz",
-  "archive_sha256": "7aaad19751e5bcea366e3cc4465e2b82b636cde0a98236efe96ab12596c8946e",
-  "archive_bytes": 9574902,
+  "archive_sha256": "f85496f1e76ca0a12a0d7603c5f3243a94e2506926176f6ec7fe178327ffcebf",
+  "archive_bytes": 9576417,
   "files": [
     {
       "path": "reference/cldr-archive-receipt.json",
@@ -12,8 +12,8 @@
     },
     {
       "path": "reference/cldr-input-manifest.json",
-      "sha256": "70e3cbcc564add24dbed0df7cfedfda3afbd3775d6bde69d342615fd478beef8",
-      "bytes": 405436,
+      "sha256": "a65b8608257e430ce3af14aac74d4ec2c2d7e0eaa3db926ca12185766de3e2ee",
+      "bytes": 405827,
       "kind": "pinned-source-manifest"
     },
     {
@@ -7658,6 +7658,13 @@
       "git_blob_sha1": "13b3ad5b7eb16f733d988fd422f86994fb4d427e",
       "sha256": "c2177412b58cb809cc9f86ce2da80b395e5b7288a541b390e0dc5e6c9193f029",
       "bytes": 11682
+    },
+    {
+      "path": "reference/cldr/common/supplemental/ordinals.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/supplemental/ordinals.xml",
+      "git_blob_sha1": "a6636b8df2559b079b9646455f8e0d38fb839102",
+      "sha256": "408718c11455b8b883c87a01fae10d9cc6dbc827819be08ae6547aec00588045",
+      "bytes": 10732
     },
     {
       "path": "reference/cldr/common/supplemental/pluralRanges.xml",

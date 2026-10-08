@@ -18,13 +18,15 @@ the private `IntlDateTimeFormatReceiverOperation` domain:
 - `FormatRangeToParts`.
 
 The domain derives no capabilities. Its borrowed exhaustive `full_message`
-projection owns each complete incompatible-receiver diagnostic. The receiver
+projection selects each complete incompatible-receiver diagnostic from the
+shared catalog. The receiver
 reader accepts only a borrowed operation, so an arbitrary method spelling or a
 separately assembled message cannot reach the brand check.
 
-The ordered `ALL` list matches the former string-pool insertion order. The
-DateTimeFormat pool walks `ALL` and `full_message`, making the semantic
-projection the only message authority without changing data-segment ordering.
+The exhaustive `full_message` projection now returns a catalog-admitted
+`RuntimeErrorMessage`. The shared [runtime error message domain](runtime-error-message-domain.md)
+interns those constants before emission. The former per-operation `ALL` pool
+walk is retired; the historical ordering evidence below predates that change.
 
 ## Producers and ordering
 

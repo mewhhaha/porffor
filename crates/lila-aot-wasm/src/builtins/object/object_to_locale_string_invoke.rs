@@ -1,159 +1,103 @@
 use super::*;
+use crate::gc_types::{CompletionLocals, ValueLocals};
 
-/// The exact receiver, its temporary GetV lookup object and the result slot.
-///
-/// This value is deliberately private and non-`Copy`. GetV borrows it, then
-/// callability validation consumes it so the lookup object cannot escape into
-/// the eventual Call receiver.
-#[must_use = "Object.prototype.toLocaleString receiver roles must reach validation"]
+#[must_use]
 struct ObjectToLocaleStringGetVLocals {
-    original_receiver: TaggedLocals,
-    boxed_lookup: TaggedLocals,
-    method: TaggedLocals,
+    original_receiver: ValueLocals,
+    boxed_lookup: ValueLocals,
+    method: ValueLocals,
 }
-
-/// A callable `toString` method paired with its exact Invoke receiver.
-///
-/// This token is deliberately private and non-`Copy`. Its sole consumer takes
-/// ownership before emitting Proxy-aware Call with no arguments.
-#[must_use = "a validated Object.prototype.toLocaleString invocation must be called"]
+#[must_use]
 struct ValidatedObjectToLocaleStringInvocationLocals {
-    method: TaggedLocals,
-    receiver: TaggedLocals,
+    method: ValueLocals,
+    receiver: ValueLocals,
 }
 
-impl<'a> FunctionBuilder<'a> {
-    fn emit_object_to_locale_string_get_v(
-        &mut self,
-        get_v: &ObjectToLocaleStringGetVLocals,
-        key_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_object_read(
-            get_v.boxed_lookup.payload,
-            get_v.boxed_lookup.tag,
-            get_v.original_receiver.payload,
-            get_v.original_receiver.tag,
-            key_local,
-            get_v.method.payload,
-            get_v.method.tag,
-            function,
-        )
-    }
-
+impl FunctionBuilder<'_> {
     fn emit_validate_object_to_locale_string_invocation(
         &mut self,
         get_v: ObjectToLocaleStringGetVLocals,
+        pending: &CompletionLocals,
         function: &mut Function,
     ) -> Result<ValidatedObjectToLocaleStringInvocationLocals, EmitError> {
-        let ObjectToLocaleStringGetVLocals {
-            original_receiver,
-            method,
-            ..
-        } = get_v;
-        self.emit_is_callable_i32(method.tag, method.payload, function)?;
+        self.emit_is_callable_i32(&get_v.method, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Object.prototype.toLocaleString target is not callable",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::OBJECT_PROTOTYPE_TOLOCALESTRING_TARGET_IS_NOT_CALLABLE,
+            pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
+        get_v.boxed_lookup.clear(function);
         Ok(ValidatedObjectToLocaleStringInvocationLocals {
-            method,
-            receiver: original_receiver,
+            method: get_v.method,
+            receiver: get_v.original_receiver,
         })
     }
 
     fn emit_call_validated_object_to_locale_string_invocation(
         &mut self,
         invocation: ValidatedObjectToLocaleStringInvocationLocals,
-        result: TaggedLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let ValidatedObjectToLocaleStringInvocationLocals { method, receiver } = invocation;
-
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method.payload,
-            method.tag,
-            receiver.payload,
-            receiver.tag,
-            &[],
-            result.payload,
-            result.tag,
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        self.emit_function_or_proxy_call_with_argv(
+            &invocation.method,
+            &invocation.receiver,
+            &arguments,
+            result,
             function,
-        )
+        )?;
+        arguments.clear(function);
+        invocation.method.clear(function);
+        invocation.receiver.clear(function);
+        Ok(())
     }
 
     pub(in crate::builtins) fn compile_object_prototype_to_locale_string_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Object.prototype.toLocaleString receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Object.prototype.toLocaleString receiver",
-            )
-        })?;
-        let lookup_payload_local = self.reserve_temp_local();
-        let lookup_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-
-        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Object.prototype.toLocaleString called on null or undefined",
-            self.result_local,
-            self.result_tag_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let lookup = schema.reserve_value_local(function);
+        let method = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        self.compile_this_to_locals(&receiver, function)?;
+        self.emit_value_to_object_locals(&receiver, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        lookup.copy_from(pending.value(), function);
+        let name = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("toString", function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_string(schema, &name, function);
+        self.emit_object_read(&lookup, &receiver, &key, &pending, function)?;
+        key.clear(function);
+        name.clear(function);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        method.copy_from(pending.value(), function);
+        let invocation = self.emit_validate_object_to_locale_string_invocation(
+            ObjectToLocaleStringGetVLocals {
+                original_receiver: receiver,
+                boxed_lookup: lookup,
+                method,
+            },
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(receiver_payload_local));
-        function.instruction(&Instruction::LocalSet(lookup_payload_local));
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::LocalSet(lookup_tag_local));
-        self.emit_value_to_current_function_realm_object_locals(
-            lookup_payload_local,
-            lookup_tag_local,
-            lookup_payload_local,
-            lookup_tag_local,
-            function,
-        )?;
-
-        let get_v = ObjectToLocaleStringGetVLocals {
-            original_receiver: TaggedLocals::new(receiver_payload_local, receiver_tag_local),
-            boxed_lookup: TaggedLocals::new(lookup_payload_local, lookup_tag_local),
-            method: TaggedLocals::new(method_payload_local, method_tag_local),
-        };
-        function.instruction(&Instruction::I64Const(self.strings.payload("toString")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_to_locale_string_get_v(&get_v, key_local, function)?;
-        self.emit_return_current_completion_if_throw(function);
-        let invocation = self.emit_validate_object_to_locale_string_invocation(get_v, function)?;
         self.emit_call_validated_object_to_locale_string_invocation(
-            invocation,
-            TaggedLocals::new(self.result_local, self.result_tag_local),
-            function,
+            invocation, &pending, function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(lookup_tag_local);
-        self.release_temp_local(lookup_payload_local);
+        self.completion().copy_from(&pending, function);
+        pending.clear(function);
         Ok(())
     }
 }

@@ -1,5 +1,16 @@
 # Global ASCII class quantifier
 
+Status: retired by the T19 ordinary `@@match` protocol batch. The compiled
+RegExp program owns matching for every published RegExp; the former compact
+catalogue and its unused child owner are deleted. This file retains historical
+source-equivalent extraction receipts. Its three obsolete structure tests were
+removed with the owner; those tests pinned source layout, not feature semantics.
+The expanded existing `wasm_regexp_exec_result_modes.js` fixture and surviving
+compiled matcher/protocol guards retain semantic and architectural coverage.
+Combined product verification remains pending.
+
+## Historical owner and receipts
+
 Status: implemented for the three static global-match patterns `\d{1}`,
 `\d{2}` and `\D{2}`.
 
@@ -53,7 +64,7 @@ the narrowed seven-line calls have SHA-256
 and
 `1d17d363fadae9654f56ea1b6d4d901c4c33b711a8bd6276b3bba7cf5fe816d1`.
 
-## Verification
+## Historical verification
 
 ```sh
 cargo test -p lila-aot-wasm --test global_ascii_class_quantifier_structure

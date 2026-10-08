@@ -60,36 +60,35 @@ fn logical_assignment_reachability_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "LogicalAssignmentReachability"),
-        13,
-        "one declaration, one import, one typed consumer, eight exhaustive arms and two producers must own every mention"
+        11,
+        "one declaration, one import, one typed consumer, six exhaustive arms and two producers must own every mention"
     );
 }
 
 #[test]
-fn reachability_consumer_exhaustively_owns_all_four_semantic_decisions() {
+fn reachability_consumer_exhaustively_owns_local_value_facts() {
     let consumer = bounded(
         REACHABILITY_SOURCE,
         "    pub(super) fn lower_located_identifier_logical_assignment(",
         "\n    }\n}",
     );
     assert!(consumer.contains("reachability: LogicalAssignmentReachability"));
-    assert_eq!(consumer.matches("match &reachability {").count(), 4);
+    assert_eq!(consumer.matches("match &reachability {").count(), 3);
     assert_eq!(
         consumer
             .matches("LogicalAssignmentReachability::Definite =>")
             .count(),
-        4
+        3
     );
     assert_eq!(
         consumer
             .matches("LogicalAssignmentReachability::WithEnvironmentFallback =>")
             .count(),
-        4
+        3
     );
 
     let normalized_consumer = normalized(consumer);
     for exact_decision in [
-        "ifglobal_binding{match&reachability{LogicalAssignmentReachability::Definite=>{}LogicalAssignmentReachability::WithEnvironmentFallback=>{ifletSome(binding)=&binding{self.widen_binding_for_possible_replacement(&name);debug_assert_eq!(binding.mode,BindingMode::Var);}returnself.lower_global_object_environment_logical_assignment(name,op,rhs);}}}",
         "letlhs_info=match&reachability{LogicalAssignmentReachability::Definite=>ValueInfo{kind:binding.kind,possible_kinds:binding.possible_kinds,heap_shape:binding.heap_shape.clone(),function_targets:binding.function_targets.clone(),},LogicalAssignmentReachability::WithEnvironmentFallback=>{letmutvalue=ValueInfo{kind:binding.kind,possible_kinds:binding.possible_kinds,heap_shape:binding.heap_shape.clone(),function_targets:binding.function_targets.clone(),};value.widen_for_possible_replacement();value}};",
         "letresult_info=match&reachability{LogicalAssignmentReachability::Definite=>{self.merge_value_infos(lhs.value_info(),rhs.value_info())}LogicalAssignmentReachability::WithEnvironmentFallback=>{letmutvalue=self.merge_value_infos(lhs.value_info(),rhs.value_info());value.widen_for_possible_replacement();value}};",
         "letresult_info=match&reachability{LogicalAssignmentReachability::Definite=>{self.merge_value_infos(lhs.value_info(),write.value_info())}LogicalAssignmentReachability::WithEnvironmentFallback=>{letmutvalue=self.merge_value_infos(lhs.value_info(),write.value_info());value.widen_for_possible_replacement();value}};",
@@ -146,7 +145,15 @@ fn assignment_lowering_is_the_exact_two_producer_authority() {
     assert!(
         normalized_arm.contains("returnplan.logical_assignment(logical_op,rhs_value,fallback);")
     );
-    assert!(normalized_arm.contains(
-        "ifreference.is_unproven_global(){returnself.lower_global_object_environment_logical_assignment(name,logical_op,rhs_value,);}"
-    ));
+    let hooks = logical_arm
+        .find("self.invalidate_unknown_user_code_effects();")
+        .expect("Get effects");
+    let rhs = logical_arm
+        .find("self.lower_conditionally_reached_expression(rhs)")
+        .expect("conditional RHS");
+    assert!(
+        hooks < rhs,
+        "Has/Get hooks must invalidate facts before lowering the RHS"
+    );
+    assert!(!logical_arm.contains("reference.is_unproven_global()"));
 }

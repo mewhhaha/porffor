@@ -9,6 +9,8 @@ import re
 import xml.etree.ElementTree as ET
 
 from intl_ldml_schema import LdmlSchema
+from intl_positional_numbering import TolsSupplement
+from intl_calendar_eras import CalendarEraSupplement
 
 CLDR_COMMIT = "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
 INHERIT = "↑↑↑"
@@ -191,6 +193,13 @@ class CldrProfile:
         if sum(map(len, self.sources.values())) != manifest["total_bytes"]:
             raise ValueError("source manifest total size mismatch")
         self.selector = json.loads(self.sources["selector.json"])
+        expanded = len(self.selector.get("calendars", [])) == 16
+        self.era_supplement = CalendarEraSupplement(self.source_directory.parent / "calendar-eras-cldr-48") if expanded else None
+        self.numbering_supplement = TolsSupplement(self.source_directory.parent / "numbering-tols-cldr-48")
+        for path, document in self.documents.items():
+            self.numbering_supplement.apply(path, document)
+            if self.era_supplement is not None:
+                self.era_supplement.apply(path, document)
         # ElementTree does not apply external DTD defaults. An omitted
         # type="standard" must still match the aliases that spell it out.
         self.schema = LdmlSchema(self.sources["common/dtd/ldml.dtd"].decode())
@@ -267,6 +276,7 @@ class CldrProfile:
                 "path": path_text(result.source_path),
                 "value": result.value,
                 "value_attributes": dict(result.attributes),
+                **(self.era_supplement.provenance(result.source_locale, result.source_path) if self.era_supplement else {}),
             }
         return result
 

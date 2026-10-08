@@ -1,5 +1,147 @@
 # T16 — Array exotic semantics and complete Array API
 
+## Duplicate invocation shortcuts retired — 2026-10-04 dry source
+
+All five direct join/toString/reverse returns across the two Array lowerer blocks
+are removed. Own method overrides, callable Proxies and arbitrary return tags
+therefore retain the actual acquired method, raw receiver and full argument list.
+Known native targets use the completed shared collection owner; other methods
+use their actual candidate or unknown-call analysis. Reverse no longer retains
+pre-call element facts, and shared toString can return an arbitrary join value.
+
+Actual IR controls and a paired strict/sloppy Engine cohort cover the original
+fresh Array source gates, own/canonical methods, receiver replacement after
+acquisition, real spread and ignored operands, caller getter effects, original
+abrupt identity and borrowed Realm errors. The String substring/slice neighbor
+joins the same complete retirement batch, with its own coercion flags and
+cohort. The final Wasm indirect emitter also retires exact Match/Split/Slice
+interception before actual callee evaluation. The ref105 combined all-target
+Rust type check passed; emitted-Wasm/runtime and full T16/T18/T26 acceptance
+remain pending.
+Backend direct adapters remain live for independent consumers. See the
+[retirement contract](../docs/rust-rewrite/contracts/invocation-shortcut-retirement.md).
+
+## Shared indexed-collection invocation — 2026-10-04 dry source
+
+The complete inferred-call source batch covers all 55 selected Array/TypedArray
+builtin targets. One consumed Option<ValueInfo> match combines admission and
+actual result facts; the existing indirect-call owner retains the original
+acquired callee, materialized receiver and full real argument/spread evaluation.
+Transferred aliases no longer substitute a canonical name. The three missing
+TypedArray iterator result arms cannot leave an admitted target without a result.
+
+The live result producers retain arbitrary Array species Object/Function/
+Arguments and shared-toString join values, and discard stale pre-mutation Fill/
+Sort receiver facts. Iterator results have no fabricated own native methods:
+Array/TypedArray and String instances inherit mutable methods from their actual
+prototypes. Four sole-dead result/layout/iterator-shape helpers are retired.
+Unknown synchronous hooks invalidate caller facts before the one publication;
+existing mutation/species/callback owners remain consumed, including corrected
+ToSorted comparator and six TypedArray predicate callback observations.
+
+Production and meaningful separately lowered literal-alias/fact/effect controls
+are authored with three finite strict/sloppy WasmAot Engine cohorts and current
+documentation. The ref105 combined all-target Rust type check passed; emitted-
+Wasm/runtime acceptance remains pending. The related complete retirement batch
+removes early direct Array shortcuts and the inferred String slice/substring canonical branch; broader
+builtin-flag authority remains open. Full T16/T17/T26 and fresh pinned status
+remain open; no published counts
+change. See the
+[invocation contract](../docs/rust-rewrite/contracts/indexed-collection-invocation-reference.md).
+
+## Splice spread specialization retirement — 2026-10-04 dry source
+
+The synthetic spliceFromArray family and its three syntactic lowering helpers
+are retired. Every inferred splice call now retains its actual acquired callee
+and receiver through the existing indirect invocation owner. Arguments keep
+real SpreadArgument expansion and left-to-right effects; shadowed Object.keys,
+overridden iterators, transferred method keys and mutation during argument
+observation cannot select a fabricated snapshot operation.
+
+The existing canonical splice compiler handles unrestricted start/delete
+coercion, species even for empty deletion, generic property moves and the
+called function Realm. Result analysis retains arbitrary Object species tags
+through the existing unshaped Dynamic domain. The separate direct-shift emitter
+and sole-dead receiver diagnostic are deleted; canonical splice bytes are
+preserved by this retirement.
+
+Actual IR controls retain callee/receiver capture, source property keys, spread
+protocol and general argument/result domains. Two paired strict/sloppy WasmAot
+cohorts extend the existing species target, preserving its three earlier
+controls. Maintained Splice/Sort/species guards follow the next actual owner
+boundaries. The complete code, controls and documentation passed the ref97
+combined all-target Rust type checkpoint. Emitted-Wasm/runtime verification
+remains pending; full T16 stays open. See the
+[Splice contract](../docs/rust-rewrite/contracts/array-splice-algorithm-owner.md).
+
+## Current Array copy-method Realm batch — 2026-10-04 dry source
+
+`toReversed`, `with` and `toSpliced` now join `toSorted` through the existing
+current-function-Realm allocator and its consuming intrinsic-prototype local.
+All four create the called builtin's Array even for borrowed methods, generic
+or Proxy receivers, poisoned public Array constructors and unread species.
+Only the three allocation calls change; conversion, Get order, replaced/deleted
+position bypass, read-through holes, data publication and native errors retain
+their current owners. The allocator inventory gains those three real consumers.
+
+Two paired strict/sloppy WasmAot Engine cohorts are authored for both borrowing
+directions, saved intrinsic prototypes, argument/index conversion traces,
+dense hole results, original foreign abrupt identity/finally and finite bounds
+errors. The complete batch passed the ref93 combined all-target Rust type
+checkpoint with the Chinese/Dangi era correction; emitted-Wasm/runtime and
+full T16 remain open.
+See the [copy-method Realm contract](../docs/rust-rewrite/contracts/array-by-copy-realm.md).
+
+## Current generic sort presence repair — 2026-10-04 dry source
+
+`ArraySortOutput::Receiver` now consumes the real HasProperty result for every
+receiver. The seven instructions that forcibly marked TypedArray indices
+present are removed. A TypedArray with two actual elements and an own ordinary
+length of four therefore contributes only its two present values to sorting;
+invalid indices remain holes and the existing trailing deletion path succeeds.
+Copy still reads through holes. Get order, comparison, indexed conversion and
+writeback/deletion ordering retain their original code.
+
+The paired Engine source checks default/custom BigInt sorting in both method
+borrowing directions, receiver/buffer/prototype identity, unchanged public
+length, only BigInt comparator operands and a foreign comparator throw with
+finally/prior assignment before writeback. The affected existing Receiver
+presence guard is maintained; no new structural mirror test is added.
+Compilation and execution remain pending. Full T16 acceptance stays open.
+
+## Current borrowed toSorted allocation — 2026-10-04 dry source
+
+The existing `ArraySortOutput::Copy` arm now uses the shared
+current-function-Realm Array allocator. Calling another Realm's `toSorted`
+therefore selects that method's Array prototype while retaining read-through
+holes, ascending Get order and copy-only publication. Paired semantic sources
+cover both borrowing directions, a Proxy Get trace with a forbidden Has trap,
+an inherited index and a final hole published as an own undefined entry.
+The existing output-domain guard is updated for the actual allocator.
+These controls remain uncompiled and unexecuted. The generic Array.sort
+TypedArray-presence source repair is described above; full T16 remains open. See the
+[Array sort output contract](../docs/rust-rewrite/contracts/array-sort-output.md).
+
+## Current dry species migration — 2026-10-03
+
+The last Flat/Concat ArraySpeciesCreate copies now use the shared emitter,
+which all seven Array species-producing methods consume. Proxy constructors,
+Array-valued constructor carriers, ordinary Object results and once-only
+lookup use the existing actual property/call owners. The unused later Flat
+Proxy constructor Get is deleted. Three semantic fixture sources and their
+Engine target are authored and independently source-reviewed. The current shared
+Concat species owner passed the ref97 combined all-target Rust type check;
+execution remains pending. The complete forward Flat/FlattenIntoArray source
+replacement is also integrated: root length precedes depth and species,
+ascending live Has/Get precedes positive-depth IsArray, and private paired
+parent frames retain next index, captured length and full numeric depth.
+Every output uses shared CreateDataPropertyOrThrow with the maximum-safe-index
+check. Nine regression sources cover ordering, holes, Proxy effects, reentry
+and abrupt identity. Independent source review is complete; executable and
+full T16 acceptance remain open. See the
+[species consumer contract](../docs/rust-rewrite/contracts/array-species-consumer-ownership.md)
+and [Flat traversal contract](../docs/rust-rewrite/contracts/array-flat-forward-traversal.md).
+
 **Status:** In progress — many Array leaves are green; materialization-free full-tree closure remains
 
 **Parallel group:** Feature lane  
@@ -18,9 +160,10 @@ This is not T16 closure or a new full-suite percentage.
 Array exotic storage, descriptors, species and most prototype families have
 substantial implementations and many focused complete-leaf results recorded in
 the README. `crates/lila-aot-wasm/src/builtins/array.rs` remains a very large
-shared implementation file, and the Test262 harness still contains numerous
-Array-specific path rewrites and source reductions. This task cannot close
-until the full current-pin Array tree is green through general semantics.
+shared implementation file. The current generated shortcut report records
+zero semantic shortcuts; earlier path-reduction checkpoints below retain their
+historical counts. This task cannot close until the full current-pin Array tree
+is green through general semantics on the current compiler.
 
 The two `Array.prototype.flatMap` custom-species materializers have been
 removed. Their unchanged pinned sources execute with the full assertion and
@@ -1481,3 +1624,45 @@ guards cover the boundary; exact-head runtime evidence is a PR merge gate.
 commands and nonclaims. No Test262 materialization or published count changes.
 Nested Array/arguments element Invoke remains separate work; T16 and T26 stay
 open until their broader closure gates are met.
+
+## Queued source-only Array.from proxy-definition IteratorClose repair (2026-10-03)
+
+The proxy route of `emit_create_data_property_or_throw` now retains the
+`Object.defineProperty` throw until the supplied iterator-close obligation has
+run, then propagates the original completion. The existing saved-completion
+helper attempts `return()` once and preserves the original throw against return
+getter, callability, call and result errors. Array.from's iterable caller passes
+the close locals; its noniterable array-like caller passes none. The mapper
+close route and the direct next/done/value error routes are unchanged.
+
+The separate queued batch6 packet authors six Engine regressions in both
+ordinary and strict modes, with exact traces for proxy definition failure,
+close-error precedence, mapper failure, iterator next/done/value failure,
+array-like failure and successful proxy publication. It retains the complete
+unchanged pinned `staging/sm/Array/from-iterator-close.js` and default harness.
+The frozen staging Array snapshot has two Runtime/Bug executions with `closed`
+false instead of true; that is historical evidence only. Current compilation,
+focused regressions and pinned execution are **UNRUN**. The virtual base is
+current MAIN 2dbb plus approved future2 composer 496f; an actual Source binding
+and independent source review remain required. No MAIN or published status
+change is made by this source-only packet.
+
+
+## Array.fromAsync semantic GC source — 2026-10-05
+
+The actual entry and both callbacks now consume the typed GC state, intrinsic
+Promise capabilities and complete cached iterator records. Array-like Await,
+mapper Await, async result handling, generic target definition and strict length
+Set retain their specified ordering and original errors. Sync input consumes the
+sole Async-from-Sync Next/Return algorithm rather than duplicating its value and
+close continuation. Eight paired exact-output Engine cohorts are authored; the old
+six raw offset/fingerprint guards are retired and their historical contracts
+are marked accordingly. The two additional cohorts distinguish true async
+next/done/value errors from mapper closing and observe synchronous Await setup
+constructor-Get failures at both boundaries. See the
+[GC execution contract](../docs/rust-rewrite/contracts/gc-array-from-async-execution.md).
+
+This is source progress only. Compilation, Wasm validation, semantic execution,
+pinned leaves, broad Array coverage and task acceptance remain pending. The
+whole task batch must finish implementation before verification starts; later
+execution requires the confirmed 4 GiB aggregate cap and serial launcher.

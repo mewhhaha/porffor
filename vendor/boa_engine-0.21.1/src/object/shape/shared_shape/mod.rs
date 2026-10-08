@@ -124,7 +124,7 @@ impl SharedShape {
         &self.inner.property_table
     }
     /// Return the property count that this shape owns in the [`PropertyTable`].
-    fn property_count(&self) -> u32 {
+    pub(super) fn property_count(&self) -> u32 {
         self.inner.property_count
     }
     /// Return the index to the property in the the [`PropertyTable`].

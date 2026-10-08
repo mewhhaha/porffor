@@ -1,0 +1,20 @@
+function check(value, message) { if (!value) throw new Error(message); }
+const hour = 3600000000000n;
+const start = Temporal.ZonedDateTime.from("2024-03-09T12:00-05:00[America/New_York]");
+const end = Temporal.ZonedDateTime.from("2024-03-10T13:30-04:00[America/New_York]");
+const date = start.until(end, { largestUnit: "day" });
+check(date.days === 1 && date.hours === 1 && date.minutes === 30, "date difference keeps day separate from elapsed time");
+const time = start.until(end, { largestUnit: "hour" });
+check(time.days === 0 && time.hours === 24 && time.minutes === 30, "time difference is elapsed");
+const reverse = end.until(start, { largestUnit: "day" });
+check(reverse.days === -1 && reverse.hours === -1 && reverse.minutes === -30, "reverse date difference");
+const since = start.since(end, { largestUnit: "day" });
+check(since.days === -1 && since.hours === -1 && since.minutes === -30, "since negates completed duration");
+check(start.add(date).epochNanoseconds === end.epochNanoseconds, "raw date difference reconstructs endpoint");
+const midpoint = new Temporal.ZonedDateTime(start.epochNanoseconds + 23n * hour / 2n, "America/New_York");
+const round = { smallestUnit: "day", roundingMode: "halfEven" };
+check(start.until(midpoint, round).days === 0, "exact spring half-even tie");
+check(start.until(midpoint.add({ nanoseconds: 1 }), round).days === 1, "one nanosecond above tie");
+check(start.until(midpoint.subtract({ nanoseconds: 1 }), round).days === 0, "one nanosecond below tie");
+print("ok");
+262;

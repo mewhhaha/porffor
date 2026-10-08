@@ -6,6 +6,18 @@ use crate::provider::hijri::PackedHijriYearInfo;
 
 pub const UMMALQURA_DATA_STARTING_YEAR: i32 = 1300;
 
+/// Safe canonical little-endian storage derived from the existing packed table.
+/// This supplies the build-time baked provider; runtime kernels load its image.
+pub(crate) const UMMALQURA_LE: [zerovec::ule::RawBytesULE<2>; 301] = {
+    let mut data = [zerovec::ule::RawBytesULE([0, 0]); 301];
+    let mut index = 0;
+    while index < data.len() {
+        data[index] = zerovec::ule::RawBytesULE(UMMALQURA_DATA[index].0.to_le_bytes());
+        index += 1;
+    }
+    data
+};
+
 #[rustfmt::skip]
 pub const UMMALQURA_DATA: [PackedHijriYearInfo; 1601 - UMMALQURA_DATA_STARTING_YEAR as usize] = {
     use calendrical_calculations::iso::const_fixed_from_iso as iso;

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Bind low-memory publication sessions to immutable identities and durable progress.
 
-This records the observed checkout, source bytes and executable bytes. It is
-not a build attestation and does not retrofit provenance into native snapshots.
-A family with pre-existing results but no manifest must use a new name.
+Observed checkout/source bytes remain separate from the compiler's embedded
+build-source fingerprint and executing-image hash. Native checkpoint identity
+must match that compiler before its progress can advance this session.
+A family with pre-existing unbound results must use a new name.
 """
 from __future__ import annotations
 
@@ -23,7 +24,8 @@ import sys
 import tempfile
 from collections.abc import Iterator, Mapping
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+COMPILER_FINGERPRINT_SCHEME = "lila-program-cache-compiler-v3"
 MAX_MATRIX_COUNT = 10**18 - 1
 SOURCE_FILES = ("Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml")
 SOURCE_DIRECTORIES = (".cargo", "crates", "vendor", "scripts")
@@ -32,12 +34,11 @@ RUNTIME_ENVIRONMENT = (
     "TZ", "LANG", "LC_ALL", "LC_TIME", "RUST_MIN_STACK",
     "LILA_MODULE_MEMORY_CACHE_ENTRIES", "LILA_CACHE_LIMIT_BYTES",
     "LILA_FUNCTION_CACHE_LIMIT_BYTES", "LILA_MODULE_CACHE_LIMIT_BYTES",
-    "LILA_PROGRAM_CACHE_LIMIT_BYTES", "LILA_TEST262_FORCE_CASE_RUNNER",
-    "LILA_TEST262_DISABLE_CASE_RUNNER",
+    "LILA_PROGRAM_CACHE_LIMIT_BYTES",
 )
 IDENTITY_KEYS = frozenset({
     "repository", "checkout_commit", "checkout_tree", "source_inputs_sha256",
-    "source_input_files", "executable", "executable_sha256", "suite_root",
+    "source_input_files", "executable", "executable_sha256", "compiler_identity", "suite_root",
     "suite_sha256", "suite_files", "snapshot_directory", "snapshot_name",
     "execution_backend", "threads", "jobs", "isolate_cases", "environment",
 })
@@ -100,6 +101,61 @@ def _git(root: Path, *arguments: str) -> str:
         raise ProvenanceError(f"cannot inspect source checkout: {error}") from error
 
 
+def checked_compiler_identity(value: object) -> dict:
+    fields = {"source_fingerprint_scheme", "source_fingerprint", "source_revision", "executable_sha256"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ProvenanceError("compiler identity requires exactly the mandatory native fields")
+    if value["source_fingerprint_scheme"] != COMPILER_FINGERPRINT_SCHEME:
+        raise ProvenanceError("unsupported compiler source fingerprint scheme")
+    for field in ("source_fingerprint", "executable_sha256"):
+        digest = value[field]
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ProvenanceError(f"invalid compiler identity {field}")
+    revision = value["source_revision"]
+    if not isinstance(revision, dict):
+        raise ProvenanceError("compiler source revision must be a checked tagged object")
+    if revision == {"kind": "unversioned-archive"}:
+        return value
+    if set(revision) != {"kind", "commit"} or revision["kind"] != "git-commit":
+        raise ProvenanceError("invalid compiler source revision kind or fields")
+    commit = revision["commit"]
+    if not isinstance(commit, str) or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", commit) is None:
+        raise ProvenanceError("invalid compiler source commit")
+    return value
+
+
+def query_compiler_identity(binary: Path, environment: Mapping[str, str]) -> dict:
+    try:
+        output = subprocess.check_output(
+            [str(binary), "compiler-identity"], env=dict(environment),
+            stderr=subprocess.PIPE, text=True, timeout=60,
+        )
+        value = json.loads(output, object_pairs_hook=_unique_object)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            UnicodeError, json.JSONDecodeError) as error:
+        raise ProvenanceError(f"cannot read native compiler identity: {error}") from error
+    return checked_compiler_identity(value)
+
+
+def require_checkpoint_identity(text: str, expected: dict) -> dict:
+    values = []
+    for line in text.splitlines():
+        key, separator, value = line.partition(": ")
+        if key == "compiler_identity":
+            if not separator:
+                raise ProvenanceError("invalid native checkpoint compiler identity line")
+            values.append(value)
+    if len(values) != 1:
+        raise ProvenanceError("checkpoint requires exactly one native compiler identity")
+    try:
+        recorded = checked_compiler_identity(json.loads(values[0], object_pairs_hook=_unique_object))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ProvenanceError(f"invalid checkpoint compiler identity: {error}") from error
+    if recorded != checked_compiler_identity(expected):
+        raise ProvenanceError("checkpoint compiler identity differs from the publication session")
+    return recorded
+
+
 def _regular_files(root: Path) -> Iterator[Path]:
     if root.is_symlink():
         raise ProvenanceError(f"input symlinks are not supported: {root}")
@@ -147,6 +203,8 @@ def _tree_digest(root: Path, paths: list[Path]) -> tuple[str, int]:
 
 
 def capture_identity(environment: Mapping[str, str]) -> dict:
+    if environment.get("ISOLATE_CASES") != "1":
+        raise ProvenanceError("ISOLATE_CASES must be 1: case supervision is mandatory")
     root = Path(environment["REPO_ROOT"]).resolve(strict=True)
     binary = Path(environment["LILA_BIN"]).resolve(strict=True)
     suite = Path(environment["SUITE_ROOT"]).resolve(strict=True)
@@ -165,6 +223,11 @@ def capture_identity(environment: Mapping[str, str]) -> dict:
         paths.append(harness)
     source_hash, source_count = _tree_digest(root, paths)
     suite_hash, suite_count = _tree_digest(suite, [suite])
+    executable_hash = _file_digest(binary)
+    compiler_identity = query_compiler_identity(binary, environment)
+    if (compiler_identity["executable_sha256"] != executable_hash
+            or _file_digest(binary) != executable_hash):
+        raise ProvenanceError("native compiler identity does not match the observed executing image")
     return {
         "repository": str(root),
         "checkout_commit": _git(root, "rev-parse", "--verify", "HEAD"),
@@ -172,7 +235,8 @@ def capture_identity(environment: Mapping[str, str]) -> dict:
         "source_inputs_sha256": source_hash,
         "source_input_files": source_count,
         "executable": str(binary),
-        "executable_sha256": _file_digest(binary),
+        "executable_sha256": executable_hash,
+        "compiler_identity": compiler_identity,
         "suite_root": str(suite),
         "suite_sha256": suite_hash,
         "suite_files": suite_count,
@@ -181,7 +245,7 @@ def capture_identity(environment: Mapping[str, str]) -> dict:
         "execution_backend": "wasm-aot",
         "threads": int(environment["THREADS"]),
         "jobs": int(environment["JOBS"]),
-        "isolate_cases": environment["ISOLATE_CASES"] == "1",
+        "isolate_cases": True,
         "environment": {name: environment.get(name) for name in RUNTIME_ENVIRONMENT},
     }
 
@@ -222,6 +286,11 @@ def _read_manifest_document(path: Path) -> dict:
     identity = value["identity"]
     if not isinstance(identity, dict) or set(identity) != IDENTITY_KEYS:
         raise ProvenanceError(f"invalid publication manifest identity: {path}")
+    if identity["isolate_cases"] is not True:
+        raise ProvenanceError("publication manifest must bind mandatory case supervision")
+    compiler = checked_compiler_identity(identity["compiler_identity"])
+    if compiler["executable_sha256"] != identity["executable_sha256"]:
+        raise ProvenanceError("publication manifest compiler/image hashes differ")
     if value["progress"] is not None:
         MatrixProgress.from_dict(value["progress"])
     return value
@@ -235,7 +304,7 @@ def require_identity(path: Path, expected: dict) -> None:
     recorded = read_manifest(path)
     # Canonical JSON also distinguishes booleans from integers (True == 1 in
     # Python), so malformed typed values cannot compare equal accidentally.
-    differences = [key for key in sorted(IDENTITY_KEYS)
+    differences = [key for key in sorted(IDENTITY_KEYS, key=lambda key: (key == "compiler_identity", key))
                    if json.dumps(recorded[key], sort_keys=True) != json.dumps(expected[key], sort_keys=True)]
     if differences:
         raise ProvenanceError(
@@ -281,11 +350,14 @@ def _replace_manifest(path: Path, document: dict) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def record_matrix_progress(path: Path, current: MatrixProgress, *, after_report: bool) -> None:
+def record_matrix_progress(path: Path, current: MatrixProgress, *, compiler_identity: dict,
+                           after_report: bool) -> None:
     # The supervisor retains the family lock. A distinct observation lock also
     # serializes direct invocations of this read/modify/write CLI operation.
     with family_lock(path.with_suffix(".progress.lock")):
         document = _read_manifest_document(path)
+        if checked_compiler_identity(compiler_identity) != document["identity"]["compiler_identity"]:
+            raise ProvenanceError("checkpoint compiler identity differs from the publication session")
         previous = (MatrixProgress.from_dict(document["progress"])
                     if document["progress"] is not None else None)
         if previous is not None:
@@ -391,8 +463,11 @@ def main() -> int:
             if args.operation == "require-fresh":
                 require_fresh_matrix(args.manifest)
             elif args.operation == "record-progress":
-                progress = parse_matrix_progress(sys.stdin.read())
-                record_matrix_progress(args.manifest, progress, after_report=args.after_report)
+                checkpoint = sys.stdin.read()
+                compiler_identity = require_checkpoint_identity(checkpoint, identity["compiler_identity"])
+                progress = parse_matrix_progress(checkpoint)
+                record_matrix_progress(args.manifest, progress, compiler_identity=compiler_identity,
+                                       after_report=args.after_report)
                 print(f"{progress.completed}:{progress.total}")
             return 0
         if args.manifest is not None:

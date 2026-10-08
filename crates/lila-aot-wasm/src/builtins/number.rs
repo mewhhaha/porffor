@@ -1,20 +1,18 @@
+//! Native Number entries preserve primitive identity and whole abrupt results.
+
 use super::super::*;
-use crate::objects::TaggedLocals;
+use crate::functions::OrdinaryDefaultPrototype;
+use crate::gc_types::{
+    GcNullability, GcOperand, PrimitiveBox, PrimitiveBoxSchema, StoredValue, ValueLocals,
+};
 
-enum NumberBuiltin {
-    Constructor,
-    IsInteger,
-    IsSafeInteger,
-    IsFinite,
-    IsNaN,
-    PrototypeToExponential,
-    PrototypeToFixed,
-    PrototypeToPrecision,
-    PrototypeToString,
-    PrototypeToLocaleString,
-    PrototypeValueOf,
+#[derive(Clone, Copy)]
+enum NumberPredicate {
+    Integer,
+    SafeInteger,
+    Finite,
+    NaN,
 }
-
 enum NumberPrototypeOperation {
     ToExponential,
     ToFixed,
@@ -24,56 +22,159 @@ enum NumberPrototypeOperation {
     ValueOf,
 }
 
-impl<'a> FunctionBuilder<'a> {
-    fn emit_number_constructor_result(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let arg_payload_local = self.reserve_temp_local();
-        let arg_tag_local = self.reserve_temp_local();
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        let has_arg_local = self.reserve_temp_local();
-        self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(has_arg_local));
-        function.instruction(&Instruction::LocalGet(has_arg_local));
+impl FunctionBuilder<'_> {
+    pub(super) fn emit_number_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let new_target = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        pending
+            .value()
+            .set_scalar(crate::gc_types::ScalarValue::NumberBits(0), function);
+        let count = self
+            .body_entry_locals()
+            .ok_or_else(|| {
+                EmitError::unsupported("Number constructor requires declared body entry")
+            })?
+            .argument_count();
+        count.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(primitive_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(primitive_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_number_payload_allow_bigint(arg_tag_local, arg_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(primitive_payload_local));
-        // A ToPrimitive throw inside the conversion above leaves
-        // completion=THROW with the original error already in
-        // `self.result_local`/`self.result_tag_local` (untouched,
-        // since the number-conversion helper skips further
-        // processing on throw). Propagate to the active
-        // try/catch handler here (this arm is nested one
-        // untracked `If` deep, the `has_arg_local` check above)
-        // instead of falling through and stamping a bogus
-        // Number tag over the thrown error.
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        self.emit_value_to_number_payload_allow_bigint(&argument, &pending, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let output = schema.reserve_completion(function);
+        output.copy_from(&pending, function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.emit_branch_if_to_target(exit, function);
+        self.compile_new_target_to_locals(&new_target, function)?;
+        new_target.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(exit, function);
+        let prototype = schema.reserve_completion(function);
+        self.emit_get_prototype_from_constructor(
+            &new_target,
+            OrdinaryDefaultPrototype::Number,
+            &prototype,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(primitive_tag_local));
+        output.copy_from(&prototype, function);
+        prototype.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(prototype.value()), function)?,
+            function,
+        );
+        let primitive = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(pending.value(), function),
+            function,
+        );
+        let boxed = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PrimitiveBox>().construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::reference(&primitive, schema),
+                ),
+                function,
+            ),
+            function,
+        );
+        let value = schema.reserve_value_local(function);
+        value.set_reference(&boxed, schema, function);
+        output.set_normal(&value, function);
+        value.clear(function);
+        boxed.clear(function);
+        primitive.clear(function);
+        header.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(has_arg_local);
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
-        self.release_temp_local(arg_tag_local);
-        self.release_temp_local(arg_payload_local);
+        prototype.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&output, function);
+        output.clear(function);
+        pending.clear(function);
+        new_target.clear(function);
+        argument.clear(function);
+        Ok(())
+    }
+
+    fn emit_number_predicate(
+        &mut self,
+        predicate: NumberPredicate,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        let answer = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        answer.store(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        argument.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number.tag()));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        match predicate {
+            NumberPredicate::NaN => {
+                argument.scalar().load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                argument.scalar().load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+            }
+            NumberPredicate::Finite | NumberPredicate::Integer | NumberPredicate::SafeInteger => {
+                argument.scalar().load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Abs);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+                function.instruction(&Instruction::F64Lt);
+                if matches!(
+                    predicate,
+                    NumberPredicate::Integer | NumberPredicate::SafeInteger
+                ) {
+                    argument.scalar().load(function);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Trunc);
+                    argument.scalar().load(function);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::I32And);
+                }
+                if matches!(predicate, NumberPredicate::SafeInteger) {
+                    argument.scalar().load(function);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Abs);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(
+                        9_007_199_254_740_991.0,
+                    )));
+                    function.instruction(&Instruction::F64Le);
+                    function.instruction(&Instruction::I32And);
+                }
+            }
+        }
+        answer.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.set_boolean(answer, function);
+        self.completion().set_normal(&value, function);
+        schema.release_i32_local(answer, function);
+        value.clear(function);
+        argument.clear(function);
         Ok(())
     }
 
@@ -82,324 +183,134 @@ impl<'a> FunctionBuilder<'a> {
         operation: NumberPrototypeOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Number prototype receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Number prototype receiver",
-            )
-        })?;
-        let boxed_kind_local = self.reserve_temp_local();
-        let number_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(receiver_payload_local));
-        function.instruction(&Instruction::LocalSet(number_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            boxed_kind_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let number = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        self.compile_this_to_locals(&receiver, function)?;
+        number.copy_from(&receiver, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<PrimitiveBox>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let boxed = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<PrimitiveBox>(schema, function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(boxed_kind_local));
-        function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_NUMBER as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            number_payload_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrimitiveBox>()
+                .field(PrimitiveBoxSchema::PRIMITIVE)
+                .read(&boxed, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Else);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &number, schema, function);
+        stored.clear(function);
+        boxed.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        number.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number.tag()));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Number.prototype method requires a Number receiver",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::NUMBER_PROTOTYPE_METHOD_REQUIRES_A_NUMBER_RECEIVER,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            "Number.prototype method requires a Number receiver",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
         match operation {
-            NumberPrototypeOperation::ValueOf => {
-                function.instruction(&Instruction::LocalGet(number_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            }
+            NumberPrototypeOperation::ValueOf => pending.set_normal(&number, function),
             NumberPrototypeOperation::ToFixed => {
-                self.emit_number_to_fixed_payload(number_payload_local, function)?;
+                self.emit_number_to_fixed_payload(number.scalar(), &pending, function)?
             }
             NumberPrototypeOperation::ToExponential => {
-                self.emit_number_to_exponential_payload(number_payload_local, function)?;
+                self.emit_number_to_exponential_payload(number.scalar(), &pending, function)?
             }
             NumberPrototypeOperation::ToPrecision => {
-                self.emit_number_to_precision_payload(number_payload_local, function)?;
+                self.emit_number_to_precision_payload(number.scalar(), &pending, function)?
             }
             NumberPrototypeOperation::ToString => {
-                self.emit_number_to_string_with_radix_result(number_payload_local, function)?;
+                self.emit_number_to_string_with_radix_result(number.scalar(), &pending, function)?
             }
             NumberPrototypeOperation::ToLocaleString => {
-                let tag = self.reserve_temp_local();
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag));
-                self.emit_intrinsic_number_locale_format(
-                    TaggedLocals::new(number_payload_local, tag),
-                    function,
-                )?;
-                self.release_temp_local(tag);
+                self.emit_intrinsic_number_locale_format(&number, function)?;
+                pending.copy_from(self.completion(), function);
             }
         }
-
-        self.release_temp_local(number_payload_local);
-        self.release_temp_local(boxed_kind_local);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&pending, function);
+        pending.clear(function);
+        number.clear(function);
+        receiver.clear(function);
         Ok(())
     }
-
-    pub(super) fn emit_number_constructor_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::Constructor, function)
-    }
-
     pub(super) fn emit_number_is_integer_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::IsInteger, function)
+        self.emit_number_predicate(NumberPredicate::Integer, function)
     }
-
     pub(super) fn emit_number_is_safe_integer_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::IsSafeInteger, function)
+        self.emit_number_predicate(NumberPredicate::SafeInteger, function)
     }
-
     pub(super) fn emit_number_is_finite_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::IsFinite, function)
+        self.emit_number_predicate(NumberPredicate::Finite, function)
     }
-
     pub(super) fn emit_number_is_nan_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::IsNaN, function)
+        self.emit_number_predicate(NumberPredicate::NaN, function)
     }
-
     pub(super) fn emit_number_prototype_to_exponential_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::PrototypeToExponential, function)
+        self.emit_number_prototype_builtin(NumberPrototypeOperation::ToExponential, function)
     }
-
     pub(super) fn emit_number_prototype_to_fixed_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::PrototypeToFixed, function)
+        self.emit_number_prototype_builtin(NumberPrototypeOperation::ToFixed, function)
     }
-
     pub(super) fn emit_number_prototype_to_precision_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::PrototypeToPrecision, function)
+        self.emit_number_prototype_builtin(NumberPrototypeOperation::ToPrecision, function)
     }
-
     pub(super) fn emit_number_prototype_to_string_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::PrototypeToString, function)
+        self.emit_number_prototype_builtin(NumberPrototypeOperation::ToString, function)
     }
-
     pub(super) fn emit_number_prototype_to_locale_string_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::PrototypeToLocaleString, function)
+        self.emit_number_prototype_builtin(NumberPrototypeOperation::ToLocaleString, function)
     }
-
     pub(super) fn emit_number_prototype_value_of_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_number_builtin(NumberBuiltin::PrototypeValueOf, function)
-    }
-
-    fn emit_number_builtin(
-        &mut self,
-        builtin: NumberBuiltin,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match builtin {
-            NumberBuiltin::Constructor => self.emit_number_constructor_result(function)?,
-            NumberBuiltin::IsInteger => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-                    function.instruction(&Instruction::LocalGet(arg_payload_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                    function.instruction(&Instruction::F64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
-            NumberBuiltin::IsSafeInteger => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Abs);
-                function.instruction(&Instruction::F64Const(Ieee64::from(
-                    9_007_199_254_740_991.0,
-                )));
-                function.instruction(&Instruction::F64Le);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
-            NumberBuiltin::IsNaN => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
-            NumberBuiltin::IsFinite => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Eq);
-                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-                    function.instruction(&Instruction::LocalGet(arg_payload_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                    function.instruction(&Instruction::F64Ne);
-                    function.instruction(&Instruction::I32And);
-                }
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
-            NumberBuiltin::PrototypeToExponential => self
-                .emit_number_prototype_builtin(NumberPrototypeOperation::ToExponential, function)?,
-            NumberBuiltin::PrototypeToFixed => {
-                self.emit_number_prototype_builtin(NumberPrototypeOperation::ToFixed, function)?
-            }
-            NumberBuiltin::PrototypeToPrecision => {
-                self.emit_number_prototype_builtin(NumberPrototypeOperation::ToPrecision, function)?
-            }
-            NumberBuiltin::PrototypeToString => {
-                self.emit_number_prototype_builtin(NumberPrototypeOperation::ToString, function)?
-            }
-            NumberBuiltin::PrototypeToLocaleString => self.emit_number_prototype_builtin(
-                NumberPrototypeOperation::ToLocaleString,
-                function,
-            )?,
-            NumberBuiltin::PrototypeValueOf => {
-                self.emit_number_prototype_builtin(NumberPrototypeOperation::ValueOf, function)?
-            }
-        }
-        Ok(())
+        self.emit_number_prototype_builtin(NumberPrototypeOperation::ValueOf, function)
     }
 }

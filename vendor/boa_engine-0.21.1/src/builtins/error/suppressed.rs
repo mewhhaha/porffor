@@ -71,7 +71,7 @@ impl BuiltInConstructor for SuppressedError {
         let object = JsObject::from_proto_and_data_with_shared_shape(
             context.root_shape(),
             prototype,
-            Error::with_caller_position(super::ErrorKind::Error, context),
+            Error::with_caller_position(super::ErrorKind::Suppressed, context),
         );
 
         let message = args.get_or_undefined(2);

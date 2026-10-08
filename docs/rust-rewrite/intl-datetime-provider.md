@@ -1,10 +1,28 @@
 # DateTimeFormat provider boundary
 
-Chinese calendar conversion in this provider does not add Chinese calendar
-admission to Temporal constructors. `Temporal.PlainDate` still accepts only the
-ISO, Gregorian and Buddhist calendar domain implemented by the shared Temporal
-operations. A Chinese-calendar PlainDate constructor currently throws before
-reaching this formatting boundary; that is a separate implementation gap.
+The complete source successor proposes sixteen DateTimeFormat calendars and
+thirteen locale profiles through this same product boundary. Its public enum,
+closed wire mapping, catalogue and native profile must be admitted together
+after actual native and Wasm verification. The four-calendar observations below
+retain their historical scope. See the [calendar domain](intl-datetime-calendar-domain.md)
+and [genuine profile contract](intl-datetime-profile-pools.md).
+
+DateTimeFormat conversion does not add calendar admission to Temporal
+constructors. The shared Temporal domain admits `iso8601`, `gregory`,
+`buddhist`, `roc` and `japanese`; it does not admit `chinese`. The complete
+DateTimeFormat successor selects sixteen canonical calendars independently.
+Unsupported valid keywords such as generic `islamic` still resolve to an
+available profile calendar under ECMA-402. A non-ISO ZonedDateTime must match
+that resolved calendar after every formatter option observation. Matching ROC
+formatting joins the expanded source while generic-Islamic fallback retains
+its mismatch coverage. ISO exemption, explicit-calendar precedence and late
+getter abrupt completion remain covered.
+
+The Buddhist predecessor passes its focused native/Engine regressions and
+records 468/496 passes in the whole pinned DateTimeFormat cohort, with all
+28 Runtime Bugs owned. Those observations belong to that earlier source. The
+expanded successor needs its own native and product verification; full Temporal
+or Intl completion is not inferred. See the [Buddhist contract](intl-datetime-buddhist.md).
 
 The Wasm compiler owns all observable ECMA-402 behavior: locale list conversion,
 option getters and coercion, branded receivers, calendar compatibility,
@@ -35,7 +53,8 @@ compatibility before sending those fields. Chinese conversion uses the
 retained astronomical interval and distant integer approximation.
 
 The profile supplies English, Arabic and simplified Chinese data, Gregorian,
-ISO and Chinese calendars, and all 77 CLDR 47 positional digit mappings. Named
+ISO, Chinese and Buddhist calendars, the 77 CLDR47 positional digit mappings
+and the checked [CLDR48/UCD17 Tolong Siki supplement](intl-numbering-tols.md). Named
 zones use the same pinned IANA transition authority as other Intl operations.
 Only complete locale/calendar profile entries participate in negotiation;
 unsupported valid keywords follow ECMA-402 resolution. This profile is bounded

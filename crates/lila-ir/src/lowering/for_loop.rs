@@ -2,6 +2,23 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_for_loop(&mut self, for_loop: &ForLoop) -> (StatementIr, ValueKind) {
+        if self.async_generator_entry_state().is_some() {
+            return self.lower_for_loop_region(for_loop);
+        }
+        if self.plain_async_entry_state().is_some() {
+            return self.lower_plain_async_classic_loop(
+                crate::async_generator_source::PlainAsyncClassicLoopSource::For(for_loop),
+            );
+        }
+        if self.plain_generator_entry_state().is_some() {
+            if let Some(source) =
+                crate::async_generator_source::PlainAsyncClassicLoopSource::for_generator_resource(
+                    for_loop,
+                )
+            {
+                return self.lower_plain_async_classic_loop(source);
+            }
+        }
         if matches!(for_loop.init(), Some(ForLoopInitializer::Lexical(lexical))
             if matches!(lexical.declaration(), LexicalDeclaration::Using(_)))
         {
@@ -17,6 +34,12 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn lower_for_loop_region(&mut self, for_loop: &ForLoop) -> (StatementIr, ValueKind) {
+        if self.async_generator_entry_state().is_some() {
+            return self.lower_async_generator_classic_for(for_loop);
+        }
+        if self.plain_generator_entry_state().is_some() {
+            return self.lower_ordinary_generator_for(for_loop);
+        }
         let async_disposable_head = Self::async_disposable_for_head(for_loop);
         if async_disposable_head.is_some() {
             let loop_has_suspension = Self::async_disposable_for_has_source_suspension(for_loop);

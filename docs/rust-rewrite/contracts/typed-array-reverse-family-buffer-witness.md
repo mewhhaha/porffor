@@ -1,5 +1,16 @@
 # TypedArray reverse-family buffer witness
 
+## Current result-construction update — 2026-10-04 dry source
+
+The entry-witness contract below remains in force. `toReversed` now acquires
+one private completed same-type result at the captured length, writes through
+that owner and consumes it for publication. Its factory uses the called
+builtin's defining-Realm concrete intrinsic; it performs no source constructor
+or species Get. The maintained guard follows this actual result consumer.
+See [same-type ownership](typed-array-create-same-type-ownership.md).
+Compilation and paired runtime controls remain pending. Historical witness
+verification below applies only to that earlier entry seam and its source.
+
 Status: normative for the Wasm-AOT `%TypedArray%.prototype.reverse` and
 `%TypedArray%.prototype.toReversed` method-entry seam.
 

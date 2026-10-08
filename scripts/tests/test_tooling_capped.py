@@ -45,7 +45,7 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
         path.chmod(0o755)
 
     def run_cap(self, *args, **settings):
-        env = dict(os.environ, PATH=str(self.bin), LILA_CPU_PERCENT="50")
+        env = dict(os.environ, PATH=str(self.bin), LILA_CPU_PERCENT="50", CARGO_BUILD_JOBS="")
         env.update(settings)
         return subprocess.run(["/bin/sh", str(SCRIPT), "probe", *args], cwd=self.root,
                               env=env, capture_output=True, text=True, timeout=10)
@@ -53,20 +53,34 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
     def selection(self):
         return json.loads((self.root / "selection.json").read_text())
 
-    def test_sparse_affinity_is_narrowed_and_jobs_match(self):
+    def test_sparse_affinity_is_narrowed_and_jobs_remain_serial(self):
         result = self.run_cap(AFFINITY="2,4-6,10")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.selection()[:2], ["-c", "2,4"])
-        self.assertEqual(json.loads(result.stdout)["jobs"], "2")
+        self.assertEqual(json.loads(result.stdout)["jobs"], "1")
 
     def test_single_cpu_and_full_share_stay_inside_original_set(self):
         for affinity, percent, wanted, jobs in (("7", "1", "7", "1"),
-                                                ("4,7-8", "100", "4,7-8", "3")):
+                                                ("4,7-8", "100", "4,7-8", "1")):
             with self.subTest(affinity=affinity, percent=percent):
                 result = self.run_cap(AFFINITY=affinity, LILA_CPU_PERCENT=percent)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.selection()[1], wanted)
                 self.assertEqual(json.loads(result.stdout)["jobs"], jobs)
+
+    def test_explicit_job_limit_cannot_widen_affinity_ceiling(self):
+        for requested, wanted in (("1", "1"), ("2", "2"), ("8", "2")):
+            with self.subTest(requested=requested):
+                result = self.run_cap(AFFINITY="2,4-6,10", CARGO_BUILD_JOBS=requested)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.selection()[1], "2,4")
+                self.assertEqual(json.loads(result.stdout)["jobs"], wanted)
+
+    def test_invalid_job_limit_never_starts_the_command(self):
+        for requested in ("0", "000", "-1", "1+1", "9x", "99999999999999999999999"):
+            with self.subTest(requested=requested):
+                self.assertEqual(self.run_cap(CARGO_BUILD_JOBS=requested).returncode, 2)
+                self.assertFalse((self.root / "selection.json").exists())
 
     def test_invalid_percentages_fail_before_execution(self):
         for percent in ("0", "00", "08", "101", "-1", "1+1", "9x", "99999999999999999999999"):
@@ -90,7 +104,7 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
         (self.bin / "taskset").unlink()
         result = self.run_cap()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["jobs"], "4")
+        self.assertEqual(json.loads(result.stdout)["jobs"], "1")
         self.assertIn("limiting job counts only", result.stderr)
 
     def test_command_arguments_and_failure_status_are_preserved(self):

@@ -1,6 +1,6 @@
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, ObservedCompletion, RealmBuilder,
-    RunOptions,
+    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
+    ObservedCompletion, ObservedJsValue, ObservedNumber, RealmBuilder, RunOptions,
 };
 
 fn assert_iterator_trace(source: &str, expected: &[&str]) {
@@ -198,5 +198,53 @@ mapped = outer().flatMap(function () {
 print(Array.from(mapped).join(','));
 "#,
         &["true", "0,1,2", "0,1,2"],
+    );
+}
+
+fn assert_iterator_from_modes(source: &str, expected: &str) {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    for directive in ["", "'use strict';\n"] {
+        let source = format!("{directive}{source}");
+        let observed = Engine::new(RealmBuilder::new().build())
+            .observe_script(
+                &source,
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    ..CompileOptions::default()
+                },
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Iterator.from fixture compiles and executes through Wasm AOT");
+        assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
+        assert_eq!(
+            observed.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(262.0))),
+            "{source}"
+        );
+        assert_eq!(
+            observed.output_events,
+            vec![HostOutputEvent::PrintLine(expected.into())],
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn iterator_from_accepts_callable_proxies_and_forwards_wrapper_results_in_both_realms() {
+    assert_iterator_from_modes(
+        include_str!("fixtures/iterator_from/realms_and_protocol.js"),
+        "iterator-from-realms:ok",
+    );
+}
+
+#[test]
+fn iterator_from_preserves_acquisition_order_original_abrupts_and_wrapper_brand_checks() {
+    assert_iterator_from_modes(
+        include_str!("fixtures/iterator_from/ordering_and_abrupt.js"),
+        "iterator-from-abrupt:ok",
     );
 }

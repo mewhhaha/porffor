@@ -1,172 +1,212 @@
 use super::*;
-use lila_ir::FunctionExecutionKind;
+use crate::gc_types::*;
 
-impl<'a> FunctionBuilder<'a> {
-    /// Select the activation layout from its actual execution owner, never from
-    /// a caller-supplied offset. Both generator forms use the same Reference
-    /// lifecycle; only their activation layouts differ.
-    fn suspended_property_reference_offsets(&self) -> Result<[u64; 4], EmitError> {
-        let kind = self
-            .current_function_meta()
-            .map(|meta| meta.protocol.execution_kind());
-        match kind {
-            Some(FunctionExecutionKind::Generator) => Ok([
-                HEAP_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET,
-                HEAP_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET,
-                HEAP_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET,
-                HEAP_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET,
-            ]),
-            Some(FunctionExecutionKind::AsyncGenerator) => Ok([
-                HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET,
-                HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET,
-                HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET,
-                HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET,
-            ]),
-            Some(FunctionExecutionKind::Ordinary | FunctionExecutionKind::Async) | None => {
-                Err(EmitError::unsupported(
-                    "suspended property Reference requires a generator activation",
-                ))
+impl FunctionBuilder<'_> {
+    fn suspended_property_reference_frame(
+        &self,
+        function: &mut Function,
+    ) -> Result<GcLocal<InvocationFrame>, EmitError> {
+        let schema = self.runtime_schema();
+        let entry = self.body_entry_locals().ok_or_else(|| {
+            EmitError::unsupported("compiler invariant: suspended Reference has no body entry")
+        })?;
+        match entry.resume_activation() {
+            Some(
+                crate::function_entry::ResumableEntryLocals::Generator(_)
+                | crate::function_entry::ResumableEntryLocals::AsyncGenerator(_),
+            ) => {}
+            Some(crate::function_entry::ResumableEntryLocals::Async(_)) | None => {
+                return Err(EmitError::unsupported(
+                    "compiler invariant: suspended Reference requires a generator activation",
+                ));
             }
         }
+        let frame = entry.resume_frame().ok_or_else(|| {
+            EmitError::unsupported(
+                "compiler invariant: suspended Reference has no invocation frame",
+            )
+        })?;
+        Ok(schema
+            .reserve_gc_local(function)
+            .initialize(frame.load(schema, function), function))
     }
 
     pub(crate) fn clear_suspended_property_reference(
         &self,
-        activation_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        for (offset, value) in self
-            .suspended_property_reference_offsets()?
-            .into_iter()
-            .zip([
-                0,
-                ValueKind::Undefined.tag() as u64,
-                0,
-                ValueKind::Undefined.tag() as u64,
-            ])
-        {
-            self.store_i64_const_at_offset(activation_local, offset, value, function);
-        }
+        let schema = self.runtime_schema();
+        let frame = self.suspended_property_reference_frame(function)?;
+        let empty = schema.reserve_value_local(function);
+        empty.set_scalar(ScalarValue::Undefined, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&empty, function),
+            function,
+        );
+        let row = schema.struct_type::<InvocationFrame>();
+        row.field(InvocationFrameSchema::ASSIGNMENT_TARGET).write(
+            &frame,
+            GcOperand::reference(&stored, schema),
+            schema,
+            function,
+        );
+        row.field(InvocationFrameSchema::ASSIGNMENT_KEY).write(
+            &frame,
+            GcOperand::reference(&stored, schema),
+            schema,
+            function,
+        );
+        stored.clear(function);
+        empty.clear(function);
+        frame.clear(function);
         Ok(())
     }
 
-    /// Evaluate the base and raw computed key before the RHS suspends. In
-    /// `base[key] = yield value`, ToPropertyKey belongs to the eventual
-    /// PutValue, not to Reference evaluation (ECMA-262 13.3.3).
+    /// Reference evaluation retains the raw key before the RHS suspends.
+    /// ToPropertyKey belongs to the eventual PutValue after resumption.
     pub(crate) fn prepare_suspended_property_reference(
         &mut self,
         reference: &SuspendedPropertyReferenceIr,
-        activation_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let offsets = self.suspended_property_reference_offsets()?;
+        let schema = self.runtime_schema();
+        let frame = self.suspended_property_reference_frame(function)?;
+        let base = schema.reserve_value_local(function);
+        let raw_key = schema.reserve_value_local(function);
         match reference.use_view() {
             SuspendedPropertyReferenceUse::Ordinary {
                 base_and_receiver,
                 key,
                 strictness: _,
             } => {
-                let locals = std::array::from_fn::<_, 4, _>(|_| self.reserve_temp_local());
-                let [base_payload, base_tag, key_payload, key_tag] = locals;
-                self.compile_expr_to_locals(base_and_receiver, base_payload, base_tag, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(base_payload, base_tag, function)?;
+                self.compile_expr_to_value(base_and_receiver, &base, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
                 match key {
                     PropertyKeyIr::StaticString(name) => {
-                        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-                        function.instruction(&Instruction::LocalSet(key_payload));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(key_tag));
+                        let key = schema.reserve_gc_local(function).initialize(
+                            self.emit_interned_string_reference(name, function)?,
+                            function,
+                        );
+                        raw_key.set_reference(&key, schema, function);
+                        key.clear(function);
                     }
                     PropertyKeyIr::ArrayLength => {
-                        function
-                            .instruction(&Instruction::I64Const(self.strings.payload("length")));
-                        function.instruction(&Instruction::LocalSet(key_payload));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(key_tag));
+                        let key = schema.reserve_gc_local(function).initialize(
+                            self.emit_interned_string_reference("length", function)?,
+                            function,
+                        );
+                        raw_key.set_reference(&key, schema, function);
+                        key.clear(function);
                     }
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        self.compile_expr_to_locals(expr, key_payload, key_tag, function)?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            key_payload,
-                            key_tag,
-                            function,
-                        )?;
+                        self.compile_expr_to_value(expr, &raw_key, function)?;
+                        self.emit_propagate_current_throw_if_needed(function);
                     }
                 }
-                for (offset, local) in offsets.into_iter().zip(locals) {
-                    self.store_i64_local_at_offset(activation_local, offset, local, function);
-                }
-                for local in locals.into_iter().rev() {
-                    self.release_temp_local(local);
-                }
-                Ok(())
             }
         }
+        let stored_base = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&base, function),
+            function,
+        );
+        let stored_key = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&raw_key, function),
+            function,
+        );
+        let row = schema.struct_type::<InvocationFrame>();
+        row.field(InvocationFrameSchema::ASSIGNMENT_TARGET).write(
+            &frame,
+            GcOperand::reference(&stored_base, schema),
+            schema,
+            function,
+        );
+        row.field(InvocationFrameSchema::ASSIGNMENT_KEY).write(
+            &frame,
+            GcOperand::reference(&stored_key, schema),
+            schema,
+            function,
+        );
+        stored_key.clear(function);
+        stored_base.clear(function);
+        raw_key.clear(function);
+        base.clear(function);
+        frame.clear(function);
+        Ok(())
     }
 
-    /// Consume the saved Reference only on normal RHS completion. A throwing
-    /// key conversion or setter routes through the active catch/finally just
-    /// like any other PutValue. User code cannot overwrite the saved RHS via
-    /// the emitter's result registers while converting the key.
     pub(crate) fn write_suspended_property_reference(
         &mut self,
         reference: &SuspendedPropertyReferenceIr,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let offsets = self.suspended_property_reference_offsets()?;
-        match reference.use_view() {
-            SuspendedPropertyReferenceUse::Ordinary {
-                base_and_receiver: _,
-                key: _,
-                strictness,
-            } => {
-                let locals = std::array::from_fn::<_, 6, _>(|_| self.reserve_temp_local());
-                let [base_payload, base_tag, key_payload, key_tag, value_payload, value_tag] =
-                    locals;
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::LocalSet(value_payload));
-                function.instruction(&Instruction::LocalGet(value_tag_local));
-                function.instruction(&Instruction::LocalSet(value_tag));
-                for (offset, local) in offsets.into_iter().zip(locals) {
-                    self.load_i64_to_local_from_offset(activation_local, offset, local, function);
-                }
-                self.clear_suspended_property_reference(activation_local, function)?;
-
-                // PutValue's ToObject precedes ToPropertyKey: a nullish base
-                // throws after the RHS, but without calling key coercion hooks.
-                self.compile_nullish_tagged_i32(base_tag, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Cannot convert undefined or null to object",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_current_completion_if_throw(function);
-                function.instruction(&Instruction::End);
-                self.emit_value_to_property_key_locals(key_payload, key_tag, function)?;
-                self.with_reference_strictness(strictness, function, |emitter, function| {
-                    emitter.emit_object_write(
-                        base_payload,
-                        base_tag,
-                        key_payload,
-                        value_payload,
-                        value_tag,
-                        function,
-                    )
-                })?;
-                self.emit_propagate_current_completion_if_throw(function);
-                for local in locals.into_iter().rev() {
-                    self.release_temp_local(local);
-                }
-                Ok(())
-            }
-        }
+        let schema = self.runtime_schema();
+        let frame = self.suspended_property_reference_frame(function)?;
+        let base = schema.reserve_value_local(function);
+        let raw_key = schema.reserve_value_local(function);
+        let rhs = schema.reserve_value_local(function);
+        rhs.copy_from(value, function);
+        let row = schema.struct_type::<InvocationFrame>();
+        let stored_base = schema.reserve_gc_local(function).initialize(
+            row.field(InvocationFrameSchema::ASSIGNMENT_TARGET)
+                .read(&frame, schema, function)
+                .reference(),
+            function,
+        );
+        let stored_key = schema.reserve_gc_local(function).initialize(
+            row.field(InvocationFrameSchema::ASSIGNMENT_KEY)
+                .read(&frame, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_base, &base, schema, function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_key, &raw_key, schema, function);
+        stored_key.clear(function);
+        stored_base.clear(function);
+        self.clear_suspended_property_reference(function)?;
+        // PutValue rejects a nullish base before converting the retained key.
+        self.compile_nullish_tagged_i32(base.tag(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        let rejected = schema.reserve_completion(function);
+        self.emit_throw_runtime_error(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_UNDEFINED_OR_NULL_TO_OBJECT,
+            &rejected,
+            function,
+        )?;
+        self.completion().copy_from(&rejected, function);
+        rejected.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let key = self.emit_value_to_property_key_locals(&raw_key, function)?;
+        let strict = schema.reserve_i32_local(function);
+        let SuspendedPropertyReferenceUse::Ordinary { strictness, .. } = reference.use_view();
+        function.instruction(&Instruction::I32Const(i32::from(
+            strictness.throws_on_failed_set(),
+        )));
+        strict.store(function);
+        let result = schema.reserve_completion(function);
+        self.emit_object_write(&base, &key, &rhs, strict, &result, function)?;
+        self.completion().copy_from(&result, function);
+        result.clear(function);
+        schema.release_i32_local(strict, function);
+        key.clear(function);
+        rhs.clear(function);
+        raw_key.clear(function);
+        base.clear(function);
+        frame.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
     }
 }

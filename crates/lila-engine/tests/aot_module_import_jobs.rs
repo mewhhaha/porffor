@@ -66,6 +66,42 @@ fn assert_modules(files: &[(&str, &str)], expected: &[&str]) {
 }
 
 #[test]
+fn mixed_generator_import_completes_raw_operands_before_capability_and_module_job() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import defer * as registered from './value.js';
+var events=[],whole={tag:'whole'},calls=0;globalThis.mixedImportEvaluations=0;
+function check(condition,label){if(!condition)throw label;}
+var specifier={[Symbol.toPrimitive]:function(){events.push('specifier');return './value.js';}};
+var options={get with(){events.push('options');return {};}};
+async function* values(){const result=import(await(yield specifier),await(yield options));yield result;}
+async function* failed(){try{yield import(await(yield specifier),await(yield options));}catch(error){check(error===whole,'whole-import-options-rejection');yield 'caught';}}
+async function run(){
+  var iterator=values();check((await iterator.next()).value===specifier&&events.length===0,'raw-specifier-first-yield');
+  check((await iterator.next(specifier)).value===options&&events.length===0,'raw-options-complete-before-tostring-or-option-get');
+  gc();var result=await iterator.next(options);
+  check(result.value.value===59&&events.join(',')==='specifier,options'&&globalThis.mixedImportEvaluations===1,'original-capability-job-and-module-evaluation');
+  check(registered.value===59&&globalThis.mixedImportEvaluations===1,'one-original-module-instance');await iterator.next();
+  events=[];var rejected={get with(){events.push('rejected-options');throw whole;}};
+  iterator=failed();await iterator.next();await iterator.next(specifier);
+  check((await iterator.next(rejected)).value==='caught'&&events.join(',')==='specifier,rejected-options','original-import-rejects-after-completed-source-operands');await iterator.next();
+}
+run().then(function(){print('mixed-import:ok');},function(error){print(error);throw error;});
+"#,
+            ),
+            (
+                "value.js",
+                "globalThis.mixedImportEvaluations++; export const value=59;",
+            ),
+        ],
+        &["mixed-import:ok"],
+    );
+}
+
+#[test]
 fn ordinary_import_waits_for_its_job_and_evaluates_once() {
     assert_modules(
         &[
@@ -92,6 +128,40 @@ Promise.all([first, second]).then(values => {
             ("unreached.js", "throw 'unreached import ran';"),
         ],
         &["ok"],
+    );
+}
+
+#[test]
+fn ordinary_generator_import_retains_raw_operands_then_yields_the_original_promise() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import defer * as registered from './value.js';
+var events=[];globalThis.ordinaryImportEvaluations=0;
+function check(value,label){if(!value)throw label;}
+var specifier={[Symbol.toPrimitive]:function(){events.push('specifier');return './value.js';}};
+var options={get with(){events.push('options');return {};}};
+function* values(){const result=import(yield specifier,yield options);yield result;}
+async function run(){
+  var iterator=values();check(iterator.next().value===specifier&&events.length===0,'raw-specifier');
+  check(iterator.next(specifier).value===options&&events.length===0,'raw-options-before-conversion');
+  gc();var promise=iterator.next(options).value;
+  check(promise instanceof Promise&&events.join(',')==='specifier,options','ordinary-yield-retains-import-promise');
+  var namespace=await promise;
+  check(namespace.value===61&&registered.value===61&&globalThis.ordinaryImportEvaluations===1,'original-module-job-and-instance');
+  check(iterator.next().done,'completed-ordinary-generator');
+}
+run().then(function(){print('ordinary-generator-import:ok');},function(error){print(error);throw error;});
+"#,
+            ),
+            (
+                "value.js",
+                "globalThis.ordinaryImportEvaluations++;export const value=61;",
+            ),
+        ],
+        &["ordinary-generator-import:ok"],
     );
 }
 

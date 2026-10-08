@@ -1,635 +1,451 @@
-//! Base64 decoding shared by Uint8Array.fromBase64 and setFromBase64.
-
+//! Base64 decoding owns a completed byte prefix and its independent error.
 use super::super::*;
-use super::uint8array_codecs::{
-    Uint8ArrayBase64Alphabet, Uint8ArrayCodecAccess, Uint8ArrayCodecOption, Uint8ArrayCodecOptions,
-};
+use super::uint8array_codecs::*;
+use crate::gc_types::*;
 
-enum Base64LastChunkHandling {
-    Loose,
-    Strict,
-    StopBeforePartial,
-}
-
-impl Base64LastChunkHandling {
-    const fn code(&self) -> i64 {
-        match self {
-            Self::Loose => 0,
-            Self::Strict => 1,
-            Self::StopBeforePartial => 2,
+impl FunctionBuilder<'_> {
+    fn emit_uint8_base64_skip_space(
+        &mut self,
+        source: &Uint8ArrayCodecString,
+        index: I64Local,
+        unit: I32Local,
+        f: &mut Function,
+    ) {
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let again = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        source.length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(done, f);
+        self.emit_uint8_codec_string_unit(source, index, unit, f);
+        f.instruction(&Instruction::I32Const(0));
+        for space in [0x09, 0x0a, 0x0c, 0x0d, 0x20] {
+            unit.load(f);
+            f.instruction(&Instruction::I32Const(space));
+            f.instruction(&Instruction::I32Eq);
+            f.instruction(&Instruction::I32Or);
+        }
+        f.instruction(&Instruction::I32Eqz);
+        self.emit_branch_if_to_target(done, f);
+        self.emit_increment_local(index, 1, f);
+        self.emit_branch_to_target(again, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+    }
+    fn emit_uint8_base64_digit(
+        &mut self,
+        unit: I32Local,
+        alphabet: &Base64AlphabetLocal,
+        digit: I32Local,
+        f: &mut Function,
+    ) {
+        f.instruction(&Instruction::I32Const(-1));
+        digit.store(f);
+        for (start, end, offset) in [(b'A', b'Z', 0), (b'a', b'z', 26), (b'0', b'9', 52)] {
+            unit.load(f);
+            f.instruction(&Instruction::I32Const(i32::from(start)));
+            f.instruction(&Instruction::I32Sub);
+            f.instruction(&Instruction::I32Const(i32::from(end - start)));
+            f.instruction(&Instruction::I32LeU);
+            self.open_frame(ControlFrameKind::If, f);
+            unit.load(f);
+            f.instruction(&Instruction::I32Const(offset - i32::from(start)));
+            f.instruction(&Instruction::I32Add);
+            digit.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        for (char, domain, number) in [
+            (b'+', Uint8ArrayBase64Alphabet::Base64, 62),
+            (b'/', Uint8ArrayBase64Alphabet::Base64, 63),
+            (b'-', Uint8ArrayBase64Alphabet::Base64Url, 62),
+            (b'_', Uint8ArrayBase64Alphabet::Base64Url, 63),
+        ] {
+            unit.load(f);
+            f.instruction(&Instruction::I32Const(i32::from(char)));
+            f.instruction(&Instruction::I32Eq);
+            alphabet.load(f);
+            f.instruction(&Instruction::I32Const(domain.code()));
+            f.instruction(&Instruction::I32Eq);
+            f.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, f);
+            f.instruction(&Instruction::I32Const(number));
+            digit.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
     }
-}
+    fn emit_uint8_base64_final_chunk(
+        &mut self,
+        result: &Uint8ArrayDecodedBytes,
+        packed: I32Local,
+        chunk: I32Local,
+        strict: I32Local,
+        byte: I32Local,
+        done: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(2));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        packed.load(f);
+        f.instruction(&Instruction::I32Const(15));
+        f.instruction(&Instruction::I32And);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Eqz);
+        strict.load(f);
+        f.instruction(&Instruction::I32And);
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            result,
+            done,
+            f,
+        )?;
+        packed.load(f);
+        f.instruction(&Instruction::I32Const(4));
+        f.instruction(&Instruction::I32ShrU);
+        f.instruction(&Instruction::I32Const(255));
+        f.instruction(&Instruction::I32And);
+        byte.store(f);
+        self.emit_uint8_codec_push_byte(result, byte, f);
+        f.instruction(&Instruction::Else);
+        packed.load(f);
+        f.instruction(&Instruction::I32Const(3));
+        f.instruction(&Instruction::I32And);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Eqz);
+        strict.load(f);
+        f.instruction(&Instruction::I32And);
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            result,
+            done,
+            f,
+        )?;
+        for shift in [10, 2] {
+            packed.load(f);
+            f.instruction(&Instruction::I32Const(shift));
+            f.instruction(&Instruction::I32ShrU);
+            f.instruction(&Instruction::I32Const(255));
+            f.instruction(&Instruction::I32And);
+            byte.store(f);
+            self.emit_uint8_codec_push_byte(result, byte, f);
+        }
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        Ok(())
+    }
+    fn emit_uint8_base64_decode(
+        &mut self,
+        source: &Uint8ArrayCodecString,
+        alphabet: &Base64AlphabetLocal,
+        mode: &Base64LastChunkLocal,
+        maximum: I64Local,
+        f: &mut Function,
+    ) -> Result<Uint8ArrayDecodedBytes, EmitError> {
+        let s = self.runtime_schema();
+        let result = self.emit_uint8_codec_decoded_list(source.length, maximum, f);
+        let index = s.reserve_i64_local(f);
+        let remaining = s.reserve_i64_local(f);
+        let unit = s.reserve_i32_local(f);
+        let digit = s.reserve_i32_local(f);
+        let packed = s.reserve_i32_local(f);
+        let chunk = s.reserve_i32_local(f);
+        let byte = s.reserve_i32_local(f);
+        let strict = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I64Const(0));
+        index.store(f);
+        f.instruction(&Instruction::I32Const(0));
+        packed.store(f);
+        f.instruction(&Instruction::I32Const(0));
+        chunk.store(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        maximum.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.emit_branch_if_to_target(done, f);
+        let again = self.open_frame(ControlFrameKind::Loop, f);
+        self.emit_uint8_base64_skip_space(source, index, unit, f);
+        index.load(f);
+        source.length.load(f);
+        f.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        mode.load(f);
+        f.instruction(&Instruction::I32Const(
+            Uint8ArrayLastChunk::StopBeforePartial.code(),
+        ));
+        f.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(done, f);
+        mode.load(f);
+        f.instruction(&Instruction::I32Const(Uint8ArrayLastChunk::Strict.code()));
+        f.instruction(&Instruction::I32Eq);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::I32Or);
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            &result,
+            done,
+            f,
+        )?;
+        f.instruction(&Instruction::I32Const(0));
+        strict.store(f);
+        self.emit_uint8_base64_final_chunk(&result, packed, chunk, strict, byte, done, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        source.length.load(f);
+        result.read.store(f);
+        self.emit_branch_to_target(done, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
 
-/// Temporary bytes belong to memory 0; an existing view uses buffer memory.
-/// The same grammar commits complete chunks to either destination.
-enum Base64DecodeDestination {
-    Temporary {
-        pointer_local: u32,
-        capacity_local: u32,
-    },
-    Buffer {
-        pointer_local: u32,
-        capacity_local: u32,
-    },
-}
+        self.emit_uint8_codec_string_unit(source, index, unit, f);
+        self.emit_increment_local(index, 1, f);
+        unit.load(f);
+        f.instruction(&Instruction::I32Const(i32::from(b'=')));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(2));
+        f.instruction(&Instruction::I32LtU);
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            &result,
+            done,
+            f,
+        )?;
+        self.emit_uint8_base64_skip_space(source, index, unit, f);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(2));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        index.load(f);
+        source.length.load(f);
+        f.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        mode.load(f);
+        f.instruction(&Instruction::I32Const(
+            Uint8ArrayLastChunk::StopBeforePartial.code(),
+        ));
+        f.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(done, f);
+        f.instruction(&Instruction::I32Const(1));
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            &result,
+            done,
+            f,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_uint8_codec_string_unit(source, index, unit, f);
+        unit.load(f);
+        f.instruction(&Instruction::I32Const(i32::from(b'=')));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_increment_local(index, 1, f);
+        self.emit_uint8_base64_skip_space(source, index, unit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        index.load(f);
+        source.length.load(f);
+        f.instruction(&Instruction::I64LtU);
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            &result,
+            done,
+            f,
+        )?;
+        mode.load(f);
+        f.instruction(&Instruction::I32Const(Uint8ArrayLastChunk::Strict.code()));
+        f.instruction(&Instruction::I32Eq);
+        strict.store(f);
+        self.emit_uint8_base64_final_chunk(&result, packed, chunk, strict, byte, done, f)?;
+        source.length.load(f);
+        result.read.store(f);
+        self.emit_branch_to_target(done, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
 
-impl<'a> FunctionBuilder<'a> {
+        self.emit_uint8_base64_digit(unit, alphabet, digit, f);
+        digit.load(f);
+        f.instruction(&Instruction::I32Const(0));
+        f.instruction(&Instruction::I32LtS);
+        self.emit_uint8_codec_syntax_error_if(
+            RuntimeErrorMessage::INVALID_BASE64_STRING,
+            &result,
+            done,
+            f,
+        )?;
+        maximum.load(f);
+        result.written.load(f);
+        f.instruction(&Instruction::I64Sub);
+        remaining.store(f);
+        remaining.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Eq);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(2));
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::I32And);
+        remaining.load(f);
+        f.instruction(&Instruction::I64Const(2));
+        f.instruction(&Instruction::I64Eq);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(3));
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::I32And);
+        f.instruction(&Instruction::I32Or);
+        self.emit_branch_if_to_target(done, f);
+        packed.load(f);
+        f.instruction(&Instruction::I32Const(6));
+        f.instruction(&Instruction::I32Shl);
+        digit.load(f);
+        f.instruction(&Instruction::I32Or);
+        packed.store(f);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Add);
+        chunk.store(f);
+        chunk.load(f);
+        f.instruction(&Instruction::I32Const(4));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        for shift in [16, 8, 0] {
+            packed.load(f);
+            f.instruction(&Instruction::I32Const(shift));
+            f.instruction(&Instruction::I32ShrU);
+            f.instruction(&Instruction::I32Const(255));
+            f.instruction(&Instruction::I32And);
+            byte.store(f);
+            self.emit_uint8_codec_push_byte(&result, byte, f);
+        }
+        f.instruction(&Instruction::I32Const(0));
+        chunk.store(f);
+        f.instruction(&Instruction::I32Const(0));
+        packed.store(f);
+        index.load(f);
+        result.read.store(f);
+        result.written.load(f);
+        maximum.load(f);
+        f.instruction(&Instruction::I64Eq);
+        self.emit_branch_if_to_target(done, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_branch_to_target(again, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        for local in [strict, byte, chunk, packed, digit, unit] {
+            s.release_i32_local(local, f);
+        }
+        s.release_i64_local(remaining, f);
+        s.release_i64_local(index, f);
+        Ok(result)
+    }
     pub(super) fn emit_uint8_array_from_base64(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let source_payload_local = self.reserve_temp_local();
-        let source_tag_local = self.reserve_temp_local();
-        let source_pointer_local = self.reserve_temp_local();
-        let source_length_local = self.reserve_temp_local();
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let alphabet_local = self.reserve_temp_local();
-        let last_chunk_local = self.reserve_temp_local();
-        let destination_local = self.reserve_temp_local();
-        let read_local = self.reserve_temp_local();
-        let written_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, source_payload_local, source_tag_local, function);
-        self.emit_uint8_array_codec_string(
-            source_payload_local,
-            source_tag_local,
-            source_pointer_local,
-            source_length_local,
-            function,
-        )?;
-        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
-        let options = self.emit_uint8_array_codec_options(
-            options_payload_local,
-            options_tag_local,
-            function,
-        )?;
-        self.emit_uint8_array_base64_alphabet(&options, alphabet_local, function)?;
-        self.emit_uint8_array_base64_last_chunk(&options, last_chunk_local, function)?;
-
-        // Decoded bytes never outnumber source bytes. The temporary allocation
-        // does not create an observable ArrayBuffer before syntax validation.
-        self.emit_heap_alloc_from_local(source_length_local, function)?;
-        function.instruction(&Instruction::LocalSet(destination_local));
-        self.emit_uint8_array_base64_decode(
-            source_pointer_local,
-            source_length_local,
-            alphabet_local,
-            last_chunk_local,
-            Base64DecodeDestination::Temporary {
-                pointer_local: destination_local,
-                capacity_local: source_length_local,
-            },
-            read_local,
-            written_local,
-            function,
-        )?;
-        self.emit_uint8_array_codec_allocation(destination_local, written_local, function)?;
-
-        self.release_temp_local(written_local);
-        self.release_temp_local(read_local);
-        self.release_temp_local(destination_local);
-        self.release_temp_local(last_chunk_local);
-        self.release_temp_local(alphabet_local);
-        self.release_temp_local(options_tag_local);
-        self.release_temp_local(options_payload_local);
-        self.release_temp_local(source_length_local);
-        self.release_temp_local(source_pointer_local);
-        self.release_temp_local(source_tag_local);
-        self.release_temp_local(source_payload_local);
+        let s = self.runtime_schema();
+        let input = s.reserve_value_local(f);
+        let option_arg = s.reserve_value_local(f);
+        let pending = s.reserve_completion(f);
+        let output = s.reserve_completion(f);
+        let maximum = s.reserve_i64_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_builtin_arg_to_value(1, &option_arg, f);
+        output.initialize(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let source = self.emit_uint8_codec_string(&input, &output, done, f)?;
+        let options = self.emit_uint8_codec_options(&option_arg, &output, done, f)?;
+        let alphabet = self.emit_uint8_codec_alphabet(&options, &pending, &output, done, f)?;
+        let mode = self.emit_uint8_codec_last_chunk(&options, &pending, &output, done, f)?;
+        f.instruction(&Instruction::I64Const((1_i64 << 53) - 1));
+        maximum.store(f);
+        let result = self.emit_uint8_base64_decode(&source, &alphabet, &mode, maximum, f)?;
+        self.emit_uint8_codec_static_result(&result, &pending, &output, done, f)?;
+        result.clear(s, f);
+        mode.clear(s, f);
+        alphabet.clear(s, f);
+        options.clear(f);
+        source.clear(s, f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&output, f);
+        s.release_i64_local(maximum, f);
+        output.clear(f);
+        pending.clear(f);
+        option_arg.clear(f);
+        input.clear(f);
         Ok(())
     }
-
     pub(super) fn emit_uint8_array_set_from_base64(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_local = self.reserve_temp_local();
-        let source_payload_local = self.reserve_temp_local();
-        let source_tag_local = self.reserve_temp_local();
-        let source_pointer_local = self.reserve_temp_local();
-        let source_length_local = self.reserve_temp_local();
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let alphabet_local = self.reserve_temp_local();
-        let last_chunk_local = self.reserve_temp_local();
-        let destination_local = self.reserve_temp_local();
-        let capacity_local = self.reserve_temp_local();
-        let read_local = self.reserve_temp_local();
-        let written_local = self.reserve_temp_local();
-
-        self.emit_uint8_array_codec_receiver(
-            receiver_local,
+        let s = self.runtime_schema();
+        let input = s.reserve_value_local(f);
+        let option_arg = s.reserve_value_local(f);
+        let this = s.reserve_value_local(f);
+        let pending = s.reserve_completion(f);
+        let output = s.reserve_completion(f);
+        let length = s.reserve_i64_local(f);
+        self.compile_this_to_locals(&this, f)?;
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_builtin_arg_to_value(1, &option_arg, f);
+        output.initialize(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let receiver = self.emit_uint8_codec_receiver(
             Uint8ArrayCodecAccess::Write,
-            function,
+            &this,
+            &pending,
+            &output,
+            done,
+            f,
         )?;
-        self.emit_builtin_arg_to_locals(0, source_payload_local, source_tag_local, function);
-        self.emit_uint8_array_codec_string(
-            source_payload_local,
-            source_tag_local,
-            source_pointer_local,
-            source_length_local,
-            function,
+        let source = self.emit_uint8_codec_string(&input, &output, done, f)?;
+        let options = self.emit_uint8_codec_options(&option_arg, &output, done, f)?;
+        let alphabet = self.emit_uint8_codec_alphabet(&options, &pending, &output, done, f)?;
+        let mode = self.emit_uint8_codec_last_chunk(&options, &pending, &output, done, f)?;
+        self.emit_validate_typed_array_view(&receiver.object, length, &pending, f)?;
+        self.emit_uint8_codec_abrupt_exit(&pending, &output, done, f);
+        let result = self.emit_uint8_base64_decode(&source, &alphabet, &mode, length, f)?;
+        self.emit_uint8_codec_copy_bytes(
+            &receiver.object,
+            &result.bytes,
+            result.written,
+            &pending,
+            &output,
+            done,
+            f,
         )?;
-        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
-        let options = self.emit_uint8_array_codec_options(
-            options_payload_local,
-            options_tag_local,
-            function,
-        )?;
-        self.emit_uint8_array_base64_alphabet(&options, alphabet_local, function)?;
-        self.emit_uint8_array_base64_last_chunk(&options, last_chunk_local, function)?;
-        self.emit_uint8_array_codec_bytes(
-            receiver_local,
-            destination_local,
-            capacity_local,
-            function,
-        )?;
-        self.emit_uint8_array_base64_decode(
-            source_pointer_local,
-            source_length_local,
-            alphabet_local,
-            last_chunk_local,
-            Base64DecodeDestination::Buffer {
-                pointer_local: destination_local,
-                capacity_local,
-            },
-            read_local,
-            written_local,
-            function,
-        )?;
-        self.emit_uint8_array_codec_result(read_local, written_local, function)?;
-
-        self.release_temp_local(written_local);
-        self.release_temp_local(read_local);
-        self.release_temp_local(capacity_local);
-        self.release_temp_local(destination_local);
-        self.release_temp_local(last_chunk_local);
-        self.release_temp_local(alphabet_local);
-        self.release_temp_local(options_tag_local);
-        self.release_temp_local(options_payload_local);
-        self.release_temp_local(source_length_local);
-        self.release_temp_local(source_pointer_local);
-        self.release_temp_local(source_tag_local);
-        self.release_temp_local(source_payload_local);
-        self.release_temp_local(receiver_local);
-        Ok(())
-    }
-
-    fn emit_uint8_array_base64_last_chunk(
-        &mut self,
-        options: &Uint8ArrayCodecOptions,
-        last_chunk_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let literal_local = self.reserve_temp_local();
-        self.emit_uint8_array_codec_option(
-            options,
-            Uint8ArrayCodecOption::LastChunkHandling,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(last_chunk_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            Base64LastChunkHandling::Loose.code(),
-        ));
-        function.instruction(&Instruction::LocalSet(last_chunk_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        for (name, mode) in [
-            ("loose", Base64LastChunkHandling::Loose),
-            ("strict", Base64LastChunkHandling::Strict),
-            (
-                "stop-before-partial",
-                Base64LastChunkHandling::StopBeforePartial,
-            ),
-        ] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(literal_local));
-            self.emit_string_payload_equality_i32(payload_local, literal_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(mode.code()));
-            function.instruction(&Instruction::LocalSet(last_chunk_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(last_chunk_local));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Uint8Array base64 lastChunkHandling must be loose, strict, or stop-before-partial",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(literal_local);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        Ok(())
-    }
-
-    fn emit_uint8_array_base64_syntax_error(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_throw_current_function_realm_error(
-            SYNTAX_ERROR_NAME,
-            "Invalid base64 string",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        Ok(())
-    }
-
-    fn emit_uint8_array_base64_skip_whitespace(
-        &self,
-        source_pointer_local: u32,
-        source_length_local: u32,
-        index_local: u32,
-        byte_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(source_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_load_string_byte(source_pointer_local, index_local, byte_local, function);
-        for (index, byte) in [b'\t', b'\n', 0x0c, b'\r', b' '].into_iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(byte_local));
-            function.instruction(&Instruction::I64Const(byte as i64));
-            function.instruction(&Instruction::I64Eq);
-            if index != 0 {
-                function.instruction(&Instruction::I32Or);
-            }
-        }
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_uint8_array_base64_chunk(
-        &self,
-        destination_local: u32,
-        memory_index: u32,
-        chunk_local: u32,
-        chunk_length_local: u32,
-        written_local: u32,
-        function: &mut Function,
-    ) {
-        for (length, shifts) in [(2, &[4][..]), (3, &[10, 2][..]), (4, &[16, 8, 0][..])] {
-            function.instruction(&Instruction::LocalGet(chunk_length_local));
-            function.instruction(&Instruction::I64Const(length));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            for &shift in shifts {
-                function.instruction(&Instruction::LocalGet(destination_local));
-                function.instruction(&Instruction::LocalGet(written_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::LocalGet(chunk_local));
-                function.instruction(&Instruction::I64Const(shift));
-                function.instruction(&Instruction::I64ShrU);
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::I32Store8(Self::memarg8_in(memory_index, 0)));
-                function.instruction(&Instruction::LocalGet(written_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(written_local));
-            }
-            function.instruction(&Instruction::End);
-        }
-    }
-
-    fn emit_uint8_array_base64_decode(
-        &mut self,
-        source_pointer_local: u32,
-        source_length_local: u32,
-        alphabet_local: u32,
-        last_chunk_local: u32,
-        destination: Base64DecodeDestination,
-        read_local: u32,
-        written_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let (destination_local, capacity_local, memory_index) = match destination {
-            Base64DecodeDestination::Temporary {
-                pointer_local,
-                capacity_local,
-            } => (pointer_local, capacity_local, 0),
-            Base64DecodeDestination::Buffer {
-                pointer_local,
-                capacity_local,
-            } => (pointer_local, capacity_local, self.buffer_memory_index()),
-        };
-        let index_local = self.reserve_temp_local();
-        let chunk_local = self.reserve_temp_local();
-        let chunk_length_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let remaining_local = self.reserve_temp_local();
-        for local in [
-            index_local,
-            chunk_local,
-            chunk_length_local,
-            read_local,
-            written_local,
-        ] {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(capacity_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(0));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.emit_uint8_array_base64_skip_whitespace(
-            source_pointer_local,
-            source_length_local,
-            index_local,
-            byte_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(source_length_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(last_chunk_local));
-        function.instruction(&Instruction::I64Const(
-            Base64LastChunkHandling::StopBeforePartial.code(),
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(last_chunk_local));
-        function.instruction(&Instruction::I64Const(
-            Base64LastChunkHandling::Strict.code(),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_uint8_array_base64_syntax_error(function)?;
-        function.instruction(&Instruction::End);
-        self.emit_uint8_array_base64_chunk(
-            destination_local,
-            memory_index,
-            chunk_local,
-            chunk_length_local,
-            written_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(source_length_local));
-        function.instruction(&Instruction::LocalSet(read_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        // skip_whitespace leaves the first non-whitespace byte in byte_local.
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'=' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_uint8_array_base64_syntax_error(function)?;
-        function.instruction(&Instruction::End);
-        self.emit_uint8_array_base64_skip_whitespace(
-            source_pointer_local,
-            source_length_local,
-            index_local,
-            byte_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(source_length_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(last_chunk_local));
-        function.instruction(&Instruction::I64Const(
-            Base64LastChunkHandling::StopBeforePartial.code(),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(5));
-        function.instruction(&Instruction::End);
-        self.emit_uint8_array_base64_syntax_error(function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'=' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_uint8_array_base64_skip_whitespace(
-            source_pointer_local,
-            source_length_local,
-            index_local,
-            byte_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(source_length_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_uint8_array_base64_syntax_error(function)?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(last_chunk_local));
-        function.instruction(&Instruction::I64Const(
-            Base64LastChunkHandling::Strict.code(),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(chunk_local));
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(15));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_uint8_array_base64_syntax_error(function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.emit_uint8_array_base64_chunk(
-            destination_local,
-            memory_index,
-            chunk_local,
-            chunk_length_local,
-            written_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(source_length_local));
-        function.instruction(&Instruction::LocalSet(read_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(digit_local));
-        for (first, last, base) in [(b'A', b'Z', 0), (b'a', b'z', 26), (b'0', b'9', 52)] {
-            function.instruction(&Instruction::LocalGet(byte_local));
-            function.instruction(&Instruction::I64Const(first as i64));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::LocalGet(byte_local));
-            function.instruction(&Instruction::I64Const(last as i64));
-            function.instruction(&Instruction::I64LeU);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(byte_local));
-            function.instruction(&Instruction::I64Const(first as i64));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::I64Const(base));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(digit_local));
-            function.instruction(&Instruction::End);
-        }
-        for (alphabet, letters) in [
-            (Uint8ArrayBase64Alphabet::Base64, [b'+', b'/']),
-            (Uint8ArrayBase64Alphabet::Base64Url, [b'-', b'_']),
-        ] {
-            function.instruction(&Instruction::LocalGet(alphabet_local));
-            function.instruction(&Instruction::I64Const(alphabet.code()));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            for (index, letter) in letters.into_iter().enumerate() {
-                function.instruction(&Instruction::LocalGet(byte_local));
-                function.instruction(&Instruction::I64Const(letter as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(62 + index as i64));
-                function.instruction(&Instruction::LocalSet(digit_local));
-                function.instruction(&Instruction::End);
-            }
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(digit_local));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_uint8_array_base64_syntax_error(function)?;
-        function.instruction(&Instruction::End);
-
-        // Validation precedes the lookahead capacity stop: AA# still throws
-        // for a one-byte destination, while AAA leaves it unchanged.
-        function.instruction(&Instruction::LocalGet(capacity_local));
-        function.instruction(&Instruction::LocalGet(written_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        for (index, remaining) in [1, 2].into_iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(remaining_local));
-            function.instruction(&Instruction::I64Const(remaining));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(chunk_length_local));
-            function.instruction(&Instruction::I64Const(remaining + 1));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32And);
-            if index != 0 {
-                function.instruction(&Instruction::I32Or);
-            }
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(chunk_local));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(digit_local));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(chunk_local));
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(chunk_length_local));
-        function.instruction(&Instruction::LocalGet(chunk_length_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_uint8_array_base64_chunk(
-            destination_local,
-            memory_index,
-            chunk_local,
-            chunk_length_local,
-            written_local,
-            function,
-        );
-        for local in [chunk_local, chunk_length_local] {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalSet(read_local));
-        function.instruction(&Instruction::LocalGet(written_local));
-        function.instruction(&Instruction::LocalGet(capacity_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(3));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(remaining_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(chunk_length_local);
-        self.release_temp_local(chunk_local);
-        self.release_temp_local(index_local);
+        self.emit_uint8_codec_count_result(&result, &pending, &output, done, f)?;
+        result.clear(s, f);
+        mode.clear(s, f);
+        alphabet.clear(s, f);
+        options.clear(f);
+        source.clear(s, f);
+        receiver.clear(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&output, f);
+        s.release_i64_local(length, f);
+        output.clear(f);
+        pending.clear(f);
+        this.clear(f);
+        option_arg.clear(f);
+        input.clear(f);
         Ok(())
     }
 }

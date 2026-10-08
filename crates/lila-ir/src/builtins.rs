@@ -153,8 +153,7 @@ use crate::{
     BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_BIGINT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_BIGINT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID, BUILTIN_BOOLEAN_FUNCTION_ID,
-    BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID, BUILTIN_DATA_VIEW_FUNCTION_ID,
-    BUILTIN_DATA_VIEW_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
+    BUILTIN_DATA_VIEW_FUNCTION_ID, BUILTIN_DATA_VIEW_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
     BUILTIN_DATA_VIEW_PROTOTYPE_GET_BIGINT64_FUNCTION_ID,
@@ -758,6 +757,7 @@ impl BuiltinFlags {
     const ALWAYS_THROWS: u16 = 1 << 7;
     const INDEXED_RECEIVER_MUTATION: u16 = 1 << 8;
     const INTL_HOST: u16 = 1 << 9;
+    const SYSTEM_TIME_ZONE: u16 = 1 << 10;
 
     const fn contains(self, flag: u16) -> bool {
         self.0 & flag != 0
@@ -869,6 +869,9 @@ macro_rules! catalog_flag_bit {
     (INTL_HOST) => {
         BuiltinFlags::INTL_HOST
     };
+    (SYSTEM_TIME_ZONE) => {
+        BuiltinFlags::SYSTEM_TIME_ZONE
+    };
     (SYNCHRONOUS_USER_CODE) => {
         BuiltinFlags::SYNCHRONOUS_USER_CODE
     };
@@ -913,7 +916,6 @@ macro_rules! standard_builtin_catalog {
                 debug: $debug_name:expr,
                 flags: [$($flag:ident),* $(,)?],
                 installer: $installer:ident,
-                $(html: $html_name:expr,)?
                 $(string: $string_name:expr,)?
                 $(native: $native_name:expr,)?
             }
@@ -1036,6 +1038,12 @@ macro_rules! standard_builtin_catalog {
                 self.flags().contains(BuiltinFlags::WALL_CLOCK)
             }
 
+            /// Bodies that consume the Realm's admitted system time zone need
+            /// the `lila_host.system_time_zone` import before code emission.
+            pub const fn requires_system_time_zone(self) -> bool {
+                self.flags().contains(BuiltinFlags::SYSTEM_TIME_ZONE)
+            }
+
             pub const fn constructable(self) -> bool {
                 self.flags().contains(BuiltinFlags::CONSTRUCTABLE)
             }
@@ -1077,12 +1085,6 @@ macro_rules! standard_builtin_catalog {
                 }
             }
 
-            pub const fn string_html_method_name(self) -> Option<&'static str> {
-                match self {
-                    $(Self::$variant => catalog_optional!($($html_name)?),)+
-                }
-            }
-
             pub const fn string_prototype_method_name(self) -> Option<&'static str> {
                 match self {
                     $(Self::$variant => catalog_optional!($($string_name)?),)+
@@ -1104,6 +1106,7 @@ mod callable_to_string;
 mod catalog;
 #[cfg(test)]
 mod catalog_contract_tests;
+mod native_name;
 
 pub use callable_to_string::CallableToStringRepresentation;
 pub use catalog::StandardBuiltinId;
@@ -1228,10 +1231,6 @@ mod tests {
             ),
             (
                 StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled,
-                "",
-            ),
-            (
-                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected,
                 "",
             ),
         ] {
@@ -1402,8 +1401,7 @@ mod tests {
 
     /// Every `AsyncDisposableStack` member is reachable by its spec function id
     /// and carries the `name` that `built-ins/AsyncDisposableStack/**/name.js`
-    /// asserts. The two settlement callbacks are anonymous (`""`), matching the
-    /// `AsyncIterator` `@@asyncDispose` pair they are copied from.
+    /// asserts. The two disposal settlement callbacks are anonymous (`""`).
     #[test]
     fn async_disposable_stack_builtins_are_registered_with_spec_function_names() {
         for (builtin, native_name) in [
@@ -1502,8 +1500,8 @@ mod tests {
         assert!(StandardBuiltinId::DateNow.requires_wall_clock());
         assert!(StandardBuiltinId::TemporalNowInstant.requires_wall_clock());
         assert!(StandardBuiltinId::TemporalNowZonedDateTimeIso.requires_wall_clock());
-        // `timeZoneId` answers from a constant string, so it must not drag the
-        // host import in.
+        // `timeZoneId` reads the realm's immutable configured zone identifier,
+        // so it must not drag the wall-clock host import into otherwise pure modules.
         assert!(!StandardBuiltinId::TemporalNowTimeZoneId.requires_wall_clock());
     }
 

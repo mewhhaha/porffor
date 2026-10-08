@@ -36,13 +36,19 @@ fn graph_async_evaluation_has_one_private_owner_with_the_public_inherent_api() {
     assert!(!OWNER_SOURCE.contains("pub(super) fn"));
     assert!(!GRAPH_SOURCE.contains("pub fn async_evaluation("));
     assert!(!GRAPH_SOURCE.contains("pub fn pending_async_dependencies("));
-    assert_eq!(LINK_SOURCE.matches("async_evaluation(").count(), 2);
+    let (link_production, link_tests) = LINK_SOURCE
+        .split_once("\n#[cfg(test)]\nmod tests {")
+        .expect("linker fixtures remain test-only");
+    assert!(!link_production.contains("async_evaluation("));
+    assert!(link_tests.contains("graph.async_evaluation("));
     // Link-time activation kinds come from each unit's own top-level `await`;
     // the runtime module record carries `[[PendingAsyncDependencies]]`. The
     // linker therefore no longer witnesses this query, which `graph_tests.rs`
     // exercises instead.
     assert_eq!(
-        LINK_SOURCE.matches("pending_async_dependencies(").count(),
+        link_production
+            .matches("pending_async_dependencies(")
+            .count(),
         0
     );
     assert_eq!(

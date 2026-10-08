@@ -1,9 +1,58 @@
 # Proxy revocation route ownership
 
-Status: implemented and focused structure-verified 2026-09-01 for the shared
-live-Proxy slot reader's ten-producer route inventory.
+Status: the 2026-10-04 helper and four-operation descriptor source is authored;
+compilation and runtime verification are pending. Historical source and
+execution checkpoints are retained below.
 
-## Boundary
+## Delete active-handler routing — 2026-10-04 dry source
+
+The actual Delete revocation producer now selects ProxyExecutionRealmToActiveHandler.
+Generated noncallable and invariant errors use the same execution Realm and
+propagate into the active source catch/finally handler. Builtin/helper calls
+retain their existing completion return when no handler exists. Original
+user-thrown completions retain identity and prior/finally effects.
+
+CurrentCompletion has no remaining producer, so its variant and consuming arm
+are retired. Three actual routes remain: CurrentFunctionRealm,
+ProxyExecutionRealmToActiveHandler and ObjectMutationRealmToActiveHandler,
+with seventeen source identifier mentions across the consumed producers/router.
+The maintained existing guard follows this domain. Paired semantic controls
+and compilation/runtime verification remain unrun. See the
+[completed target contract](proxy-target-descriptor-completion.md).
+
+## Traversal helper Realm handoff — 2026-10-04 dry source
+
+The real recursive GetPrototypeOf, IsExtensible and PreventExtensions helpers
+receive the outer operation's trusted execution Realm context in parameter6
+and install it in their current-environment local. Existing closed Proxy
+execution and object-read error source projections retain that context through
+recursive traversal, handler Get and trap dispatch. Their scalar signatures
+and target parameters are unchanged.
+
+All three helper producers consume `ProxyExecutionRealmToActiveHandler`: it
+selects the trusted Proxy execution Realm before preserving active-handler throw
+routing. Generated noncallable, invalid-result and inconsistent-target errors
+use the same Realm projection; original trap/getter thrown values are preserved.
+The former `ActiveHandler` route has no producer and is deleted together with
+its fallback router arm. The other producer policies and Proxy slot layout are
+unchanged. At this helper checkpoint the same ten actual producers consumed
+four routes with eighteen source mentions. The newer Delete source above
+retains three routes and seventeen mentions. Existing Realm and revocation
+guards follow the current consumed domain.
+
+Object.preventExtensions separately uses its called builtin's defining Realm
+for a false-result TypeError. Reflect.preventExtensions keeps the Boolean;
+primitive Object behavior and the existing completed trap/request roles are
+preserved. Finite paired Engine controls cover all three own-key consumers,
+both GetPrototypeOf consumers and both PreventExtensions consumers in both
+borrowed Realm directions. They retain native error prototypes, arbitrary
+foreign marker identity, prior assignment/finally effects, early error ordering
+and normal result identity/policies after mutable globals are clobbered.
+Compilation/runtime verification remains pending; historical receipts below do
+not verify this revision. Full T11, other trap families and semantic GC remain
+open.
+
+## Historical ten-producer boundary
 
 `ProxyRevocationRoute::{CurrentFunctionRealm, ActiveHandler,
 ObjectMutationRealmToActiveHandler, CurrentCompletion}` is the crate-private
@@ -67,7 +116,7 @@ SetPrototypeOf slot loads and trap lookup as specified by
 to the route type itself. Adding direct `Reflect.set` remains source-equivalent:
 it preserves its prior current-function-Realm route while its handler
 acquisition changes under `proxy-reflect-set-handler-protocol.md`. Realm
-forwarding into nested Proxy `[[IsExtensible]]` and `[[GetPrototypeOf]]` helper
-calls remains separate debt. This contract changes no Proxy slot layout and
+forwarding into all three outlined traversal helpers is authored in the dry
+follow-up above. This contract changes no Proxy slot layout and
 does not close the complete Proxy or Object task, recursive Proxy descriptor
 protocols or broad Test262 coverage.

@@ -1,3 +1,5 @@
+mod session;
+
 use super::prepared_script::compile_module_prelude;
 use super::*;
 
@@ -15,7 +17,14 @@ pub fn lower_module_graph_with_host_surface_policy(
     sources: &ModuleGraphSources,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
-    lower_graph(sources, false, host_surface_policy, None)
+    lower_graph(
+        sources,
+        false,
+        host_surface_policy,
+        None,
+        modules::GraphAdmission::LoadedClosure,
+        &LoweringSession::default(),
+    )
 }
 
 /// Lowers a Script entry together with the modules its `import()` calls reach.
@@ -36,7 +45,14 @@ pub fn lower_script_graph_with_host_surface_policy(
     sources: &ModuleGraphSources,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
-    lower_graph(sources, true, host_surface_policy, None)
+    lower_graph(
+        sources,
+        true,
+        host_surface_policy,
+        None,
+        modules::GraphAdmission::LoadedClosure,
+        &LoweringSession::default(),
+    )
 }
 
 /// Lowers a Module graph with an independently parsed global Script prelude.
@@ -46,7 +62,26 @@ pub fn lower_module_graph_with_prelude(
     prelude: &ParsedScript,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
-    lower_graph(sources, false, host_surface_policy, Some(prelude))
+    lower_graph(
+        sources,
+        false,
+        host_surface_policy,
+        Some(prelude),
+        modules::GraphAdmission::LoadedClosure,
+        &LoweringSession::default(),
+    )
+}
+
+/// Lowers a complete declared module catalog. The retained entry parse product
+/// selects Script or Module goal; unused rows never become eager module bodies.
+/// Dynamic sites can select every exact declared request variant consistent
+/// with their known operands. No source loading occurs at runtime.
+pub fn lower_complete_module_catalog(
+    sources: &ModuleGraphSources,
+    host_surface_policy: HostSurfacePolicy,
+    prelude: Option<&ParsedScript>,
+) -> ProgramIr {
+    LoweringSession::default().lower_complete_catalog(sources, host_surface_policy, prelude)
 }
 
 fn lower_graph(
@@ -54,6 +89,8 @@ fn lower_graph(
     entry_is_script: bool,
     host_surface_policy: HostSurfacePolicy,
     prelude: Option<&ParsedScript>,
+    admission: modules::GraphAdmission,
+    session: &LoweringSession,
 ) -> ProgramIr {
     let goal = if entry_is_script {
         ParseGoal::Script
@@ -91,7 +128,15 @@ fn lower_graph(
         return program;
     }
 
-    let mut graph = match modules::link_loaded_graph(sources, entry_is_script) {
+    let linked_graph = match admission {
+        modules::GraphAdmission::LoadedClosure => {
+            modules::link_loaded_graph(sources, entry_is_script)
+        }
+        modules::GraphAdmission::CompleteCatalog => {
+            modules::link_complete_catalog(sources, entry_is_script)
+        }
+    };
+    let mut graph = match linked_graph {
         Ok(graph) => graph,
         Err(rejection) => {
             if rejection.graph.is_some() {
@@ -146,6 +191,7 @@ fn lower_graph(
     };
 
     let mut allocations = AnalysisAllocationState::default();
+    allocations.prepared_sources = session.prepared_sources.clone();
     let instantiation = if prelude.is_some() {
         ScriptInstantiation::ModuleAfterGlobalScript
     } else {

@@ -2,15 +2,20 @@
 
 Area: *Module binding-name domains: `[[LocalName]]` vs `[[ExportName]]` vs
 merged storage name*
-Stage: FORMALIZER. This document is normative for the encoder and is the
-oracle the dry-runner checks against. No source code is edited in this stage.
+Original stage: FORMALIZER, followed by the historical encoding, discrepancy
+and integration records below. Their inventories, line numbers, counts and
+verification commands describe those earlier revisions; they are not a current
+product-path census. [§14](#14-current-canonical-module-ownership) qualifies the
+2026-10-03 source implementation and supersedes merged-driver/source-cell claims.
 
 > **Read §10 first.** A dry-run discrepancy pass amended this document after the
 > encoding landed. §10 supersedes every claim it names — including §1.3, §1.4
 > M2/M3, §2.4, §2.6 V6, §3 M4/M5, §4 K1/K2/K4, §5.4, §5.6, §9.3 and §9.4, and
 > ledger entries R1/R2/R3. Do not cite §§1–9 without checking §10.
+> [§13](#13-shared-unicode-identifier-spelling-authority) supersedes §10.3
+> and R1's residual conservative Unicode spelling claim.
 
-Owned files:
+Historical owned files:
 
 - `crates/lila-ir/src/binding_names.rs` (new)
 - `crates/lila-ir/src/names.rs` (only the region at lines 19–125)
@@ -1174,3 +1179,63 @@ resolution table the sole authority those mechanisms already document.
 This follow-up does **not** close ledger R8. Generated Script emitters still
 accumulate raw `String`, so an identifier position is not yet forced to accept
 only `MergedName`; that remains a separate rung-G emitter refactor.
+
+## 13. Shared Unicode identifier spelling authority
+
+This implementation-first follow-up supersedes the residual conservative
+spelling claim in §10.3 and ledger R1. It does not change the name domains, R5's
+constructor policy, or the separate emitted-name provenance obligation R8.
+
+Boa's actual lexer owns ICU `ID_Start`/`ID_Continue` plus the repository's
+Unicode 17 supplements and ECMAScript additions. Its existing start/part
+functions are module-level authorities, exported through `boa_parser::lexer`
+and directly re-exported by `lila-front`. The real ordinary/private lexer dispatch, raw-name
+continuation and escaped-name checks call those functions; namespace spelling
+uses the same functions after the interner has decoded escapes. There are no
+new Unicode tables, dependencies, XID predicates or normalization operations.
+
+`namespace::is_binding_identifier` retains the empty-name rejection and accepts
+only a valid decoded start followed by valid decoded parts. It is not a new
+`SpellableName` type and does not claim to validate reserved words or contextual
+syntax. Parsed binding provenance provides those checks. `AnonymousDefault`
+still passes through `LocalName::merged_in` once before spelling; arbitrary
+export keys remain separately escaped string literals.
+
+The source invariant is one consumed classification implementation: deleting or
+renaming that authority breaks the actual lexer and generated-name consumers.
+No independent approximation can drift between their current call paths. This
+does not make all module emitters accept only typed name domains or close R8.
+
+Authored regression sources cover Mn/Mc/Pc, ID-vs-XID starts, Unicode 17 additions,
+invalid starts/parts, raw/escaped names, canonical-equivalent but distinct live
+exports, namespace/source aliases and reserved/default names. They are not yet
+compiled or executed. T07/T12 acceptance and fresh whole-batch verification stay
+open. The character and reserved-word boundary follows [ECMAScript names and
+keywords](https://tc39.es/ecma262/multipage/ecmascript-language-lexical-grammar.html#sec-names-and-keywords).
+
+## 14. Current canonical module ownership
+
+The 2026-10-03 source implementation retires the product merged driver and its
+retained Module entry path. Successful Module and Script graphs use canonical
+per-module activations, including TLA, deferred requests and cycles. Module
+bindings retain separate environments and canonical live cells; Script roots
+retain their own globals, strictness and completion and start targets through
+import jobs. The earlier one-shared-environment collision/global-alias inventory
+and emitter counts are historical, not present admission constraints.
+
+Source-only JavaScript targets load and parse without opening their dependencies.
+Static source bindings and forwarded source exports fail linking with SyntaxError;
+dynamic `import.source` rejects before evaluation, namespaces or cells. The
+fabricated module source object, its `UnitCellRole::ModuleSource`, source aliases
+and tag constant are removed. The source representation rejection marker is not
+a runtime storage cell. See the
+[source-phase rejection contract](source-text-module-source-phase-rejection.md).
+
+The consumed LocalName/ExportName/MergedName domains, anonymous-default spelling,
+host-normalized ModuleKey and shared Unicode spelling authority remain. Removing
+obsolete driver emitters does not establish typed provenance for every surviving
+canonical source-assembly identifier; the earlier R8 proposal and compile record
+are preserved as historical scope, without a new framework or closure claim.
+The recorded gate in §11 remains evidence for that earlier name-domain patch.
+Executable acceptance of the current retirement and fresh whole-batch verification
+are pending; this reconciliation changes no published conformance result.

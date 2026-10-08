@@ -1,25 +1,9 @@
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::BufferAccess;
+use super::data_view_access::DataViewElement;
+use crate::gc_types::*;
 use lila_runtime::AgentHostOperation;
-
 mod wait_async_result;
-
-enum AtomicsBuiltin {
-    Add,
-    And,
-    CompareExchange,
-    Exchange,
-    IsLockFree,
-    Load,
-    Notify,
-    Or,
-    Pause,
-    Store,
-    Sub,
-    Wait,
-    WaitAsync,
-    Xor,
-}
 
 pub(super) const ATOMICS_PUBLICATION_ORDER: [StandardBuiltinId; 14] = [
     StandardBuiltinId::AtomicsAdd,
@@ -38,73 +22,74 @@ pub(super) const ATOMICS_PUBLICATION_ORDER: [StandardBuiltinId; 14] = [
     StandardBuiltinId::AtomicsIsLockFree,
 ];
 
+#[derive(Clone, Copy)]
 enum AtomicsIntegerOperation {
     Load,
-    Add,
-    And,
-    CompareExchange,
-    Exchange,
-    Or,
     Store,
+    Add,
     Sub,
+    And,
+    Or,
     Xor,
+    Exchange,
+    CompareExchange,
 }
-
 impl AtomicsIntegerOperation {
-    fn value_arg_count(&self) -> u8 {
+    fn writes(self) -> bool {
+        !matches!(self, Self::Load)
+    }
+    fn argument_count(self) -> u8 {
         match self {
             Self::Load => 0,
             Self::CompareExchange => 2,
-            Self::Add
-            | Self::And
-            | Self::Exchange
-            | Self::Or
-            | Self::Store
+            Self::Store
+            | Self::Add
             | Self::Sub
-            | Self::Xor => 1,
+            | Self::And
+            | Self::Or
+            | Self::Xor
+            | Self::Exchange => 1,
+        }
+    }
+    fn receiver_error(self) -> RuntimeErrorMessage {
+        match self {
+            Self::Load => RuntimeErrorMessage::ATOMICS_LOAD_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::Store => RuntimeErrorMessage::ATOMICS_STORE_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::Add => RuntimeErrorMessage::ATOMICS_ADD_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::Sub => RuntimeErrorMessage::ATOMICS_SUB_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::And => RuntimeErrorMessage::ATOMICS_AND_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::Or => RuntimeErrorMessage::ATOMICS_OR_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::Xor => RuntimeErrorMessage::ATOMICS_XOR_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::Exchange => RuntimeErrorMessage::ATOMICS_EXCHANGE_REQUIRES_AN_INTEGER_TYPED_ARRAY,
+            Self::CompareExchange => {
+                RuntimeErrorMessage::ATOMICS_COMPAREEXCHANGE_REQUIRES_AN_INTEGER_TYPED_ARRAY
+            }
+        }
+    }
+    fn index_error(self) -> RuntimeErrorMessage {
+        match self {
+            Self::Load => RuntimeErrorMessage::ATOMICS_LOAD_INDEX_OUT_OF_RANGE,
+            Self::Store => RuntimeErrorMessage::ATOMICS_STORE_INDEX_OUT_OF_RANGE,
+            Self::Add => RuntimeErrorMessage::ATOMICS_ADD_INDEX_OUT_OF_RANGE,
+            Self::Sub => RuntimeErrorMessage::ATOMICS_SUB_INDEX_OUT_OF_RANGE,
+            Self::And => RuntimeErrorMessage::ATOMICS_AND_INDEX_OUT_OF_RANGE,
+            Self::Or => RuntimeErrorMessage::ATOMICS_OR_INDEX_OUT_OF_RANGE,
+            Self::Xor => RuntimeErrorMessage::ATOMICS_XOR_INDEX_OUT_OF_RANGE,
+            Self::Exchange => RuntimeErrorMessage::ATOMICS_EXCHANGE_INDEX_OUT_OF_RANGE,
+            Self::CompareExchange => {
+                RuntimeErrorMessage::ATOMICS_COMPAREEXCHANGE_INDEX_OUT_OF_RANGE
+            }
         }
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AtomicsRmwOperation {
-    Add,
-    And,
-    Exchange,
-    Or,
-    Sub,
-    Xor,
-}
-
-enum AtomicsIntegerElementKindRequirement {
-    AnyInteger,
-    Waitable,
-}
-
-#[must_use = "an Atomics integer element-kind local must be validated"]
-struct PendingAtomicsIntegerElementKindLocal(u32);
-
-#[must_use = "a validated Atomics integer element-kind local must be released"]
-struct ValidatedAtomicsIntegerElementKindLocal(u32);
-
-impl ValidatedAtomicsIntegerElementKindLocal {
-    const fn local(&self) -> u32 {
-        self.0
-    }
-
-    const fn into_local(self) -> u32 {
-        self.0
-    }
-}
-
+#[derive(Clone, Copy)]
 enum AtomicsWaitOutcome {
     Ok,
     NotEqual,
     TimedOut,
 }
-
 impl AtomicsWaitOutcome {
-    fn spelling(&self) -> &'static str {
+    fn spelling(self) -> &'static str {
         match self {
             Self::Ok => "ok",
             Self::NotEqual => "not-equal",
@@ -112,2658 +97,1091 @@ impl AtomicsWaitOutcome {
         }
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum AtomicsWaitAsyncTimeoutCheckpointMode {
     Drain,
     Poll,
 }
 
-impl<'a> FunctionBuilder<'a> {
-    fn emit_validate_atomics_integer_element_kind(
-        &mut self,
-        typed_array_payload_local: u32,
-        pending: PendingAtomicsIntegerElementKindLocal,
-        requirement: AtomicsIntegerElementKindRequirement,
-        type_error_message: &str,
-        function: &mut Function,
-    ) -> Result<ValidatedAtomicsIntegerElementKindLocal, EmitError> {
-        let PendingAtomicsIntegerElementKindLocal(element_kind_local) = pending;
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-            element_kind_local,
-            function,
-        );
-        match requirement {
-            AtomicsIntegerElementKindRequirement::AnyInteger => {
-                self.emit_atomics_friendly_element_kind_i32(element_kind_local, function);
-            }
-            AtomicsIntegerElementKindRequirement::Waitable => {
-                function.instruction(&Instruction::LocalGet(element_kind_local));
-                function.instruction(&Instruction::I64Const(5));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(element_kind_local));
-                function.instruction(&Instruction::I64Const(10));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-            }
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            type_error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        Ok(ValidatedAtomicsIntegerElementKindLocal(element_kind_local))
+/// Only early concrete brand/kind/bounds admission creates this retained state.
+#[must_use]
+struct PendingAtomicAccess {
+    array: GcLocal<TypedArrayObject>,
+    kind: I32Local,
+    index: I64Local,
+}
+/// Backing storage is acquired anew after all index/value/count/timeout hooks.
+#[must_use]
+struct RevalidatedAtomicAccess {
+    backing: BufferAccess,
+    offset: I64Local,
+    kind: I32Local,
+}
+impl PendingAtomicAccess {
+    fn clear(self, s: &RuntimeSchema, f: &mut Function) {
+        s.release_i64_local(self.index, f);
+        s.release_i32_local(self.kind, f);
+        self.array.clear(f);
     }
-
-    pub(super) fn emit_atomics_add_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Add, function)
+}
+impl RevalidatedAtomicAccess {
+    fn clear(self, s: &RuntimeSchema, f: &mut Function) {
+        s.release_i32_local(self.kind, f);
+        s.release_i64_local(self.offset, f);
+        self.backing.clear(s, f);
     }
+}
 
-    pub(super) fn emit_atomics_and_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::And, function)
-    }
-
-    pub(super) fn emit_atomics_compare_exchange_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::CompareExchange, function)
-    }
-
-    pub(super) fn emit_atomics_exchange_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Exchange, function)
-    }
-
-    pub(super) fn emit_atomics_is_lock_free_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::IsLockFree, function)
-    }
-
-    pub(super) fn emit_atomics_load_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Load, function)
-    }
-
-    pub(super) fn emit_atomics_notify_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Notify, function)
-    }
-
-    pub(super) fn emit_atomics_or_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Or, function)
-    }
-
-    pub(super) fn emit_atomics_pause_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Pause, function)
-    }
-
-    pub(super) fn emit_atomics_store_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Store, function)
-    }
-
-    pub(super) fn emit_atomics_sub_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Sub, function)
-    }
-
-    pub(super) fn emit_atomics_wait_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Wait, function)
-    }
-
-    pub(super) fn emit_atomics_wait_async_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::WaitAsync, function)
-    }
-
-    pub(super) fn emit_atomics_xor_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_builtin(AtomicsBuiltin::Xor, function)
-    }
-
-    fn emit_atomics_builtin(
-        &mut self,
-        builtin: AtomicsBuiltin,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match builtin {
-            AtomicsBuiltin::Add => self.emit_atomics_add(function),
-            AtomicsBuiltin::And => self.emit_atomics_and(function),
-            AtomicsBuiltin::CompareExchange => self.emit_atomics_compare_exchange(function),
-            AtomicsBuiltin::Exchange => self.emit_atomics_exchange(function),
-            AtomicsBuiltin::IsLockFree => self.emit_atomics_is_lock_free(function),
-            AtomicsBuiltin::Load => self.emit_atomics_load(function),
-            AtomicsBuiltin::Notify => self.emit_atomics_notify(function),
-            AtomicsBuiltin::Or => self.emit_atomics_or(function),
-            AtomicsBuiltin::Pause => self.emit_atomics_pause(function),
-            AtomicsBuiltin::Store => self.emit_atomics_store(function),
-            AtomicsBuiltin::Sub => self.emit_atomics_sub(function),
-            AtomicsBuiltin::Wait => self.emit_atomics_wait(function),
-            AtomicsBuiltin::WaitAsync => self.emit_atomics_wait_async(function),
-            AtomicsBuiltin::Xor => self.emit_atomics_xor(function),
-        }
-    }
-
-    fn emit_atomics_is_lock_free(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let size_payload_local = self.reserve_temp_local();
-        let size_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, size_payload_local, size_tag_local, function);
-        self.emit_value_to_number_payload(size_tag_local, size_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(size_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(size_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
-        function.instruction(&Instruction::F64Ge);
-        function.instruction(&Instruction::LocalGet(size_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(5.0)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(size_tag_local);
-        self.release_temp_local(size_payload_local);
-        Ok(())
-    }
-
-    fn emit_atomics_load(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Load, function)
-    }
-
-    fn emit_atomics_add(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Add, function)
-    }
-
-    fn emit_atomics_and(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::And, function)
-    }
-
-    fn emit_atomics_compare_exchange(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::CompareExchange, function)
-    }
-
-    fn emit_atomics_exchange(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Exchange, function)
-    }
-
-    fn emit_atomics_or(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Or, function)
-    }
-
-    fn emit_atomics_store(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Store, function)
-    }
-
-    fn emit_atomics_sub(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Sub, function)
-    }
-
-    fn emit_atomics_xor(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Xor, function)
-    }
-
-    fn emit_atomics_pause(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let iteration_payload_local = self.reserve_temp_local();
-        let iteration_tag_local = self.reserve_temp_local();
-        let valid_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, iteration_payload_local, iteration_tag_local, function);
-
-        function.instruction(&Instruction::LocalGet(iteration_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(valid_local));
-
-        function.instruction(&Instruction::LocalGet(iteration_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(iteration_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::LocalGet(iteration_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::LocalGet(iteration_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(valid_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.pause iterationNumber must be a finite integral Number",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(valid_local);
-        self.release_temp_local(iteration_tag_local);
-        self.release_temp_local(iteration_payload_local);
-
-        Ok(())
-    }
-
-    fn emit_atomics_notify(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let typed_array_payload_local = self.reserve_temp_local();
-        let typed_array_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let count_payload_local = self.reserve_temp_local();
-        let count_tag_local = self.reserve_temp_local();
-        let typed_array_brand_local = self.reserve_temp_local();
-        let buffer_payload_local = self.reserve_temp_local();
-        let buffer_tag_local = self.reserve_temp_local();
-        let data_ptr_local = self.reserve_temp_local();
-        let byte_offset_local = self.reserve_temp_local();
-        let stored_byte_length_local = self.reserve_temp_local();
-        let bytes_per_element_local = self.reserve_temp_local();
-        let element_length_local = self.reserve_temp_local();
-        let element_kind_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let count_local = self.reserve_temp_local();
-        let address_local = self.reserve_temp_local();
-        let waiter_local = self.reserve_temp_local();
-        let waiter_next_local = self.reserve_temp_local();
-        let previous_waiter_local = self.reserve_temp_local();
-        let waiter_state_local = self.reserve_temp_local();
-        let waiter_address_local = self.reserve_temp_local();
-        let claimed_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let outcome_tag_local = self.reserve_temp_local();
-        let deadline_nanos_local = self.reserve_temp_local();
-        let monotonic_now_local = self.reserve_temp_local();
-        let waiter_host_id_local = self.reserve_temp_local();
-        let agent_call_function_index = self.functions.agent_call_import_function_index();
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            typed_array_payload_local,
-            typed_array_tag_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
-        self.emit_builtin_arg_to_locals(2, count_payload_local, count_tag_local, function);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(typed_array_brand_local));
-        function.instruction(&Instruction::LocalGet(typed_array_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            typed_array_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(typed_array_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.notify requires an Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_typed_array_private_state(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-            function,
-        );
-        let typed_array_view = TypedArrayViewLocals::new(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(buffer_tag_local));
-        self.emit_require_array_buffer_or_shared_array_buffer(
-            buffer_payload_local,
-            buffer_tag_local,
-            "Atomics.notify requires an Int32Array or BigInt64Array",
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-            element_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.notify requires an Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "TypedArray backing buffer is detached",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_typed_array_witness(
-            &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry {
-                length_local: element_length_local,
-            },
-            function,
-        )?;
-
-        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_index_from_number_payload(
-            index_payload_local,
-            index_local,
-            "Atomics.notify index out of range",
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(element_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Atomics.notify index out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(i32::MAX as i64));
-        function.instruction(&Instruction::LocalSet(count_local));
-        function.instruction(&Instruction::LocalGet(count_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_number_payload(count_tag_local, count_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(count_payload_local));
-        self.emit_return_current_completion_if_throw(function);
+impl FunctionBuilder<'_> {
+    fn emit_atomics_is_lock_free(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let input = s.reserve_value_local(f);
+        let out = s.reserve_completion(f);
+        let integer = s.reserve_i64_local(f);
+        let flag = s.reserve_i32_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_value_to_number_payload(&input, &out, f)?;
+        out.kind().load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
         self.emit_to_integer_or_infinity_number_payload_from_number_payload(
-            count_payload_local,
-            count_payload_local,
-            function,
+            out.value().scalar(),
+            integer,
+            f,
         );
-        function.instruction(&Instruction::LocalGet(count_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Le);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(count_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(count_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(i32::MAX as f64)));
-        function.instruction(&Instruction::F64Min);
-        function.instruction(&Instruction::I32TruncSatF64U);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(count_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
-
-        if let Some(agent_call_function_index) = agent_call_function_index {
-            function.instruction(&Instruction::I64Const(
-                AgentHostOperation::NotifyAsyncWaiters.wire(),
-            ));
-            function.instruction(&Instruction::LocalGet(address_local));
-            function.instruction(&Instruction::LocalGet(count_local));
-            function.instruction(&Instruction::Call(agent_call_function_index));
-            function.instruction(&Instruction::LocalSet(claimed_local));
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(claimed_local));
+        f.instruction(&Instruction::I32Const(0));
+        for size in [1.0, 2.0, 4.0, 8.0] {
+            integer.load(f);
+            f.instruction(&Instruction::F64ReinterpretI64);
+            f.instruction(&Instruction::F64Const(Ieee64::from(size)));
+            f.instruction(&Instruction::F64Eq);
+            f.instruction(&Instruction::I32Or);
         }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(previous_waiter_local));
-        if let Some(monotonic_clock_function_index) =
-            self.functions.monotonic_clock_nanos_import_function_index()
-        {
-            function.instruction(&Instruction::Call(monotonic_clock_function_index));
-            function.instruction(&Instruction::LocalSet(monotonic_now_local));
-        }
-        function.instruction(&Instruction::GlobalGet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(waiter_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_next_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-            waiter_state_local,
-            function,
-        );
-        if agent_call_function_index.is_none()
-            && self
-                .functions
-                .monotonic_clock_nanos_import_function_index()
-                .is_some()
-        {
-            function.instruction(&Instruction::LocalGet(waiter_state_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            self.load_i64_to_local_from_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET,
-                deadline_nanos_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(deadline_nanos_local));
-            function.instruction(&Instruction::I64Const(i64::MAX));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(deadline_nanos_local));
-            function.instruction(&Instruction::LocalGet(monotonic_now_local));
-            function.instruction(&Instruction::I64LeU);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.store_i64_const_at_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-                0,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-                promise_record_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(
-                self.strings
-                    .payload(AtomicsWaitOutcome::TimedOut.spelling()),
-            ));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(outcome_tag_local));
-            self.emit_settle_promise_record(
-                promise_record_local,
-                PromiseSettlement::Fulfill,
-                self.scratch_local,
-                outcome_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(waiter_state_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(waiter_state_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        if agent_call_function_index.is_some() {
-            function.instruction(&Instruction::I32Const(1));
-        } else {
-            function.instruction(&Instruction::LocalGet(claimed_local));
-            function.instruction(&Instruction::LocalGet(count_local));
-            function.instruction(&Instruction::I64LtU);
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if agent_call_function_index.is_some() {
-            function.instruction(&Instruction::I32Const(1));
-        } else {
-            self.load_i64_to_local_from_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET,
-                waiter_address_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(waiter_address_local));
-            function.instruction(&Instruction::LocalGet(address_local));
-            function.instruction(&Instruction::I64Eq);
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(agent_call_function_index) = agent_call_function_index {
-            self.load_i64_to_local_from_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET,
-                waiter_host_id_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(
-                AgentHostOperation::PollAsyncWaiter.wire(),
-            ));
-            function.instruction(&Instruction::LocalGet(waiter_host_id_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::Call(agent_call_function_index));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Eq);
-        } else {
-            function.instruction(&Instruction::LocalGet(waiter_local));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I32Load(Self::memarg32(
-                HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-            )));
-            function.instruction(&Instruction::I32Const(1));
-            function.instruction(&Instruction::I32Eq);
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::I32Store(Self::memarg32(
-            HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-        )));
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-            promise_record_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(AtomicsWaitOutcome::Ok.spelling()),
-        ));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(outcome_tag_local));
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Fulfill,
-            self.scratch_local,
-            outcome_tag_local,
-            function,
-        )?;
-        if agent_call_function_index.is_none() {
-            function.instruction(&Instruction::LocalGet(claimed_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(claimed_local));
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(waiter_state_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(waiter_state_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(previous_waiter_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::GlobalSet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::Else);
-        self.store_i64_local_at_offset(
-            previous_waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_next_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::LocalSet(previous_waiter_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::LocalSet(waiter_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(count_local));
-        function.instruction(&Instruction::LocalGet(claimed_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::MemoryAtomicNotify(Self::shared_memarg32(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(claimed_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(waiter_host_id_local);
-        self.release_temp_local(monotonic_now_local);
-        self.release_temp_local(deadline_nanos_local);
-        self.release_temp_local(outcome_tag_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(claimed_local);
-        self.release_temp_local(waiter_address_local);
-        self.release_temp_local(waiter_state_local);
-        self.release_temp_local(previous_waiter_local);
-        self.release_temp_local(waiter_next_local);
-        self.release_temp_local(waiter_local);
-        self.release_temp_local(address_local);
-        self.release_temp_local(count_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(element_kind_local);
-        self.release_temp_local(element_length_local);
-        self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(stored_byte_length_local);
-        self.release_temp_local(byte_offset_local);
-        self.release_temp_local(data_ptr_local);
-        self.release_temp_local(buffer_tag_local);
-        self.release_temp_local(buffer_payload_local);
-        self.release_temp_local(typed_array_brand_local);
-        self.release_temp_local(count_tag_local);
-        self.release_temp_local(count_payload_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(typed_array_tag_local);
-        self.release_temp_local(typed_array_payload_local);
-
+        flag.store(f);
+        out.value().set_boolean(flag, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&out, f);
+        s.release_i32_local(flag, f);
+        s.release_i64_local(integer, f);
+        out.clear(f);
+        input.clear(f);
+        Ok(())
+    }
+    fn emit_atomics_pause(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        // The current normative operation takes no semantic operands. All source
+        // arguments have already been evaluated by the shared invocation owner.
+        self.completion().initialize(f);
         Ok(())
     }
 
-    fn emit_atomics_require_agent_can_suspend(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::Call(
-            HOST_AGENT_CAN_SUSPEND_IMPORT_FUNCTION_INDEX,
-        ));
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.wait cannot suspend the current agent",
-            self.result_local,
-            self.result_tag_local,
-            function,
+    fn emit_atomics_notify(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let out = s.reserve_completion(f);
+        out.initialize(f);
+        let pending = s.reserve_completion(f);
+        let input = s.reserve_value_local(f);
+        let index_arg = s.reserve_value_local(f);
+        let count_arg = s.reserve_value_local(f);
+        let count = s.reserve_i64_local(f);
+        let notified = s.reserve_i64_local(f);
+        let width = s.reserve_i32_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_builtin_arg_to_value(1, &index_arg, f);
+        self.emit_builtin_arg_to_value(2, &count_arg, f);
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        let prepared = self.emit_atomics_prepare(
+            &input,
+            &index_arg,
+            true,
+            false,
+            false,
+            RuntimeErrorMessage::ATOMICS_NOTIFY_REQUIRES_AN_INT32ARRAY_OR_BIGINT64ARRAY,
+            RuntimeErrorMessage::ATOMICS_NOTIFY_INDEX_OUT_OF_RANGE,
+            &pending,
+            &out,
+            exit,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        count_arg.tag().load(f);
+        f.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(i64::MAX));
+        count.store(f);
+        f.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(&count_arg, &pending, f)?;
+        self.emit_binary_abrupt_exit(&pending, &out, exit, f);
+        self.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            pending.value().scalar(),
+            count,
+            f,
+        );
+        count.load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        f.instruction(&Instruction::F64Max);
+        f.instruction(&Instruction::I64TruncSatF64S);
+        count.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        // Notify on a non-shared buffer returns zero after count coercion, without
+        // introducing the RMW revalidation policy for a detached ordinary buffer.
+        let view = s.reserve_gc_local(f).initialize(
+            s.field(TypedArrayObjectSchema::VIEW)
+                .read(&prepared.array, s, f)
+                .reference(),
+            f,
+        );
+        let owner = s.reserve_gc_local(f).initialize(
+            s.field(BufferViewSchema::BUFFER)
+                .read(&view, s, f)
+                .reference(),
+            f,
+        );
+        let owner_kind = s.reserve_i32_local(f);
+        s.field(BufferOwnerSchema::KIND)
+            .read(&owner, s, f)
+            .store(owner_kind, f);
+        f.instruction(&Instruction::I64Const(0));
+        notified.store(f);
+        owner_kind.load(f);
+        f.instruction(&Instruction::I32Const(
+            BufferOwnerKind::SharedArrayBuffer.encode(),
+        ));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let access = self.emit_atomics_revalidate(
+            &prepared,
+            &pending,
+            &out,
+            exit,
+            RuntimeErrorMessage::ATOMICS_NOTIFY_INDEX_OUT_OF_RANGE,
+            f,
+        )?;
+        prepared.kind.load(f);
+        f.instruction(&Instruction::I32Const(
+            TypedArrayElementKind::BigInt64.encode(),
+        ));
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        f.instruction(&Instruction::I32Const(8));
+        f.instruction(&Instruction::Else);
+        f.instruction(&Instruction::I32Const(4));
+        f.instruction(&Instruction::End);
+        width.store(f);
+        let notify = self
+            .functions
+            .gc_host_imports()
+            .get(GcHostImport::NotifyAsyncWaiters)
+            .ok_or_else(|| EmitError::unsupported("shared notify resource import is absent"))?;
+        let _ = s
+            .field(HostResourceSchema::RESOURCE)
+            .read(&access.backing.resource, s, f);
+        access.offset.load(f);
+        width.load(f);
+        count.load(f);
+        notify.emit_call_instruction(f);
+        notified.store(f);
+        access.clear(s, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        notified.load(f);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        notified.store(f);
+        out.value().set_number(notified, f);
+        s.release_i32_local(owner_kind, f);
+        owner.clear(f);
+        view.clear(f);
+        prepared.clear(s, f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&out, f);
+        s.release_i32_local(width, f);
+        s.release_i64_local(notified, f);
+        s.release_i64_local(count, f);
+        count_arg.clear(f);
+        index_arg.clear(f);
+        input.clear(f);
+        pending.clear(f);
+        out.clear(f);
         Ok(())
     }
 
-    fn emit_atomics_wait_return_string(
+    fn emit_atomics_wait_outcome(
         &mut self,
         outcome: AtomicsWaitOutcome,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(outcome.spelling()),
-        ));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-    }
-
-    fn emit_atomics_wait_async(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let typed_array_payload_local = self.reserve_temp_local();
-        let typed_array_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let timeout_payload_local = self.reserve_temp_local();
-        let timeout_tag_local = self.reserve_temp_local();
-        let typed_array_brand_local = self.reserve_temp_local();
-        let buffer_payload_local = self.reserve_temp_local();
-        let buffer_tag_local = self.reserve_temp_local();
-        let buffer_brand_local = self.reserve_temp_local();
-        let data_ptr_local = self.reserve_temp_local();
-        let byte_offset_local = self.reserve_temp_local();
-        let stored_byte_length_local = self.reserve_temp_local();
-        let bytes_per_element_local = self.reserve_temp_local();
-        let element_length_local = self.reserve_temp_local();
-        let pending_element_kind = PendingAtomicsIntegerElementKindLocal(self.reserve_temp_local());
-        let index_local = self.reserve_temp_local();
-        let address_local = self.reserve_temp_local();
-        let expected_raw_local = self.reserve_temp_local();
-        let current_raw_local = self.reserve_temp_local();
-        let deadline_nanos_local = self.reserve_temp_local();
-        let timeout_nanos_local = self.reserve_temp_local();
-        let monotonic_now_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            typed_array_payload_local,
-            typed_array_tag_local,
-            function,
+        value: &ValueLocals,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let string = s.reserve_gc_local(f).initialize(
+            self.emit_interned_string_reference(outcome.spelling(), f)?,
+            f,
         );
-        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
-        self.emit_builtin_arg_to_locals(2, value_payload_local, value_tag_local, function);
-        self.emit_builtin_arg_to_locals(3, timeout_payload_local, timeout_tag_local, function);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(typed_array_brand_local));
-        function.instruction(&Instruction::LocalGet(typed_array_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            typed_array_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(typed_array_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_typed_array_private_state(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-            function,
-        );
-        let typed_array_view = TypedArrayViewLocals::new(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(buffer_tag_local));
-        self.emit_require_array_buffer_or_shared_array_buffer(
-            buffer_payload_local,
-            buffer_tag_local,
-            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
-            function,
-        )?;
-
-        let element_kind = self.emit_validate_atomics_integer_element_kind(
-            typed_array_payload_local,
-            pending_element_kind,
-            AtomicsIntegerElementKindRequirement::Waitable,
-            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            buffer_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            buffer_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(buffer_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "TypedArray backing buffer is detached",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_typed_array_witness(
-            &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry {
-                length_local: element_length_local,
-            },
-            function,
-        )?;
-
-        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_index_from_number_payload(
-            index_payload_local,
-            index_local,
-            "Atomics.waitAsync index out of range",
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(element_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Atomics.waitAsync index out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(element_kind.local()));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_to_bigint_u64_word_from_value_locals(
-            value_tag_local,
-            value_payload_local,
-            expected_raw_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_integer_typed_array_value_i64(value_payload_local, function);
-        function.instruction(&Instruction::LocalSet(expected_raw_local));
-        self.emit_atomics_normalize_integer_element_i64(
-            expected_raw_local,
-            &element_kind,
-            function,
-        );
-        function.instruction(&Instruction::LocalSet(expected_raw_local));
-        function.instruction(&Instruction::End);
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(timeout_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(timeout_payload_local));
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_number_payload(timeout_tag_local, timeout_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(timeout_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
-
-        self.emit_atomics_load_integer_element_to_i64(
-            address_local,
-            &element_kind,
-            current_raw_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(current_raw_local));
-        function.instruction(&Instruction::LocalGet(expected_raw_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_async_return_object(AtomicsWaitOutcome::NotEqual, function)?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Le);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_async_return_object(AtomicsWaitOutcome::TimedOut, function)?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::LocalSet(deadline_nanos_local));
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Call(
-            self.functions
-                .monotonic_clock_nanos_import_function_index()
-                .expect("Atomics.waitAsync requires the monotonic clock import"),
-        ));
-        function.instruction(&Instruction::LocalSet(monotonic_now_local));
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1_000_000.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::F64Ceil);
-        function.instruction(&Instruction::F64Const(Ieee64::from(i64::MAX as f64)));
-        function.instruction(&Instruction::F64Min);
-        function.instruction(&Instruction::I64TruncSatF64U);
-        function.instruction(&Instruction::LocalSet(timeout_nanos_local));
-        function.instruction(&Instruction::LocalGet(timeout_nanos_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::LocalGet(monotonic_now_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(monotonic_now_local));
-        function.instruction(&Instruction::LocalGet(timeout_nanos_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(deadline_nanos_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_atomics_wait_async_return_promise(address_local, deadline_nanos_local, function)?;
-        self.emit_return_current_completion(function);
-
-        self.release_temp_local(monotonic_now_local);
-        self.release_temp_local(timeout_nanos_local);
-        self.release_temp_local(deadline_nanos_local);
-        self.release_temp_local(current_raw_local);
-        self.release_temp_local(expected_raw_local);
-        self.release_temp_local(address_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(element_kind.into_local());
-        self.release_temp_local(element_length_local);
-        self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(stored_byte_length_local);
-        self.release_temp_local(byte_offset_local);
-        self.release_temp_local(data_ptr_local);
-        self.release_temp_local(buffer_brand_local);
-        self.release_temp_local(buffer_tag_local);
-        self.release_temp_local(buffer_payload_local);
-        self.release_temp_local(typed_array_brand_local);
-        self.release_temp_local(timeout_tag_local);
-        self.release_temp_local(timeout_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(typed_array_tag_local);
-        self.release_temp_local(typed_array_payload_local);
-
+        value.set_reference(&string, s, f);
+        string.clear(f);
         Ok(())
     }
-
-    pub(crate) fn emit_drain_atomics_wait_async_timeouts(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_wait_async_timeout_checkpoint(
-            AtomicsWaitAsyncTimeoutCheckpointMode::Drain,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_poll_atomics_wait_async_timeouts(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_atomics_wait_async_timeout_checkpoint(
-            AtomicsWaitAsyncTimeoutCheckpointMode::Poll,
-            function,
-        )
-    }
-
-    fn emit_atomics_wait_async_timeout_checkpoint(
-        &mut self,
-        mode: AtomicsWaitAsyncTimeoutCheckpointMode,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let saved_result_local = self.reserve_temp_local();
-        let saved_result_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_completion_aux_local = self.reserve_temp_local();
-        let waiter_local = self.reserve_temp_local();
-        let waiter_next_local = self.reserve_temp_local();
-        let previous_waiter_local = self.reserve_temp_local();
-        let waiter_state_local = self.reserve_temp_local();
-        let deadline_nanos_local = self.reserve_temp_local();
-        let nearest_deadline_nanos_local = self.reserve_temp_local();
-        let monotonic_now_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let outcome_tag_local = self.reserve_temp_local();
-        let settled_count_local = self.reserve_temp_local();
-        let active_count_local = self.reserve_temp_local();
-        let waiter_host_id_local = self.reserve_temp_local();
-        let host_waiter_status_local = self.reserve_temp_local();
-        let agent_call_function_index = self.functions.agent_call_import_function_index();
-
-        for (source, destination) in [
-            (self.result_local, saved_result_local),
-            (self.result_tag_local, saved_result_tag_local),
-            (self.completion_local, saved_completion_local),
-            (self.completion_aux_local, saved_completion_aux_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(settled_count_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::Call(
-            self.functions
-                .monotonic_clock_nanos_import_function_index()
-                .expect("Atomics.waitAsync requires the monotonic clock import"),
-        ));
-        function.instruction(&Instruction::LocalSet(monotonic_now_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::LocalSet(nearest_deadline_nanos_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(active_count_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(previous_waiter_local));
-        function.instruction(&Instruction::GlobalGet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(waiter_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_next_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-            waiter_state_local,
-            function,
-        );
-        if let Some(agent_call_function_index) = agent_call_function_index {
-            function.instruction(&Instruction::LocalGet(waiter_state_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            self.load_i64_to_local_from_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET,
-                waiter_host_id_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(
-                AgentHostOperation::PollAsyncWaiter.wire(),
-            ));
-            function.instruction(&Instruction::LocalGet(waiter_host_id_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::Call(agent_call_function_index));
-            function.instruction(&Instruction::LocalSet(host_waiter_status_local));
-            function.instruction(&Instruction::LocalGet(host_waiter_status_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            self.store_i64_const_at_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-                0,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(waiter_state_local));
-            function.instruction(&Instruction::LocalGet(host_waiter_status_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                waiter_local,
-                HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-                promise_record_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(AtomicsWaitOutcome::Ok.spelling()),
-            ));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(outcome_tag_local));
-            self.emit_settle_promise_record(
-                promise_record_local,
-                PromiseSettlement::Fulfill,
-                self.scratch_local,
-                outcome_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(settled_count_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(settled_count_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(waiter_state_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET,
-            deadline_nanos_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(deadline_nanos_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(deadline_nanos_local));
-        function.instruction(&Instruction::LocalGet(monotonic_now_local));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(agent_call_function_index) = agent_call_function_index {
-            function.instruction(&Instruction::I64Const(
-                AgentHostOperation::CancelAsyncWaiter.wire(),
-            ));
-            function.instruction(&Instruction::LocalGet(waiter_host_id_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::Call(agent_call_function_index));
-            function.instruction(&Instruction::LocalSet(host_waiter_status_local));
-        }
-        self.store_i64_const_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-            0,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-            promise_record_local,
-            function,
-        );
-        if agent_call_function_index.is_some() {
-            function.instruction(&Instruction::LocalGet(host_waiter_status_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(AtomicsWaitOutcome::Ok.spelling()),
-            ));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(
-                self.strings
-                    .payload(AtomicsWaitOutcome::TimedOut.spelling()),
-            ));
-            function.instruction(&Instruction::End);
+    fn emit_atomics_wait(&mut self, asynchronous: bool, f: &mut Function) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let out = s.reserve_completion(f);
+        out.initialize(f);
+        let pending = s.reserve_completion(f);
+        let input = s.reserve_value_local(f);
+        let index_arg = s.reserve_value_local(f);
+        let expected = s.reserve_value_local(f);
+        let timeout = s.reserve_value_local(f);
+        let outcome = s.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_builtin_arg_to_value(1, &index_arg, f);
+        self.emit_builtin_arg_to_value(2, &expected, f);
+        self.emit_builtin_arg_to_value(3, &timeout, f);
+        let word = s.reserve_i64_local(f);
+        let current = s.reserve_i64_local(f);
+        let nanos = s.reserve_i64_local(f);
+        let deadline = s.reserve_i64_local(f);
+        let host_id = s.reserve_i64_local(f);
+        let width = s.reserve_i32_local(f);
+        let status = s.reserve_i32_local(f);
+        let receiver_error = if asynchronous {
+            RuntimeErrorMessage::ATOMICS_WAITASYNC_REQUIRES_A_SHARED_INT32ARRAY_OR_BIGINT64ARRAY
         } else {
-            function.instruction(&Instruction::I64Const(
-                self.strings
-                    .payload(AtomicsWaitOutcome::TimedOut.spelling()),
-            ));
-        }
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(outcome_tag_local));
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Fulfill,
-            self.scratch_local,
-            outcome_tag_local,
-            function,
+            RuntimeErrorMessage::ATOMICS_WAIT_REQUIRES_A_SHARED_INT32ARRAY_OR_BIGINT64ARRAY
+        };
+        let index_error = if asynchronous {
+            RuntimeErrorMessage::ATOMICS_WAITASYNC_INDEX_OUT_OF_RANGE
+        } else {
+            RuntimeErrorMessage::ATOMICS_WAIT_INDEX_OUT_OF_RANGE
+        };
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        let prepared = self.emit_atomics_prepare(
+            &input,
+            &index_arg,
+            true,
+            false,
+            true,
+            receiver_error,
+            index_error,
+            &pending,
+            &out,
+            exit,
+            f,
         )?;
-        function.instruction(&Instruction::LocalGet(settled_count_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(settled_count_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(waiter_state_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(deadline_nanos_local));
-        function.instruction(&Instruction::LocalGet(nearest_deadline_nanos_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(deadline_nanos_local));
-        function.instruction(&Instruction::LocalSet(nearest_deadline_nanos_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(waiter_state_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(active_count_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(active_count_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(waiter_state_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(previous_waiter_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::GlobalSet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
+        self.emit_atomics_value(prepared.kind, &expected, word, &pending, f)?;
+        self.emit_binary_abrupt_exit(&pending, &out, exit, f);
+        self.emit_value_to_number_payload(&timeout, &pending, f)?;
+        self.emit_binary_abrupt_exit(&pending, &out, exit, f);
+        // Undefined/NaN timeout is +infinity; otherwise max(number,0), in ns.
+        pending.value().scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        pending.value().scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::F64Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(-1));
+        nanos.store(f);
+        f.instruction(&Instruction::Else);
+        pending.value().scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        f.instruction(&Instruction::F64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(-1));
+        nanos.store(f);
+        f.instruction(&Instruction::Else);
+        pending.value().scalar().load(f);
+        f.instruction(&Instruction::F64ReinterpretI64);
+        f.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        f.instruction(&Instruction::F64Max);
+        f.instruction(&Instruction::F64Const(Ieee64::from(1_000_000.0)));
+        f.instruction(&Instruction::F64Mul);
+        f.instruction(&Instruction::I64TruncSatF64S);
+        nanos.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        if !asynchronous {
+            f.instruction(&Instruction::Call(
+                HOST_AGENT_CAN_SUSPEND_IMPORT_FUNCTION_INDEX,
+            ));
+            f.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_binary_type_error(
+                RuntimeErrorMessage::ATOMICS_WAIT_CANNOT_SUSPEND_THE_CURRENT_AGENT,
+                &out,
+                exit,
+                f,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        let access =
+            self.emit_atomics_revalidate(&prepared, &pending, &out, exit, index_error, f)?;
+        prepared.kind.load(f);
+        f.instruction(&Instruction::I32Const(
+            TypedArrayElementKind::BigInt64.encode(),
         ));
-        function.instruction(&Instruction::Else);
-        self.store_i64_local_at_offset(
-            previous_waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_next_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::LocalSet(previous_waiter_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::LocalSet(waiter_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        match mode {
-            AtomicsWaitAsyncTimeoutCheckpointMode::Drain => {}
-            AtomicsWaitAsyncTimeoutCheckpointMode::Poll => {
-                function.instruction(&Instruction::Br(1));
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        f.instruction(&Instruction::I32Const(8));
+        f.instruction(&Instruction::Else);
+        f.instruction(&Instruction::I32Const(4));
+        f.instruction(&Instruction::End);
+        width.store(f);
+        if asynchronous {
+            let immediate = self.open_frame(ControlFrameKind::Block, f);
+            // Zero timeout still tests equality first. Positive registration performs
+            // comparison and queue publication together in the native critical section.
+            nanos.load(f);
+            f.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_atomics_raw_operation(
+                &access,
+                AtomicsIntegerOperation::Load,
+                word,
+                word,
+                current,
+                f,
+            )?;
+            width.load(f);
+            f.instruction(&Instruction::I32Const(4));
+            f.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            word.load(f);
+            f.instruction(&Instruction::I64Const(0xffff_ffff));
+            f.instruction(&Instruction::I64And);
+            word.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            current.load(f);
+            word.load(f);
+            f.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_atomics_wait_outcome(AtomicsWaitOutcome::TimedOut, &outcome, f)?;
+            f.instruction(&Instruction::Else);
+            self.emit_atomics_wait_outcome(AtomicsWaitOutcome::NotEqual, &outcome, f)?;
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            self.emit_atomics_wait_async_object(false, &outcome, &out, f)?;
+            self.emit_branch_to_target(immediate, f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            let register = self
+                .functions
+                .gc_host_imports()
+                .get(GcHostImport::RegisterAsyncWaiter)
+                .expect("waitAsync register import");
+            let _ = s
+                .field(HostResourceSchema::RESOURCE)
+                .read(&access.backing.resource, s, f);
+            access.offset.load(f);
+            width.load(f);
+            word.load(f);
+            register.emit_call_instruction(f);
+            host_id.store(f);
+            host_id.load(f);
+            f.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_atomics_wait_outcome(AtomicsWaitOutcome::NotEqual, &outcome, f)?;
+            self.emit_atomics_wait_async_object(false, &outcome, &out, f)?;
+            self.emit_branch_to_target(immediate, f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            nanos.load(f);
+            f.instruction(&Instruction::I64Const(0));
+            f.instruction(&Instruction::I64LtS);
+            self.open_frame(ControlFrameKind::If, f);
+            f.instruction(&Instruction::I64Const(i64::MAX));
+            deadline.store(f);
+            f.instruction(&Instruction::Else);
+            f.instruction(&Instruction::Call(
+                self.functions
+                    .monotonic_clock_nanos_import_function_index()
+                    .expect("waitAsync monotonic clock"),
+            ));
+            deadline.store(f);
+            deadline.load(f);
+            f.instruction(&Instruction::I64Const(i64::MAX));
+            nanos.load(f);
+            f.instruction(&Instruction::I64Sub);
+            f.instruction(&Instruction::I64GtU);
+            self.open_frame(ControlFrameKind::If, f);
+            f.instruction(&Instruction::I64Const(i64::MAX));
+            deadline.store(f);
+            f.instruction(&Instruction::Else);
+            deadline.load(f);
+            nanos.load(f);
+            f.instruction(&Instruction::I64Add);
+            deadline.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            let buffer = s.reserve_gc_local(f).initialize(
+                s.field(BufferOwnerSchema::SHARED_ARRAY_BUFFER)
+                    .read(&access.backing.owner, s, f)
+                    .reference()
+                    .require_non_null(f),
+                f,
+            );
+            self.emit_atomics_wait_async_promise(
+                &buffer,
+                access.offset,
+                deadline,
+                host_id,
+                &out,
+                f,
+            )?;
+            buffer.clear(f);
+            self.pop_control(ControlFrameKind::Block);
+            f.instruction(&Instruction::End);
+        } else {
+            let wait = self
+                .functions
+                .gc_host_imports()
+                .get(GcHostImport::SharedBufferWait)
+                .expect("sync wait resource import");
+            let _ = s
+                .field(HostResourceSchema::RESOURCE)
+                .read(&access.backing.resource, s, f);
+            access.offset.load(f);
+            width.load(f);
+            word.load(f);
+            nanos.load(f);
+            wait.emit_call_instruction(f);
+            status.store(f);
+            for (code, result) in [
+                (0, AtomicsWaitOutcome::Ok),
+                (1, AtomicsWaitOutcome::NotEqual),
+                (2, AtomicsWaitOutcome::TimedOut),
+            ] {
+                status.load(f);
+                f.instruction(&Instruction::I32Const(code));
+                f.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, f);
+                self.emit_atomics_wait_outcome(result, out.value(), f)?;
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
             }
         }
-        function.instruction(&Instruction::LocalGet(active_count_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(nearest_deadline_nanos_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if agent_call_function_index.is_some() {
-            function.instruction(&Instruction::I64Const(1_000_000));
-            function.instruction(&Instruction::Call(
-                self.functions
-                    .sleep_nanos_import_function_index()
-                    .expect("Atomics.waitAsync requires the sleep import"),
-            ));
-            function.instruction(&Instruction::Br(1));
+        access.clear(s, f);
+        prepared.clear(s, f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&out, f);
+        s.release_i32_local(status, f);
+        s.release_i32_local(width, f);
+        s.release_i64_local(host_id, f);
+        s.release_i64_local(deadline, f);
+        s.release_i64_local(nanos, f);
+        s.release_i64_local(current, f);
+        s.release_i64_local(word, f);
+        outcome.clear(f);
+        timeout.clear(f);
+        expected.clear(f);
+        index_arg.clear(f);
+        input.clear(f);
+        pending.clear(f);
+        out.clear(f);
+        Ok(())
+    }
+    pub(super) fn emit_atomics_load_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Load, f)
+    }
+    pub(super) fn emit_atomics_store_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Store, f)
+    }
+    pub(super) fn emit_atomics_add_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Add, f)
+    }
+    pub(super) fn emit_atomics_sub_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Sub, f)
+    }
+    pub(super) fn emit_atomics_and_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::And, f)
+    }
+    pub(super) fn emit_atomics_or_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Or, f)
+    }
+    pub(super) fn emit_atomics_xor_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Xor, f)
+    }
+    pub(super) fn emit_atomics_exchange_builtin(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::Exchange, f)
+    }
+    pub(super) fn emit_atomics_compare_exchange_builtin(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_integer_operation(AtomicsIntegerOperation::CompareExchange, f)
+    }
+    pub(super) fn emit_atomics_is_lock_free_builtin(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_is_lock_free(f)
+    }
+    pub(super) fn emit_atomics_pause_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_pause(f)
+    }
+    pub(super) fn emit_atomics_notify_builtin(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_notify(f)
+    }
+    pub(super) fn emit_atomics_wait_builtin(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_atomics_wait(false, f)
+    }
+    pub(super) fn emit_atomics_wait_async_builtin(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_wait(true, f)
+    }
+
+    fn emit_atomics_prepare(
+        &mut self,
+        input: &ValueLocals,
+        index_arg: &ValueLocals,
+        waitable: bool,
+        write: bool,
+        require_shared: bool,
+        receiver_error: RuntimeErrorMessage,
+        index_error: RuntimeErrorMessage,
+        pending: &CompletionLocals,
+        out: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<PendingAtomicAccess, EmitError> {
+        let s = self.runtime_schema();
+        let array =
+            self.emit_binary_require_ref::<TypedArrayObject>(input, receiver_error, out, exit, f)?;
+        let length = s.reserve_i64_local(f);
+        let kind = s.reserve_i32_local(f);
+        let index = s.reserve_i64_local(f);
+        if write {
+            self.emit_validate_typed_array_write_view(&array, length, pending, f)?;
         } else {
-            function.instruction(&Instruction::Br(2));
+            self.emit_validate_typed_array_view(&array, length, pending, f)?;
         }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Call(
-            self.functions
-                .monotonic_clock_nanos_import_function_index()
-                .expect("Atomics.waitAsync requires the monotonic clock import"),
+        self.emit_binary_abrupt_exit(pending, out, exit, f);
+        s.field(TypedArrayObjectSchema::ELEMENT_KIND)
+            .read(&array, s, f)
+            .store(kind, f);
+        f.instruction(&Instruction::I32Const(0));
+        for element in TypedArrayElementKind::ALL {
+            let admitted = if waitable {
+                matches!(
+                    element,
+                    TypedArrayElementKind::Int32 | TypedArrayElementKind::BigInt64
+                )
+            } else {
+                element.is_atomics_integer()
+            };
+            if admitted {
+                kind.load(f);
+                f.instruction(&Instruction::I32Const(element.encode()));
+                f.instruction(&Instruction::I32Eq);
+                f.instruction(&Instruction::I32Or);
+            }
+        }
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_binary_type_error(receiver_error, out, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        if require_shared {
+            let view = s.reserve_gc_local(f).initialize(
+                s.field(TypedArrayObjectSchema::VIEW)
+                    .read(&array, s, f)
+                    .reference(),
+                f,
+            );
+            let owner = s.reserve_gc_local(f).initialize(
+                s.field(BufferViewSchema::BUFFER)
+                    .read(&view, s, f)
+                    .reference(),
+                f,
+            );
+            let buffer_kind = s.reserve_i32_local(f);
+            s.field(BufferOwnerSchema::KIND)
+                .read(&owner, s, f)
+                .store(buffer_kind, f);
+            buffer_kind.load(f);
+            f.instruction(&Instruction::I32Const(
+                BufferOwnerKind::SharedArrayBuffer.encode(),
+            ));
+            f.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_binary_type_error(receiver_error, out, exit, f)?;
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            s.release_i32_local(buffer_kind, f);
+            owner.clear(f);
+            view.clear(f);
+        }
+        self.emit_to_index_i64_from_value_locals(index_arg, index, index_error, pending, f)?;
+        self.emit_binary_abrupt_exit(pending, out, exit, f);
+        index.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_binary_range_error(index_error, out, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        s.release_i64_local(length, f);
+        Ok(PendingAtomicAccess { array, kind, index })
+    }
+    fn emit_atomics_revalidate(
+        &mut self,
+        access: &PendingAtomicAccess,
+        pending: &CompletionLocals,
+        out: &CompletionLocals,
+        exit: ControlTarget,
+        index_error: RuntimeErrorMessage,
+        f: &mut Function,
+    ) -> Result<RevalidatedAtomicAccess, EmitError> {
+        let s = self.runtime_schema();
+        let length = s.reserve_i64_local(f);
+        self.emit_validate_typed_array_view(&access.array, length, pending, f)?;
+        self.emit_binary_abrupt_exit(pending, out, exit, f);
+        let view = s.reserve_gc_local(f).initialize(
+            s.field(TypedArrayObjectSchema::VIEW)
+                .read(&access.array, s, f)
+                .reference(),
+            f,
+        );
+        let owner = s.reserve_gc_local(f).initialize(
+            s.field(BufferViewSchema::BUFFER)
+                .read(&view, s, f)
+                .reference(),
+            f,
+        );
+        let backing = self.emit_binary_buffer_access(&owner, f);
+        let offset = s.reserve_i64_local(f);
+        s.field(BufferViewSchema::BYTE_OFFSET)
+            .read(&view, s, f)
+            .store_i64(offset, f);
+        for element in TypedArrayElementKind::ALL {
+            if element.is_atomics_integer() {
+                access.kind.load(f);
+                f.instruction(&Instruction::I32Const(element.encode()));
+                f.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, f);
+                offset.load(f);
+                access.index.load(f);
+                f.instruction(&Instruction::I64Const(element.bytes_per_element() as i64));
+                f.instruction(&Instruction::I64Mul);
+                f.instruction(&Instruction::I64Add);
+                offset.store(f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+            }
+        }
+        offset.load(f);
+        backing.length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_binary_range_error(index_error, out, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let kind = s.reserve_i32_local(f);
+        access.kind.load(f);
+        kind.store(f);
+        owner.clear(f);
+        view.clear(f);
+        s.release_i64_local(length, f);
+        Ok(RevalidatedAtomicAccess {
+            backing,
+            offset,
+            kind,
+        })
+    }
+    fn emit_atomics_value(
+        &mut self,
+        kind: I32Local,
+        input: &ValueLocals,
+        word: I64Local,
+        pending: &CompletionLocals,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        kind.load(f);
+        f.instruction(&Instruction::I32Const(
+            TypedArrayElementKind::BigInt64.encode(),
         ));
-        function.instruction(&Instruction::LocalSet(monotonic_now_local));
-        function.instruction(&Instruction::LocalGet(nearest_deadline_nanos_local));
-        function.instruction(&Instruction::LocalGet(monotonic_now_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(nearest_deadline_nanos_local));
-        function.instruction(&Instruction::LocalGet(monotonic_now_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::Call(
-            self.functions
-                .sleep_nanos_import_function_index()
-                .expect("Atomics.waitAsync requires the sleep import"),
+        f.instruction(&Instruction::I32Eq);
+        kind.load(f);
+        f.instruction(&Instruction::I32Const(
+            TypedArrayElementKind::BigUint64.encode(),
         ));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        for (source, destination) in [
-            (saved_result_local, self.result_local),
-            (saved_result_tag_local, self.result_tag_local),
-            (saved_completion_local, self.completion_local),
-            (saved_completion_aux_local, self.completion_aux_local),
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_to_bigint_u64_word_from_value_locals(input, word, pending, f)?;
+        f.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(input, pending, f)?;
+        pending.kind().load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            pending.value().scalar(),
+            pending.value().scalar(),
+            f,
+        );
+        pending.value().set_number(pending.value().scalar(), f);
+        self.emit_to_uint32_i64_from_number_payload(pending.value().scalar(), word, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        Ok(())
+    }
+    fn emit_atomics_word_to_value(
+        &mut self,
+        kind: I32Local,
+        word: I64Local,
+        value: &ValueLocals,
+        f: &mut Function,
+    ) {
+        for (element, data) in [
+            (TypedArrayElementKind::Int8, DataViewElement::Int8),
+            (TypedArrayElementKind::Uint8, DataViewElement::Uint8),
+            (TypedArrayElementKind::Int16, DataViewElement::Int16),
+            (TypedArrayElementKind::Uint16, DataViewElement::Uint16),
+            (TypedArrayElementKind::Int32, DataViewElement::Int32),
+            (TypedArrayElementKind::Uint32, DataViewElement::Uint32),
+            (TypedArrayElementKind::BigInt64, DataViewElement::BigInt64),
+            (TypedArrayElementKind::BigUint64, DataViewElement::BigUint64),
         ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
+            kind.load(f);
+            f.instruction(&Instruction::I32Const(element.encode()));
+            f.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_data_view_word_to_value(data, word, value, f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(settled_count_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-
-        self.release_temp_local(host_waiter_status_local);
-        self.release_temp_local(waiter_host_id_local);
-        self.release_temp_local(active_count_local);
-        self.release_temp_local(settled_count_local);
-        self.release_temp_local(outcome_tag_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(monotonic_now_local);
-        self.release_temp_local(nearest_deadline_nanos_local);
-        self.release_temp_local(deadline_nanos_local);
-        self.release_temp_local(waiter_state_local);
-        self.release_temp_local(previous_waiter_local);
-        self.release_temp_local(waiter_next_local);
-        self.release_temp_local(waiter_local);
-        self.release_temp_local(saved_completion_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_result_tag_local);
-        self.release_temp_local(saved_result_local);
+    }
+    fn emit_atomics_raw_operation(
+        &mut self,
+        access: &RevalidatedAtomicAccess,
+        op: AtomicsIntegerOperation,
+        value: I64Local,
+        replacement: I64Local,
+        old: I64Local,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let address = s.reserve_i64_local(f);
+        let index = s.reserve_i64_local(f);
+        let cursor = s.reserve_i64_local(f);
+        let byte = s.reserve_i32_local(f);
+        let next_word = s.reserve_i64_local(f);
+        for element in TypedArrayElementKind::ALL {
+            if !element.is_atomics_integer() {
+                continue;
+            }
+            let width = element.bytes_per_element();
+            access.kind.load(f);
+            f.instruction(&Instruction::I32Const(element.encode()));
+            f.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            access.backing.shared.load(f);
+            self.open_frame(ControlFrameKind::If, f);
+            if let Some(import) = self
+                .functions
+                .gc_host_imports()
+                .get(GcHostImport::SharedBufferBase)
+            {
+                let _ = s
+                    .field(HostResourceSchema::RESOURCE)
+                    .read(&access.backing.resource, s, f);
+                import.emit_call_instruction(f);
+                access.offset.load(f);
+                f.instruction(&Instruction::I64Add);
+                address.store(f);
+                address.load(f);
+                f.instruction(&Instruction::I32WrapI64);
+                match op {
+                    AtomicsIntegerOperation::Load => {
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicLoad8U(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicLoad16U(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicLoad32U(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicLoad(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::Store => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicStore8(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicStore16(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicStore32(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicStore(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        f.instruction(&Instruction::I64Const(0));
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::Add => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8AddU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16AddU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32AddU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwAdd(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::Sub => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8SubU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16SubU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32SubU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwSub(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::And => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8AndU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16AndU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32AndU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwAnd(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::Or => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8OrU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16OrU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32OrU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwOr(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::Xor => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8XorU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16XorU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32XorU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwXor(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::Exchange => {
+                        value.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8XchgU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16XchgU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32XchgU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwXchg(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                    AtomicsIntegerOperation::CompareExchange => {
+                        value.load(f);
+                        replacement.load(f);
+                        f.instruction(&match width {
+                            1 => Instruction::I64AtomicRmw8CmpxchgU(Self::shared_memarg8(0)),
+                            2 => Instruction::I64AtomicRmw16CmpxchgU(Self::shared_memarg16(0)),
+                            4 => Instruction::I64AtomicRmw32CmpxchgU(Self::shared_memarg32(0)),
+                            8 => Instruction::I64AtomicRmwCmpxchg(Self::shared_memarg64(0)),
+                            _ => unreachable!("integer width"),
+                        });
+                        old.store(f);
+                    }
+                }
+            } else {
+                f.instruction(&Instruction::Unreachable);
+            }
+            f.instruction(&Instruction::Else);
+            f.instruction(&Instruction::I64Const(0));
+            old.store(f);
+            f.instruction(&Instruction::I64Const(0));
+            cursor.store(f);
+            let loaded = self.open_frame(ControlFrameKind::Block, f);
+            let next = self.open_frame(ControlFrameKind::Loop, f);
+            cursor.load(f);
+            f.instruction(&Instruction::I64Const(width as i64));
+            f.instruction(&Instruction::I64GeU);
+            self.emit_branch_if_to_target(loaded, f);
+            access.offset.load(f);
+            cursor.load(f);
+            f.instruction(&Instruction::I64Add);
+            index.store(f);
+            access.backing.read_byte(index, byte, self, f)?;
+            old.load(f);
+            byte.load(f);
+            f.instruction(&Instruction::I64ExtendI32U);
+            cursor.load(f);
+            f.instruction(&Instruction::I64Const(3));
+            f.instruction(&Instruction::I64Shl);
+            f.instruction(&Instruction::I64Shl);
+            f.instruction(&Instruction::I64Or);
+            old.store(f);
+            self.emit_increment_local(cursor, 1, f);
+            self.emit_branch_to_target(next, f);
+            self.pop_control(ControlFrameKind::Loop);
+            f.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::Block);
+            f.instruction(&Instruction::End);
+            if op.writes() {
+                match op {
+                    AtomicsIntegerOperation::Load => unreachable!(),
+                    AtomicsIntegerOperation::Store | AtomicsIntegerOperation::Exchange => {
+                        value.load(f);
+                        next_word.store(f);
+                    }
+                    AtomicsIntegerOperation::CompareExchange => {
+                        replacement.load(f);
+                        next_word.store(f);
+                    }
+                    AtomicsIntegerOperation::Add
+                    | AtomicsIntegerOperation::Sub
+                    | AtomicsIntegerOperation::And
+                    | AtomicsIntegerOperation::Or
+                    | AtomicsIntegerOperation::Xor => {
+                        old.load(f);
+                        value.load(f);
+                        f.instruction(&match op {
+                            AtomicsIntegerOperation::Add => Instruction::I64Add,
+                            AtomicsIntegerOperation::Sub => Instruction::I64Sub,
+                            AtomicsIntegerOperation::And => Instruction::I64And,
+                            AtomicsIntegerOperation::Or => Instruction::I64Or,
+                            AtomicsIntegerOperation::Xor => Instruction::I64Xor,
+                            _ => unreachable!(),
+                        });
+                        next_word.store(f);
+                    }
+                }
+                if matches!(op, AtomicsIntegerOperation::CompareExchange) {
+                    old.load(f);
+                    value.load(f);
+                    if width < 8 {
+                        f.instruction(&Instruction::I64Const((1i64 << (width * 8)) - 1));
+                        f.instruction(&Instruction::I64And);
+                    }
+                    f.instruction(&Instruction::I64Eq);
+                    self.open_frame(ControlFrameKind::If, f);
+                }
+                for offset in 0..width {
+                    access.offset.load(f);
+                    f.instruction(&Instruction::I64Const(offset as i64));
+                    f.instruction(&Instruction::I64Add);
+                    index.store(f);
+                    next_word.load(f);
+                    f.instruction(&Instruction::I64Const((offset * 8) as i64));
+                    f.instruction(&Instruction::I64ShrU);
+                    f.instruction(&Instruction::I32WrapI64);
+                    byte.store(f);
+                    access.backing.write_byte(index, byte, self, f)?;
+                }
+                if matches!(op, AtomicsIntegerOperation::CompareExchange) {
+                    self.pop_control(ControlFrameKind::If);
+                    f.instruction(&Instruction::End);
+                }
+            }
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        s.release_i64_local(next_word, f);
+        s.release_i32_local(byte, f);
+        s.release_i64_local(cursor, f);
+        s.release_i64_local(index, f);
+        s.release_i64_local(address, f);
         Ok(())
     }
-
-    fn emit_atomics_wait(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let typed_array_payload_local = self.reserve_temp_local();
-        let typed_array_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let timeout_payload_local = self.reserve_temp_local();
-        let timeout_tag_local = self.reserve_temp_local();
-        let typed_array_brand_local = self.reserve_temp_local();
-        let buffer_payload_local = self.reserve_temp_local();
-        let buffer_tag_local = self.reserve_temp_local();
-        let buffer_brand_local = self.reserve_temp_local();
-        let data_ptr_local = self.reserve_temp_local();
-        let byte_offset_local = self.reserve_temp_local();
-        let stored_byte_length_local = self.reserve_temp_local();
-        let bytes_per_element_local = self.reserve_temp_local();
-        let element_length_local = self.reserve_temp_local();
-        let pending_element_kind = PendingAtomicsIntegerElementKindLocal(self.reserve_temp_local());
-        let index_local = self.reserve_temp_local();
-        let address_local = self.reserve_temp_local();
-        let expected_raw_local = self.reserve_temp_local();
-        let current_raw_local = self.reserve_temp_local();
-        let timeout_nanoseconds_local = self.reserve_temp_local();
-        let wait_result_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            typed_array_payload_local,
-            typed_array_tag_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
-        self.emit_builtin_arg_to_locals(2, value_payload_local, value_tag_local, function);
-        self.emit_builtin_arg_to_locals(3, timeout_payload_local, timeout_tag_local, function);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(typed_array_brand_local));
-        function.instruction(&Instruction::LocalGet(typed_array_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            typed_array_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(typed_array_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.wait requires a shared Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_typed_array_private_state(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-            function,
-        );
-        let typed_array_view = TypedArrayViewLocals::new(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(buffer_tag_local));
-        self.emit_require_array_buffer_or_shared_array_buffer(
-            buffer_payload_local,
-            buffer_tag_local,
-            "Atomics.wait requires a shared Int32Array or BigInt64Array",
-            function,
-        )?;
-
-        let element_kind = self.emit_validate_atomics_integer_element_kind(
-            typed_array_payload_local,
-            pending_element_kind,
-            AtomicsIntegerElementKindRequirement::Waitable,
-            "Atomics.wait requires a shared Int32Array or BigInt64Array",
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            buffer_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            buffer_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(buffer_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Atomics.wait requires a shared Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "TypedArray backing buffer is detached",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_typed_array_witness(
-            &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry {
-                length_local: element_length_local,
-            },
-            function,
-        )?;
-
-        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_index_from_number_payload(
-            index_payload_local,
-            index_local,
-            "Atomics.wait index out of range",
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(element_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Atomics.wait index out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(element_kind.local()));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_to_bigint_u64_word_from_value_locals(
-            value_tag_local,
-            value_payload_local,
-            expected_raw_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_integer_typed_array_value_i64(value_payload_local, function);
-        function.instruction(&Instruction::LocalSet(expected_raw_local));
-        self.emit_atomics_normalize_integer_element_i64(
-            expected_raw_local,
-            &element_kind,
-            function,
-        );
-        function.instruction(&Instruction::LocalSet(expected_raw_local));
-        function.instruction(&Instruction::End);
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(timeout_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(timeout_payload_local));
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_number_payload(timeout_tag_local, timeout_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(timeout_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
-
-        self.emit_atomics_require_agent_can_suspend(function)?;
-        self.emit_atomics_load_integer_element_to_i64(
-            address_local,
-            &element_kind,
-            current_raw_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(current_raw_local));
-        function.instruction(&Instruction::LocalGet(expected_raw_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::NotEqual, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Le);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::TimedOut, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(timeout_nanoseconds_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(timeout_nanoseconds_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(timeout_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1_000_000.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(timeout_nanoseconds_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(element_kind.local()));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(expected_raw_local));
-        function.instruction(&Instruction::LocalGet(timeout_nanoseconds_local));
-        function.instruction(&Instruction::MemoryAtomicWait64(Self::shared_memarg64(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(wait_result_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(expected_raw_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(timeout_nanoseconds_local));
-        function.instruction(&Instruction::MemoryAtomicWait32(Self::shared_memarg32(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(wait_result_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(wait_result_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::Ok, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(wait_result_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::NotEqual, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::TimedOut, function);
-
-        self.release_temp_local(wait_result_local);
-        self.release_temp_local(timeout_nanoseconds_local);
-        self.release_temp_local(current_raw_local);
-        self.release_temp_local(expected_raw_local);
-        self.release_temp_local(address_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(element_kind.into_local());
-        self.release_temp_local(element_length_local);
-        self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(stored_byte_length_local);
-        self.release_temp_local(byte_offset_local);
-        self.release_temp_local(data_ptr_local);
-        self.release_temp_local(buffer_brand_local);
-        self.release_temp_local(buffer_tag_local);
-        self.release_temp_local(buffer_payload_local);
-        self.release_temp_local(typed_array_brand_local);
-        self.release_temp_local(timeout_tag_local);
-        self.release_temp_local(timeout_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(typed_array_tag_local);
-        self.release_temp_local(typed_array_payload_local);
-
-        Ok(())
-    }
-
     fn emit_atomics_integer_operation(
         &mut self,
-        operation: AtomicsIntegerOperation,
-        function: &mut Function,
+        op: AtomicsIntegerOperation,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let type_error_message = match &operation {
-            AtomicsIntegerOperation::Add => "Atomics.add requires an integer typed array",
-            AtomicsIntegerOperation::And => "Atomics.and requires an integer typed array",
-            AtomicsIntegerOperation::CompareExchange => {
-                "Atomics.compareExchange requires an integer typed array"
-            }
-            AtomicsIntegerOperation::Exchange => "Atomics.exchange requires an integer typed array",
-            AtomicsIntegerOperation::Load => "Atomics.load requires an integer typed array",
-            AtomicsIntegerOperation::Or => "Atomics.or requires an integer typed array",
-            AtomicsIntegerOperation::Store => "Atomics.store requires an integer typed array",
-            AtomicsIntegerOperation::Sub => "Atomics.sub requires an integer typed array",
-            AtomicsIntegerOperation::Xor => "Atomics.xor requires an integer typed array",
-        };
-        let range_error_message = match &operation {
-            AtomicsIntegerOperation::Add => "Atomics.add index out of range",
-            AtomicsIntegerOperation::And => "Atomics.and index out of range",
-            AtomicsIntegerOperation::CompareExchange => {
-                "Atomics.compareExchange index out of range"
-            }
-            AtomicsIntegerOperation::Exchange => "Atomics.exchange index out of range",
-            AtomicsIntegerOperation::Load => "Atomics.load index out of range",
-            AtomicsIntegerOperation::Or => "Atomics.or index out of range",
-            AtomicsIntegerOperation::Store => "Atomics.store index out of range",
-            AtomicsIntegerOperation::Sub => "Atomics.sub index out of range",
-            AtomicsIntegerOperation::Xor => "Atomics.xor index out of range",
-        };
-        let value_arg_count = operation.value_arg_count();
-
-        let typed_array_payload_local = self.reserve_temp_local();
-        let typed_array_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let replacement_payload_local = self.reserve_temp_local();
-        let replacement_tag_local = self.reserve_temp_local();
-        let typed_array_brand_local = self.reserve_temp_local();
-        let buffer_payload_local = self.reserve_temp_local();
-        let buffer_tag_local = self.reserve_temp_local();
-        let data_ptr_local = self.reserve_temp_local();
-        let byte_offset_local = self.reserve_temp_local();
-        let stored_byte_length_local = self.reserve_temp_local();
-        let bytes_per_element_local = self.reserve_temp_local();
-        let element_length_local = self.reserve_temp_local();
-        let pending_element_kind = PendingAtomicsIntegerElementKindLocal(self.reserve_temp_local());
-        let index_local = self.reserve_temp_local();
-        let address_local = self.reserve_temp_local();
-        let old_raw_local = self.reserve_temp_local();
-        let value_raw_local = self.reserve_temp_local();
-        let replacement_raw_local = self.reserve_temp_local();
-        let value_bigint_payload_local = self.reserve_temp_local();
-        let value_bigint_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            typed_array_payload_local,
-            typed_array_tag_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(1, index_payload_local, index_tag_local, function);
-        if value_arg_count > 0 {
-            self.emit_builtin_arg_to_locals(2, value_payload_local, value_tag_local, function);
+        let s = self.runtime_schema();
+        let out = s.reserve_completion(f);
+        out.initialize(f);
+        let pending = s.reserve_completion(f);
+        let input = s.reserve_value_local(f);
+        let index = s.reserve_value_local(f);
+        let value = s.reserve_value_local(f);
+        let replacement = s.reserve_value_local(f);
+        let store_result = s.reserve_value_local(f);
+        let word = s.reserve_i64_local(f);
+        let next_word = s.reserve_i64_local(f);
+        let old = s.reserve_i64_local(f);
+        self.emit_builtin_arg_to_value(0, &input, f);
+        self.emit_builtin_arg_to_value(1, &index, f);
+        self.emit_builtin_arg_to_value(2, &value, f);
+        self.emit_builtin_arg_to_value(3, &replacement, f);
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        let prepared = self.emit_atomics_prepare(
+            &input,
+            &index,
+            false,
+            op.writes(),
+            false,
+            op.receiver_error(),
+            op.index_error(),
+            &pending,
+            &out,
+            exit,
+            f,
+        )?;
+        if op.argument_count() > 0 {
+            self.emit_atomics_value(prepared.kind, &value, word, &pending, f)?;
+            self.emit_binary_abrupt_exit(&pending, &out, exit, f);
+            store_result.copy_from(pending.value(), f);
         }
-        if value_arg_count > 1 {
-            self.emit_builtin_arg_to_locals(
-                3,
-                replacement_payload_local,
-                replacement_tag_local,
-                function,
-            );
+        if op.argument_count() > 1 {
+            self.emit_atomics_value(prepared.kind, &replacement, next_word, &pending, f)?;
+            self.emit_binary_abrupt_exit(&pending, &out, exit, f);
         }
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(typed_array_brand_local));
-        function.instruction(&Instruction::LocalGet(typed_array_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            typed_array_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(typed_array_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            type_error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_typed_array_private_state(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-            function,
-        );
-        let typed_array_view = TypedArrayViewLocals::new(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            stored_byte_length_local,
-            bytes_per_element_local,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(buffer_tag_local));
-        self.emit_require_array_buffer_or_shared_array_buffer(
-            buffer_payload_local,
-            buffer_tag_local,
-            type_error_message,
-            function,
-        )?;
-
-        let element_kind = self.emit_validate_atomics_integer_element_kind(
-            typed_array_payload_local,
-            pending_element_kind,
-            AtomicsIntegerElementKindRequirement::AnyInteger,
-            type_error_message,
-            function,
-        )?;
-
-        self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "TypedArray backing buffer is detached",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_typed_array_witness(
-            &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry {
-                length_local: element_length_local,
-            },
-            function,
-        )?;
-
-        self.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_index_from_number_payload(
-            index_payload_local,
-            index_local,
-            range_error_message,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(element_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            range_error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        if value_arg_count > 0 {
-            self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_to_bigint_value_and_u64_word_from_value_locals(
-                value_tag_local,
-                value_payload_local,
-                value_bigint_payload_local,
-                value_bigint_tag_local,
-                value_raw_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
-            function.instruction(&Instruction::LocalSet(value_payload_local));
-            self.emit_return_current_completion_if_throw(function);
-            self.emit_to_integer_or_infinity_number_payload_from_number_payload(
-                value_payload_local,
-                value_payload_local,
-                function,
-            );
-            self.emit_integer_typed_array_value_i64(value_payload_local, function);
-            function.instruction(&Instruction::LocalSet(value_raw_local));
-            function.instruction(&Instruction::End);
-            self.emit_return_current_completion_if_throw(function);
+        let access =
+            self.emit_atomics_revalidate(&prepared, &pending, &out, exit, op.index_error(), f)?;
+        self.emit_atomics_raw_operation(&access, op, word, next_word, old, f)?;
+        if matches!(op, AtomicsIntegerOperation::Store) {
+            out.set_normal(&store_result, f);
+        } else {
+            self.emit_atomics_word_to_value(prepared.kind, old, out.value(), f);
         }
-
-        if value_arg_count > 1 {
-            self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_to_bigint_u64_word_from_value_locals(
-                replacement_tag_local,
-                replacement_payload_local,
-                replacement_raw_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            self.emit_value_to_number_payload(
-                replacement_tag_local,
-                replacement_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(replacement_payload_local));
-            self.emit_return_current_completion_if_throw(function);
-            self.emit_integer_typed_array_value_i64(replacement_payload_local, function);
-            function.instruction(&Instruction::LocalSet(replacement_raw_local));
-            function.instruction(&Instruction::End);
-            self.emit_return_current_completion_if_throw(function);
-        }
-
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
-
-        match &operation {
-            AtomicsIntegerOperation::Store => {
-                self.emit_atomics_store_integer_element_from_i64(
-                    address_local,
-                    &element_kind,
-                    value_raw_local,
-                    function,
-                );
-                self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(value_bigint_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(value_bigint_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::End);
-            }
-            AtomicsIntegerOperation::Load => {
-                self.emit_atomics_load_integer_element_to_i64(
-                    address_local,
-                    &element_kind,
-                    old_raw_local,
-                    function,
-                );
-            }
-            AtomicsIntegerOperation::CompareExchange => {
-                self.emit_atomics_normalize_integer_element_i64(
-                    value_raw_local,
-                    &element_kind,
-                    function,
-                );
-                function.instruction(&Instruction::LocalSet(value_raw_local));
-                self.emit_atomics_compare_exchange_integer_element_to_i64(
-                    address_local,
-                    &element_kind,
-                    value_raw_local,
-                    replacement_raw_local,
-                    old_raw_local,
-                    function,
-                );
-            }
-            AtomicsIntegerOperation::Add => {
-                self.emit_atomics_rmw_integer_element_to_i64(
-                    address_local,
-                    &element_kind,
-                    value_raw_local,
-                    AtomicsRmwOperation::Add,
-                    old_raw_local,
-                    function,
-                );
-            }
-            AtomicsIntegerOperation::And => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
-                &element_kind,
-                value_raw_local,
-                AtomicsRmwOperation::And,
-                old_raw_local,
-                function,
-            ),
-            AtomicsIntegerOperation::Exchange => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
-                &element_kind,
-                value_raw_local,
-                AtomicsRmwOperation::Exchange,
-                old_raw_local,
-                function,
-            ),
-            AtomicsIntegerOperation::Or => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
-                &element_kind,
-                value_raw_local,
-                AtomicsRmwOperation::Or,
-                old_raw_local,
-                function,
-            ),
-            AtomicsIntegerOperation::Sub => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
-                &element_kind,
-                value_raw_local,
-                AtomicsRmwOperation::Sub,
-                old_raw_local,
-                function,
-            ),
-            AtomicsIntegerOperation::Xor => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
-                &element_kind,
-                value_raw_local,
-                AtomicsRmwOperation::Xor,
-                old_raw_local,
-                function,
-            ),
-        }
-
-        match &operation {
-            AtomicsIntegerOperation::Store => {}
-            AtomicsIntegerOperation::Load
-            | AtomicsIntegerOperation::Add
-            | AtomicsIntegerOperation::And
-            | AtomicsIntegerOperation::CompareExchange
-            | AtomicsIntegerOperation::Exchange
-            | AtomicsIntegerOperation::Or
-            | AtomicsIntegerOperation::Sub
-            | AtomicsIntegerOperation::Xor => {
-                self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(element_kind.local()));
-                function.instruction(&Instruction::I64Const(11));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(old_raw_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64LtS);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_alloc_one_limb_bigint(1, old_raw_local, function)?;
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(old_raw_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::Else);
-                self.emit_atomics_signed_number_element_kind_i32(&element_kind, function);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
-                function.instruction(&Instruction::LocalGet(old_raw_local));
-                function.instruction(&Instruction::F64ConvertI64S);
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(old_raw_local));
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::End);
-            }
-        }
-
-        self.release_temp_local(value_bigint_tag_local);
-        self.release_temp_local(value_bigint_payload_local);
-        self.release_temp_local(replacement_raw_local);
-        self.release_temp_local(value_raw_local);
-        self.release_temp_local(old_raw_local);
-        self.release_temp_local(address_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(element_kind.into_local());
-        self.release_temp_local(element_length_local);
-        self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(stored_byte_length_local);
-        self.release_temp_local(byte_offset_local);
-        self.release_temp_local(data_ptr_local);
-        self.release_temp_local(buffer_tag_local);
-        self.release_temp_local(buffer_payload_local);
-        self.release_temp_local(typed_array_brand_local);
-        self.release_temp_local(replacement_tag_local);
-        self.release_temp_local(replacement_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(typed_array_tag_local);
-        self.release_temp_local(typed_array_payload_local);
-
+        access.clear(s, f);
+        prepared.clear(s, f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&out, f);
+        s.release_i64_local(old, f);
+        s.release_i64_local(next_word, f);
+        s.release_i64_local(word, f);
+        store_result.clear(f);
+        replacement.clear(f);
+        value.clear(f);
+        index.clear(f);
+        input.clear(f);
+        pending.clear(f);
+        out.clear(f);
         Ok(())
-    }
-
-    fn emit_atomics_friendly_element_kind_i32(
-        &mut self,
-        element_kind_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::I32Const(0));
-        for kind in TypedArrayElementKind::ALL {
-            if kind.is_atomics_integer() {
-                function.instruction(&Instruction::LocalGet(element_kind_local));
-                function.instruction(&Instruction::I64Const(kind.abi_word() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-            }
-        }
-    }
-
-    fn emit_atomics_normalize_integer_element_i64(
-        &mut self,
-        value_local: u32,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        function: &mut Function,
-    ) {
-        let element_kind_local = element_kind.local();
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64Const(56));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::I64Const(56));
-        function.instruction(&Instruction::I64ShrS);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64Const(48));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::I64Const(48));
-        function.instruction(&Instruction::I64ShrS);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrS);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64Const(0xff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64Const(0xffff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(9));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64Const(0xffff_ffff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-    }
-
-    pub(super) fn emit_atomics_bigint_element_kind_i32(
-        &mut self,
-        element_kind_local: u32,
-        function: &mut Function,
-    ) {
-        self.emit_typed_array_bigint_element_kind_i32(element_kind_local, function);
-    }
-
-    fn emit_validated_atomics_bigint_element_kind_i32(
-        &mut self,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        function: &mut Function,
-    ) {
-        self.emit_atomics_bigint_element_kind_i32(element_kind.local(), function);
-    }
-
-    fn emit_atomics_signed_number_element_kind_i32(
-        &mut self,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        function: &mut Function,
-    ) {
-        let element_kind_local = element_kind.local();
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-    }
-
-    fn emit_atomics_rmw_integer_element_to_i64(
-        &mut self,
-        address_local: u32,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        value_local: u32,
-        operation: AtomicsRmwOperation,
-        output_local: u32,
-        function: &mut Function,
-    ) {
-        let element_kind_local = element_kind.local();
-        self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        match operation {
-            AtomicsRmwOperation::Add => {
-                function.instruction(&Instruction::I64AtomicRmwAdd(Self::shared_memarg64(0)));
-            }
-            AtomicsRmwOperation::And => {
-                function.instruction(&Instruction::I64AtomicRmwAnd(Self::shared_memarg64(0)));
-            }
-            AtomicsRmwOperation::Exchange => {
-                function.instruction(&Instruction::I64AtomicRmwXchg(Self::shared_memarg64(0)));
-            }
-            AtomicsRmwOperation::Or => {
-                function.instruction(&Instruction::I64AtomicRmwOr(Self::shared_memarg64(0)));
-            }
-            AtomicsRmwOperation::Sub => {
-                function.instruction(&Instruction::I64AtomicRmwSub(Self::shared_memarg64(0)));
-            }
-            AtomicsRmwOperation::Xor => {
-                function.instruction(&Instruction::I64AtomicRmwXor(Self::shared_memarg64(0)));
-            }
-        }
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I32WrapI64);
-        match operation {
-            AtomicsRmwOperation::Add => {
-                function.instruction(&Instruction::I32AtomicRmw8AddU(Self::shared_memarg8(0)));
-            }
-            AtomicsRmwOperation::And => {
-                function.instruction(&Instruction::I32AtomicRmw8AndU(Self::shared_memarg8(0)));
-            }
-            AtomicsRmwOperation::Exchange => {
-                function.instruction(&Instruction::I32AtomicRmw8XchgU(Self::shared_memarg8(0)));
-            }
-            AtomicsRmwOperation::Or => {
-                function.instruction(&Instruction::I32AtomicRmw8OrU(Self::shared_memarg8(0)));
-            }
-            AtomicsRmwOperation::Sub => {
-                function.instruction(&Instruction::I32AtomicRmw8SubU(Self::shared_memarg8(0)));
-            }
-            AtomicsRmwOperation::Xor => {
-                function.instruction(&Instruction::I32AtomicRmw8XorU(Self::shared_memarg8(0)));
-            }
-        }
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I32WrapI64);
-        match operation {
-            AtomicsRmwOperation::Add => {
-                function.instruction(&Instruction::I32AtomicRmw16AddU(Self::shared_memarg16(0)));
-            }
-            AtomicsRmwOperation::And => {
-                function.instruction(&Instruction::I32AtomicRmw16AndU(Self::shared_memarg16(0)));
-            }
-            AtomicsRmwOperation::Exchange => {
-                function.instruction(&Instruction::I32AtomicRmw16XchgU(Self::shared_memarg16(0)));
-            }
-            AtomicsRmwOperation::Or => {
-                function.instruction(&Instruction::I32AtomicRmw16OrU(Self::shared_memarg16(0)));
-            }
-            AtomicsRmwOperation::Sub => {
-                function.instruction(&Instruction::I32AtomicRmw16SubU(Self::shared_memarg16(0)));
-            }
-            AtomicsRmwOperation::Xor => {
-                function.instruction(&Instruction::I32AtomicRmw16XorU(Self::shared_memarg16(0)));
-            }
-        }
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I32WrapI64);
-        match operation {
-            AtomicsRmwOperation::Add => {
-                function.instruction(&Instruction::I32AtomicRmwAdd(Self::shared_memarg32(0)));
-            }
-            AtomicsRmwOperation::And => {
-                function.instruction(&Instruction::I32AtomicRmwAnd(Self::shared_memarg32(0)));
-            }
-            AtomicsRmwOperation::Exchange => {
-                function.instruction(&Instruction::I32AtomicRmwXchg(Self::shared_memarg32(0)));
-            }
-            AtomicsRmwOperation::Or => {
-                function.instruction(&Instruction::I32AtomicRmwOr(Self::shared_memarg32(0)));
-            }
-            AtomicsRmwOperation::Sub => {
-                function.instruction(&Instruction::I32AtomicRmwSub(Self::shared_memarg32(0)));
-            }
-            AtomicsRmwOperation::Xor => {
-                function.instruction(&Instruction::I32AtomicRmwXor(Self::shared_memarg32(0)));
-            }
-        }
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind, function);
-        function.instruction(&Instruction::LocalSet(output_local));
-    }
-
-    fn emit_atomics_compare_exchange_integer_element_to_i64(
-        &mut self,
-        address_local: u32,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        expected_local: u32,
-        replacement_local: u32,
-        output_local: u32,
-        function: &mut Function,
-    ) {
-        let element_kind_local = element_kind.local();
-        self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(expected_local));
-        function.instruction(&Instruction::LocalGet(replacement_local));
-        function.instruction(&Instruction::I64AtomicRmwCmpxchg(Self::shared_memarg64(0)));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(expected_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(replacement_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicRmw8CmpxchgU(Self::shared_memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(expected_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(replacement_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicRmw16CmpxchgU(Self::shared_memarg16(
-            0,
-        )));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(expected_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(replacement_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicRmwCmpxchg(Self::shared_memarg32(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind, function);
-        function.instruction(&Instruction::LocalSet(output_local));
-    }
-
-    fn emit_atomics_load_integer_element_to_i64(
-        &mut self,
-        address_local: u32,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        output_local: u32,
-        function: &mut Function,
-    ) {
-        let element_kind_local = element_kind.local();
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicLoad8U(Self::shared_memarg8(0)));
-        function.instruction(&Instruction::I32Const(24));
-        function.instruction(&Instruction::I32Shl);
-        function.instruction(&Instruction::I32Const(24));
-        function.instruction(&Instruction::I32ShrS);
-        function.instruction(&Instruction::I64ExtendI32S);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicLoad16U(Self::shared_memarg16(0)));
-        function.instruction(&Instruction::I32Const(16));
-        function.instruction(&Instruction::I32Shl);
-        function.instruction(&Instruction::I32Const(16));
-        function.instruction(&Instruction::I32ShrS);
-        function.instruction(&Instruction::I64ExtendI32S);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicLoad(Self::shared_memarg32(0)));
-        function.instruction(&Instruction::I64ExtendI32S);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicLoad8U(Self::shared_memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicLoad16U(Self::shared_memarg16(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(9));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicLoad(Self::shared_memarg32(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64AtomicLoad(Self::shared_memarg64(0)));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_atomics_store_integer_element_from_i64(
-        &mut self,
-        address_local: u32,
-        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
-        value_local: u32,
-        function: &mut Function,
-    ) {
-        let element_kind_local = element_kind.local();
-        self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I64AtomicStore(Self::shared_memarg64(0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicStore8(Self::shared_memarg8(0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicStore16(Self::shared_memarg16(0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32AtomicStore(Self::shared_memarg32(0)));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
     }
 }

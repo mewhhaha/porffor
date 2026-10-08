@@ -1,0 +1,177 @@
+{
+  "archive_sha256": "f85496f1e76ca0a12a0d7603c5f3243a94e2506926176f6ec7fe178327ffcebf",
+  "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "files": [
+    {
+      "archive_path": "reference/cldr/LICENSE",
+      "bytes": 2033,
+      "kind": "primary-CLDR47",
+      "path": "LICENSE",
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    },
+    {
+      "archive_path": "reference/cldr/common/dtd/ldml.dtd",
+      "bytes": 132170,
+      "kind": "primary-CLDR47",
+      "path": "common/dtd/ldml.dtd",
+      "sha256": "ea3248b3620a5bcef2cee72de6da5e394517a5cd6a70218d6e4f6775facd6f5c"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/ar.xml",
+      "bytes": 691533,
+      "kind": "primary-CLDR47",
+      "path": "common/main/ar.xml",
+      "sha256": "f25c71f2ddb2664d5569220b1b4803893b9ddc0e3da4d54b71e90fa16b2432eb"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/ar_EG.xml",
+      "bytes": 977,
+      "kind": "primary-CLDR47",
+      "path": "common/main/ar_EG.xml",
+      "sha256": "5b80cfe93e16c89b23dcd046ec76d9e39781386e6dfdfa7bb2d8f6dbc87955a7"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/de.xml",
+      "bytes": 592674,
+      "kind": "primary-CLDR47",
+      "path": "common/main/de.xml",
+      "sha256": "7530b4c93f36102965b09685aea50b82934707a2bd025b7fc61ae0acb8a7114c"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/en.xml",
+      "bytes": 435987,
+      "kind": "primary-CLDR47",
+      "path": "common/main/en.xml",
+      "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/en_US.xml",
+      "bytes": 459,
+      "kind": "primary-CLDR47",
+      "path": "common/main/en_US.xml",
+      "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/es.xml",
+      "bytes": 470040,
+      "kind": "primary-CLDR47",
+      "path": "common/main/es.xml",
+      "sha256": "a2f8f2580b75b41f0bf44f5897931ecdb207cb6d5522535d8b4e379e51aa0c97"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/fr.xml",
+      "bytes": 602136,
+      "kind": "primary-CLDR47",
+      "path": "common/main/fr.xml",
+      "sha256": "dd1034b6e8c2fde6eb66d00462651beb26fad1fd09eccbea6b250fd7130ae3e3"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/hi.xml",
+      "bytes": 565329,
+      "kind": "primary-CLDR47",
+      "path": "common/main/hi.xml",
+      "sha256": "e5bdf2a148b5e80555f6e73241a47a5f3c039518063faebde7046bb0db011e21"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/it.xml",
+      "bytes": 428903,
+      "kind": "primary-CLDR47",
+      "path": "common/main/it.xml",
+      "sha256": "c5ec8e2e304e7b16f58e7012afe40ce2acc28c0c340d494ba2388ee86008667d"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/ja.xml",
+      "bytes": 512646,
+      "kind": "primary-CLDR47",
+      "path": "common/main/ja.xml",
+      "sha256": "a19cd8bea5cc68b132ace70dd99b65935edf8114367a835f7717b3a3dbd81118"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/ko.xml",
+      "bytes": 498327,
+      "kind": "primary-CLDR47",
+      "path": "common/main/ko.xml",
+      "sha256": "f7b9615d694e1821e4ad2bad8986cf3d57fe5f0f491662adb67b9833a43b036d"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/root.xml",
+      "bytes": 268212,
+      "kind": "primary-CLDR47",
+      "path": "common/main/root.xml",
+      "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/sr.xml",
+      "bytes": 655188,
+      "kind": "primary-CLDR47",
+      "path": "common/main/sr.xml",
+      "sha256": "72c8e384ffa4569785cd11e53148c1cb2fa9eecf5a12f53e9136976a8996439d"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/zh.xml",
+      "bytes": 610450,
+      "kind": "primary-CLDR47",
+      "path": "common/main/zh.xml",
+      "sha256": "97fea2cfdb7bfe59a4e0ce712ca2e6ccba67ef211957296f60365c9f84b24d52"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/zh_Hans.xml",
+      "bytes": 458,
+      "kind": "primary-CLDR47",
+      "path": "common/main/zh_Hans.xml",
+      "sha256": "138d8d3b9b646ab10d30628911ce79426ed86d308b13e988fc69f57bc16c91e2"
+    },
+    {
+      "archive_path": "reference/cldr/common/main/zh_Hans_CN.xml",
+      "bytes": 483,
+      "kind": "primary-CLDR47",
+      "path": "common/main/zh_Hans_CN.xml",
+      "sha256": "0a531ee82fcc7e4bfcb4dd2307d9f49ed5221491d178aa71c0d08037df042d0a"
+    },
+    {
+      "archive_path": "reference/cldr/common/supplemental/supplementalData.xml",
+      "bytes": 408368,
+      "kind": "primary-CLDR47",
+      "path": "common/supplemental/supplementalData.xml",
+      "sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4"
+    },
+    {
+      "archive_path": "reference/cldr/common/supplemental/supplementalMetadata.xml",
+      "bytes": 179742,
+      "kind": "primary-CLDR47",
+      "path": "common/supplemental/supplementalMetadata.xml",
+      "sha256": "74b9f3f942d7f28b302c18a9eebc21971ef83ebb02ea6b3565fb472a09a9be58"
+    },
+    {
+      "archive_path": "reference/cldr/docs/ldml/tr35-general.md",
+      "bytes": 209345,
+      "kind": "primary-CLDR47",
+      "path": "docs/ldml/tr35-general.md",
+      "sha256": "9c5233811d7dddff67556785baf4930892d88ec3b3d62f31fb65c7db220f40bb"
+    },
+    {
+      "archive_path": "reference/cldr/docs/ldml/tr35-numbers.md",
+      "bytes": 115883,
+      "kind": "primary-CLDR47",
+      "path": "docs/ldml/tr35-numbers.md",
+      "sha256": "73c96108008556c6da0d0cec1b5cb5a5befb9fe56af6be4e1449871992420205"
+    },
+    {
+      "archive_path": "reference/cldr/docs/ldml/tr35.md",
+      "bytes": 352127,
+      "kind": "primary-CLDR47",
+      "path": "docs/ldml/tr35.md",
+      "sha256": "79e0cfa61d50c5de3b1ad87a8c5b9bf334492118087dcf84f600ba011787575a"
+    },
+    {
+      "bytes": 356,
+      "kind": "authored-selector",
+      "path": "selector.json",
+      "sha256": "3c7da0f6b95a6194951e155909e03306fc06ba5b01d5ab9afc641fbaa8b2b7d8"
+    }
+  ],
+  "release": "47.0.0",
+  "schema": 1,
+  "source_manifest_sha256": "582f922168284a76255554a4b74c6200f0e954853ef2eaf49bceb393a2d48b49",
+  "total_bytes": 7733826
+}

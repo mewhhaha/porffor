@@ -2,6 +2,7 @@ use crate::datetime::*;
 
 use super::super::named_time_zones::NamedTimeZones;
 use super::{
+    calendar::CalendarKernels,
     pattern::{Glue, GlueToken, Pattern, Token},
     plan::ValidatedPlan,
     profile::{Interval, Profile},
@@ -16,10 +17,11 @@ pub(super) fn format(
     start: DateTimeInput,
     end: DateTimeInput,
     named: &NamedTimeZones,
+    calendars: &CalendarKernels,
 ) -> Result<DateTimeRangeParts, DateTimeFormatError> {
     let selected = plan.format(start.kind())?;
-    let start = render::prepare(plan, start, named)?;
-    let end = render::prepare(plan, end, named)?;
+    let start = render::prepare(plan, start, named, calendars)?;
+    let end = render::prepare(plan, end, named, calendars)?;
     let Some(difference) = selection::greatest(plan, &selected.pattern, start.fields, end.fields)?
     else {
         return Ok(with_source(
@@ -60,6 +62,9 @@ fn fallback(
     start: &PreparedInput,
     end: &PreparedInput,
 ) -> Result<DateTimeRangeParts, DateTimeFormatError> {
+    // Interval data uses the default CLDR pattern family. Preserve its genuine
+    // endpoint punctuation when no skeleton-specific interval exists.
+    let pattern = pattern.range_endpoint();
     let start = with_source(
         render::pattern(profile, plan, pattern, start)?,
         DateTimeRangeSource::StartRange,

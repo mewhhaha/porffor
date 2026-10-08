@@ -78,7 +78,9 @@ Promise.resolve(7).then(finish);
 fn nested_import_readers_keep_live_values_after_reassignment() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import defer * as namespace from './value.js';
 import { value, replace } from './value.js';
 const readers = [() => namespace.value.property, () => value.property];
@@ -86,8 +88,12 @@ for (const read of readers) if (read() !== 3) throw 'initial imported object';
 replace({ property: 7 });
 for (const read of readers) if (read() !== 7) throw 'stale imported object';
 print('live captured imports');
-"#),
-            ("value.js", "export let value = { property: 3 }; export function replace(next) { value = next; }"),
+"#,
+            ),
+            (
+                "value.js",
+                "export let value = { property: 3 }; export function replace(next) { value = next; }",
+            ),
         ],
         &["live captured imports"],
         None,
@@ -98,7 +104,9 @@ print('live captured imports');
 fn deferred_dependencies_wait_for_first_get_and_module_names_stay_separate() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import './setup.js';
 import defer * as parent from './parent.js';
 if (globalThis.evaluations.length !== 0) throw 'evaluated while linking';
@@ -108,18 +116,28 @@ if (parent.value !== 4 || parent.nested !== nested) throw 'parent was evaluated 
 if (nested.value !== 9 || globalThis.evaluations.join(',') !== 'dependency,parent,nested') throw 'deferred child';
 if (globalThis.localName !== undefined) throw 'module var escaped';
 print('deferred dependency order');
-"#),
+"#,
+            ),
             ("setup.js", "globalThis.evaluations = [];"),
-            ("parent.js", r#"
+            (
+                "parent.js",
+                r#"
 import { value as dependency } from './dependency.js';
 import defer * as nested from './nested.js';
 export { nested };
 var localName = 'parent';
 globalThis.evaluations.push(localName);
 export const value = dependency + 1;
-"#),
-            ("dependency.js", "var localName = 'dependency'; globalThis.evaluations.push(localName); export let value = 3;"),
-            ("nested.js", "var localName = 'nested'; globalThis.evaluations.push(localName); export let value = 9;"),
+"#,
+            ),
+            (
+                "dependency.js",
+                "var localName = 'dependency'; globalThis.evaluations.push(localName); export let value = 3;",
+            ),
+            (
+                "nested.js",
+                "var localName = 'nested'; globalThis.evaluations.push(localName); export let value = 9;",
+            ),
         ],
         &["deferred dependency order"],
         None,
@@ -130,7 +148,9 @@ export const value = dependency + 1;
 fn dynamic_deferred_import_preserves_promise_order_namespace_identity_and_rejections() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import './setup.js';
 import defer * as first from './value.js';
 const sentinel = {};
@@ -151,12 +171,23 @@ rejected.then(() => { throw 'coercion fulfilled'; }, error => {
   if (error !== sentinel) throw 'coercion identity';
   print('same coercion error');
 });
-"#),
+"#,
+            ),
             ("setup.js", "globalThis.evaluations = [];"),
-            ("value.js", "import { value as dependency } from './dependency.js'; globalThis.evaluations.push('value'); export const value = dependency + 1;"),
-            ("dependency.js", "globalThis.evaluations.push('dependency'); export const value = 5;"),
+            (
+                "value.js",
+                "import { value as dependency } from './dependency.js'; globalThis.evaluations.push('value'); export const value = dependency + 1;",
+            ),
+            (
+                "dependency.js",
+                "globalThis.evaluations.push('dependency'); export const value = 5;",
+            ),
         ],
-        &["before jobs", "same coercion error", "same deferred namespace"],
+        &[
+            "before jobs",
+            "same coercion error",
+            "same deferred namespace",
+        ],
         None,
     );
 }
@@ -165,7 +196,9 @@ rejected.then(() => { throw 'coercion fulfilled'; }, error => {
 fn current_and_transitive_evaluation_reject_reentry_before_running_a_body() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import defer * as self from './entry.js';
 import defer * as dependent from './dependent.js';
 globalThis.dependentCalls = 0;
@@ -177,8 +210,12 @@ for (const read of [() => self.absent, () => dependent.value]) {
 if (globalThis.dependentCalls !== 0) throw 'dependent body ran';
 export const value = 1;
 print('evaluating readiness');
-"#),
-            ("dependent.js", "import { value as parent } from './entry.js'; globalThis.dependentCalls++; export const value = parent + 1;"),
+"#,
+            ),
+            (
+                "dependent.js",
+                "import { value as parent } from './entry.js'; globalThis.dependentCalls++; export const value = parent + 1;",
+            ),
         ],
         &["evaluating readiness"],
         None,
@@ -189,14 +226,23 @@ print('evaluating readiness');
 fn readiness_stops_at_an_evaluated_dependency_even_when_its_importer_is_evaluating() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import { value } from './evaluated.js';
 import defer * as waiting from './waiting.js';
 if (value !== 3 || waiting.value !== 4) throw 'evaluated dependency was traversed';
 print('evaluated readiness');
-"#),
-            ("evaluated.js", "import defer * as entry from './entry.js'; export const value = 3;"),
-            ("waiting.js", "import { value as previous } from './evaluated.js'; export const value = previous + 1;"),
+"#,
+            ),
+            (
+                "evaluated.js",
+                "import defer * as entry from './entry.js'; export const value = 3;",
+            ),
+            (
+                "waiting.js",
+                "import { value as previous } from './evaluated.js'; export const value = previous + 1;",
+            ),
         ],
         &["evaluated readiness"],
         None,
@@ -207,16 +253,25 @@ print('evaluated readiness');
 fn deferred_readiness_cycles_use_a_seen_set_and_evaluate_each_body_once() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import defer * as left from './left.js';
 import defer * as right from './right.js';
 globalThis.calls = [];
 if (left.value !== 2 || right.value !== 3 || left.value !== 2) throw 'deferred cycle values';
 if (globalThis.calls.join(',') !== 'left,right') throw 'deferred cycle order';
 print('deferred readiness cycle');
-"#),
-            ("left.js", "import defer * as right from './right.js'; globalThis.calls.push('left'); export const value = 2;"),
-            ("right.js", "import defer * as left from './left.js'; globalThis.calls.push('right'); export const value = left.value + 1;"),
+"#,
+            ),
+            (
+                "left.js",
+                "import defer * as right from './right.js'; globalThis.calls.push('left'); export const value = 2;",
+            ),
+            (
+                "right.js",
+                "import defer * as left from './left.js'; globalThis.calls.push('right'); export const value = left.value + 1;",
+            ),
         ],
         &["deferred readiness cycle"],
         None,
@@ -227,7 +282,9 @@ print('deferred readiness cycle');
 fn dependency_errors_are_cached_without_losing_the_original_thrown_value() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import defer * as parent from './parent.js';
 import defer * as dependency from './dependency.js';
 globalThis.calls = [];
@@ -239,9 +296,16 @@ for (const read of [() => parent.value, () => parent.value, () => dependency.val
 }
 if (globalThis.calls.join(',') !== 'dependency') throw 'errored graph re-executed';
 print('cached dependency error');
-"#),
-            ("parent.js", "import { value as original } from './dependency.js'; globalThis.calls.push('parent'); export const value = original;"),
-            ("dependency.js", "globalThis.calls.push('dependency'); throw globalThis.moduleError; export const value = 1;"),
+"#,
+            ),
+            (
+                "parent.js",
+                "import { value as original } from './dependency.js'; globalThis.calls.push('parent'); export const value = original;",
+            ),
+            (
+                "dependency.js",
+                "globalThis.calls.push('dependency'); throw globalThis.moduleError; export const value = 1;",
+            ),
         ],
         &["cached dependency error"],
         None,
@@ -290,7 +354,9 @@ export function rejectWrite() {
 fn private_activations_preserve_module_lexical_rules_and_all_line_terminators() {
     assert_modules(
         &[
-            ("entry.js", r#"
+            (
+                "entry.js",
+                r#"
 import defer * as value from './value.js';
 globalThis.arguments = 'global argument binding';
 if (value.rootThis !== undefined || value.arrowThis !== undefined ||
@@ -299,8 +365,12 @@ if (value.default.name !== 'default' || value.default() !== 8) throw 'default na
 if (value.readBeforeInit !== true || value.destructured !== 4 || value.varValue !== 6) throw 'module initialization';
 if (globalThis.moduleVar !== undefined) throw 'module variable leaked';
 print('private module lexical rules');
-"#),
-            ("value.js", "// 🦀\r\nexport const rootThis = this;\rexport const arrowThis = (() => this)();\u{2028}export const args = arguments;\u{2029}export default function () { return 8; }\nexport const readBeforeInit = (() => { try { return later; } catch (error) { return error instanceof ReferenceError; } })();\nlet later = 2;\nexport const { value: destructured } = { value: 4 };\nvar moduleVar = 6; export { moduleVar as varValue };"),
+"#,
+            ),
+            (
+                "value.js",
+                "// 🦀\r\nexport const rootThis = this;\rexport const arrowThis = (() => this)();\u{2028}export const args = arguments;\u{2029}export default function () { return 8; }\nexport const readBeforeInit = (() => { try { return later; } catch (error) { return error instanceof ReferenceError; } })();\nlet later = 2;\nexport const { value: destructured } = { value: 4 };\nvar moduleVar = 6; export { moduleVar as varValue };",
+            ),
         ],
         &["private module lexical rules"],
         None,
@@ -464,19 +534,22 @@ print('async Module isolation');
 }
 
 #[test]
-fn retained_source_phase_graph_does_not_expose_its_bindings_to_global_script() {
+fn source_rejection_jobs_keep_module_bindings_outside_global_script() {
     assert_modules(
         &[
             (
                 "entry.js",
                 r#"
-import source source from './source.js';
+const request = import.source('./source.js');
 const shared = 'entry';
 var moduleVar = 3;
 if (helperRead() !== 'global' || shared !== 'entry') throw 'source-phase Script closure scope';
 if (globalThis.moduleVar !== undefined || arguments !== 17) throw 'source-phase lexical context';
 if (this !== undefined) throw 'source-phase this';
-print('source-phase Module isolation');
+request.then(() => { throw 'source fulfilled'; }, error => {
+  if (!(error instanceof SyntaxError) || shared !== 'entry' || helperRead() !== 'global') throw 'source job context';
+  print('source-phase Module isolation');
+});
 "#,
             ),
             (
@@ -719,6 +792,156 @@ print(events.join(','));
 "#,
         )],
         &["body,second,first,block,after"],
+        None,
+    );
+}
+
+#[test]
+fn source_jobs_use_fresh_intrinsics_preserve_operand_order_and_skip_target_dependencies() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+const NativePromise = Promise;
+const NativeSyntaxError = SyntaxError;
+const trace = [];
+const sentinel = {};
+globalThis.Promise = function() { throw 'mutable Promise'; };
+globalThis.SyntaxError = function() { throw 'mutable SyntaxError'; };
+const first = import.source('./single.js');
+const second = import.source('./single.js');
+function specifier() {
+  trace.push('specifier');
+  return { toString() { trace.push('string'); return './single.js'; } };
+}
+function options() {
+  trace.push('options');
+  return { get with() { trace.push('with'); return undefined; } };
+}
+const ordered = import.source(specifier(), options());
+const abrupt = import.source({ toString() { trace.push('abrupt-string'); throw sentinel; } }, options());
+if (!(first instanceof NativePromise) || first === second) throw 'fresh intrinsic Promise';
+if (trace.join(',') !== 'specifier,options,string,with,options,abrupt-string') throw 'operand/coercion order';
+let earlier;
+const checks = [first, second, ordered].map((promise, index) => promise.then(
+  () => { throw 'source fulfilled'; }, error => {
+    if (!(error instanceof NativeSyntaxError) || !error.message.includes('no source representation')) throw 'native source rejection';
+    if (index === 0) earlier = error;
+    else if (error === earlier) throw 'cached source error';
+  }));
+checks.push(abrupt.then(() => { throw 'coercion fulfilled'; }, error => {
+  if (error !== sentinel) throw 'coercion identity';
+}));
+NativePromise.all(checks).then(() => print('fresh source errors and ordered operands'));
+"#,
+            ),
+            (
+                "single.js",
+                "import './missing-dependency.js'; throw 'source body ran'; export const value = 1;",
+            ),
+        ],
+        &["fresh source errors and ordered operands"],
+        None,
+    );
+}
+
+#[test]
+fn source_unavailability_and_static_source_link_failures_use_distinct_job_stages() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+const order = [];
+const direct = import.source('./source.js').then(() => { throw 'source fulfilled'; }, error => {
+  if (!(error instanceof SyntaxError) || !error.message.includes('no source representation')) throw 'source error';
+  order.push('source');
+});
+const linked = import('./binding.js').then(() => { throw 'binding fulfilled'; }, error => {
+  if (!(error instanceof SyntaxError) || !error.message.includes('no source representation')) throw 'binding error';
+  order.push('link');
+});
+const forwarded = import('./forwarded.js').then(() => { throw 'forward fulfilled'; }, error => {
+  if (!(error instanceof SyntaxError) || error.message.includes('does not export default')) throw 'forward error';
+  order.push('forward');
+});
+const checkpoint = Promise.resolve().then(() => order.push('checkpoint'));
+Promise.all([direct, linked, forwarded, checkpoint]).then(() => {
+  if (order.join(',') !== 'source,checkpoint,link,forward') throw order.join(',');
+  print('source before dependency continuations');
+});
+"#,
+            ),
+            (
+                "source.js",
+                "throw 'source evaluated'; export const value = 1;",
+            ),
+            (
+                "binding.js",
+                "import source source from './source.js'; throw 'binding evaluated';",
+            ),
+            (
+                "forwarded.js",
+                "import source source from './source.js'; export { source }; throw 'forwarded evaluated';",
+            ),
+        ],
+        &["source before dependency continuations"],
+        None,
+    );
+}
+
+#[test]
+fn source_calls_preserve_missing_target_and_parse_failure_categories() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+const checks = [
+  import.source('./absent.js').then(() => { throw 'absent fulfilled'; }, error => {
+    if (!(error instanceof TypeError) || error instanceof SyntaxError) throw 'host failure category';
+  }),
+  import.source('./invalid.js').then(() => { throw 'parse fulfilled'; }, error => {
+    if (!(error instanceof SyntaxError) || error.message.includes('no source representation')) throw 'parse failure masked';
+  })
+];
+Promise.all(checks).then(() => print('load failures stay primary'));
+"#,
+            ),
+            ("invalid.js", "invalid syntax!"),
+        ],
+        &["load failures stay primary"],
+        None,
+    );
+}
+
+#[test]
+fn source_rejection_does_not_evaluate_a_deferred_target_and_later_import_evaluates_once() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import defer * as deferred from './value.js';
+globalThis.evaluations = 0;
+import.source('./value.js').then(() => { throw 'source fulfilled'; }, error => {
+  if (!(error instanceof SyntaxError) || globalThis.evaluations !== 0) throw 'source evaluated deferred target';
+  if (deferred.value !== 7 || globalThis.evaluations !== 1) throw 'deferred activation';
+  return import('./value.js');
+}).then(namespace => {
+  if (namespace === deferred || namespace.value !== 7 || globalThis.evaluations !== 1) throw 'ordinary namespace/once';
+  print('deferred target stays idle until Get');
+});
+"#,
+            ),
+            (
+                "value.js",
+                "import { value } from './dependency.js'; globalThis.evaluations++; export { value };",
+            ),
+            ("dependency.js", "export const value = 7;"),
+        ],
+        &["deferred target stays idle until Get"],
         None,
     );
 }

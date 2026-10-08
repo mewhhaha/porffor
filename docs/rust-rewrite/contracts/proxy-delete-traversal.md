@@ -1,5 +1,21 @@
 # Proxy `[[Delete]]` target traversal
 
+## Completed target follow-up — 2026-10-04 dry source
+
+A true outer trap now acquires the actual recursive target descriptor through
+one private completed owner. Original descriptor throws precede outer
+constraints; absence returns true, nonconfigurability fails before IsExtensible,
+and a present configurable property on a nonextensible target still fails.
+Nested errors and native Delete failures use the current operation Realm.
+Inline source Delete feeds the active catch/finally handler rather than returning
+past it. The prior CurrentCompletion revocation route is retired after its sole
+producer moves to the existing Proxy execution Realm/active-handler route.
+
+The target-descriptor and paired Realm controls are authored but unexecuted.
+Compilation and full T11/Test262 acceptance remain pending. See the
+[completed target contract](proxy-target-descriptor-completion.md). The
+traversal checkpoint below retains its original narrower source/evidence.
+
 ## Boundary
 
 `emit_object_delete` owns the complete absent-trap target traversal. It copies
@@ -51,7 +67,7 @@ are green.
 
 ## Nonclaims
 
-This slice does not make the direct post-trap descriptor fact recursively
-Proxy-aware. If a callable outer trap returns true and its target is itself a
-Proxy, complete recursive `[[GetOwnProperty]]` compatibility remains separate
-T11 work. This is not a full Proxy, Reflect, or Test262 claim.
+The original traversal slice did not make the direct post-trap descriptor
+fact recursively Proxy-aware. That source gap is addressed by the newer shared
+completed target follow-up above; its compile/runtime verification remains
+pending. Full Proxy, Reflect and Test262 acceptance remain open.

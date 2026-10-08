@@ -38,6 +38,12 @@ cells and skip rejected copies. New eval variable cells are deletable; existing
 parameter and variable cells retain their original attributes. Every function
 declaration allocates a fresh function closing over the eval lexical frame.
 
+Strict direct and indirect eval initialize every planned owned `var` cell to
+`undefined` before the body runs, including declarations in loop heads that
+never iterate. Reads before those heads and escaping closures use the same
+initialized cells; lexical declarations keep their TDZ. A missing planned owned
+slot is an explicit Wasm emission error rather than a caller/global fallback.
+
 Functions with parameter expressions have distinct parameter and body records.
 Defaults resolve through the parameter chain; body declarations receive new
 cells initialized to undefined or a copy of the corresponding parameter value.
@@ -80,6 +86,17 @@ Initially unresolvable sloppy References go directly to the global object's
 binding. This follows
 [Object Environment Record SetMutableBinding](https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html#sec-object-environment-records-setmutablebinding-n-v-s)
 without searching the lexical chain a second time.
+
+Ordinary compiled global Identifier assignments now share this Reference owner.
+Both `GlobalPropertyWrite` and an `AssignIdentifier` backed by a Script-global
+property begin resolution at the source Realm's Global Environment Record before
+RHS evaluation. Their retained Reference distinguishes global lexical cells,
+resolved object bindings and initial absence; the shared Put performs any
+post-RHS object recheck without repeating resolution. Suspended global captures
+use the same resolver. Plain assignment performs no getter read. The authored
+`aot_ordinary_global_assignment_reference` controls cover RHS creation/deletion,
+Proxy HasProperty order, abrupt cutoffs, With fallbacks and foreign Realm errors;
+this 2026-10-07 source change has not been compiled or executed.
 
 `OrdinarySet` returns a Boolean success result through the ordinary four-result
 completion ABI. The caller retains the Reference's strictness and owns both the

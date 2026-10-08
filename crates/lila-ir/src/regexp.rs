@@ -7,7 +7,8 @@ use icu_properties::props::{GeneralCategory, GeneralCategoryGroup, IdContinue, I
 use icu_properties::script::ScriptWithExtensions;
 use icu_properties::{CodePointMapData, CodePointSetData, PropertyParser};
 use regress::{
-    unicode_simple_case_fold, unicode_string_property_from_str, unicode_string_property_sequences,
+    unicode_property_binary_from_str, unicode_simple_case_fold, unicode_simple_case_fold_mappings,
+    unicode_string_property_from_str, unicode_string_property_sequences, UnicodePropertyBinary,
     UnicodeStringProperty,
 };
 
@@ -74,6 +75,21 @@ pub const REGEXP_OPCODE_PROGRESS_CHECK: u64 = 24;
 /// `operand0` selects the WordCharacters range slice; `operand1` packs its count
 /// in bits 1 and above and the assertion polarity in bit 0.
 pub const REGEXP_OPCODE_WORD_BOUNDARY: u64 = 25;
+/// Activate one counted repetition with the admitted minimum/maximum bounds.
+pub const REGEXP_OPCODE_REPEAT_BEGIN: u64 = 26;
+/// Choose the body or paired Exit. Operand0 is End; operand1 is slot<<1 | lazy.
+pub const REGEXP_OPCODE_REPEAT_GUARD: u64 = 27;
+/// Complete an iteration of the Begin in operand0; operand1 is zero.
+pub const REGEXP_OPCODE_REPEAT_END: u64 = 28;
+/// Deactivate the Begin in operand0; operand1 is zero.
+pub const REGEXP_OPCODE_REPEAT_EXIT: u64 = 29;
+mod natural;
+pub use natural::{
+    RegExpNatural, RegExpRepeatBoundWord, RegExpRepeatBounds, RegExpRepeatMaximum,
+    RegExpRepeatMaximumKind, RegExpRepeatStateWord, REGEXP_REPEAT_BOUND_RECORD_SIZE,
+    REGEXP_REPEAT_COUNTER_DECIMAL_DIGITS, REGEXP_REPEAT_COUNTER_LIMB_WIDTH,
+    REGEXP_REPEAT_COUNTER_RADIX, REGEXP_REPEAT_STATE_HEADER_SIZE,
+};
 
 /// The encoded width of one code-point range-pool entry in bytes.
 pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
@@ -81,12 +97,13 @@ pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
 /// A deliberately generous ceiling on the number of pooled code-point ranges.
 pub const REGEXP_MAX_RANGE_ENTRIES: usize = 1 << 16;
 
-/// A deliberately small ceiling for expanded flat-atom matcher programs.
+/// A ceiling for source bodies and finite Unicode string-set matcher programs.
 ///
-/// Bounded repetitions are expanded before code generation; rejecting a larger
-/// program is preferable to silently truncating it or creating an unbounded
-/// scratch requirement in the Wasm matcher.
-pub const REGEXP_MAX_INSTRUCTIONS: usize = 4096;
+/// Counted repetitions retain one body independently of their numeric bounds.
+/// This ceiling limits the actual instruction stream, without unrolling bounds. The bound must still cover the
+/// largest finite Unicode string sets (`\p{RGI_Emoji}` lowers to ~18k
+/// instructions), so it is sized at 32k rather than the historical 4k.
+pub const REGEXP_MAX_INSTRUCTIONS: usize = 32768;
 
 /// A fixed-width instruction in a backend-neutral regular-expression program.
 ///
@@ -175,6 +192,38 @@ impl RegExpInstruction {
             opcode: REGEXP_OPCODE_PROGRESS_CHECK,
             operand0: progress_split_pc as u64,
             operand1: continuation_pc as u64,
+        }
+    }
+
+    pub const fn repeat_begin(slot: u32) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_REPEAT_BEGIN,
+            operand0: slot as u64,
+            operand1: 0,
+        }
+    }
+
+    fn repeat_guard(end_pc: usize, slot: u32, preference: QuantifierPreference) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_REPEAT_GUARD,
+            operand0: end_pc as u64,
+            operand1: ((slot as u64) << 1) | preference.word(),
+        }
+    }
+
+    pub const fn repeat_end(begin_pc: usize) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_REPEAT_END,
+            operand0: begin_pc as u64,
+            operand1: 0,
+        }
+    }
+
+    pub const fn repeat_exit(begin_pc: usize) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_REPEAT_EXIT,
+            operand0: begin_pc as u64,
+            operand1: 0,
         }
     }
 
@@ -385,28 +434,35 @@ impl RegExpUnicodeMode {
 /// choice; both ordinary encoders must receive the same grammar mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OrdinaryClassMode {
-    Legacy,
+    Legacy { named_captures: bool },
     Unicode,
 }
 
 impl OrdinaryClassMode {
     const fn is_unicode(self) -> bool {
         match self {
-            Self::Legacy => false,
+            Self::Legacy { .. } => false,
             Self::Unicode => true,
         }
     }
 
     const fn unicode_mode(self) -> RegExpUnicodeMode {
         match self {
-            Self::Legacy => RegExpUnicodeMode::Legacy,
+            Self::Legacy { .. } => RegExpUnicodeMode::Legacy,
             Self::Unicode => RegExpUnicodeMode::Unicode,
+        }
+    }
+
+    const fn named_captures(self) -> bool {
+        match self {
+            Self::Legacy { named_captures } => named_captures,
+            Self::Unicode => false,
         }
     }
 
     fn allows_class_identity_escape(self, escaped: u8) -> bool {
         match self {
-            Self::Legacy => true,
+            Self::Legacy { named_captures } => escaped != b'k' || !named_captures,
             Self::Unicode => is_class_identity_escape(escaped),
         }
     }
@@ -443,6 +499,8 @@ pub struct RegExpProgram {
     /// Inclusive code-point ranges referenced by range-set instructions. The
     /// encoded blob stores these immediately after the instruction stream.
     pub ranges: Vec<(u32, u32)>,
+    /// Exact bound pairs in dense counted-slot order.
+    pub repeat_bounds: Vec<RegExpRepeatBounds>,
 }
 
 /// An append-only pool of sorted, disjoint inclusive code-point ranges.
@@ -552,23 +610,24 @@ impl RegExpProgram {
         let flags = parse_flags(flags)?;
         let parsed = parse_pattern(pattern, flags.unicode_mode, flags.ignore_case)?;
         let mut instructions = Vec::with_capacity(pattern.len() + 1);
-        let mut lowerer =
-            ProgramLowerer::new(&mut instructions, pattern.len(), &parsed.named_groups);
+        let mut repeat_bounds = Vec::new();
+        let mut lowerer = ProgramLowerer::new(
+            &mut instructions,
+            &mut repeat_bounds,
+            pattern.len(),
+            &parsed.named_groups,
+        );
         lowerer.alternatives(&parsed.alternatives)?;
         lowerer.error_offset = pattern.len();
         lowerer.push(RegExpInstruction::accept())?;
-        match parsed.capability {
-            ParsedPatternCapability::MatcherReady => Ok(Self {
-                flags,
-                capture_count: parsed.capture_count,
-                named_groups: parsed.named_groups,
-                instructions,
-                ranges: parsed.ranges,
-            }),
-            ParsedPatternCapability::RequiresUnicodeSetSemantics(required) => {
-                Err(required.unsupported_error())
-            }
-        }
+        Ok(Self {
+            flags,
+            capture_count: parsed.capture_count,
+            named_groups: parsed.named_groups,
+            instructions,
+            ranges: parsed.ranges,
+            repeat_bounds,
+        })
     }
 
     /// Encodes match instructions followed by the code-point range pool. Flags
@@ -772,7 +831,7 @@ impl SyntaxRule {
                 "22.2.1 IdentityEscape[+UnicodeMode] :: SyntaxCharacter | `/`"
             }
             SyntaxRule::ClassEscape => {
-                "22.2.1 ClassEscape[+UnicodeMode] :: `b` | `-` | CharacterClassEscape | CharacterEscape, extended in UnicodeSetsMode by ClassSetCharacter :: `\\` ClassSetReservedPunctuator"
+                "22.2.1 ClassEscape[+UnicodeMode] :: `b` | `-` | CharacterClassEscape | CharacterEscape, extended in UnicodeSetsMode by ClassSetCharacter :: `\\` ClassSetReservedPunctuator; B.1.2 SourceCharacterIdentityEscape[+NamedCaptureGroups] excludes `k` in legacy classes"
             }
             SyntaxRule::ClassSetCharacter => {
                 "22.2.1 ClassSetCharacter :: [lookahead not in ClassSetReservedDoublePunctuator] SourceCharacter but not ClassSetSyntaxCharacter | `\\` CharacterEscape[+UnicodeMode] | `\\` ClassSetReservedPunctuator | `\\b`; CharacterEscape :: `0` [lookahead not in DecimalDigit]"
@@ -901,61 +960,6 @@ struct ParsedPattern {
     capture_count: u32,
     named_groups: Vec<RegExpNamedGroup>,
     ranges: Vec<(u32, u32)>,
-    capability: ParsedPatternCapability,
-}
-
-/// A syntax-valid Pattern either has a complete matcher representation or one
-/// of the two explicitly deferred UnicodeSets string capabilities.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ParsedPatternCapability {
-    MatcherReady,
-    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RequiresUnicodePropertyOfStrings {
-    first_offset: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RequiresUnicodeSetStringCaseFolding {
-    first_offset: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RequiresUnicodeSetSemantics {
-    PropertyOfStrings(RequiresUnicodePropertyOfStrings),
-    StringCaseFolding(RequiresUnicodeSetStringCaseFolding),
-}
-
-impl RequiresUnicodeSetSemantics {
-    const fn first_offset(self) -> usize {
-        match self {
-            Self::PropertyOfStrings(required) => required.first_offset,
-            Self::StringCaseFolding(required) => required.first_offset,
-        }
-    }
-
-    const fn earliest(self, other: Self) -> Self {
-        if self.first_offset() <= other.first_offset() {
-            self
-        } else {
-            other
-        }
-    }
-
-    fn unsupported_error(self) -> RegExpCompileError {
-        match self {
-            Self::PropertyOfStrings(required) => RegExpCompileError::unsupported_feature(
-                required.first_offset,
-                "Unicode properties of strings are unsupported by this matcher-program grammar",
-            ),
-            Self::StringCaseFolding(required) => RegExpCompileError::unsupported_feature(
-                required.first_offset,
-                "case-insensitive `\\q` string literals are unsupported by this matcher-program grammar",
-            ),
-        }
-    }
 }
 
 enum ParsedTerm {
@@ -973,6 +977,7 @@ enum ParsedTerm {
 
 mod legacy_utf16_pair;
 mod lexical;
+mod pure_epsilon;
 pub use lexical::{
     regexp_character_escape, regexp_hex_digit_value, RegExpScopedModifier,
     REGEXP_CHARACTER_ESCAPES, REGEXP_DIGIT_RANGES, REGEXP_HEX_DIGIT_RANGES,
@@ -1061,7 +1066,6 @@ enum ParsedAtom {
         subtree_start: u32,
         subtree_end: u32,
     },
-    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
 
 struct NamedCapture {
@@ -1082,7 +1086,6 @@ fn parse_pattern(
             capture_count: 0,
             named_groups: Vec::new(),
             ranges: Vec::new(),
-            capability: ParsedPatternCapability::MatcherReady,
         });
     }
 
@@ -1107,16 +1110,11 @@ fn parse_pattern(
     let alternatives = parser.alternatives(None)?;
     let named_groups = named_groups(&parser.named_captures)?;
     validate_named_backreferences(&alternatives, &named_groups)?;
-    let capability = match first_required_unicode_set_semantics(&alternatives) {
-        Some(required) => ParsedPatternCapability::RequiresUnicodeSetSemantics(required),
-        None => ParsedPatternCapability::MatcherReady,
-    };
     Ok(ParsedPattern {
         alternatives,
         capture_count: parser.capture_count,
         named_groups,
         ranges: parser.ranges.into_entries(),
-        capability,
     })
 }
 
@@ -1236,9 +1234,7 @@ impl PatternParser<'_> {
                             self.offset += 4;
                             let subtree_start = self.capture_count + 1;
                             let body = self.alternatives(Some(atom_offset))?;
-                            if first_required_unicode_set_semantics(&body).is_none()
-                                && !lookbehind_body_supported(&body)
-                            {
+                            if !lookbehind_body_supported(&body) {
                                 return Err(RegExpCompileError::unsupported_feature(
                                     atom_offset,
                                     "lookbehind body uses an unsupported matcher atom",
@@ -1362,11 +1358,12 @@ impl PatternParser<'_> {
                         "only legacy lookahead assertions may be quantified",
                     ));
                 }
-                quantifier = Quantifier {
-                    required_iterations: usize::from(!quantifier.is_optional()),
-                    optional_iterations: QuantifierOptionalIterations::Finite(0),
-                    preference: quantifier.preference,
-                };
+                let minimum = u64::from(!quantifier.is_optional());
+                quantifier = Quantifier::new(
+                    minimum,
+                    Some(minimum),
+                    matches!(quantifier.preference, QuantifierPreference::Lazy),
+                );
             }
         } else if self.offset != quantifier_offset
             && matches!(
@@ -1534,6 +1531,20 @@ fn parse_instruction_atom(
     let atom_offset = *offset;
     let byte = bytes[atom_offset];
     let unicode = unicode_mode.is_unicode_mode();
+    if byte == b'\\'
+        && bytes
+            .get(atom_offset + 1)
+            .is_some_and(|byte| !byte.is_ascii())
+    {
+        if unicode {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::IdentityEscape,
+                atom_offset,
+                "non-ASCII identity escape is invalid in Unicode mode",
+            ));
+        }
+        return parse_non_ascii_pattern_atom(bytes, offset, atom_offset + 1, unicode_mode);
+    }
     if bytes.get(atom_offset..atom_offset + 2) == Some(b"\\k") {
         if !unicode && !has_named_capture_syntax {
             *offset += 2;
@@ -1594,50 +1605,26 @@ fn parse_instruction_atom(
         }
         if unicode_mode == RegExpUnicodeMode::UnicodeSets {
             let mut property_end = atom_offset;
-            if let Some(value) = parse_unicode_property_of_strings(bytes, &mut property_end)? {
+            if let Some(value) = parse_unicode_property_of_strings(
+                bytes,
+                &mut property_end,
+                CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
+            )? {
                 *offset = property_end;
-                return Ok(ParsedTermAtom::Ordinary(match value.semantics {
-                    ClassSetSemantics::Finite(value) => {
-                        ParsedAtom::FiniteClassSet(FiniteClassSetAtom::new(
-                            value,
-                            false,
-                            modifiers.ignore_case,
-                            pool,
-                            atom_offset,
-                        )?)
-                    }
-                    ClassSetSemantics::RequiresUnicodeSetSemantics(required) => {
-                        ParsedAtom::RequiresUnicodeSetSemantics(required)
-                    }
-                }));
+                return Ok(ParsedTermAtom::Ordinary(ParsedAtom::FiniteClassSet(
+                    FiniteClassSetAtom::new(
+                        value.finite,
+                        false,
+                        modifiers.ignore_case,
+                        pool,
+                        atom_offset,
+                    )?,
+                )));
             }
         }
     }
     if !byte.is_ascii() {
-        if unicode {
-            let source = std::str::from_utf8(&bytes[atom_offset..]).map_err(|_| {
-                RegExpCompileError::unsupported_feature(atom_offset, NON_BOUNDARY_SOURCE)
-            })?;
-            let ch = source.chars().next().expect("non-empty source");
-            *offset += ch.len_utf8();
-            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
-                RegExpInstruction::literal_code_point(ch as u32),
-            )));
-        }
-        let source = std::str::from_utf8(&bytes[atom_offset..]).map_err(|_| {
-            RegExpCompileError::unsupported_feature(atom_offset, NON_BOUNDARY_SOURCE)
-        })?;
-        let ch = source.chars().next().expect("non-empty source");
-        *offset += ch.len_utf8();
-        let code_point = ch as u32;
-        if code_point <= 0xffff {
-            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
-                RegExpInstruction::literal_code_point(code_point),
-            )));
-        }
-        let pair = LegacyUtf16Pair::from_scalar(ch)
-            .expect("an astral Unicode scalar has one UTF-16 surrogate pair");
-        return Ok(ParsedTermAtom::LegacyUtf16Pair(pair));
+        return parse_non_ascii_pattern_atom(bytes, offset, atom_offset, unicode_mode);
     }
     let instruction = match byte {
         b'^' => {
@@ -1670,17 +1657,41 @@ fn parse_instruction_atom(
             RegExpInstruction::literal_ascii(byte)
         }
         b'}' => {
+            // A `}` closing a braced quantifier never reaches this arm; a
+            // lone one is an Annex B literal outside Unicode mode only.
+            if unicode {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnescapedSyntaxCharacter,
+                    atom_offset,
+                    "unescaped regular-expression closing brace is invalid in Unicode mode",
+                ));
+            }
             *offset += 1;
             RegExpInstruction::literal_ascii(byte)
         }
         b']' => {
+            // Annex B extends PatternCharacter with a lone `]`; Unicode mode
+            // does not.
+            if unicode {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnescapedSyntaxCharacter,
+                    atom_offset,
+                    "unescaped regular-expression closing bracket is invalid in Unicode mode",
+                ));
+            }
             *offset += 1;
             RegExpInstruction::literal_ascii(byte)
         }
         b'[' => match unicode_mode {
-            RegExpUnicodeMode::Legacy => {
-                parse_class(bytes, offset, OrdinaryClassMode::Legacy, modifiers, pool)?
-            }
+            RegExpUnicodeMode::Legacy => parse_class(
+                bytes,
+                offset,
+                OrdinaryClassMode::Legacy {
+                    named_captures: has_named_capture_syntax,
+                },
+                modifiers,
+                pool,
+            )?,
             RegExpUnicodeMode::Unicode => {
                 if let Some(instruction) = parse_single_unicode_class(bytes, offset)? {
                     instruction
@@ -1693,11 +1704,6 @@ fn parse_instruction_atom(
                     UnicodeSetsClassAtom::Instruction(instruction) => instruction,
                     UnicodeSetsClassAtom::FiniteClassSet(atom) => {
                         return Ok(ParsedTermAtom::Ordinary(ParsedAtom::FiniteClassSet(atom)));
-                    }
-                    UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required) => {
-                        return Ok(ParsedTermAtom::Ordinary(
-                            ParsedAtom::RequiresUnicodeSetSemantics(required),
-                        ));
                     }
                 }
             }
@@ -1731,6 +1737,29 @@ fn parse_instruction_atom(
     Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
         instruction,
     )))
+}
+
+/// Direct and legacy identity source characters share the actual UTF-16 atom
+/// owner. A following quantifier belongs to the trailing unit of a BMP pattern.
+fn parse_non_ascii_pattern_atom(
+    bytes: &[u8],
+    offset: &mut usize,
+    scalar_offset: usize,
+    unicode_mode: RegExpUnicodeMode,
+) -> Result<ParsedTermAtom, RegExpCompileError> {
+    let source = std::str::from_utf8(&bytes[scalar_offset..])
+        .map_err(|_| RegExpCompileError::unsupported_feature(scalar_offset, NON_BOUNDARY_SOURCE))?;
+    let character = source.chars().next().expect("non-empty scalar source");
+    *offset = scalar_offset + character.len_utf8();
+    let code_point = character as u32;
+    if unicode_mode.is_unicode_mode() || code_point <= 0xffff {
+        return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
+            RegExpInstruction::literal_code_point(code_point),
+        )));
+    }
+    let pair = LegacyUtf16Pair::from_scalar(character)
+        .expect("an astral Unicode scalar has one UTF-16 surrogate pair");
+    Ok(ParsedTermAtom::LegacyUtf16Pair(pair))
 }
 
 fn regexp_capture_syntax(bytes: &[u8]) -> (u32, bool) {
@@ -1774,6 +1803,24 @@ fn regexp_capture_syntax(bytes: &[u8]) -> (u32, bool) {
     (capture_count, has_named_capture)
 }
 
+/// Optional attempts require their paired progress owner exactly when the
+/// parsed atom has a successful path that can retain the input position.
+#[derive(Clone, Copy)]
+enum OptionalAtomProgress {
+    MustAdvance,
+    MayRemainAtSameIndex,
+}
+
+impl OptionalAtomProgress {
+    fn for_atom(atom: &ParsedAtom) -> Self {
+        if atom_nullable(atom) {
+            Self::MayRemainAtSameIndex
+        } else {
+            Self::MustAdvance
+        }
+    }
+}
+
 fn atom_nullable(atom: &ParsedAtom) -> bool {
     match atom {
         ParsedAtom::Instruction(instruction) => matches!(
@@ -1789,10 +1836,6 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
         ParsedAtom::NumberedBackreference { .. } => true,
         ParsedAtom::Lookaround { .. } => true,
         ParsedAtom::FiniteClassSet(atom) => atom.contains_empty,
-        // Parsing must continue through the whole Pattern. Its actual
-        // nullability is a matcher-semantic question and the typed capability
-        // marker prevents this tree from becoming a program.
-        ParsedAtom::RequiresUnicodeSetSemantics(_) => false,
     }
 }
 
@@ -1816,7 +1859,7 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
             ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
                 lookbehind_body_supported(body)
             }
-            ParsedAtom::FiniteClassSet(_) | ParsedAtom::RequiresUnicodeSetSemantics(_) => true,
+            ParsedAtom::FiniteClassSet(_) => true,
             ParsedAtom::Lookaround { .. } => true,
             ParsedAtom::NamedBackreference { .. } | ParsedAtom::NumberedBackreference { .. } => {
                 true
@@ -1834,43 +1877,8 @@ fn term_nullable(term: &ParsedTerm) -> bool {
     }
 }
 
-fn first_required_unicode_set_semantics(
-    alternatives: &[Vec<ParsedTerm>],
-) -> Option<RequiresUnicodeSetSemantics> {
-    alternatives
-        .iter()
-        .flatten()
-        .filter_map(|term| match term {
-            ParsedTerm::Quantified { atom, .. } => {
-                first_required_unicode_set_semantics_in_atom(atom)
-            }
-            ParsedTerm::LegacyUtf16Pair { .. } => None,
-        })
-        .reduce(RequiresUnicodeSetSemantics::earliest)
-}
-
-/// Finds the first deferred UnicodeSets capability inside one atom subtree.
-/// Parser-side matcher restrictions must consult this before returning an
-/// `UnsupportedFeature`, because the marker owns the capability verdict only
-/// after the rest of the Pattern has passed its early-error checks.
-fn first_required_unicode_set_semantics_in_atom(
-    atom: &ParsedAtom,
-) -> Option<RequiresUnicodeSetSemantics> {
-    match atom {
-        ParsedAtom::Capture { body, .. }
-        | ParsedAtom::NonCapture { body, .. }
-        | ParsedAtom::Lookaround { body, .. } => first_required_unicode_set_semantics(body),
-        ParsedAtom::RequiresUnicodeSetSemantics(required) => Some(*required),
-        ParsedAtom::Instruction(_)
-        | ParsedAtom::FiniteClassSet(_)
-        | ParsedAtom::NamedBackreference { .. }
-        | ParsedAtom::NumberedBackreference { .. } => None,
-    }
-}
-
-/// Runs the named-backreference early error before any deferred matcher
-/// capability is reported. The lowerer retains the same check as defense in
-/// depth, but syntax ownership lives in this complete Pattern pass.
+/// Runs the named-backreference early error over the complete Pattern.
+/// The lowerer retains the same check as defense in depth.
 fn validate_named_backreferences(
     alternatives: &[Vec<ParsedTerm>],
     named_groups: &[RegExpNamedGroup],
@@ -1896,8 +1904,7 @@ fn validate_named_backreferences(
             }
             ParsedAtom::Instruction(_)
             | ParsedAtom::FiniteClassSet(_)
-            | ParsedAtom::NumberedBackreference { .. }
-            | ParsedAtom::RequiresUnicodeSetSemantics(_) => {}
+            | ParsedAtom::NumberedBackreference { .. } => {}
         }
     }
     Ok(())
@@ -1963,10 +1970,11 @@ fn ascii_hex_value(byte: u8) -> Option<u32> {
 /// Keeping the two Unicode property domains closed prevents a new call site
 /// from selecting `ID_Start` or `ID_Continue` through a stringly regular
 /// expression. The pinned ICU property tables are the semantic data source;
-/// the separate `regress` dependency remains only in a shape-limited static
-/// generator fold outside the RegExp parser.
+/// the vendored `regress` dependency supplies pinned Unicode property, string
+/// sequence and simple-fold data. Product matching uses Lila's emitted program;
+/// the former third-party generator membership fold has been removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RegExpIdentifierPosition {
+pub enum RegExpIdentifierPosition {
     Start,
     Continue,
 }
@@ -1980,7 +1988,7 @@ impl RegExpIdentifierPosition {
         }
     }
 
-    fn accepts(self, code_point: char) -> bool {
+    pub fn accepts(self, code_point: char) -> bool {
         match self {
             Self::Start => {
                 matches!(code_point, '$' | '_')
@@ -1991,6 +1999,30 @@ impl RegExpIdentifierPosition {
                     || CodePointSetData::new::<IdContinue>().contains(code_point)
             }
         }
+    }
+
+    /// Ordered, disjoint scalar ranges for emitted RegExpIdentifierName checks.
+    /// This projects the same pinned ICU property authority as `accepts`;
+    /// ECMAScript's extra identifier characters are included in that projection.
+    pub fn ranges(self) -> Vec<(u32, u32)> {
+        let mut ranges: Vec<_> = match self {
+            Self::Start => CodePointSetData::new::<IdStart>()
+                .iter_ranges()
+                .map(|range| (*range.start(), *range.end()))
+                .collect(),
+            Self::Continue => CodePointSetData::new::<IdContinue>()
+                .iter_ranges()
+                .map(|range| (*range.start(), *range.end()))
+                .collect(),
+        };
+        ranges.extend([
+            (u32::from('$'), u32::from('$')),
+            (u32::from('_'), u32::from('_')),
+        ]);
+        if self == Self::Continue {
+            ranges.push((0x200c, 0x200d));
+        }
+        normalize_ranges(ranges)
     }
 
     const fn description(self) -> &'static str {
@@ -2372,12 +2404,6 @@ fn parse_escaped_atom(
             "regular-expression escape is missing its escaped character",
         ));
     };
-    if !escaped.is_ascii() {
-        return Err(RegExpCompileError::unsupported_feature(
-            escape_offset + 1,
-            "non-ASCII regular-expression source is unsupported by this matcher-program grammar",
-        ));
-    }
     if unicode && matches!(escaped, b'p' | b'P') {
         return parse_unicode_property_escape(bytes, offset, unicode_mode, modifiers, pool);
     }
@@ -2481,6 +2507,13 @@ fn parse_escaped_atom(
         } else {
             RegExpInstruction::literal_code_point(u32::from(value))
         });
+    }
+    // `CharacterEscape[+UnicodeMode] :: 0 [lookahead ∉ DecimalDigit]` is NUL.
+    // A trailing digit falls through to the identity-escape SyntaxError below
+    // instead, mirroring the class path's `b'0'` arm next door.
+    if unicode && escaped == b'0' && !matches!(bytes.get(escape_offset + 2), Some(b'0'..=b'9')) {
+        *offset += 2;
+        return Ok(RegExpInstruction::literal_ascii(0));
     }
     if matches!(escaped, b'd' | b'D') {
         let mut bitmap_low = 0;
@@ -2615,64 +2648,332 @@ fn parse_unicode_property_escape(
     finish_range_set(ranges, false, folding, pool, escape_offset)
 }
 
-/// Resolves an ECMA-262 `UnicodePropertyValueExpression` to code-point ranges.
-fn unicode_property_ranges(value: &str) -> Option<Vec<(u32, u32)>> {
-    let collect = |ranges: &mut dyn Iterator<Item = std::ops::RangeInclusive<u32>>| {
-        ranges
-            .map(|range| (*range.start(), *range.end()))
-            .collect::<Vec<_>>()
-    };
-    match value.split_once('=') {
-        Some((name, property_value)) => match name {
-            "General_Category" | "gc" => general_category_ranges(property_value),
-            "Script" | "sc" => script_ranges(property_value, false),
-            "Script_Extensions" | "scx" => script_ranges(property_value, true),
-            _ => None,
-        },
-        None => {
-            match value {
-                "Any" => return Some(vec![(0, 0x10ffff)]),
-                "ASCII" => return Some(vec![(0, 0x7f)]),
-                "Assigned" => {
-                    let unassigned = general_category_ranges("Unassigned")?;
-                    return Some(complement_ranges(&normalize_ranges(unassigned)));
+/// One complete, exact `UnicodePropertyValueExpression` whose value contains
+/// only code points. ICU supplies ranges only after this owner validates the
+/// ECMAScript spelling; its broader binary-name lookup is not a grammar source.
+/// Properties of strings remain owned by the separate UnicodeSets consumer.
+#[must_use]
+pub(crate) struct RegExpCodePointProperty<'a> {
+    spelling: &'a str,
+    kind: CodePointPropertyKind,
+}
+
+enum CodePointPropertyKind {
+    Binary(UnicodePropertyBinary),
+    GeneralCategory(GeneralCategoryGroup),
+    Script {
+        family: ScriptPropertyFamily,
+        value: ScriptPropertyValue,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum ScriptPropertyFamily {
+    Script,
+    Extensions,
+}
+
+enum ScriptPropertyValue {
+    PinnedIcu(Script),
+    Unicode17(crate::regexp_unicode17::Unicode17Script),
+}
+
+impl<'a> RegExpCodePointProperty<'a> {
+    fn parse(spelling: &'a str) -> Option<Self> {
+        let expression = spelling.split_once('=');
+        let word = match expression {
+            Some((_, value)) => value,
+            None => spelling,
+        };
+        if word.is_empty()
+            || !word
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            return None;
+        }
+        let kind = match expression {
+            Some(("General_Category" | "gc", value)) => CodePointPropertyKind::GeneralCategory(
+                PropertyParser::<GeneralCategoryGroup>::new().get_strict(value)?,
+            ),
+            Some(("Script" | "sc", value)) => {
+                Self::script_kind(value, ScriptPropertyFamily::Script)?
+            }
+            Some(("Script_Extensions" | "scx", value)) => {
+                Self::script_kind(value, ScriptPropertyFamily::Extensions)?
+            }
+            Some(_) => return None,
+            None => {
+                if let Some(property) = unicode_property_binary_from_str(spelling) {
+                    CodePointPropertyKind::Binary(property)
+                } else {
+                    CodePointPropertyKind::GeneralCategory(
+                        PropertyParser::<GeneralCategoryGroup>::new().get_strict(spelling)?,
+                    )
                 }
-                _ => {}
             }
-            if let Some(set) = CodePointSetData::new_for_ecma262(value.as_bytes()) {
-                return Some(collect(&mut set.iter_ranges()));
+        };
+        Some(Self { spelling, kind })
+    }
+
+    fn script_kind(value: &str, family: ScriptPropertyFamily) -> Option<CodePointPropertyKind> {
+        let value = if let Some(script) = PropertyParser::<Script>::new().get_strict(value) {
+            ScriptPropertyValue::PinnedIcu(script)
+        } else {
+            ScriptPropertyValue::Unicode17(crate::regexp_unicode17::Unicode17Script::from_alias(
+                value,
+            )?)
+        };
+        Some(CodePointPropertyKind::Script { family, value })
+    }
+
+    /// The delta's alias key was accepted by the complete grammar constructor.
+    pub(crate) fn spelling(&self) -> &str {
+        self.spelling
+    }
+
+    /// Only a validated new Script/Script_Extensions value can supply a
+    /// missing ICU base. No other property may acquire ranges from delta rows.
+    pub(crate) fn new_script_ranges(&self) -> Option<&'static [(u32, u32)]> {
+        match &self.kind {
+            CodePointPropertyKind::Script {
+                value: ScriptPropertyValue::Unicode17(script),
+                ..
+            } => Some(script.ranges()),
+            CodePointPropertyKind::Binary(_)
+            | CodePointPropertyKind::GeneralCategory(_)
+            | CodePointPropertyKind::Script {
+                value: ScriptPropertyValue::PinnedIcu(_),
+                ..
+            } => None,
+        }
+    }
+
+    fn into_ranges(self) -> Option<Vec<(u32, u32)>> {
+        let base = match &self.kind {
+            CodePointPropertyKind::Binary(property) => Some(binary_property_ranges(*property)),
+            CodePointPropertyKind::GeneralCategory(group) => Some(general_category_ranges(*group)),
+            CodePointPropertyKind::Script { family, value } => match value {
+                ScriptPropertyValue::PinnedIcu(script) => Some(script_ranges(*script, *family)),
+                ScriptPropertyValue::Unicode17(_) => None,
+            },
+        };
+        crate::regexp_unicode17::apply_unicode17_delta(self, base)
+    }
+}
+
+/// Immutable property rows minted only from the same validated native authority
+/// that supplies static RegExp ranges. The emitted compiler consumes the entire
+/// catalog; a caller cannot construct a named row with unvalidated ranges.
+pub struct RegExpUnicodePropertyCatalogEntry {
+    name: String,
+    value: UnicodePropertyCatalogValue,
+}
+
+enum UnicodePropertyCatalogValue {
+    CodePoints(Vec<(u32, u32)>),
+    Strings(Vec<Vec<u32>>),
+}
+
+pub enum RegExpUnicodePropertyCatalogValue<'a> {
+    CodePoints(&'a [(u32, u32)]),
+    /// Complete nonempty provider sequences, deduplicated and ordered by their
+    /// exact code-point keys. Singleton sequences remain present in this view.
+    Strings(&'a [Vec<u32>]),
+}
+
+impl RegExpUnicodePropertyCatalogEntry {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn value(&self) -> RegExpUnicodePropertyCatalogValue<'_> {
+        match &self.value {
+            UnicodePropertyCatalogValue::CodePoints(ranges) => {
+                RegExpUnicodePropertyCatalogValue::CodePoints(ranges)
             }
-            general_category_ranges(value)
+            UnicodePropertyCatalogValue::Strings(sequences) => {
+                RegExpUnicodePropertyCatalogValue::Strings(sequences)
+            }
         }
     }
 }
 
-fn general_category_ranges(value: &str) -> Option<Vec<(u32, u32)>> {
-    let group = PropertyParser::<GeneralCategoryGroup>::new().get_strict(value)?;
-    Some(
-        CodePointMapData::<GeneralCategory>::new()
-            .iter_ranges_for_group(group)
-            .map(|range| (*range.start(), *range.end()))
-            .collect(),
-    )
+/// Complete exact aliases of every supported code-point family and all seven
+/// string-property sequence sets. Native parsing and the immutable emitted
+/// image borrow this same once-validated authority; no Pattern selects rows.
+pub fn regexp_unicode_property_catalog() -> &'static [RegExpUnicodePropertyCatalogEntry] {
+    static CATALOG: OnceLock<Vec<RegExpUnicodePropertyCatalogEntry>> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        use icu_properties::props::ParseableEnumeratedProperty;
+        let mut names = BTreeSet::new();
+        for property in UnicodePropertyBinary::ALL {
+            for alias in property.aliases() {
+                names.insert((*alias).to_owned());
+            }
+        }
+        for (alias, _) in GeneralCategoryGroup::SINGLETON.map.iter() {
+            names.insert(alias.clone());
+            for family in ["General_Category", "gc"] {
+                names.insert(format!("{family}={alias}"));
+            }
+        }
+        let mut scripts: BTreeSet<String> = Script::SINGLETON
+            .map
+            .iter()
+            .map(|(alias, _)| alias)
+            .collect();
+        for script in crate::regexp_unicode17::Unicode17Script::ALL {
+            scripts.extend(script.aliases().iter().map(|alias| (*alias).to_owned()));
+        }
+        for alias in scripts {
+            for family in ["Script", "sc", "Script_Extensions", "scx"] {
+                names.insert(format!("{family}={alias}"));
+            }
+        }
+        let mut rows: BTreeMap<String, UnicodePropertyCatalogValue> = BTreeMap::new();
+        for name in names {
+            let property = RegExpCodePointProperty::parse(&name)
+                .expect("enumerated alias must pass the native ECMAScript property constructor");
+            let ranges = property
+                .into_ranges()
+                .expect("validated property has pinned Unicode ranges");
+            rows.insert(
+                name,
+                UnicodePropertyCatalogValue::CodePoints(normalize_ranges(ranges)),
+            );
+        }
+        for &property in UnicodeStringProperty::ALL {
+            rows.insert(
+                property.name().to_owned(),
+                UnicodePropertyCatalogValue::Strings(validated_unicode_string_property_sequences(
+                    property,
+                )),
+            );
+        }
+        rows.into_iter()
+            .map(|(name, value)| RegExpUnicodePropertyCatalogEntry { name, value })
+            .collect()
+    })
 }
 
-fn script_ranges(value: &str, extensions: bool) -> Option<Vec<(u32, u32)>> {
-    let script = PropertyParser::<Script>::new().get_strict(value)?;
-    if extensions {
-        Some(
-            ScriptWithExtensions::new()
-                .get_script_extensions_ranges(script)
+/// A property set has no empty sequence. Keep its complete singleton and
+/// multi-code-point keys together until the actual operand partitions them.
+/// Validation and canonicalization happen once, before minting a catalog row.
+fn validated_unicode_string_property_sequences(property: UnicodeStringProperty) -> Vec<Vec<u32>> {
+    unicode_string_property_sequences(property)
+        .iter()
+        .map(|sequence| {
+            assert!(
+                !sequence.is_empty(),
+                "a Unicode string property has no empty key"
+            );
+            assert!(
+                sequence.iter().all(|code_point| *code_point <= 0x10ffff),
+                "a Unicode string property uses the complete code-point domain"
+            );
+            sequence.to_vec()
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// Resolves the validated property using the pinned ICU 2.0 (Unicode 16)
+/// ranges and the committed Unicode 17 delta.
+fn unicode_property_ranges(value: &str) -> Option<Vec<(u32, u32)>> {
+    RegExpCodePointProperty::parse(value)?.into_ranges()
+}
+
+fn binary_property_ranges(property: UnicodePropertyBinary) -> Vec<(u32, u32)> {
+    macro_rules! ranges {
+        ($marker:ident) => {
+            CodePointSetData::new::<icu_properties::props::$marker>()
+                .iter_ranges()
                 .map(|range| (*range.start(), *range.end()))
-                .collect(),
-        )
-    } else {
-        Some(
-            CodePointMapData::<Script>::new()
-                .iter_ranges_for_value(script)
+                .collect()
+        };
+    }
+    use UnicodePropertyBinary::*;
+    match property {
+        Alphabetic => ranges!(Alphabetic),
+        CaseIgnorable => ranges!(CaseIgnorable),
+        Cased => ranges!(Cased),
+        ChangesWhenCasefolded => ranges!(ChangesWhenCasefolded),
+        ChangesWhenCasemapped => ranges!(ChangesWhenCasemapped),
+        ChangesWhenLowercased => ranges!(ChangesWhenLowercased),
+        ChangesWhenTitlecased => ranges!(ChangesWhenTitlecased),
+        ChangesWhenUppercased => ranges!(ChangesWhenUppercased),
+        DefaultIgnorableCodePoint => ranges!(DefaultIgnorableCodePoint),
+        GraphemeBase => ranges!(GraphemeBase),
+        GraphemeExtend => ranges!(GraphemeExtend),
+        IDContinue => ranges!(IdContinue),
+        IDStart => ranges!(IdStart),
+        Math => ranges!(Math),
+        XIDContinue => ranges!(XidContinue),
+        XIDStart => ranges!(XidStart),
+        ASCIIHexDigit => ranges!(AsciiHexDigit),
+        BidiControl => ranges!(BidiControl),
+        Dash => ranges!(Dash),
+        Deprecated => ranges!(Deprecated),
+        Diacritic => ranges!(Diacritic),
+        Extender => ranges!(Extender),
+        HexDigit => ranges!(HexDigit),
+        IDSBinaryOperator => ranges!(IdsBinaryOperator),
+        IDSTrinaryOperator => ranges!(IdsTrinaryOperator),
+        Ideographic => ranges!(Ideographic),
+        JoinControl => ranges!(JoinControl),
+        LogicalOrderException => ranges!(LogicalOrderException),
+        Lowercase => ranges!(Lowercase),
+        NoncharacterCodePoint => ranges!(NoncharacterCodePoint),
+        PatternSyntax => ranges!(PatternSyntax),
+        PatternWhiteSpace => ranges!(PatternWhiteSpace),
+        QuotationMark => ranges!(QuotationMark),
+        Radical => ranges!(Radical),
+        RegionalIndicator => ranges!(RegionalIndicator),
+        SentenceTerminal => ranges!(SentenceTerminal),
+        SoftDotted => ranges!(SoftDotted),
+        TerminalPunctuation => ranges!(TerminalPunctuation),
+        UnifiedIdeograph => ranges!(UnifiedIdeograph),
+        Uppercase => ranges!(Uppercase),
+        VariationSelector => ranges!(VariationSelector),
+        WhiteSpace => ranges!(WhiteSpace),
+        Emoji => ranges!(Emoji),
+        EmojiComponent => ranges!(EmojiComponent),
+        EmojiModifier => ranges!(EmojiModifier),
+        EmojiModifierBase => ranges!(EmojiModifierBase),
+        EmojiPresentation => ranges!(EmojiPresentation),
+        ExtendedPictographic => ranges!(ExtendedPictographic),
+        ChangesWhenNFKCCasefolded => ranges!(ChangesWhenNfkcCasefolded),
+        BidiMirrored => ranges!(BidiMirrored),
+        Ascii => vec![(0, 0x7f)],
+        Any => vec![(0, 0x10ffff)],
+        Assigned => {
+            let unassigned = CodePointMapData::<GeneralCategory>::new()
+                .iter_ranges_for_value(GeneralCategory::Unassigned)
                 .map(|range| (*range.start(), *range.end()))
-                .collect(),
-        )
+                .collect::<Vec<_>>();
+            complement_ranges(&normalize_ranges(unassigned))
+        }
+    }
+}
+
+fn general_category_ranges(group: GeneralCategoryGroup) -> Vec<(u32, u32)> {
+    CodePointMapData::<GeneralCategory>::new()
+        .iter_ranges_for_group(group)
+        .map(|range| (*range.start(), *range.end()))
+        .collect()
+}
+
+fn script_ranges(script: Script, family: ScriptPropertyFamily) -> Vec<(u32, u32)> {
+    match family {
+        ScriptPropertyFamily::Script => CodePointMapData::<Script>::new()
+            .iter_ranges_for_value(script)
+            .map(|range| (*range.start(), *range.end()))
+            .collect(),
+        ScriptPropertyFamily::Extensions => ScriptWithExtensions::new()
+            .get_script_extensions_ranges(script)
+            .map(|range| (*range.start(), *range.end()))
+            .collect(),
     }
 }
 
@@ -2697,19 +2998,19 @@ impl CaseFolding {
     pub fn mappings(self) -> &'static [(u32, u32)] {
         static LEGACY: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
         static UNICODE: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
-        let mappings = match self {
-            Self::Sensitive => return &[],
-            Self::Legacy => &LEGACY,
-            Self::Unicode => &UNICODE,
-        };
-        mappings.get_or_init(|| {
-            (0..=char::MAX as u32)
-                .filter_map(|character| {
-                    let canonical = self.canonicalize(character);
-                    (canonical != character).then_some((character, canonical))
-                })
-                .collect()
-        })
+        match self {
+            Self::Sensitive => &[],
+            // Legacy canonicalization is identity outside the UTF-16 domain.
+            Self::Legacy => LEGACY.get_or_init(|| {
+                (0..=u16::MAX as u32)
+                    .filter_map(|character| {
+                        let canonical = self.canonicalize(character);
+                        (canonical != character).then_some((character, canonical))
+                    })
+                    .collect()
+            }),
+            Self::Unicode => UNICODE.get_or_init(|| unicode_simple_case_fold_mappings().collect()),
+        }
     }
 
     fn from_flags(ignore_case: bool, unicode_mode: RegExpUnicodeMode) -> Self {
@@ -2854,15 +3155,19 @@ fn class_needs_code_point_ranges(bytes: &[u8], offset: usize) -> bool {
         match byte {
             b']' => return false,
             b'\\' => {
-                // `\w`, `\W`, `\D` and `\S` are CharacterClassEscapes that the
-                // ASCII bitmap atom parser does not model, and the negated
-                // three cover code points outside the bitmap's 0..=0x7f domain
-                // anyway. Send any class containing them down the code-point
-                // range path, which expands them through `complement_ranges`.
+                // Whitespace and complemented sets include non-ASCII members.
+                // The range parser also owns the full word/property escapes.
                 if matches!(
                     bytes.get(cursor + 1),
-                    Some(b'p' | b'P' | b'u' | b'x' | b'w' | b'W' | b'D' | b'S')
+                    Some(b'p' | b'P' | b'u' | b'x' | b'w' | b'W' | b'D' | b's' | b'S')
                 ) {
+                    return true;
+                }
+                // Annex B octal escapes can name every byte, while the bitmap
+                // has only 128 bits. Decode before selecting that representation.
+                if matches!(bytes.get(cursor + 1), Some(b'0'..=b'7'))
+                    && !parse_legacy_octal_escape(bytes, cursor).0.is_ascii()
+                {
                     return true;
                 }
                 cursor += 2;
@@ -2911,6 +3216,7 @@ fn parse_class(
                 bytes,
                 &mut cursor,
                 mode.unicode_mode(),
+                mode.named_captures(),
                 CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
             )?;
             (range_offset, start)
@@ -2945,6 +3251,7 @@ fn parse_class(
                 bytes,
                 &mut cursor,
                 mode.unicode_mode(),
+                mode.named_captures(),
                 CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
             )?;
             let end = match end {
@@ -3024,6 +3331,7 @@ fn parse_class_atom(
     bytes: &[u8],
     cursor: &mut usize,
     mode: RegExpUnicodeMode,
+    named_captures: bool,
     folding: CaseFolding,
 ) -> Result<ClassAtom, RegExpCompileError> {
     let unicode = mode.is_unicode_mode();
@@ -3050,6 +3358,16 @@ fn parse_class_atom(
             "regular-expression escape is missing its escaped character",
         ));
     };
+    // NamedCaptureGroups is a complete-pattern census parameter, including
+    // forward group syntax. Annex B excludes k from legacy IdentityEscape
+    // inside classes just as it does outside them.
+    if !unicode && named_captures && escaped == b'k' {
+        return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::ClassEscape,
+            offset,
+            "named-capture grammar does not admit class identity escape `\\k`",
+        ));
+    }
     match escaped {
         b'd' => {
             *cursor += 2;
@@ -3203,7 +3521,6 @@ fn parse_class_atom(
 enum UnicodeSetsClassAtom {
     Instruction(RegExpInstruction),
     FiniteClassSet(FiniteClassSetAtom),
-    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3231,16 +3548,33 @@ impl FiniteClassSetAtom {
         };
         let singleton = finish_range_set(ranges, false, CaseFolding::Sensitive, pool, offset)?;
         let contains_empty = strings.iter().any(Vec::is_empty);
+        let modifiers = Modifiers {
+            ignore_case,
+            multiline: RegExpModifierOverride::Inherit,
+            dot_all: RegExpModifierOverride::Inherit,
+        };
         let mut multi_code_point_strings = strings
             .into_iter()
             .filter(|string| !string.is_empty())
             .map(|string| {
                 string
                     .into_iter()
-                    .map(RegExpInstruction::literal_code_point)
-                    .collect::<Vec<_>>()
+                    .map(|code_point| {
+                        let mut instruction = RegExpInstruction::literal_code_point(code_point);
+                        // Canonical string keys already own set algebra. Match the
+                        // input's complete simple-fold equivalence class per position.
+                        apply_modifiers(
+                            &mut instruction,
+                            &modifiers,
+                            RegExpUnicodeMode::UnicodeSets,
+                            pool,
+                            offset,
+                        )?;
+                        Ok(instruction)
+                    })
+                    .collect::<Result<Vec<_>, RegExpCompileError>>()
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, RegExpCompileError>>()?;
         multi_code_point_strings.sort_by_key(|string| std::cmp::Reverse(string.len()));
         Ok(Self {
             multi_code_point_strings,
@@ -3267,34 +3601,17 @@ fn parse_unicode_sets_class(
     let folding = CaseFolding::from_flags(modifiers.ignore_case, RegExpUnicodeMode::UnicodeSets);
     let ParsedClassSet { value, negated } = parse_class_set(bytes, &mut cursor, folding)?;
     *offset = cursor;
-    let case_folding = value
-        .first_direct_class_string_offset
-        .and_then(|first_offset| {
-            modifiers
-                .ignore_case
-                .then_some(RequiresUnicodeSetSemantics::StringCaseFolding(
-                    RequiresUnicodeSetStringCaseFolding { first_offset },
-                ))
-        });
-    match (value.semantics, case_folding) {
-        (ClassSetSemantics::Finite(value), None) => {
-            let atom =
-                FiniteClassSetAtom::new(value, negated, modifiers.ignore_case, pool, class_offset)?;
-            if atom.has_strings() {
-                Ok(UnicodeSetsClassAtom::FiniteClassSet(atom))
-            } else {
-                Ok(UnicodeSetsClassAtom::Instruction(atom.singleton))
-            }
-        }
-        (ClassSetSemantics::RequiresUnicodeSetSemantics(required), None) => {
-            Ok(UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required))
-        }
-        (ClassSetSemantics::Finite(_), Some(required)) => {
-            Ok(UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required))
-        }
-        (ClassSetSemantics::RequiresUnicodeSetSemantics(required), Some(case_folding)) => Ok(
-            UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required.earliest(case_folding)),
-        ),
+    let atom = FiniteClassSetAtom::new(
+        value.finite,
+        negated,
+        modifiers.ignore_case,
+        pool,
+        class_offset,
+    )?;
+    if atom.has_strings() {
+        Ok(UnicodeSetsClassAtom::FiniteClassSet(atom))
+    } else {
+        Ok(UnicodeSetsClassAtom::Instruction(atom.singleton))
     }
 }
 
@@ -3340,34 +3657,13 @@ impl ClassSetOperator {
             Self::Intersection => left.may_contain_strings && right.may_contain_strings,
             Self::Subtraction => left.may_contain_strings,
         };
-        let first_direct_class_string_offset = earliest_offset(
-            left.first_direct_class_string_offset,
-            right.first_direct_class_string_offset,
-        );
-        let semantics = match (left.semantics, right.semantics) {
-            (ClassSetSemantics::Finite(left), ClassSetSemantics::Finite(right)) => {
-                ClassSetSemantics::Finite(match self {
-                    Self::Intersection => left.intersection(right),
-                    Self::Subtraction => left.subtraction(right),
-                })
-            }
-            (
-                ClassSetSemantics::Finite(_),
-                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
-            )
-            | (
-                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
-                ClassSetSemantics::Finite(_),
-            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(required),
-            (
-                ClassSetSemantics::RequiresUnicodeSetSemantics(left),
-                ClassSetSemantics::RequiresUnicodeSetSemantics(right),
-            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(left.earliest(right)),
+        let finite = match self {
+            Self::Intersection => left.finite.intersection(right.finite),
+            Self::Subtraction => left.finite.subtraction(right.finite),
         };
         ClassSetValue {
-            semantics,
+            finite,
             may_contain_strings,
-            first_direct_class_string_offset,
         }
     }
 }
@@ -3385,7 +3681,6 @@ struct ClassSetCharacter(u32);
 /// `MayContainStrings` result needed by negated-class early errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ValidatedClassStringDisjunction {
-    offset: usize,
     alternatives: BTreeSet<Vec<u32>>,
     may_contain_strings: bool,
 }
@@ -3432,10 +3727,16 @@ impl FiniteClassSet {
         }
     }
 
-    fn class_strings(alternatives: BTreeSet<Vec<u32>>) -> Self {
+    fn class_strings(alternatives: BTreeSet<Vec<u32>>, folding: CaseFolding) -> Self {
         let mut ranges = Vec::new();
         let mut strings = BTreeSet::new();
         for alternative in alternatives {
+            // MaybeSimpleCaseFolding belongs to each operand, before algebra.
+            // Simple folding preserves code-point length, including lone surrogates.
+            let alternative = alternative
+                .into_iter()
+                .map(|code_point| folding.canonicalize(code_point))
+                .collect::<Vec<_>>();
             match alternative.as_slice() {
                 [code_point] => ranges.push((*code_point, *code_point)),
                 [] | [_, _, ..] => {
@@ -3444,7 +3745,9 @@ impl FiniteClassSet {
             }
         }
         Self {
-            ranges: normalize_ranges(ranges),
+            // Expanded preimages keep singletons in the same fold-closed range
+            // representation as ordinary characters and complemented operands.
+            ranges: case_close_ranges(&normalize_ranges(ranges), folding),
             strings,
         }
     }
@@ -3483,96 +3786,42 @@ impl FiniteClassSet {
     }
 }
 
-enum ClassSetSemantics {
-    Finite(FiniteClassSet),
-    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
-}
-
 struct ClassSetValue {
-    semantics: ClassSetSemantics,
+    finite: FiniteClassSet,
     may_contain_strings: bool,
-    first_direct_class_string_offset: Option<usize>,
 }
 
 impl ClassSetValue {
     fn code_points(ranges: Vec<(u32, u32)>, folding: CaseFolding) -> Self {
         Self {
-            semantics: ClassSetSemantics::Finite(FiniteClassSet::code_points(case_close_ranges(
+            finite: FiniteClassSet::code_points(case_close_ranges(
                 &normalize_ranges(ranges),
                 folding,
-            ))),
-            may_contain_strings: false,
-            first_direct_class_string_offset: None,
-        }
-    }
-
-    fn class_string(string: ValidatedClassStringDisjunction) -> Self {
-        Self {
-            semantics: ClassSetSemantics::Finite(FiniteClassSet::class_strings(
-                string.alternatives,
             )),
+            may_contain_strings: false,
+        }
+    }
+
+    fn class_string(string: ValidatedClassStringDisjunction, folding: CaseFolding) -> Self {
+        Self {
+            finite: FiniteClassSet::class_strings(string.alternatives, folding),
             may_contain_strings: string.may_contain_strings,
-            first_direct_class_string_offset: Some(string.offset),
         }
     }
 
-    /// Construct a finite property whose complete strings are unchanged by
-    /// ECMAScript simple case folding. A future casable property needs its own
-    /// operand-local folding representation rather than this path.
-    fn finite_case_invariant_property_of_strings(strings: BTreeSet<Vec<u32>>) -> Self {
+    /// Property strings use the same operand-local folding as direct strings.
+    fn finite_property_of_strings(strings: BTreeSet<Vec<u32>>, folding: CaseFolding) -> Self {
         Self {
-            semantics: ClassSetSemantics::Finite(FiniteClassSet::class_strings(strings)),
+            finite: FiniteClassSet::class_strings(strings, folding),
             may_contain_strings: true,
-            first_direct_class_string_offset: None,
-        }
-    }
-
-    fn unsupported_property_of_strings(required: RequiresUnicodePropertyOfStrings) -> Self {
-        Self {
-            semantics: ClassSetSemantics::RequiresUnicodeSetSemantics(
-                RequiresUnicodeSetSemantics::PropertyOfStrings(required),
-            ),
-            may_contain_strings: true,
-            first_direct_class_string_offset: None,
         }
     }
 
     fn union(self, right: Self) -> Self {
-        let may_contain_strings = self.may_contain_strings || right.may_contain_strings;
-        let first_direct_class_string_offset = earliest_offset(
-            self.first_direct_class_string_offset,
-            right.first_direct_class_string_offset,
-        );
-        let semantics = match (self.semantics, right.semantics) {
-            (ClassSetSemantics::Finite(left), ClassSetSemantics::Finite(right)) => {
-                ClassSetSemantics::Finite(left.union(right))
-            }
-            (
-                ClassSetSemantics::Finite(_),
-                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
-            )
-            | (
-                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
-                ClassSetSemantics::Finite(_),
-            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(required),
-            (
-                ClassSetSemantics::RequiresUnicodeSetSemantics(left),
-                ClassSetSemantics::RequiresUnicodeSetSemantics(right),
-            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(left.earliest(right)),
-        };
         Self {
-            semantics,
-            may_contain_strings,
-            first_direct_class_string_offset,
+            finite: self.finite.union(right.finite),
+            may_contain_strings: self.may_contain_strings || right.may_contain_strings,
         }
-    }
-}
-
-fn earliest_offset(left: Option<usize>, right: Option<usize>) -> Option<usize> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.min(right)),
-        (Some(offset), None) | (None, Some(offset)) => Some(offset),
-        (None, None) => None,
     }
 }
 
@@ -3587,19 +3836,13 @@ struct ParsedClassSet {
 impl ParsedClassSet {
     fn into_nested_value(self) -> ClassSetValue {
         debug_assert!(!self.negated || !self.value.may_contain_strings);
-        let semantics = match (self.negated, self.value.semantics) {
-            (false, semantics) => semantics,
-            (true, ClassSetSemantics::Finite(value)) => {
-                ClassSetSemantics::Finite(value.complement())
-            }
-            (true, ClassSetSemantics::RequiresUnicodeSetSemantics(required)) => {
-                ClassSetSemantics::RequiresUnicodeSetSemantics(required)
-            }
-        };
         ClassSetValue {
-            semantics,
+            finite: if self.negated {
+                self.value.finite.complement()
+            } else {
+                self.value.finite
+            },
             may_contain_strings: self.value.may_contain_strings,
-            first_direct_class_string_offset: self.value.first_direct_class_string_offset,
         }
     }
 }
@@ -3623,7 +3866,7 @@ impl ClassSetOperand {
                 ClassSetValue::code_points(vec![(code_point, code_point)], folding)
             }
             Self::NestedSet(value) => value,
-            Self::ClassString(string) => ClassSetValue::class_string(string),
+            Self::ClassString(string) => ClassSetValue::class_string(string, folding),
         }
     }
 
@@ -3732,7 +3975,7 @@ fn parse_unicode_sets_operand(
             Ok(ClassSetOperand::NestedSet(nested.into_nested_value()))
         }
         Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'p') => {
-            if let Some(value) = parse_unicode_property_of_strings(bytes, cursor)? {
+            if let Some(value) = parse_unicode_property_of_strings(bytes, cursor, folding)? {
                 Ok(ClassSetOperand::NestedSet(value))
             } else {
                 parse_unicode_sets_character_or_class_escape(bytes, cursor, folding)
@@ -3750,6 +3993,7 @@ fn parse_unicode_sets_operand(
 fn parse_unicode_property_of_strings(
     bytes: &[u8],
     cursor: &mut usize,
+    folding: CaseFolding,
 ) -> Result<Option<ClassSetValue>, RegExpCompileError> {
     let offset = *cursor;
     if bytes.get(offset..offset + 3) != Some(br"\p{") {
@@ -3765,45 +4009,15 @@ fn parse_unicode_property_of_strings(
     let Some(property) = unicode_string_property_from_str(value) else {
         return Ok(None);
     };
-    let value = match property {
-        UnicodeStringProperty::EmojiKeycapSequence => {
-            let strings = unicode_string_property_sequences(property)
-                .iter()
-                .map(|sequence| sequence.to_vec())
-                .collect();
-            ClassSetValue::finite_case_invariant_property_of_strings(strings)
-        }
-        UnicodeStringProperty::BasicEmoji => {
-            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
-                first_offset: offset,
-            })
-        }
-        UnicodeStringProperty::RGIEmojiFlagSequence => {
-            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
-                first_offset: offset,
-            })
-        }
-        UnicodeStringProperty::RGIEmojiModifierSequence => {
-            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
-                first_offset: offset,
-            })
-        }
-        UnicodeStringProperty::RGIEmojiTagSequence => {
-            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
-                first_offset: offset,
-            })
-        }
-        UnicodeStringProperty::RGIEmojiZWJSequence => {
-            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
-                first_offset: offset,
-            })
-        }
-        UnicodeStringProperty::RGIEmoji => {
-            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
-                first_offset: offset,
-            })
-        }
+    let entry = regexp_unicode_property_catalog()
+        .iter()
+        .find(|entry| entry.name() == property.name())
+        .expect("the complete catalog contains every closed string property");
+    let RegExpUnicodePropertyCatalogValue::Strings(sequences) = entry.value() else {
+        unreachable!("a closed string-property name cannot name a code-point row");
     };
+    let strings = sequences.iter().cloned().collect();
+    let value = ClassSetValue::finite_property_of_strings(strings, folding);
     *cursor = value_end + 1;
     Ok(Some(value))
 }
@@ -3843,7 +4057,6 @@ fn validate_class_string_disjunction(
                 alternatives.insert(std::mem::take(&mut string));
                 *cursor += 1;
                 return Ok(ValidatedClassStringDisjunction {
-                    offset,
                     alternatives,
                     may_contain_strings,
                 });
@@ -3929,7 +4142,13 @@ fn parse_unicode_sets_character_or_class_escape(
         }
     }
 
-    match parse_class_atom(bytes, cursor, RegExpUnicodeMode::UnicodeSets, folding)? {
+    match parse_class_atom(
+        bytes,
+        cursor,
+        RegExpUnicodeMode::UnicodeSets,
+        false,
+        folding,
+    )? {
         ClassAtom::CodePoint(code_point) => Ok(ClassSetAtomicOperand::Character(
             ClassSetCharacter(code_point),
         )),
@@ -4270,6 +4489,13 @@ fn parse_ascii_class(
                 (Some(start), Some(end)) => {
                     add_ascii_range(&mut bitmap_low, &mut bitmap_high, start, end);
                 }
+                _ if mode.is_unicode() => {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::ClassRangeBound,
+                        range_offset,
+                        "regular-expression character class range bound is a class escape",
+                    ));
+                }
                 _ => {
                     bitmap_low |= range_start.bitmap_low | range_end.bitmap_low;
                     bitmap_high |= range_start.bitmap_high | range_end.bitmap_high;
@@ -4379,7 +4605,7 @@ fn parse_ascii_class_atom(
             *cursor += 3;
             Ok(singleton_ascii_class_atom(control))
         }
-        b'c' if mode == OrdinaryClassMode::Legacy
+        b'c' if !mode.is_unicode()
             && matches!(bytes.get(offset + 2), Some(b'0'..=b'9') | Some(b'_')) =>
         {
             let control = bytes[offset + 2] % 32;
@@ -4388,11 +4614,11 @@ fn parse_ascii_class_atom(
         }
         // Annex B's standalone-backslash `ClassAtomNoDash` consumes only the
         // backslash here. The loop parses `c` separately.
-        b'c' if mode == OrdinaryClassMode::Legacy => {
+        b'c' if !mode.is_unicode() => {
             *cursor += 1;
             Ok(singleton_ascii_class_atom(b'\\'))
         }
-        b'0'..=b'7' if mode == OrdinaryClassMode::Legacy => {
+        b'0'..=b'7' if !mode.is_unicode() => {
             let (value, end) = parse_legacy_octal_escape(bytes, offset);
             *cursor = end;
             Ok(singleton_ascii_class_atom(value))
@@ -4454,9 +4680,20 @@ fn parse_legacy_octal_escape(bytes: &[u8], escape_offset: usize) -> (u8, usize) 
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum QuantifierOptionalIterations {
-    Finite(usize),
+enum TrivialQuantifierOptional {
+    None,
+    Once,
     Unbounded,
+}
+
+struct TrivialQuantifier {
+    required: bool,
+    optional: TrivialQuantifierOptional,
+}
+
+enum QuantifierBody<'a> {
+    Counted(&'a RegExpRepeatBounds),
+    Trivial(TrivialQuantifier),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4474,22 +4711,25 @@ impl QuantifierPreference {
     }
 }
 
-#[derive(Clone, Copy)]
+/// A must-advance atom cannot satisfy this minimum on addressable inputs.
+const HUGE_QUANTIFIER_BOUND: u64 = 1 << 32;
+
+#[derive(Clone)]
 struct Quantifier {
-    required_iterations: usize,
-    optional_iterations: QuantifierOptionalIterations,
+    bounds: RegExpRepeatBounds,
     preference: QuantifierPreference,
 }
 
 impl Quantifier {
-    fn new(min: usize, max: Option<usize>, lazy: bool) -> Self {
-        let optional_iterations = match max {
-            Some(max) => QuantifierOptionalIterations::Finite(max - min),
-            None => QuantifierOptionalIterations::Unbounded,
-        };
+    fn new(minimum: u64, maximum: Option<u64>, lazy: bool) -> Self {
         Self {
-            required_iterations: min,
-            optional_iterations,
+            bounds: RegExpRepeatBounds::new(
+                RegExpNatural::from_u64(minimum),
+                maximum.map_or(RegExpRepeatMaximum::Unbounded, |value| {
+                    RegExpRepeatMaximum::Finite(RegExpNatural::from_u64(value))
+                }),
+            )
+            .expect("ordered built-in quantifier bounds"),
             preference: if lazy {
                 QuantifierPreference::Lazy
             } else {
@@ -4498,8 +4738,47 @@ impl Quantifier {
         }
     }
 
-    fn is_optional(self) -> bool {
-        self.required_iterations == 0
+    fn body(&self, nullable: bool) -> QuantifierBody<'_> {
+        let trivial = match (
+            self.bounds.minimum().checked_to_u64(),
+            self.bounds.maximum(),
+        ) {
+            (Some(0), RegExpRepeatMaximum::Finite(maximum)) if maximum.is_zero() => {
+                TrivialQuantifier {
+                    required: false,
+                    optional: TrivialQuantifierOptional::None,
+                }
+            }
+            (Some(0), RegExpRepeatMaximum::Finite(maximum)) if maximum.is_one() => {
+                TrivialQuantifier {
+                    required: false,
+                    optional: TrivialQuantifierOptional::Once,
+                }
+            }
+            (Some(0), RegExpRepeatMaximum::Unbounded) => TrivialQuantifier {
+                required: false,
+                optional: TrivialQuantifierOptional::Unbounded,
+            },
+            (Some(1), RegExpRepeatMaximum::Finite(maximum)) if maximum.is_one() => {
+                TrivialQuantifier {
+                    required: true,
+                    optional: TrivialQuantifierOptional::None,
+                }
+            }
+            (Some(1), RegExpRepeatMaximum::Unbounded) if !nullable => TrivialQuantifier {
+                required: true,
+                optional: TrivialQuantifierOptional::Unbounded,
+            },
+            _ => return QuantifierBody::Counted(&self.bounds),
+        };
+        QuantifierBody::Trivial(trivial)
+    }
+
+    fn is_optional(&self) -> bool {
+        self.bounds.minimum().is_zero()
+    }
+    fn has_impossible_consuming_minimum(&self) -> bool {
+        self.bounds.minimum() >= &RegExpNatural::from_u64(HUGE_QUANTIFIER_BOUND)
     }
 }
 
@@ -4511,18 +4790,18 @@ fn parse_postfix_quantifier(
         return Ok(Quantifier::new(1, Some(1), false));
     };
     let start = *offset;
-    let (min, max) = match byte {
+    let mut quantifier = match byte {
         b'?' => {
             *offset += 1;
-            (0, Some(1))
+            Quantifier::new(0, Some(1), false)
         }
         b'*' => {
             *offset += 1;
-            (0, None)
+            Quantifier::new(0, None, false)
         }
         b'+' => {
             *offset += 1;
-            (1, None)
+            Quantifier::new(1, None, false)
         }
         b'{' => match parse_braced_quantifier(bytes, offset)? {
             Some(quantifier) => quantifier,
@@ -4534,11 +4813,11 @@ fn parse_postfix_quantifier(
             return Ok(Quantifier::new(1, Some(1), false));
         }
     };
-    let lazy = if bytes.get(*offset) == Some(&b'?') {
+    quantifier.preference = if bytes.get(*offset) == Some(&b'?') {
         *offset += 1;
-        true
+        QuantifierPreference::Lazy
     } else {
-        false
+        QuantifierPreference::Greedy
     };
     let repeated_brace = if bytes.get(*offset) == Some(&b'{') {
         let mut probe = *offset;
@@ -4557,48 +4836,54 @@ fn parse_postfix_quantifier(
         ));
     }
     debug_assert!(start < *offset);
-    Ok(Quantifier::new(min, max, lazy))
+    Ok(quantifier)
 }
 
 fn parse_braced_quantifier(
     bytes: &[u8],
     offset: &mut usize,
-) -> Result<Option<(usize, Option<usize>)>, RegExpCompileError> {
+) -> Result<Option<Quantifier>, RegExpCompileError> {
     let start = *offset;
     let mut cursor = start + 1;
-    let (min, min_overflow) = parse_decimal_checked(bytes, &mut cursor);
+    let min_start = cursor;
+    let min = parse_decimal_natural(bytes, &mut cursor);
     if cursor == start + 1 {
         return Ok(None);
     }
-    let (max, max_overflow) = match bytes.get(cursor) {
+    let min = min.expect("nonempty decimal span");
+    let min_end = cursor;
+    let mut max_start = min_start;
+    let mut max_end = min_end;
+    let max = match bytes.get(cursor) {
         Some(b'}') => {
             cursor += 1;
-            (Some(min), false)
+            Some(min.clone())
         }
         Some(b',') => {
             cursor += 1;
             if bytes.get(cursor) == Some(&b'}') {
                 cursor += 1;
-                (None, false)
+                None
             } else {
-                let max_start = cursor;
-                let (max, overflow) = parse_decimal_checked(bytes, &mut cursor);
+                max_start = cursor;
+                let max = parse_decimal_natural(bytes, &mut cursor);
                 if cursor == max_start || bytes.get(cursor) != Some(&b'}') {
                     return Ok(None);
                 }
+                max_end = cursor;
                 cursor += 1;
-                (Some(max), overflow)
+                Some(max.expect("nonempty upper decimal span"))
             }
         }
         _ => return Ok(None),
     };
-    if min_overflow || max_overflow {
-        return Err(RegExpCompileError::unsupported_feature(
-            start,
-            "regular-expression quantifier bound is too large",
-        ));
-    }
-    if max.is_some_and(|max| max < min) {
+    // Original decimal spans are the sole syntax-order authority. Both exact
+    // bounds remain finite when written as DecimalDigits; neither is saturated
+    // or reclassified as unbounded after this check.
+    if max.is_some()
+        && cmp_decimal_spans(&bytes[min_start..min_end], &bytes[max_start..max_end])
+            == std::cmp::Ordering::Greater
+    {
         return Err(RegExpCompileError::invalid_syntax(
             SyntaxRule::QuantifierBounds,
             start,
@@ -4606,40 +4891,35 @@ fn parse_braced_quantifier(
         ));
     }
     *offset = cursor;
-    Ok(Some((min, max)))
+    Ok(Some(Quantifier {
+        bounds: RegExpRepeatBounds::new(
+            min,
+            max.map_or(RegExpRepeatMaximum::Unbounded, RegExpRepeatMaximum::Finite),
+        )
+        .expect("original decimal spans established exact bound order"),
+        preference: QuantifierPreference::Greedy,
+    }))
 }
 
-fn parse_decimal_checked(bytes: &[u8], offset: &mut usize) -> (usize, bool) {
-    let first = *offset;
-    let mut value = 0usize;
-    let mut overflow = false;
-    while let Some(byte @ b'0'..=b'9') = bytes.get(*offset).copied() {
-        if let Some(next) = value
-            .checked_mul(10)
-            .and_then(|v| v.checked_add((byte - b'0') as usize))
-        {
-            value = next;
-        } else {
-            overflow = true;
-        }
+/// Order two ASCII digit spans by mathematical value.
+fn cmp_decimal_spans(left: &[u8], right: &[u8]) -> std::cmp::Ordering {
+    fn strip(span: &[u8]) -> &[u8] {
+        let start = span
+            .iter()
+            .position(|&digit| digit != b'0')
+            .unwrap_or(span.len());
+        &span[start..]
+    }
+    let (left, right) = (strip(left), strip(right));
+    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+}
+
+fn parse_decimal_natural(bytes: &[u8], offset: &mut usize) -> Option<RegExpNatural> {
+    let start = *offset;
+    while bytes.get(*offset).is_some_and(u8::is_ascii_digit) {
         *offset += 1;
     }
-    (value, overflow || *offset == first)
-}
-
-enum OptionalAtomProgress {
-    MustAdvance,
-    MayRemainAtSameIndex,
-}
-
-impl OptionalAtomProgress {
-    fn for_atom(atom: &ParsedAtom) -> Self {
-        if atom_nullable(atom) {
-            Self::MayRemainAtSameIndex
-        } else {
-            Self::MustAdvance
-        }
-    }
+    RegExpNatural::from_decimal_digits(&bytes[start..*offset])
 }
 
 enum NullableQuantifierContinuation {
@@ -4661,10 +4941,18 @@ struct PendingNullableQuantifierFallback {
     preference: QuantifierPreference,
 }
 
+#[must_use = "a counted repetition must publish its paired Guard, End and Exit"]
+struct PendingCountedRepeat {
+    begin_pc: usize,
+    slot: u32,
+    preference: QuantifierPreference,
+}
+
 struct ProgramLowerer<'a> {
     instructions: &'a mut Vec<RegExpInstruction>,
     error_offset: usize,
     named_groups: &'a [RegExpNamedGroup],
+    repeat_bounds: &'a mut Vec<RegExpRepeatBounds>,
 }
 
 #[derive(Clone, Copy)]
@@ -4685,6 +4973,7 @@ impl RegExpMatchDirection {
 impl<'a> ProgramLowerer<'a> {
     fn new(
         instructions: &'a mut Vec<RegExpInstruction>,
+        repeat_bounds: &'a mut Vec<RegExpRepeatBounds>,
         pattern_len: usize,
         named_groups: &'a [RegExpNamedGroup],
     ) -> Self {
@@ -4692,6 +4981,7 @@ impl<'a> ProgramLowerer<'a> {
             instructions,
             error_offset: pattern_len,
             named_groups,
+            repeat_bounds,
         }
     }
 
@@ -4709,6 +4999,9 @@ impl<'a> ProgramLowerer<'a> {
     }
 
     fn alternatives(&mut self, alternatives: &[Vec<ParsedTerm>]) -> Result<(), RegExpCompileError> {
+        if pure_epsilon::alternatives_are_pure_epsilon(alternatives) {
+            return Ok(());
+        }
         let mut exits = Vec::new();
         for (index, sequence) in alternatives.iter().enumerate() {
             if index + 1 == alternatives.len() {
@@ -4739,7 +5032,7 @@ impl<'a> ProgramLowerer<'a> {
                     atom,
                     quantifier,
                     quantifier_offset,
-                } => self.quantified(atom, *quantifier, *quantifier_offset)?,
+                } => self.quantified(atom, quantifier.clone(), *quantifier_offset)?,
                 ParsedTerm::LegacyUtf16Pair {
                     pair,
                     trail_quantifier,
@@ -4749,12 +5042,41 @@ impl<'a> ProgramLowerer<'a> {
                     self.push(pair.lead_instruction())?;
                     self.quantified(
                         &ParsedAtom::Instruction(pair.trail_instruction()),
-                        *trail_quantifier,
+                        trail_quantifier.clone(),
                         *quantifier_offset,
                     )?;
                 }
             }
         }
+        Ok(())
+    }
+
+    fn begin_counted_repeat(
+        &mut self,
+        bounds: &RegExpRepeatBounds,
+        preference: QuantifierPreference,
+    ) -> Result<PendingCountedRepeat, RegExpCompileError> {
+        let begin_pc = self.instructions.len();
+        let slot = u32::try_from(self.repeat_bounds.len()).expect("instruction-bounded slot count");
+        self.repeat_bounds.push(bounds.clone());
+        self.push(RegExpInstruction::repeat_begin(slot))?;
+        self.push(RegExpInstruction::repeat_guard(0, slot, preference))?;
+        Ok(PendingCountedRepeat {
+            begin_pc,
+            slot,
+            preference,
+        })
+    }
+
+    fn finish_counted_repeat(
+        &mut self,
+        pending: PendingCountedRepeat,
+    ) -> Result<(), RegExpCompileError> {
+        let end_pc = self.instructions.len();
+        self.push(RegExpInstruction::repeat_end(pending.begin_pc))?;
+        self.push(RegExpInstruction::repeat_exit(pending.begin_pc))?;
+        self.instructions[pending.begin_pc + 1] =
+            RegExpInstruction::repeat_guard(end_pc, pending.slot, pending.preference);
         Ok(())
     }
 
@@ -4765,22 +5087,57 @@ impl<'a> ProgramLowerer<'a> {
         offset: usize,
     ) -> Result<(), RegExpCompileError> {
         self.error_offset = offset;
-        for _ in 0..quantifier.required_iterations {
-            self.atom(atom)?;
+        if pure_epsilon::atom_is_pure_epsilon(atom) {
+            return Ok(());
         }
         let progress = OptionalAtomProgress::for_atom(atom);
-        match quantifier.optional_iterations {
-            QuantifierOptionalIterations::Finite(count) => match progress {
-                OptionalAtomProgress::MustAdvance => {
-                    for _ in 0..count {
-                        self.optional(atom, quantifier.preference)?;
-                    }
-                }
+        if quantifier.has_impossible_consuming_minimum()
+            && matches!(progress, OptionalAtomProgress::MustAdvance)
+        {
+            return self.never_match(RegExpMatchDirection::Forward);
+        }
+        let trivial = match quantifier.body(matches!(
+            progress,
+            OptionalAtomProgress::MayRemainAtSameIndex,
+        )) {
+            QuantifierBody::Counted(bounds) => {
+                let pending = self.begin_counted_repeat(bounds, quantifier.preference)?;
+                self.atom(atom)?;
+                return self.finish_counted_repeat(pending);
+            }
+            QuantifierBody::Trivial(trivial) => trivial,
+        };
+        // `X+` on a must-advance atom is a single body plus a loop-back
+        // split. Emitting the required copy and a separate star copy would
+        // duplicate the body; for thousand-string finite class sets that
+        // doubling alone exceeds the matcher-program cap.
+        if trivial.required
+            && matches!(trivial.optional, TrivialQuantifierOptional::Unbounded)
+            && matches!(progress, OptionalAtomProgress::MustAdvance)
+        {
+            let body = self.instructions.len();
+            self.atom(atom)?;
+            let split = self.instructions.len();
+            self.push(RegExpInstruction::split(0, 0))?;
+            let after = self.instructions.len();
+            self.instructions[split] = match quantifier.preference {
+                QuantifierPreference::Greedy => RegExpInstruction::split(body, after),
+                QuantifierPreference::Lazy => RegExpInstruction::split(after, body),
+            };
+            return Ok(());
+        }
+        if trivial.required {
+            self.atom(atom)?;
+        }
+        match trivial.optional {
+            TrivialQuantifierOptional::None => {}
+            TrivialQuantifierOptional::Once => match progress {
+                OptionalAtomProgress::MustAdvance => self.optional(atom, quantifier.preference)?,
                 OptionalAtomProgress::MayRemainAtSameIndex => {
-                    self.nullable_finite(atom, quantifier.preference, count)?;
+                    self.nullable_optional(atom, quantifier.preference)?
                 }
             },
-            QuantifierOptionalIterations::Unbounded => match progress {
+            TrivialQuantifierOptional::Unbounded => match progress {
                 OptionalAtomProgress::MustAdvance => self.star(atom, quantifier.preference)?,
                 OptionalAtomProgress::MayRemainAtSameIndex => {
                     self.nullable_star(atom, quantifier.preference)?;
@@ -4825,25 +5182,16 @@ impl<'a> ProgramLowerer<'a> {
         Ok(())
     }
 
-    fn nullable_finite(
+    fn nullable_optional(
         &mut self,
         atom: &ParsedAtom,
         preference: QuantifierPreference,
-        count: usize,
     ) -> Result<(), RegExpCompileError> {
-        let mut fallbacks = Vec::with_capacity(count);
-        for _ in 0..count {
-            let pending = self.begin_nullable_optional(preference)?;
-            self.atom(atom)?;
-            fallbacks.push(self.complete_nullable_optional(
-                pending,
-                NullableQuantifierContinuation::NextInstruction,
-            )?);
-        }
-        let after = self.instructions.len();
-        for fallback in fallbacks {
-            self.finish_nullable_optional(fallback, after);
-        }
+        let pending = self.begin_nullable_optional(preference)?;
+        self.atom(atom)?;
+        let fallback = self
+            .complete_nullable_optional(pending, NullableQuantifierContinuation::NextInstruction)?;
+        self.finish_nullable_optional(fallback, self.instructions.len());
         Ok(())
     }
 
@@ -4974,11 +5322,34 @@ impl<'a> ProgramLowerer<'a> {
                 body,
                 *subtree_start..*subtree_end,
             ),
-            // Syntax-only placeholder. `ParsedPatternCapability` prevents the
-            // containing tree from becoming a returned matcher program, but
-            // lowering continues so its remaining early-error checks run.
-            ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),
         }
+    }
+
+    /// Lower an unsatisfiable repetition to an always-failing zero-width pair.
+    ///
+    /// `(?=)(?!)`: the positive empty assertion succeeds without consuming
+    /// input and the negative empty assertion then always fails, so the pair
+    /// fails with no captures or side effects. Used for minimums no
+    /// addressable input can satisfy.
+    fn never_match(
+        &mut self,
+        parent_direction: RegExpMatchDirection,
+    ) -> Result<(), RegExpCompileError> {
+        let empty: Vec<Vec<ParsedTerm>> = vec![Vec::new()];
+        self.lookaround(
+            &LookaroundPolarity::Positive,
+            RegExpMatchDirection::Forward,
+            parent_direction,
+            &empty,
+            0..0,
+        )?;
+        self.lookaround(
+            &LookaroundPolarity::Negative,
+            RegExpMatchDirection::Forward,
+            parent_direction,
+            &empty,
+            0..0,
+        )
     }
 
     fn lookaround(
@@ -5087,6 +5458,9 @@ impl<'a> ProgramLowerer<'a> {
         &mut self,
         alternatives: &[Vec<ParsedTerm>],
     ) -> Result<(), RegExpCompileError> {
+        if pure_epsilon::alternatives_are_pure_epsilon(alternatives) {
+            return Ok(());
+        }
         let mut exits = Vec::new();
         for (index, sequence) in alternatives.iter().enumerate() {
             if index + 1 == alternatives.len() {
@@ -5117,7 +5491,7 @@ impl<'a> ProgramLowerer<'a> {
                     atom,
                     quantifier,
                     quantifier_offset,
-                } => self.reverse_quantified(atom, *quantifier, *quantifier_offset)?,
+                } => self.reverse_quantified(atom, quantifier.clone(), *quantifier_offset)?,
                 ParsedTerm::LegacyUtf16Pair {
                     pair,
                     trail_quantifier,
@@ -5125,7 +5499,7 @@ impl<'a> ProgramLowerer<'a> {
                 } => {
                     self.reverse_quantified(
                         &ParsedAtom::Instruction(pair.trail_instruction()),
-                        *trail_quantifier,
+                        trail_quantifier.clone(),
                         *quantifier_offset,
                     )?;
                     self.push(pair.lead_instruction())?;
@@ -5142,22 +5516,56 @@ impl<'a> ProgramLowerer<'a> {
         offset: usize,
     ) -> Result<(), RegExpCompileError> {
         self.error_offset = offset;
-        for _ in 0..quantifier.required_iterations {
-            self.reverse_atom(atom)?;
+        if pure_epsilon::atom_is_pure_epsilon(atom) {
+            return Ok(());
         }
         let progress = OptionalAtomProgress::for_atom(atom);
-        match quantifier.optional_iterations {
-            QuantifierOptionalIterations::Finite(count) => match progress {
+        if quantifier.has_impossible_consuming_minimum()
+            && matches!(progress, OptionalAtomProgress::MustAdvance)
+        {
+            return self.never_match(RegExpMatchDirection::Reverse);
+        }
+        let trivial = match quantifier.body(matches!(
+            progress,
+            OptionalAtomProgress::MayRemainAtSameIndex,
+        )) {
+            QuantifierBody::Counted(bounds) => {
+                let pending = self.begin_counted_repeat(bounds, quantifier.preference)?;
+                self.reverse_atom(atom)?;
+                return self.finish_counted_repeat(pending);
+            }
+            QuantifierBody::Trivial(trivial) => trivial,
+        };
+        // Mirror of the forward single-copy `X+` loop above.
+        if trivial.required
+            && matches!(trivial.optional, TrivialQuantifierOptional::Unbounded)
+            && matches!(progress, OptionalAtomProgress::MustAdvance)
+        {
+            let body = self.instructions.len();
+            self.reverse_atom(atom)?;
+            let split = self.instructions.len();
+            self.push(RegExpInstruction::split(0, 0))?;
+            let after = self.instructions.len();
+            self.instructions[split] = match quantifier.preference {
+                QuantifierPreference::Greedy => RegExpInstruction::split(body, after),
+                QuantifierPreference::Lazy => RegExpInstruction::split(after, body),
+            };
+            return Ok(());
+        }
+        if trivial.required {
+            self.reverse_atom(atom)?;
+        }
+        match trivial.optional {
+            TrivialQuantifierOptional::None => {}
+            TrivialQuantifierOptional::Once => match progress {
                 OptionalAtomProgress::MustAdvance => {
-                    for _ in 0..count {
-                        self.reverse_optional(atom, quantifier.preference)?;
-                    }
+                    self.reverse_optional(atom, quantifier.preference)?
                 }
                 OptionalAtomProgress::MayRemainAtSameIndex => {
-                    self.reverse_nullable_finite(atom, quantifier.preference, count)?;
+                    self.reverse_nullable_optional(atom, quantifier.preference)?
                 }
             },
-            QuantifierOptionalIterations::Unbounded => match progress {
+            TrivialQuantifierOptional::Unbounded => match progress {
                 OptionalAtomProgress::MustAdvance => {
                     self.reverse_star(atom, quantifier.preference)?;
                 }
@@ -5204,25 +5612,16 @@ impl<'a> ProgramLowerer<'a> {
         Ok(())
     }
 
-    fn reverse_nullable_finite(
+    fn reverse_nullable_optional(
         &mut self,
         atom: &ParsedAtom,
         preference: QuantifierPreference,
-        count: usize,
     ) -> Result<(), RegExpCompileError> {
-        let mut fallbacks = Vec::with_capacity(count);
-        for _ in 0..count {
-            let pending = self.begin_nullable_optional(preference)?;
-            self.reverse_atom(atom)?;
-            fallbacks.push(self.complete_nullable_optional(
-                pending,
-                NullableQuantifierContinuation::NextInstruction,
-            )?);
-        }
-        let after = self.instructions.len();
-        for fallback in fallbacks {
-            self.finish_nullable_optional(fallback, after);
-        }
+        let pending = self.begin_nullable_optional(preference)?;
+        self.reverse_atom(atom)?;
+        let fallback = self
+            .complete_nullable_optional(pending, NullableQuantifierContinuation::NextInstruction)?;
+        self.finish_nullable_optional(fallback, self.instructions.len());
         Ok(())
     }
 
@@ -5269,7 +5668,6 @@ impl<'a> ProgramLowerer<'a> {
                 }
                 self.reverse_alternatives(body)
             }
-            ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),
             ParsedAtom::Lookaround {
                 polarity,
                 direction,
@@ -5349,6 +5747,21 @@ fn is_unicode_identity_escape(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn case_folding_tables_match_full_scalar_reference() {
+        for folding in [CaseFolding::Legacy, CaseFolding::Unicode] {
+            // Keep the previous scalar scan as an independent reference for
+            // domain coverage, identity filtering and exact table ordering.
+            let expected: Vec<_> = (0..=char::MAX as u32)
+                .filter_map(|character| {
+                    let canonical = folding.canonicalize(character);
+                    (canonical != character).then_some((character, canonical))
+                })
+                .collect();
+            assert_eq!(folding.mappings(), expected, "{folding:?}");
+        }
+    }
 
     fn compile(pattern: &str) -> RegExpProgram {
         RegExpProgram::compile(pattern, "").expect("pattern should compile")
@@ -5501,6 +5914,65 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_classes_retain_non_ascii_members_in_every_mode() {
+        for flags in ["", "u", "v"] {
+            let program = RegExpProgram::compile(r"[\s]", flags)
+                .expect("whitespace class has a complete character domain");
+            assert_eq!(
+                program.instructions[0].opcode,
+                REGEXP_OPCODE_UNICODE_PROPERTY
+            );
+            for member in [
+                0x09, 0x20, 0xA0, 0x1680, 0x2000, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+                0xFEFF,
+            ] {
+                assert!(
+                    ranges_contain(&program.ranges, member),
+                    "{flags}: U+{member:04X}"
+                );
+            }
+            for nonmember in [0x00, 0x85, 0x180E, 0x200B, 0xFFFF] {
+                assert!(
+                    !ranges_contain(&program.ranges, nonmember),
+                    "{flags}: U+{nonmember:04X}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_octal_classes_select_a_representation_covering_the_decoded_byte() {
+        let low = compile(r"[\177]").instructions[0];
+        assert!(low.positive_ascii_class_contains(0x7F));
+        for (pattern, expected) in [
+            (r"[\200]", vec![(0x80, 0x80)]),
+            (r"[\377]", vec![(0xFF, 0xFF)]),
+            (r"[\177-\377]", vec![(0x7F, 0xFF)]),
+        ] {
+            let program = compile(pattern);
+            assert_eq!(
+                program.instructions[0].opcode,
+                REGEXP_OPCODE_UNICODE_PROPERTY
+            );
+            assert_eq!(program.ranges, expected, "{pattern}");
+            for flags in ["u", "v"] {
+                assert_eq!(
+                    RegExpProgram::compile(pattern, flags)
+                        .expect_err("octal class escapes remain Annex B only")
+                        .kind,
+                    RegExpCompileErrorKind::InvalidSyntax
+                );
+            }
+        }
+        assert_eq!(
+            RegExpProgram::compile(r"[\377-\200]", "")
+                .expect_err("decoded octal range endpoints retain source order")
+                .rule,
+            Some(SyntaxRule::ClassRangeOrder)
+        );
+    }
+
+    #[test]
     fn negated_ascii_classes_compile_to_negative_class_instructions() {
         let instruction = compile(r"[^\d]").instructions[0];
         assert_eq!(instruction.opcode, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS);
@@ -5572,16 +6044,13 @@ mod tests {
         }
         let quantified = compile(r"\c+");
         assert_eq!(
-            quantified.instructions[0],
-            RegExpInstruction::literal_ascii(b'\\')
-        );
-        assert_eq!(
-            quantified.instructions[1],
-            RegExpInstruction::literal_ascii(b'c')
-        );
-        assert_eq!(
-            quantified.instructions[3],
-            RegExpInstruction::literal_ascii(b'c')
+            quantified.instructions,
+            vec![
+                RegExpInstruction::literal_ascii(b'\\'),
+                RegExpInstruction::literal_ascii(b'c'),
+                RegExpInstruction::split(1, 3),
+                RegExpInstruction::accept(),
+            ]
         );
     }
 
@@ -5614,7 +6083,7 @@ mod tests {
                 .iter()
                 .filter(|instruction| instruction.opcode == REGEXP_OPCODE_PROGRESS_SPLIT)
                 .count(),
-            2
+            1
         );
         assert_eq!(
             program
@@ -5622,7 +6091,16 @@ mod tests {
                 .iter()
                 .filter(|instruction| instruction.opcode == REGEXP_OPCODE_PROGRESS_CHECK)
                 .count(),
-            2
+            1
+        );
+        assert_eq!(
+            program
+                .instructions
+                .iter()
+                .filter(|instruction| instruction.opcode == REGEXP_OPCODE_REPEAT_BEGIN)
+                .count(),
+            1,
+            "nullable + shares one body instead of a required and optional copy"
         );
     }
 
@@ -5682,9 +6160,7 @@ mod tests {
             compile(r"\d+").instructions,
             vec![
                 digit_class,
-                RegExpInstruction::split(2, 4),
-                digit_class,
-                RegExpInstruction::jump(1),
+                RegExpInstruction::split(0, 2),
                 RegExpInstruction::accept(),
             ]
         );
@@ -5701,9 +6177,7 @@ mod tests {
                 RegExpInstruction::clear_capture_range(1, 2),
                 RegExpInstruction::capture_start(1),
                 digit_class,
-                RegExpInstruction::split(4, 6),
-                digit_class,
-                RegExpInstruction::jump(3),
+                RegExpInstruction::split(2, 4),
                 RegExpInstruction::capture_end(1),
                 RegExpInstruction::accept(),
             ]
@@ -5832,30 +6306,18 @@ mod tests {
         );
 
         let finite = compile("(){1,3}");
-        let finite_pairs = progress_pairs(&finite);
-        assert_eq!(finite_pairs.len(), 2);
+        assert!(progress_pairs(&finite).is_empty());
+        assert_eq!(finite.instructions[0], RegExpInstruction::repeat_begin(0));
         assert_eq!(
             finite
                 .instructions
                 .iter()
                 .filter(|instruction| instruction.opcode == REGEXP_OPCODE_CAPTURE_START)
                 .count(),
-            3,
-            "one required empty iteration and two optional attempts are emitted"
+            1,
+            "required and optional iterations share one capture-clearing body"
         );
-        for (split_pc, check_pc) in finite_pairs {
-            assert!(split_pc < check_pc);
-            assert_eq!(
-                finite.instructions[check_pc].operand1 as usize,
-                check_pc + 1,
-                "a finite optional iteration continues instead of looping"
-            );
-            assert_eq!(
-                (finite.instructions[split_pc].operand1 >> 1) as usize,
-                finite.instructions.len() - 1,
-                "an empty attempt skips every remaining optional iteration"
-            );
-        }
+        ValidatedRegExpProgram::from_program(&finite).expect("certified nullable count lifecycle");
 
         let nested = compile("(?:(?:a?)*)*");
         let nested_pairs = progress_pairs(&nested);
@@ -6014,14 +6476,17 @@ mod tests {
         assert_eq!(
             compile(r"\{{2}").instructions,
             vec![
+                RegExpInstruction::repeat_begin(0),
+                RegExpInstruction::repeat_guard(3, 0, QuantifierPreference::Greedy),
                 RegExpInstruction::literal_ascii(b'{'),
-                RegExpInstruction::literal_ascii(b'{'),
+                RegExpInstruction::repeat_end(0),
+                RegExpInstruction::repeat_exit(0),
                 RegExpInstruction::accept(),
             ]
         );
         assert_eq!(
             compile(r"\}{1,2}").instructions.len(),
-            4,
+            6,
             "escaped closing brace remains an atom for postfix quantification"
         );
     }
@@ -6061,12 +6526,18 @@ mod tests {
             ]
         );
         assert_eq!(
+            compile("a+").instructions,
+            vec![
+                RegExpInstruction::literal_ascii(b'a'),
+                RegExpInstruction::split(0, 2),
+                RegExpInstruction::accept()
+            ]
+        );
+        assert_eq!(
             compile("a+?").instructions,
             vec![
                 RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::split(4, 2),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::jump(1),
+                RegExpInstruction::split(2, 0),
                 RegExpInstruction::accept()
             ]
         );
@@ -6081,41 +6552,36 @@ mod tests {
                 RegExpInstruction::accept()
             ]
         );
-        assert_eq!(
-            compile("a{2}").instructions,
-            vec![
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::accept()
-            ]
-        );
-        assert_eq!(
-            compile("a{2,4}").instructions,
-            vec![
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::split(3, 4),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::split(5, 6),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::accept()
-            ]
-        );
-        assert_eq!(
-            compile("a{2,}").instructions,
-            vec![
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::split(3, 5),
-                RegExpInstruction::literal_ascii(b'a'),
-                RegExpInstruction::jump(2),
-                RegExpInstruction::accept()
-            ]
-        );
-        assert_eq!(
-            compile("a{2,4}?").instructions[2],
-            RegExpInstruction::split(4, 3)
-        );
+        for (source, minimum, maximum, preference) in [
+            ("a{2}", 2, Some(2), QuantifierPreference::Greedy),
+            ("a{2,4}", 2, Some(4), QuantifierPreference::Greedy),
+            ("a{2,}", 2, None, QuantifierPreference::Greedy),
+            ("a{2,4}?", 2, Some(4), QuantifierPreference::Lazy),
+        ] {
+            let program = compile(source);
+            assert_eq!(
+                program.repeat_bounds,
+                vec![RegExpRepeatBounds::new(
+                    RegExpNatural::from_u64(minimum),
+                    maximum.map_or(RegExpRepeatMaximum::Unbounded, |value| {
+                        RegExpRepeatMaximum::Finite(RegExpNatural::from_u64(value))
+                    }),
+                )
+                .unwrap()]
+            );
+            assert_eq!(
+                program.instructions,
+                vec![
+                    RegExpInstruction::repeat_begin(0),
+                    RegExpInstruction::repeat_guard(3, 0, preference),
+                    RegExpInstruction::literal_ascii(b'a'),
+                    RegExpInstruction::repeat_end(0),
+                    RegExpInstruction::repeat_exit(0),
+                    RegExpInstruction::accept(),
+                ],
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -6127,16 +6593,33 @@ mod tests {
                 "{pattern}"
             );
         }
+        // The original decimal is too large for any consuming match; that
+        // proof admits never-match without admitting a saturated nullable count.
+        assert!(
+            RegExpProgram::compile("a{184467440737095516160}", "").is_ok(),
+            "overflowed minimum compiles to never-match"
+        );
+        assert!(
+            RegExpProgram::compile("b{9007199254740991}", "u").is_ok(),
+            "MAX_SAFE_INTEGER minimum compiles"
+        );
+        assert!(
+            RegExpProgram::compile("b{0,9007199254740991}", "").is_ok(),
+            "MAX_SAFE_INTEGER maximum remains an exact finite counted bound"
+        );
         assert_eq!(
-            RegExpProgram::compile("a{184467440737095516160}", "")
-                .expect_err("overflow")
+            RegExpProgram::compile("a{184467440737095516160,5}", "")
+                .expect_err("reversed-overflow")
                 .kind,
-            RegExpCompileErrorKind::UnsupportedFeature
+            RegExpCompileErrorKind::InvalidSyntax
         );
-        assert_eq!(
-            RegExpProgram::compile("a{4096}", "").expect_err("cap").kind,
-            RegExpCompileErrorKind::UnsupportedFeature
-        );
+        let counted =
+            RegExpProgram::compile("a{32768}", "").expect("bounds no longer expand source bodies");
+        assert_eq!(counted.instructions.len(), 6);
+        let nullable =
+            RegExpProgram::compile("(){4294967296}", "").expect("exact nullable minimum");
+        assert_eq!(nullable.repeat_bounds[0].minimum().digits(), b"4294967296");
+        ValidatedRegExpProgram::from_program(&nullable).expect("source-sized exact descriptor");
     }
 
     #[test]
@@ -6465,6 +6948,40 @@ mod tests {
     }
 
     #[test]
+    fn unicode17_delta_covers_new_scripts_and_range_changes() {
+        // Names added in Unicode 17 resolve with their exact range sets.
+        for (pattern, witness) in [
+            (r"\p{Script=Beria_Erfe}", 0x16ea0),
+            (r"\p{Script=Berf}", 0x16ed3),
+            (r"\p{scx=Tayo}", 0x1e6c0),
+            (r"\p{Script_Extensions=Tolong_Siki}", 0x11db0),
+            (r"\p{Script=Sidt}", 0x10940),
+        ] {
+            let ranges = unicode_property_ranges(
+                pattern
+                    .strip_prefix(r"\p{")
+                    .unwrap()
+                    .strip_suffix('}')
+                    .unwrap(),
+            )
+            .unwrap_or_else(|| panic!("{pattern} should resolve"));
+            assert!(
+                ranges.iter().any(|&(s, e)| s <= witness && witness <= e),
+                "{pattern} should cover U+{witness:05X}: {ranges:?}"
+            );
+        }
+        // Unicode 16 -> 17 membership changes apply in both directions.
+        let alphabetic = unicode_property_ranges("Alphabetic").expect("Alphabetic resolves");
+        assert!(alphabetic.iter().any(|&(s, e)| s <= 0x88f && 0x88f <= e));
+        let cased = unicode_property_ranges("Cased").expect("Cased resolves");
+        assert!(!cased.iter().any(|&(s, e)| s <= 0x295 && 0x295 <= e));
+        // The delta never resurrects invalid names or drops valid aliases.
+        assert!(unicode_property_ranges("Script=Letter").is_none());
+        assert!(unicode_property_ranges("space").is_some());
+        assert!(unicode_property_ranges("No_Such_Property").is_none());
+    }
+
+    #[test]
     fn unicode_sets_validates_class_strings_before_finite_lowering() {
         for pattern in [
             r"[\q{}]",
@@ -6529,7 +7046,6 @@ mod tests {
     fn unicode_sets_finite_string_algebra() {
         fn finite_atom(pattern: &str) -> FiniteClassSetAtom {
             let mut parsed = parse_pattern(pattern, RegExpUnicodeMode::UnicodeSets, false).unwrap();
-            assert_eq!(parsed.capability, ParsedPatternCapability::MatcherReady);
             let term = parsed
                 .alternatives
                 .pop()
@@ -6575,11 +7091,11 @@ mod tests {
         assert!(atom_nullable(&ParsedAtom::FiniteClassSet(direct.clone())));
 
         let mut forward = Vec::new();
-        ProgramLowerer::new(&mut forward, 0, &[])
+        ProgramLowerer::new(&mut forward, &mut Vec::new(), 0, &[])
             .finite_class_set_atom(&direct, RegExpMatchDirection::Forward)
             .unwrap();
         let mut reverse = Vec::new();
-        ProgramLowerer::new(&mut reverse, 0, &[])
+        ProgramLowerer::new(&mut reverse, &mut Vec::new(), 0, &[])
             .finite_class_set_atom(&direct, RegExpMatchDirection::Reverse)
             .unwrap();
         let literals = |instructions: &[RegExpInstruction]| {
@@ -6611,12 +7127,6 @@ mod tests {
             Some(SyntaxRule::NegatedClassMayContainStrings)
         );
 
-        for pattern in [r"[\q{a}&&A]", r"[\q{ab}--\q{ab}]"] {
-            let unsupported = RegExpProgram::compile(pattern, "iv")
-                .expect_err("direct-q provenance requires operand-local case folding");
-            assert_eq!(unsupported.kind, RegExpCompileErrorKind::UnsupportedFeature);
-            assert_eq!(unsupported.rule, None);
-        }
         let keycaps = finite_atom(r"\p{Emoji_Keycap_Sequence}");
         assert_eq!(keycaps.multi_code_point_strings.len(), 12);
         assert!(keycaps.multi_code_point_strings.iter().all(|string| {
@@ -6649,19 +7159,24 @@ mod tests {
             Some(SyntaxRule::NegatedClassMayContainStrings)
         );
 
-        for property_name in [
-            "Basic_Emoji",
-            "RGI_Emoji_Flag_Sequence",
-            "RGI_Emoji_Modifier_Sequence",
-            "RGI_Emoji_Tag_Sequence",
-            "RGI_Emoji_ZWJ_Sequence",
-            "RGI_Emoji",
+        // Every property of strings lowers finitely; the ZWJ and full
+        // RGI sets are the largest (12k/18k instructions with the
+        // single-copy `+` loop) and size the matcher-program cap.
+        for (property_name, expected_strings) in [
+            ("Basic_Emoji", 207),
+            ("RGI_Emoji_Flag_Sequence", 259),
+            ("RGI_Emoji_Modifier_Sequence", 665),
+            ("RGI_Emoji_Tag_Sequence", 3),
+            ("RGI_Emoji_ZWJ_Sequence", 1614),
+            ("RGI_Emoji", 2760),
         ] {
-            let pattern = format!(r"[\p{{{property_name}}}\q{{a}}]");
-            let property = RegExpProgram::compile(&pattern, "v")
-                .expect_err("other properties of strings retain their distinct capability");
-            assert_eq!(property.kind, RegExpCompileErrorKind::UnsupportedFeature);
-            assert_eq!(property.rule, None);
+            let pattern = format!(r"\p{{{property_name}}}");
+            let atom = finite_atom(&pattern);
+            assert_eq!(
+                atom.multi_code_point_strings.len(),
+                expected_strings,
+                "{property_name}"
+            );
         }
 
         let oversized = format!(r"[\q{{{}}}]", "a".repeat(REGEXP_MAX_INSTRUCTIONS + 1));
@@ -6672,37 +7187,28 @@ mod tests {
 
     #[test]
     fn unicode_string_property_names_are_strict_and_closed() {
-        for property_name in [
-            "Basic_Emoji",
-            "RGI_Emoji_Flag_Sequence",
-            "RGI_Emoji_Modifier_Sequence",
-            "RGI_Emoji_Tag_Sequence",
-            "RGI_Emoji_ZWJ_Sequence",
-            "RGI_Emoji",
+        for (property_name, expected_strings) in [
+            ("Emoji_Keycap_Sequence", 12),
+            ("Basic_Emoji", 207),
+            ("RGI_Emoji_Flag_Sequence", 259),
+            ("RGI_Emoji_Modifier_Sequence", 665),
+            ("RGI_Emoji_Tag_Sequence", 3),
+            ("RGI_Emoji_ZWJ_Sequence", 1614),
+            ("RGI_Emoji", 2760),
         ] {
             let source = format!(r"\p{{{property_name}}}");
             let mut cursor = 0;
-            let value = parse_unicode_property_of_strings(source.as_bytes(), &mut cursor)
-                .unwrap()
-                .expect("recognized property of strings");
-            assert_eq!(cursor, source.len(), "{property_name}");
-            assert!(matches!(
-                value.semantics,
-                ClassSetSemantics::RequiresUnicodeSetSemantics(
-                    RequiresUnicodeSetSemantics::PropertyOfStrings(_)
-                )
-            ));
-        }
-
-        let mut cursor = 0;
-        let keycaps = parse_unicode_property_of_strings(br"\p{Emoji_Keycap_Sequence}", &mut cursor)
+            let value = parse_unicode_property_of_strings(
+                source.as_bytes(),
+                &mut cursor,
+                CaseFolding::Sensitive,
+            )
             .unwrap()
             .expect("recognized finite property of strings");
-        assert_eq!(cursor, br"\p{Emoji_Keycap_Sequence}".len());
-        let ClassSetSemantics::Finite(keycaps) = keycaps.semantics else {
-            panic!("keycap property must use finite string semantics");
-        };
-        assert_eq!(keycaps.strings.len(), 12);
+            assert_eq!(cursor, source.len(), "{property_name}");
+            let finite = value.finite;
+            assert_eq!(finite.strings.len(), expected_strings, "{property_name}");
+        }
 
         for source in [
             br"\p{emoji_keycap_sequence}".as_slice(),
@@ -6710,9 +7216,11 @@ mod tests {
             br"\p{RGIEmoji}".as_slice(),
         ] {
             let mut cursor = 0;
-            assert!(parse_unicode_property_of_strings(source, &mut cursor)
-                .unwrap()
-                .is_none());
+            assert!(
+                parse_unicode_property_of_strings(source, &mut cursor, CaseFolding::Sensitive)
+                    .unwrap()
+                    .is_none()
+            );
             assert_eq!(cursor, 0);
         }
     }
@@ -6906,7 +7414,15 @@ mod tests {
         );
         assert_eq!(
             RegExpProgram::compile("𠮷{2}", "").unwrap().instructions,
-            vec![lead, trail, trail, RegExpInstruction::accept()]
+            vec![
+                lead,
+                RegExpInstruction::repeat_begin(0),
+                RegExpInstruction::repeat_guard(4, 0, QuantifierPreference::Greedy),
+                trail,
+                RegExpInstruction::repeat_end(1),
+                RegExpInstruction::repeat_exit(1),
+                RegExpInstruction::accept()
+            ]
         );
         assert_eq!(
             RegExpProgram::compile("𠮷?", "u").unwrap().instructions,
@@ -6917,6 +7433,87 @@ mod tests {
             ],
             "Unicode mode quantifies the whole scalar"
         );
+    }
+
+    #[test]
+    fn legacy_non_ascii_identity_atoms_retain_utf16_quantifier_ownership() {
+        let lead = RegExpInstruction::literal_code_point(0xD842);
+        let trail = RegExpInstruction::literal_code_point(0xDFB7);
+        for (source, expected) in [
+            (
+                r"\é",
+                vec![
+                    RegExpInstruction::literal_code_point(0xE9),
+                    RegExpInstruction::accept(),
+                ],
+            ),
+            (
+                r"\𠮷?",
+                vec![
+                    lead,
+                    RegExpInstruction::split(2, 3),
+                    trail,
+                    RegExpInstruction::accept(),
+                ],
+            ),
+            (
+                r"\𠮷??",
+                vec![
+                    lead,
+                    RegExpInstruction::split(3, 2),
+                    trail,
+                    RegExpInstruction::accept(),
+                ],
+            ),
+            (r"\𠮷{0}", vec![lead, RegExpInstruction::accept()]),
+            (
+                r"\𠮷{2}",
+                vec![
+                    lead,
+                    RegExpInstruction::repeat_begin(0),
+                    RegExpInstruction::repeat_guard(4, 0, QuantifierPreference::Greedy),
+                    trail,
+                    RegExpInstruction::repeat_end(1),
+                    RegExpInstruction::repeat_exit(1),
+                    RegExpInstruction::accept(),
+                ],
+            ),
+        ] {
+            let program = RegExpProgram::compile(source, "").unwrap();
+            assert_eq!(program.instructions, expected, "{source}");
+            ValidatedRegExpProgram::from_program(&program).unwrap();
+        }
+        let grouped = RegExpProgram::compile(r"(?:\𠮷){2}", "").unwrap();
+        assert_eq!(
+            grouped.instructions,
+            vec![
+                RegExpInstruction::repeat_begin(0),
+                RegExpInstruction::repeat_guard(4, 0, QuantifierPreference::Greedy),
+                lead,
+                trail,
+                RegExpInstruction::repeat_end(0),
+                RegExpInstruction::repeat_exit(0),
+                RegExpInstruction::accept(),
+            ],
+            "a grouping term owns both code units before repetition"
+        );
+        ValidatedRegExpProgram::from_program(&grouped).unwrap();
+    }
+
+    #[test]
+    fn unicode_non_ascii_identity_atoms_use_the_syntax_error_owner() {
+        for flags in ["u", "v"] {
+            for (source, offset) in [(r"\é", 0), (r"x\é", 1), (r"\𠮷?", 0)] {
+                let error = RegExpProgram::compile(source, flags).unwrap_err();
+                assert_eq!(
+                    error.kind,
+                    RegExpCompileErrorKind::InvalidSyntax,
+                    "{source}"
+                );
+                assert_eq!(error.rule, Some(SyntaxRule::IdentityEscape));
+                assert_eq!(error.offset, offset, "{source}");
+            }
+        }
     }
 
     #[test]
@@ -7007,7 +7604,7 @@ mod tests {
                     && instruction.operand1 == 0
             ));
         assert_eq!(
-            repeated.instructions[0],
+            repeated.instructions[2],
             RegExpInstruction::clear_capture_range(1, 3)
         );
         assert_eq!(
@@ -7018,7 +7615,7 @@ mod tests {
                     **instruction == RegExpInstruction::clear_capture_range(1, 3)
                 })
                 .count(),
-            4
+            2
         );
     }
 
@@ -7107,28 +7704,27 @@ mod tests {
             program.instructions[0],
             RegExpInstruction::lookaround_start(RegExpMatchDirection::Reverse)
         );
-        assert_eq!(program.instructions[1], RegExpInstruction::split(2, 7));
-        assert_eq!(program.instructions[3], RegExpInstruction::split(4, 6));
-        assert_eq!(program.instructions[5], RegExpInstruction::jump(3));
+        assert_eq!(program.instructions[1], RegExpInstruction::split(2, 5));
+        assert_eq!(program.instructions[3], RegExpInstruction::split(2, 4));
+        assert_eq!(
+            program.instructions[4],
+            RegExpInstruction::lookaround_end(
+                5,
+                6,
+                &LookaroundPolarity::Positive,
+                RegExpMatchDirection::Forward
+            )
+        );
+        assert_eq!(
+            program.instructions[5],
+            RegExpInstruction::lookaround_failure(
+                6,
+                &LookaroundPolarity::Positive,
+                RegExpMatchDirection::Forward
+            )
+        );
         assert_eq!(
             program.instructions[6],
-            RegExpInstruction::lookaround_end(
-                7,
-                8,
-                &LookaroundPolarity::Positive,
-                RegExpMatchDirection::Forward
-            )
-        );
-        assert_eq!(
-            program.instructions[7],
-            RegExpInstruction::lookaround_failure(
-                8,
-                &LookaroundPolarity::Positive,
-                RegExpMatchDirection::Forward
-            )
-        );
-        assert_eq!(
-            program.instructions[8],
             RegExpInstruction::literal_ascii(b'f')
         );
     }
@@ -7511,6 +8107,33 @@ mod tests {
                 );
             }
         }
+        // The complete named-capture census must reach both class encoders
+        // and both range endpoints, even when the group appears afterwards.
+        for body in [r"\k", r"\k-m", r"i-\k"] {
+            let bitmap_source = format!("[{body}]");
+            let ranges_source = format!(r"[{body}\u0041]");
+            assert!(!class_needs_code_point_ranges(bitmap_source.as_bytes(), 0));
+            assert!(class_needs_code_point_ranges(ranges_source.as_bytes(), 0));
+            for class_source in [&bitmap_source, &ranges_source] {
+                assert!(
+                    RegExpProgram::compile(class_source, "").is_ok(),
+                    "{class_source}"
+                );
+                for pattern in [
+                    format!("(?<named>a){class_source}"),
+                    format!("{class_source}(?<named>a)"),
+                ] {
+                    let error = RegExpProgram::compile(&pattern, "")
+                        .expect_err("named-capture context excludes escaped k inside classes");
+                    assert_eq!(
+                        error.kind,
+                        RegExpCompileErrorKind::InvalidSyntax,
+                        "{pattern}"
+                    );
+                    assert_eq!(error.rule, Some(SyntaxRule::ClassEscape), "{pattern}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -7612,6 +8235,255 @@ mod tests {
                 RegExpProgram::compile(source, "u").is_ok(),
                 "legal Unicode class identity escape `{source}` must remain accepted"
             );
+        }
+    }
+
+    fn folded_class_value(pattern: &str) -> ClassSetValue {
+        let mut cursor = 0;
+        let parsed = parse_class_set(pattern.as_bytes(), &mut cursor, CaseFolding::Unicode)
+            .unwrap_or_else(|error| panic!("{pattern}: {error}"));
+        assert_eq!(cursor, pattern.len());
+        parsed.into_nested_value()
+    }
+
+    #[test]
+    fn unicode_sets_class_strings_fold_singletons_before_algebra() {
+        for (direct, ordinary) in [
+            (r"[\q{a}&&A]", "[a&&A]"),
+            (r"[\q{K}&&\u212A]", r"[K&&\u212A]"),
+            (r"[\q{a}--A]", "[a--A]"),
+            (r"[^\q{K}]", "[^K]"),
+            (r"[[^\q{K}]&&\q{K|b}]", "[[^K]&&[Kb]]"),
+        ] {
+            let direct = RegExpProgram::compile(direct, "iv").unwrap();
+            let ordinary = RegExpProgram::compile(ordinary, "iv").unwrap();
+            assert_eq!(direct.instructions, ordinary.instructions);
+            assert_eq!(direct.ranges, ordinary.ranges);
+            super::program::ValidatedRegExpProgram::from_program(&direct).unwrap();
+        }
+        let complemented = folded_class_value(r"[^\q{K}]");
+        for code_point in [u32::from(b'K'), u32::from(b'k'), 0x212a] {
+            assert!(!ranges_contain(&complemented.finite.ranges, code_point));
+        }
+        assert!(ranges_contain(&complemented.finite.ranges, u32::from(b'b')));
+    }
+
+    #[test]
+    fn unicode_sets_class_strings_fold_sequences_before_algebra() {
+        let union = folded_class_value(r"[\q{Ab|aB}\q{AB|CD}]");
+        assert_eq!(
+            union.finite.strings,
+            BTreeSet::from([
+                vec![u32::from(b'a'), u32::from(b'b')],
+                vec![u32::from(b'c'), u32::from(b'd')]
+            ])
+        );
+        let intersection = folded_class_value(r"[\q{Ab|CD}&&\q{aB|ef}]");
+        assert_eq!(intersection.finite.strings, BTreeSet::from([vec![97, 98]]));
+        let subtraction = folded_class_value(r"[\q{Ab|CD}--\q{aB|ef}]");
+        assert_eq!(subtraction.finite.strings, BTreeSet::from([vec![99, 100]]));
+        assert!(folded_class_value(r"[\q{Ab}--\q{aB}]")
+            .finite
+            .strings
+            .is_empty());
+    }
+
+    #[test]
+    fn unicode_sets_class_strings_simple_folding_preserves_code_point_lengths() {
+        let value = folded_class_value(
+            r"[\q{\u017F\u212A|\u03A3\u03C2|\u{10400}\u{10428}|\uD800X|\u00DF\u00DF|SS|}]",
+        );
+        assert_eq!(
+            value.finite.strings,
+            BTreeSet::from([
+                vec![115, 107],
+                vec![0x3c3, 0x3c3],
+                vec![0x10428, 0x10428],
+                vec![0xd800, 120],
+                vec![0xdf, 0xdf],
+                vec![115, 115],
+                vec![],
+            ])
+        );
+        assert!(value.may_contain_strings);
+        assert!(value.finite.ranges.is_empty());
+    }
+
+    #[test]
+    fn unicode_sets_folded_strings_lower_each_position_through_existing_instructions() {
+        let mut parsed =
+            parse_pattern(r"[\q{\u212A\u017F}]", RegExpUnicodeMode::UnicodeSets, true).unwrap();
+        let term = parsed.alternatives.pop().unwrap().pop().unwrap();
+        let ParsedTerm::Quantified {
+            atom: ParsedAtom::FiniteClassSet(atom),
+            ..
+        } = term
+        else {
+            panic!("one multi-code-point atom expected");
+        };
+        assert_eq!(atom.multi_code_point_strings.len(), 1);
+        assert_eq!(atom.multi_code_point_strings[0].len(), 2);
+        let members = |instruction: RegExpInstruction| {
+            assert_eq!(instruction.opcode, REGEXP_OPCODE_UNICODE_PROPERTY);
+            let first = instruction.operand0 as usize;
+            let count = (instruction.operand1 >> 1) as usize;
+            parsed.ranges[first..first + count].to_vec()
+        };
+        let kelvin = members(atom.multi_code_point_strings[0][0]);
+        let long_s = members(atom.multi_code_point_strings[0][1]);
+        for code_point in [75, 107, 0x212a] {
+            assert!(ranges_contain(&kelvin, code_point));
+        }
+        for code_point in [83, 115, 0x17f] {
+            assert!(ranges_contain(&long_s, code_point));
+        }
+        assert!(!ranges_contain(&kelvin, 115));
+        assert!(!ranges_contain(&long_s, 107));
+        let mut forward = Vec::new();
+        ProgramLowerer::new(&mut forward, &mut Vec::new(), 0, &[])
+            .finite_class_set_atom(&atom, RegExpMatchDirection::Forward)
+            .unwrap();
+        let mut reverse = Vec::new();
+        ProgramLowerer::new(&mut reverse, &mut Vec::new(), 0, &[])
+            .finite_class_set_atom(&atom, RegExpMatchDirection::Reverse)
+            .unwrap();
+        assert_eq!(forward[1..3], atom.multi_code_point_strings[0]);
+        assert_eq!(
+            reverse[1..3],
+            [
+                atom.multi_code_point_strings[0][1],
+                atom.multi_code_point_strings[0][0]
+            ]
+        );
+    }
+
+    #[test]
+    fn unicode_sets_folded_class_strings_keep_empty_and_static_negation_rules() {
+        let empty = folded_class_value(r"[\q{AB|}--\q{ab}]");
+        assert_eq!(empty.finite.strings, BTreeSet::from([vec![]]));
+        let legal = RegExpProgram::compile(r"[^\q{ab}&&A]", "iv").unwrap();
+        super::program::ValidatedRegExpProgram::from_program(&legal).unwrap();
+        for pattern in [r"[^\q{ab}--\q{AB}]", r"[^\q{}]", r"[^\q{ab}&&\q{CD}]"] {
+            let error = RegExpProgram::compile(pattern, "iv").unwrap_err();
+            assert_eq!(error.kind, RegExpCompileErrorKind::InvalidSyntax);
+            assert_eq!(error.rule, Some(SyntaxRule::NegatedClassMayContainStrings));
+        }
+        for (pattern, rule) in [
+            (r"[\q{ab}]\k<missing>", SyntaxRule::UnknownGroupName),
+            (r"[\q{ab}](", SyntaxRule::UnclosedGroup),
+            (r"[\q{ab}--]", SyntaxRule::ClassSetExpression),
+        ] {
+            let error = RegExpProgram::compile(pattern, "iv").unwrap_err();
+            assert_eq!(error.kind, RegExpCompileErrorKind::InvalidSyntax);
+            assert_eq!(error.rule, Some(rule));
+        }
+    }
+
+    #[test]
+    fn unicode_sets_folded_strings_keep_longest_first_and_scoped_modifiers() {
+        let mut parsed =
+            parse_pattern(r"[\q{A|Ab|ABC|}]", RegExpUnicodeMode::UnicodeSets, true).unwrap();
+        let term = parsed.alternatives.pop().unwrap().pop().unwrap();
+        let ParsedTerm::Quantified {
+            atom: ParsedAtom::FiniteClassSet(atom),
+            ..
+        } = term
+        else {
+            panic!("a mixed finite class atom expected");
+        };
+        assert_eq!(
+            atom.multi_code_point_strings
+                .iter()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            vec![3, 2]
+        );
+        assert!(atom.contains_empty);
+        assert_eq!(atom.singleton.opcode, REGEXP_OPCODE_UNICODE_PROPERTY);
+        let first = atom.singleton.operand0 as usize;
+        let count = (atom.singleton.operand1 >> 1) as usize;
+        let singleton_ranges = &parsed.ranges[first..first + count];
+        assert!(ranges_contain(singleton_ranges, u32::from(b'a')));
+        assert!(ranges_contain(singleton_ranges, u32::from(b'A')));
+        let direct = RegExpProgram::compile(r"[\q{Ab}]", "iv").unwrap();
+        let scoped = RegExpProgram::compile(r"(?i:[\q{Ab}])", "v").unwrap();
+        assert_eq!(direct.instructions, scoped.instructions);
+        assert_eq!(direct.ranges, scoped.ranges);
+        let sensitive = RegExpProgram::compile(r"[\q{Ab}]", "v").unwrap();
+        let disabled = RegExpProgram::compile(r"(?-i:[\q{Ab}])", "iv").unwrap();
+        assert_eq!(sensitive.instructions, disabled.instructions);
+        assert_eq!(sensitive.ranges, disabled.ranges);
+    }
+
+    #[test]
+    fn unicode_sets_folded_property_strings_share_direct_operand_keys() {
+        let original = vec![0x24c2, 0xfe0f];
+        let canonical = vec![0x24dc, 0xfe0f];
+        for property_name in ["Basic_Emoji", "RGI_Emoji"] {
+            let property = format!(r"\p{{{property_name}}}");
+            let folded = folded_class_value(&format!("[{property}]"));
+            assert!(
+                folded.finite.strings.contains(&canonical),
+                "{property_name}"
+            );
+            assert!(
+                !folded.finite.strings.contains(&original),
+                "{property_name}"
+            );
+            let intersection = format!(r"[{property}&&\q{{\u24C2\uFE0F}}]");
+            assert_eq!(
+                folded_class_value(&intersection).finite.strings,
+                BTreeSet::from([canonical.clone()]),
+                "{property_name}"
+            );
+            let subtraction = format!(r"[{property}--\q{{\u24DC\uFE0F}}]");
+            assert!(
+                !folded_class_value(&subtraction)
+                    .finite
+                    .strings
+                    .contains(&canonical),
+                "{property_name}"
+            );
+            let reverse_subtraction = format!(r"[\q{{\u24C2\uFE0F}}--{property}]");
+            assert!(
+                folded_class_value(&reverse_subtraction)
+                    .finite
+                    .strings
+                    .is_empty(),
+                "{property_name}"
+            );
+            let mut cursor = 0;
+            let sensitive =
+                parse_class_set(intersection.as_bytes(), &mut cursor, CaseFolding::Sensitive)
+                    .unwrap()
+                    .into_nested_value();
+            assert_eq!(cursor, intersection.len());
+            assert_eq!(sensitive.finite.strings, BTreeSet::from([original.clone()]));
+            let lower_intersection = format!(r"[{property}&&\q{{\u24DC\uFE0F}}]");
+            let mut cursor = 0;
+            let sensitive_lower = parse_class_set(
+                lower_intersection.as_bytes(),
+                &mut cursor,
+                CaseFolding::Sensitive,
+            )
+            .unwrap()
+            .into_nested_value();
+            assert!(sensitive_lower.finite.strings.is_empty());
+            let direct = RegExpProgram::compile(&intersection, "iv").unwrap();
+            let enabled = RegExpProgram::compile(&format!("(?i:{intersection})"), "v").unwrap();
+            assert_eq!(direct.instructions, enabled.instructions);
+            assert_eq!(direct.ranges, enabled.ranges);
+            let direct_sensitive = RegExpProgram::compile(&intersection, "v").unwrap();
+            let disabled = RegExpProgram::compile(&format!("(?-i:{intersection})"), "iv").unwrap();
+            assert_eq!(direct_sensitive.instructions, disabled.instructions);
+            assert_eq!(direct_sensitive.ranges, disabled.ranges);
+            for pattern in [property.clone(), format!("[{property}]")] {
+                let v = RegExpProgram::compile(&pattern, "v").unwrap();
+                let iv = RegExpProgram::compile(&pattern, "iv").unwrap();
+                super::program::ValidatedRegExpProgram::from_program(&v).unwrap();
+                super::program::ValidatedRegExpProgram::from_program(&iv).unwrap();
+                assert_ne!(v.instructions, iv.instructions, "{property_name}");
+            }
         }
     }
 }

@@ -1,6 +1,5 @@
 use crate::{EarlyErrorCode, ExportName, IrDiagnostic, MAX_LINKABLE_MODULE_UNIT_ID};
 
-use super::import_phase::ImportPhaseIr;
 use super::module_key::ModuleKey;
 use super::record::{ModuleRequestIr, ModuleRequestKeyIr, ModuleUnitId};
 
@@ -30,6 +29,14 @@ pub enum ModuleLinkErrorIr {
         /// `[[ExportName]]` read from this side — the same domain, so the same
         /// type. Filling this from a `[[LocalName]]` is `E0308`.
         import_name: ExportName,
+    },
+    /// The resolved ECMAScript module has no module-source representation.
+    /// Resolution and parsing precede this InitializeEnvironment failure.
+    SourceUnavailable {
+        /// The importing or forwarding module.
+        referrer: ModuleUnitId,
+        /// Full source-phase occurrence whose target was already resolved.
+        request: ModuleRequestIr,
     },
     /// Two `export *` paths reached different bindings for one name.
     AmbiguousExport {
@@ -67,20 +74,6 @@ pub enum ModuleLinkErrorIr {
         /// Number of module sources the host handed over.
         count: usize,
     },
-    /// A phased request this stage cannot link, with the reason.
-    ///
-    /// `import defer` and `import source` link (see
-    /// [`crate::ModuleEvaluationModeIr`]); what remains here are the shapes the
-    /// source-text linker cannot express, chiefly a deferred module whose body
-    /// would have to suspend.
-    UnsupportedPhase {
-        /// Module making the request.
-        module: ModuleUnitId,
-        /// The unsupported phase.
-        phase: ImportPhaseIr,
-        /// Why this particular request could not be linked.
-        reason: String,
-    },
 }
 
 impl ModuleLinkErrorIr {
@@ -96,11 +89,11 @@ impl ModuleLinkErrorIr {
         match self {
             Self::UnresolvedModule { .. } => EarlyErrorCode::ModuleUnresolved,
             Self::MissingExport { .. } => EarlyErrorCode::ModuleMissingExport,
+            Self::SourceUnavailable { .. } => EarlyErrorCode::ModuleSourceUnavailable,
             Self::AmbiguousExport { .. } => EarlyErrorCode::ModuleAmbiguousExport,
             Self::DuplicateExport { .. } => EarlyErrorCode::ModuleDuplicateExport,
             Self::InconsistentLoad { .. } => EarlyErrorCode::ModuleInconsistentLoad,
             Self::InconsistentResolution { .. } => EarlyErrorCode::ModuleInconsistentLoad,
-            Self::UnsupportedPhase { .. } => EarlyErrorCode::ModuleUnsupportedPhase,
             Self::TooManyUnits { .. } => EarlyErrorCode::ModuleTooManyUnits,
         }
     }
@@ -121,6 +114,10 @@ impl ModuleLinkErrorIr {
                 request.specifier(),
                 import_name.as_str()
             ),
+            Self::SourceUnavailable { request, .. } => format!(
+                "ECMAScript module {} has no source representation",
+                request.specifier()
+            ),
             Self::AmbiguousExport { export_name, .. } => {
                 format!("ambiguous export name: {}", export_name.as_str())
             }
@@ -133,10 +130,6 @@ impl ModuleLinkErrorIr {
             Self::InconsistentResolution { request, .. } => format!(
                 "module request resolved inconsistently: {}",
                 request.specifier()
-            ),
-            Self::UnsupportedPhase { phase, reason, .. } => format!(
-                "unsupported in lila wasm-aot: {} phase module request: {reason}",
-                phase.as_str()
             ),
             Self::TooManyUnits { count } => format!(
                 "unsupported in lila wasm-aot: module graph has {count} units; the source-text \

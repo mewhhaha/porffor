@@ -23,5 +23,33 @@ same-offset designation changes, and constant tails.
 
 The existing compiled 2025b normalizer and filesystem provider are unchanged.
 Lila's Intl path does not call them: it uses its generated IANA2026a identifier
-catalogue and `Tzif::from_bytes` on hash-checked jiff-tzdb0.1.6 bytes. The patch
-does not change transition selection arithmetic or the existing Temporal API.
+catalogue and `Tzif::from_bytes` on hash-checked jiff-tzdb0.1.6 bytes. The public Temporal API remains unchanged.
+
+A second exact-selector patch resolves POSIX rule boundaries in adjacent
+nominal years before selecting the latest UTC transition. It recognizes
+RFC9636 3.3.1 all-year daylight rules without consulting zone names, so the
+unused standard type in the pinned Casablanca/El_Aaiun footer cannot become
+an artificial annual offset. The selector uses the existing localized-name
+context bound, checks epoch/calendar arithmetic, and carries the correct
+pre-transition offset when calculating prior-year transition metadata.
+Both private nanosecond conversions use checked Euclidean floor division,
+including values strictly between -1second and 0.
+
+Tests cover actual pinned all-year daylight records and stability, signed
+start rules and end rules beyond 24hours crossing UTC calendar boundaries,
+prior-year transition metadata, exact contextual limits, and negative
+fractional instant/local inputs at a synthetic transition. The synthetic
+same-year equal UTC start/end rule is ordered start then end, representing
+an empty daylight interval. POSIX prose and glibc agree with this
+interpretation, while current IANA tzcode treats that synthetic case as
+perpetual DST; no actual pinned footer uses that unclassified same-year tie.
+
+
+The staged Temporal data lane additionally exposes offset_change_boundaries and
+posix_offset_change_cycle, both attached to Lila's typed native named-zone
+operations. Boundary checks use the same get/POSIX snapshot selector; flag-only
+changes are excluded. A complete Gregorian400-year cycle proves sparse leap
+rules and empty perpetual tails. No approximate local-time inverse is exposed
+through Lila: its exact inverse enumerates the validated offset catalogue and
+round-trips every candidate through get. These changes require regenerating
+Lila's provider identity before production integration.

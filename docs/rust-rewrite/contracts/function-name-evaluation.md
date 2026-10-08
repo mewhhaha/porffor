@@ -22,6 +22,15 @@ name and an empty description producing `[]`. The typed prefix distinguishes
 ordinary names from getter and setter names. The resulting own data property
 is non-writable, non-enumerable, and configurable.
 
+Allocation already publishes the configurable `name` descriptor. The 2026-10-07
+repair routes inferred naming through the shared ordinary definition helper,
+which updates that descriptor in place. Appending a second entry had left the
+old name observable and caused retained completion graphs to reject duplicate
+keys. The existing native naming controls now also check own-key uniqueness.
+`tasks-loop-name1` passes the full workspace type check and both affected native
+controls: computed anonymous values and methods/accessors across Symbol names.
+The original retained-graph regression passes too. No controls are ignored.
+
 Object-method materialization requires the function, its HomeObject, and its
 evaluated property key in one consuming request. It attaches HomeObject and
 sets the function name before publishing the property. Public class methods

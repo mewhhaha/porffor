@@ -1,6 +1,94 @@
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
+    /// Primitive Gets share live intrinsic facts and the ordinary GetV effect
+    /// boundary. A mutable prototype getter must invalidate caller facts even
+    /// when the acquired property is never called.
+    pub(super) fn lower_primitive_property_key(
+        &mut self,
+        prototype: IntrinsicPrototype,
+        target: TypedExpr,
+        field: &PropertyAccessField,
+    ) -> TypedExpr {
+        match field {
+            PropertyAccessField::Const(field) => {
+                let name = self.interner.resolve_expect(field.sym()).to_string();
+                if prototype == IntrinsicPrototype::Symbol && name == "description" {
+                    if let Some(read) = self.intrinsic_symbol_description_read(&target) {
+                        return read;
+                    }
+                }
+                if let Some(read) = self.intrinsic_method_read(prototype, &target, &name) {
+                    return read;
+                }
+            }
+            PropertyAccessField::Expr(expression) => {
+                if let Some((symbol, key)) = self.lower_well_known_symbol_property_key(expression) {
+                    if let Some(read) =
+                        self.intrinsic_symbol_method_read(prototype, &target, symbol, key)
+                    {
+                        return read;
+                    }
+                }
+            }
+        }
+        self.lower_object_property_key(target, field)
+    }
+
+    /// The actual private Get owns accessor effects before a following argument
+    /// or optional choice can consume caller facts. The retained target carries
+    /// the post-Get shape without evaluating its source expression again.
+    pub(super) fn lower_private_get_value(
+        &mut self,
+        target: &mut TypedExpr,
+        private_name_id: PrivateNameId,
+    ) -> TypedExpr {
+        let property = self.read_object_shape_property(target, &private_data_key(private_name_id));
+        let may_run_user_code = match &property {
+            Some(ObjectShapeProperty::Data(_))
+            | Some(ObjectShapeProperty::Accessor { getter: None, .. }) => false,
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(_), ..
+            })
+            | None => true,
+        };
+        if may_run_user_code {
+            self.observe_all_planned_source_as_unknown_property_hooks();
+            self.invalidate_unknown_user_code_effects();
+            target.heap_shape = None;
+        }
+        let mut info = match property {
+            Some(ObjectShapeProperty::Data(info)) => info,
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(getter),
+                ..
+            }) => self.accessor_return_info(&getter.function_id),
+            Some(ObjectShapeProperty::Accessor { getter: None, .. }) => ValueInfo::undefined(),
+            None => unknown_runtime_value_info(),
+        };
+        if may_run_user_code {
+            info.heap_shape = None;
+        }
+        TypedExpr::from_info(
+            info,
+            ExprIr::PrivateRead {
+                target: Box::new(target.clone()),
+                private_name_id,
+            },
+        )
+    }
+
+    pub(super) fn lower_private_property_access(
+        &mut self,
+        access: &PrivatePropertyAccess,
+    ) -> TypedExpr {
+        let Some(private_name_id) = self.current_private_name_id(access.field()) else {
+            return self.unsupported_expr("private class element");
+        };
+        let mut target = self.lower_property_target(access.target());
+        self.lower_private_get_value(&mut target, private_name_id)
+    }
+
     pub(super) fn lower_property_access(&mut self, access: &PropertyAccess) -> TypedExpr {
         match access {
             PropertyAccess::Simple(access) => {
@@ -9,17 +97,15 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
                     let member_name = self.interner.resolve_expect(field.sym()).to_string();
-                    // The runtime encoding of a well-known symbol *value*: its
-                    // 6.1.5.1 Table 1 [[Description]], carried as a string whose
-                    // `ValueKind::Symbol` is what distinguishes it from an
-                    // ordinary string of the same text.
+                    // Retain the actual closed Symbol identity. Its description
+                    // is an ordinary string and cannot represent this value.
                     if self.expression_is_builtin_symbol_intrinsic(&target_name) {
                         if let Some(symbol) =
                             WellKnownSymbol::from_member_name(SymbolMemberName::new(&member_name))
                         {
                             return TypedExpr::from_info(
                                 ValueInfo::new(ValueKind::Symbol),
-                                ExprIr::String(symbol.description().to_string()),
+                                ExprIr::WellKnownSymbol(symbol),
                             );
                         }
                     }
@@ -29,104 +115,21 @@ impl<'a> ScriptLowerer<'a> {
                     ValueKind::Object | ValueKind::Function => {
                         self.lower_object_property_key(target, access.field())
                     }
-                    ValueKind::Boolean => {
-                        if let PropertyAccessField::Const(field) = access.field() {
-                            let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                            self.intrinsic_method_read(
-                                IntrinsicPrototype::Boolean,
-                                &target,
-                                &field_name,
-                            )
-                            .unwrap_or_else(|| {
-                                self.lower_object_property_key(target, access.field())
-                            })
-                        } else {
-                            // GetV (7.3.3): any other key is read through
-                            // %Boolean.prototype% and its chain.
-                            self.lower_object_property_key(target, access.field())
-                        }
-                    }
-                    ValueKind::BigInt => {
-                        if let PropertyAccessField::Const(field) = access.field() {
-                            let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                            self.intrinsic_method_read(
-                                IntrinsicPrototype::BigInt,
-                                &target,
-                                &field_name,
-                            )
-                            .unwrap_or_else(|| {
-                                self.lower_object_property_key(target, access.field())
-                            })
-                        } else {
-                            self.lower_object_property_key(target, access.field())
-                        }
-                    }
-                    ValueKind::Symbol => {
-                        if let PropertyAccessField::Const(field) = access.field() {
-                            let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                            if field_name == "description" {
-                                TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::String),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(target),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else if field_name == "constructor" {
-                                TypedExpr::from_info(
-                                    Self::function_value_info_with_constructable(
-                                        StandardBuiltinId::SymbolConstructor.function_id(),
-                                        false,
-                                    ),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(target),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else {
-                                if let Some(read) = self.intrinsic_method_read(
-                                    IntrinsicPrototype::Symbol,
-                                    &target,
-                                    &field_name,
-                                ) {
-                                    read
-                                } else {
-                                    // Anything else is inherited from
-                                    // `Object.prototype` via
-                                    // `Symbol.prototype`'s own
-                                    // `[[Prototype]]`; resolve it through the
-                                    // generic runtime prototype-chain lookup.
-                                    self.lower_object_property_key(target, access.field())
-                                }
-                            }
-                        } else if let PropertyAccessField::Expr(expr) = access.field() {
-                            if let Some((symbol, symbol_key)) =
-                                self.lower_well_known_symbol_property_key(expr)
-                            {
-                                if symbol == WellKnownSymbol::ToPrimitive {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(
-                                            StandardBuiltinId::SymbolPrototypeToPrimitive,
-                                        ),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(target),
-                                            key: symbol_key,
-                                        },
-                                    )
-                                } else {
-                                    // Auto-boxing: any other computed key is
-                                    // resolved against `Symbol.prototype` by
-                                    // the generic runtime lookup (typically
-                                    // yielding `undefined`).
-                                    self.lower_object_property_key(target, access.field())
-                                }
-                            } else {
-                                self.lower_object_property_key(target, access.field())
-                            }
-                        } else {
-                            self.unsupported_expr("dynamic property access on symbol target")
-                        }
-                    }
+                    ValueKind::Boolean => self.lower_primitive_property_key(
+                        IntrinsicPrototype::Boolean,
+                        target,
+                        access.field(),
+                    ),
+                    ValueKind::BigInt => self.lower_primitive_property_key(
+                        IntrinsicPrototype::BigInt,
+                        target,
+                        access.field(),
+                    ),
+                    ValueKind::Symbol => self.lower_primitive_property_key(
+                        IntrinsicPrototype::Symbol,
+                        target,
+                        access.field(),
+                    ),
                     ValueKind::String => self.lower_string_index_key(target, access.field()),
                     ValueKind::Array
                         if self.array_prototype_mutated
@@ -178,23 +181,11 @@ impl<'a> ScriptLowerer<'a> {
                         self.lower_array_index_key(target, access.field())
                     }
                     ValueKind::Dynamic => self.lower_object_property_key(target, access.field()),
-                    ValueKind::Number => {
-                        // GetV (7.3.3) through %Number.prototype%, e.g. an
-                        // accessor installed on Object.prototype.
-                        if let PropertyAccessField::Const(field) = access.field() {
-                            let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                            self.intrinsic_method_read(
-                                IntrinsicPrototype::Number,
-                                &target,
-                                &field_name,
-                            )
-                            .unwrap_or_else(|| {
-                                self.lower_object_property_key(target, access.field())
-                            })
-                        } else {
-                            self.lower_object_property_key(target, access.field())
-                        }
-                    }
+                    ValueKind::Number => self.lower_primitive_property_key(
+                        IntrinsicPrototype::Number,
+                        target,
+                        access.field(),
+                    ),
                 };
                 if matches!(
                     &result.expr,

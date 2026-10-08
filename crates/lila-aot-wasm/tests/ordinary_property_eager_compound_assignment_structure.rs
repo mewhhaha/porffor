@@ -2,7 +2,8 @@ const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const ASSIGNMENT_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
-const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
+const THROW_INFERENCE_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/throw_inference/expression.rs");
 const ORDINARY_PROPERTY_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
 const EARLY_ERRORS_SOURCE: &str = include_str!("../../lila-ir/src/early_errors.rs");
@@ -331,7 +332,7 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
             "self.emit_ordinary_set_result_via_helper(",
             "if strictness.throws_on_failed_set() {",
             "self.emit_throw_runtime_error_to_active_handler(",
-            "\"Cannot assign to property\"",
+            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY",
             "Instruction::LocalGet(result_payload)",
             "Instruction::LocalSet(payload_local)",
             "Instruction::LocalGet(result_tag)",

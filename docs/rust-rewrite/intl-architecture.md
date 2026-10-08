@@ -22,96 +22,140 @@ The product boundary is strict:
 
 ## Current evidence and gaps
 
-The product backend presently has two substantial but deliberately narrow
-pieces:
+The current source contains consumed Locale, DateTimeFormat and NumberFormat
+boundaries. Historical checkpoints retain their exact verification scope;
+source presence and isolated provider results do not establish full ECMA-402
+or Test262 conformance. NumberFormat's coordinated product verification and
+the prepared complete T22 named-zone consumer batch remain pending.
 
 - `crates/lila-aot-wasm/src/builtins/intl.rs` implements structural locale-tag
-  validation/casing, `Intl.getCanonicalLocales`, and part of `Intl.Locale`.
-  `getCanonicalLocales` now performs the required array-like `HasProperty` /
-  conditional `Get` / coercion sequence directly against the original source
-  before applying the pinned provider's CLDR alias data. `Intl.Locale` now
-  shares provider results before and after ordered core/Unicode option
-  replacement and refreshes all cached components. Its eight additional
-  getters derive their immutable values from the canonical tag; see the
-  [constructor contract](aot-intl-locale-options.md) for validation boundaries.
-- `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs` implements much of
-  DateTimeFormat's observable option ordering and its formatter/parts/range
-  shapes. Its data surface is `en`/`en-US`, `gregory`/`iso8601`, the 77
-  positional numbering systems in pinned CLDR 47, and fixed-offset zones.
-  Negotiation and every numeric display share one generated digit table; see
-  the [numbering contract](aot-intl-datetime-numbering.md). Handwritten locale
-  patterns and the fixed-zone catalogue remain a bootstrap implementation.
+  validation, `Intl.getCanonicalLocales` and observable `Intl.Locale` options.
+  CanonicalLocales walks the original array-like object with ordered
+  HasProperty, conditional Get, coercion, provider canonicalization and
+  deduplication. Locale refreshes its canonical components after ordered
+  option replacement and derives its additional getters from that record.
+  See the [constructor contract](aot-intl-locale-options.md).
+- DateTimeFormat's compiled observable shell consumes a pinned Rust provider
+  for locale resolution, recipes and scalar/range partitions. Its bounded
+  profile contains English, Arabic and simplified Chinese data, Gregorian,
+  ISO, Chinese and Buddhist calendars, the 77 CLDR47 positional numbering systems
+  plus the bounded CLDR48/UCD17 `tols` contribution to NF/DTF,
+  and the shared pinned IANA zone authority. The obsolete handwritten English
+  pattern renderer and constant-zone catalogue are retired; see the
+  [provider contract](intl-datetime-provider.md).
+- NumberFormat's compiled observable shell consumes the pinned numeric
+  provider for Number/BigInt formatting, parts, ranges and locale methods.
+  Its integration awaits coordinated product verification; pure-provider
+  results establish no Wasm-AOT service pass. See the
+  [Wasm contract](contracts/intl-numberformat-wasm.md).
 
-The shared seam now exists in `crates/lila-intl`. A data
-identity fixes schema, profile, typed canonical default locale, placement,
-digest and upstream version line. The sealed operation catalogue currently has
-two deliberately small entries—locale canonicalization and time-zone
-canonicalization—each with a distinct validated input, canonical output,
-failure type and required capability. An identity-matched `IntlKernel` grants
-only an operation-specific handle after checking the selected profile. This is
-the real API that consumes the identifier/profile/operation types; they are not
-an unattached vocabulary.
+`crates/lila-intl` fixes schema, profile, canonical default locale, placement,
+upstream versions and composite data digest together. Its sealed operation
+catalogue associates each operation with a distinct request, result, error and
+required capability. An identity-matched `IntlKernel` grants an
+operation-specific handle only when the selected profile permits it. Locale
+canonicalization/maximize/minimize, named-zone resolution, DateTimeFormat and
+NumberFormat have actual provider consumers. The complete prepared T22 batch
+adds exact named offset/inverse/transition operations to this same authority;
+its composed catalogue has 17 operations under host-call ABI 6. Those future
+source connections still require compilation and execution.
 
-One operation is now connected end to end. `lila-intl` directly pins
-`icu_locale = 2.0.0` and `icu_locale_data = 2.0.0` and builds a deterministic
-Locale-only `LocaleCanonicalizer::new_extended()` provider. The engine shares
-that kernel across Wasm stores. `Intl.getCanonicalLocales` snapshots only the
-array-like length: every index then performs HasProperty, conditionally reads
-and coerces the element, structurally validates it, calls the provider, and
-deduplicates before advancing. The original object remains live throughout, so
-an earlier coercion can change a later element without changing the fixed
-length. Primitive wrappers, null-rejection errors and the returned Array use
-the called builtin's defining Realm. User-thrown Proxy `has` errors propagate
-unchanged; correct defining-Realm provenance for errors created by the shared
-Proxy internal-method machinery remains outside this slice. The concrete
-`lila_host.intl_call` ABI is
-`(op: i64, request_span: i64, result_span: i64) -> i64`: spans are distinct
-typed offset/length and offset/capacity words, while the result is the closed
-domain `Written(u32) | RequiredCapacity(u32) | Rejected`. A zero-capacity pure
-query supplies the exact allocation size; no JavaScript operation occurs before
-the subsequent writing call. Locale spans have no fixed 255-byte syntax limit;
-time-zone identifiers retain a separate limit. Unknown operation wires and
-out-of-domain responses are ABI faults.
+The newer isolated complete service source joins PluralRules, ListFormat,
+Collator, DisplayNames and RelativeTimeFormat into that same provider. Its
+closed catalogue has 33 operations under host ABI 10, with exhaustive typed
+request/result/error dispatch and a u64 compile-time opcode census. The embedded
+profile contains the eight corresponding Intl services. Its DateTimeFormat
+domain has sixteen calendars and thirteen locales; DisplayNames and
+RelativeTimeFormat each consume thirteen genuinely sourced locales.
+RelativeTimeFormat also consumes the shared numeric/cardinal owners and the
+bounded `tols` supplement. Source-bound kernel identities include the actual
+native and host production consumers. The new service compilation and runtime
+gates remain pending; [the Wasm contract](contracts/intl-display-relative-wasm.md)
+records their ordered observation and private-record boundaries. The older
+17-operation paragraph describes its preparation checkpoint.
 
-Created realms now install the Intl namespace through the shared demand roots.
-The constructor/getter batch adds foreign getter identity and error-provenance
-regressions; its runtime verification remains pending at staging handoff.
+The concrete `lila_host.intl_call` ABI remains
+`(op: i64, request_span: i64, result_span: i64) -> i64`. Typed spans distinguish
+request offset/length from response offset/capacity; outcomes are
+`Written(u32) | RequiredCapacity(u32) | Rejected`. Pure capacity queries and
+primitive copied records let the host supply data without receiving JavaScript
+objects or deciding getter/coercion order. Unknown operations, invalid spans
+and out-of-domain responses are ABI faults.
 
-This is not two-operation support. `CanonicalizeTimeZone` stays in the closed
-catalogue but is explicitly unbound. Locale construction refreshes its tag,
-language, script, region and base-name slots together after provider calls.
-The reserved five-to-eight-letter language domain uses pinned alias tables
-through an explicit adapter, including independent transform-language aliases;
-it never substitutes an unknown language into likely-subtag inference. BCP47
-keyword-value aliases are generated from all 15 hash-pinned CLDR47 XML files,
-including both Unicode and transform values. Aliases match complete values;
-lossless keyword records preserve embedded `true` despite ICU parser folding. There is
-also no generated artifact data
-image or artifact-embedded ICU payload yet. The current provider is compiled
-into the Rust host and truthfully declares `External` placement relative to
-emitted Wasm. Its composite digest identifies the exact
-`icu_locale_data-2.0.0.crate` archive, CLDR BCP47 source manifest and canonical
-alias rows, not data embedded in the artifact. The offline generator and CI
-check reproduce every alias from all 15 upstream XML files; no dependency
-upgrade or host-locale lookup is involved.
+Created realms install Intl through the shared demand roots. Defining-Realm
+allocation/errors, bound-function identity, branding, descriptors and arbitrary
+abrupt-completion propagation remain observable Wasm responsibilities and
+verification obligations. User-thrown Proxy errors must propagate unchanged;
+shared Proxy-generated error provenance retains its own owner.
 
-The provider identity is now carried and enforced independently of that future
-data image. A module that imports `lila_host.intl_call` carries exactly one
-`lila.intl-data-identity.v1` custom section containing `lila-intl`'s canonical
-serialization of the complete `IntlDataIdentity`, including `host-call-abi=2`
-for capacity negotiation. A module without the import
-carries no such section. Before Wasmtime compilation or instantiation, the
-engine checks that import/section relation and compares the section bytes to
-the identity of its shared `EmbeddedLocaleProvider`; missing, duplicate,
-unexpected, and mismatched identities reject the artifact. Equality needs no
-second decoder or field vocabulary in the engine, and caches naturally retain
-the contract because it is part of the Wasm bytes.
+The current provider selects the existing Minimal service plan, a canonical
+`en-US` default, and Embedded placement for the finite selected data closure.
+Its twelve component images supply real immutable data to every current
+operation. Locale exports five ICU markers plus its actual CLDR47 keyword
+aliases; ListFormat exports three ICU markers, Collator/NFD nine plus its own
+exact 1,082-name locale inventory, and Segmenter seven. NumberProfiles binds the
+actual LNF47 binary and descriptor, including separately pinned CLDR48/UCD17
+numbering data, and supplies NumberFormat, PluralRules and adjacent consumers.
+DisplayNames, RelativeTimeFormat and DurationFormat retain their real native
+profile images and selected Locale/Number/List foundations.
 
-Time-zone canonicalization is intentionally not the next decorative binding.
-The resolved `timezone_provider 0.1.2` normalizer identifies its baked alias
-data as tzdb `2025b`, while the selected `jiff-tzdb` transition data reports
-`2026a`. Until one generated catalogue gives both layers a coherent identity,
-`CanonicalizeTimeZone` must remain unbound rather than mixing data vintages.
+The remaining four images own the complete IANA2026a transition and country
+authority; DateTime profiles and four genuine calendar payloads; CLDR timezone
+names; and native Locale calendar/hour/week/text tables. Their operation
+consumers retain actual selected owners. DateTime plans bind DateTime, Locale
+and IANA content identities before conversion/rendering. Provider publication
+checks dependent Arc associations as well as content digests, so identical
+frame bytes cannot authorize a foreign dependent owner. Normal dependencies
+carry the data deserializers; baked data and jiff-tzdb belong to explicit build
+exporters or independent development oracles.
+
+Artifacts with an actual `lila_host.intl_call`, system-zone import or static
+supported-values catalogue carry one
+complete `lila.intl-data-identity.v1` section and twelve real payload sections.
+The Engine admits the complete image group and checks its identity before
+native compilation, cache use or instantiation. Missing, duplicate, unexpected,
+corrupt, foreign-source, mixed-profile and mismatched images reject the inert
+artifact. Static `supportedValuesOf` catalogues retain compilation-time producer
+identity checks and embed their actual names together with the same selected
+provider image group.
+
+Minimal and unfiltered named Custom component frames admit exact build-exported
+or native pinned payloads. One checked Custom identity also composes actual List,
+RelativeTime, DisplayNames, Duration, Number/Plural, DateTime, Collator and
+Segmenter locale projections through the SDK and CLI. Each projection removes
+physical rows or pools and rederives its admitted payload from pinned sources.
+Number/Plural share one public locale domain and preserve the private Number
+rows consumed by selected RelativeTime and Duration owners. DateTime retains
+all calendar kernels; Segmenter retains all global rules, models and its CJK
+dictionary. These authorities do not shrink with service locale filters.
+
+Locale canonicalization/fallback data, IANA transitions/country membership and
+the small Locale preference tables remain complete global authorities. The
+separate timezone-name image currently has one English dataset shared by `en`
+and `en-US`; ordinary DateTimeFormat uses its own selected localized zone-name
+pools. Another locale selector for these four images would not establish a
+physical service projection. General service/calendar/numbering/zone selection
+is a separate manifest scope. The explicit `conformance` selection now constructs
+the complete unprojected twelve-owner group. A private provider proof requires
+the actual full pinned payloads and validates the consumed supported-values
+catalogue before publishing its complete capability plan. This describes a data
+producer; compilation and full pinned Test262 acceptance remain unverified.
+Size measurement and supported-host reproducibility evidence remain open.
+Configured named system zones retain their complete provider binding and reject
+Custom-named image groups; UTC and fixed offsets are independent of that binding.
+See the [immutable image contract](contracts/intl-immutable-data-images.md).
+MAIN142's Locale/List/Collator foundation passed the all-feature, all-target type
+check. The complete twelve-component successor is source-prepared; compilation,
+native execution, artifact controls and runtime acceptance remain pending.
+
+The generated IANA 2026a catalogue now owns coherent observable/primary zone
+identities and the matching transition data. It replaces the former unbound
+zone-normalizer boundary; no independent older alias catalogue supplies named
+zone identity. T22's prepared exact consumers and forced-zone Intl locale
+bridge are documented in the
+[complete consumer batch](temporal-named-zone-consumer-batch.md). That batch is
+uncompiled and unexecuted at preparation handoff. Remaining Intl families,
+full pinned data coverage and the complete `intl402` gates remain open.
 
 `icu_normalizer = 2.0.1` with `compiled_data` and
 `icu_properties = 2.0.2` remain direct `lila-aot-wasm` dependencies. The locale
@@ -283,11 +327,12 @@ Wasm instance and its validated data digest.
 
 ## Packaging, profiles, and lazy work
 
-`Conformance` is the default for Test262 and status publication. It contains
-all locales, services, Unicode properties, calendars, currencies, units, and
-zone data required by the pinned suite, plus the fixed default locale. A
-missing mandatory capability makes profile generation fail. It is never
-silently repaired with English data.
+`Conformance` is explicitly selected through the SDK or CLI. It contains the
+complete current pinned component data and fixed default locale, admitted
+through the private full-source provider proof. The ordinary SDK and current
+Test262 configuration still default to Minimal; making Conformance the harness
+default belongs to the final coordinated verification checkpoint. Missing
+mandatory data rejects publication rather than loading host fallback data.
 
 `Minimal` is an explicitly selected production-size profile. It still carries
 complete data for every advertised service at its default/root locale. Locale
@@ -390,7 +435,9 @@ Implementation proceeds in dependency order:
    deterministic identifier domains, exact locale pins, a host-embedded locale
    provider, and one consumed typed kernel/engine binding have landed. The
    canonical artifact ABI metadata and pre-instantiation identity match have
-   landed. The deterministic artifact generator/image remains.
+   landed. A source-prepared batch adds genuine consumed Locale/List/Collator
+   component images and selected artifact kernels; verification, other service
+   closures, complete profiles and cross-host reproducibility remain.
 2. Replace locale canonicalization and options helpers with the shared locale
    layer; finish `Intl.Locale`, matching, extension negotiation, and
    `supportedValuesOf`.
@@ -426,3 +473,30 @@ T23 remains incomplete until all of the following are true:
 - conformance and minimal data/code size are measured separately; and
 - the full pinned `intl402` tree is green under Wasm-AOT with no exact-result
   materializations or silent skips.
+
+
+## DurationFormat compiler/provider boundary
+
+DurationFormat owns a finite genuine service profile and uses the existing
+NumberFormat, PluralRules and ListFormat algorithms. Its resolved locale
+also carries the provider-associated TwoDigitHours Boolean; the compiler
+validates this native field before deriving effective hour options. The
+closed native operations36–38 are ResolveDurationFormatLocale,
+SupportedDurationFormatLocales and PartitionDurationFormat, with39 total
+Intl host operations and artifact ABI12.
+
+The Wasm side owns observable locale/option reads, duration conversion,
+brands, NewTarget/Realm prototypes and fresh JavaScript objects. Checked
+record and completed-input witnesses retain the112-byte formatter and ten
+original IEEE number fields across request framing and correlated response
+decoding. Native code owns aggregate sign/bounds validation and formatting
+parts. Semantic duration rejection has the checked negative sentinel and
+does not write memory; malformed frames and unavailable capabilities trap.
+The native identity recipe binds native data/algorithm/wire/host owners;
+the whole compiler manifest independently binds all AOT consumer source.
+
+The Temporal.Duration locale method consumes the same private initializer
+and branded stored duration fields, then the same partition renderer. Five
+registered standard builtins and the Temporal dispatch are reachable from
+real JS→IR→Wasm planning. Whole-batch compile, focused runtime controls and
+the pinned DurationFormat subtree are required before product admission.

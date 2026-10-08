@@ -13079,121 +13079,83 @@ pub(crate) fn binary_property_ranges(value: &UnicodePropertyBinary) -> &'static 
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum UnicodePropertyBinary {
-    Alphabetic,
-    CaseIgnorable,
-    Cased,
-    ChangesWhenCasefolded,
-    ChangesWhenCasemapped,
-    ChangesWhenLowercased,
-    ChangesWhenTitlecased,
-    ChangesWhenUppercased,
-    DefaultIgnorableCodePoint,
-    GraphemeBase,
-    GraphemeExtend,
-    IDContinue,
-    IDStart,
-    Math,
-    XIDContinue,
-    XIDStart,
-    ASCIIHexDigit,
-    BidiControl,
-    Dash,
-    Deprecated,
-    Diacritic,
-    Extender,
-    HexDigit,
-    IDSBinaryOperator,
-    IDSTrinaryOperator,
-    Ideographic,
-    JoinControl,
-    LogicalOrderException,
-    Lowercase,
-    NoncharacterCodePoint,
-    PatternSyntax,
-    PatternWhiteSpace,
-    QuotationMark,
-    Radical,
-    RegionalIndicator,
-    SentenceTerminal,
-    SoftDotted,
-    TerminalPunctuation,
-    UnifiedIdeograph,
-    Uppercase,
-    VariationSelector,
-    WhiteSpace,
-    Emoji,
-    EmojiComponent,
-    EmojiModifier,
-    EmojiModifierBase,
-    EmojiPresentation,
-    ExtendedPictographic,
-    ChangesWhenNFKCCasefolded,
-    BidiMirrored,
-    Ascii,
-    Any,
-    Assigned,
+// One provider-owned row set supplies the closed domain, exact alias parser
+// and catalog projection consumed by the emitted RegExp compiler's image.
+macro_rules! unicode_binary_property_rows {
+    ($($variant:ident => [$($alias:literal),+]),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy)]
+        pub enum UnicodePropertyBinary { $($variant),+ }
+
+        impl UnicodePropertyBinary {
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+            pub const fn aliases(self) -> &'static [&'static str] {
+                match self { $(Self::$variant => &[$($alias),+]),+ }
+            }
+        }
+
+        pub fn unicode_property_binary_from_str(s: &str) -> Option<UnicodePropertyBinary> {
+            match s {
+                $($($alias)|+ => Some(UnicodePropertyBinary::$variant),)+
+                _ => None,
+            }
+        }
+    };
 }
 
-pub fn unicode_property_binary_from_str(s: &str) -> Option<UnicodePropertyBinary> {
-    use UnicodePropertyBinary::*;
-    match s {
-        "Alpha" | "Alphabetic" => Some(Alphabetic),
-        "CI" | "Case_Ignorable" => Some(CaseIgnorable),
-        "Cased" => Some(Cased),
-        "CWCF" | "Changes_When_Casefolded" => Some(ChangesWhenCasefolded),
-        "CWCM" | "Changes_When_Casemapped" => Some(ChangesWhenCasemapped),
-        "CWL" | "Changes_When_Lowercased" => Some(ChangesWhenLowercased),
-        "CWT" | "Changes_When_Titlecased" => Some(ChangesWhenTitlecased),
-        "CWU" | "Changes_When_Uppercased" => Some(ChangesWhenUppercased),
-        "DI" | "Default_Ignorable_Code_Point" => Some(DefaultIgnorableCodePoint),
-        "Gr_Base" | "Grapheme_Base" => Some(GraphemeBase),
-        "Gr_Ext" | "Grapheme_Extend" => Some(GraphemeExtend),
-        "IDC" | "ID_Continue" => Some(IDContinue),
-        "IDS" | "ID_Start" => Some(IDStart),
-        "Math" => Some(Math),
-        "XIDC" | "XID_Continue" => Some(XIDContinue),
-        "XIDS" | "XID_Start" => Some(XIDStart),
-        "AHex" | "ASCII_Hex_Digit" => Some(ASCIIHexDigit),
-        "Bidi_C" | "Bidi_Control" => Some(BidiControl),
-        "Dash" => Some(Dash),
-        "Dep" | "Deprecated" => Some(Deprecated),
-        "Dia" | "Diacritic" => Some(Diacritic),
-        "Ext" | "Extender" => Some(Extender),
-        "Hex" | "Hex_Digit" => Some(HexDigit),
-        "IDSB" | "IDS_Binary_Operator" => Some(IDSBinaryOperator),
-        "IDST" | "IDS_Trinary_Operator" => Some(IDSTrinaryOperator),
-        "Ideo" | "Ideographic" => Some(Ideographic),
-        "Join_C" | "Join_Control" => Some(JoinControl),
-        "LOE" | "Logical_Order_Exception" => Some(LogicalOrderException),
-        "Lower" | "Lowercase" => Some(Lowercase),
-        "NChar" | "Noncharacter_Code_Point" => Some(NoncharacterCodePoint),
-        "Pat_Syn" | "Pattern_Syntax" => Some(PatternSyntax),
-        "Pat_WS" | "Pattern_White_Space" => Some(PatternWhiteSpace),
-        "QMark" | "Quotation_Mark" => Some(QuotationMark),
-        "Radical" => Some(Radical),
-        "RI" | "Regional_Indicator" => Some(RegionalIndicator),
-        "STerm" | "Sentence_Terminal" => Some(SentenceTerminal),
-        "SD" | "Soft_Dotted" => Some(SoftDotted),
-        "Term" | "Terminal_Punctuation" => Some(TerminalPunctuation),
-        "UIdeo" | "Unified_Ideograph" => Some(UnifiedIdeograph),
-        "Upper" | "Uppercase" => Some(Uppercase),
-        "VS" | "Variation_Selector" => Some(VariationSelector),
-        "space" | "White_Space" => Some(WhiteSpace),
-        "Emoji" => Some(Emoji),
-        "EComp" | "Emoji_Component" => Some(EmojiComponent),
-        "EMod" | "Emoji_Modifier" => Some(EmojiModifier),
-        "EBase" | "Emoji_Modifier_Base" => Some(EmojiModifierBase),
-        "EPres" | "Emoji_Presentation" => Some(EmojiPresentation),
-        "ExtPict" | "Extended_Pictographic" => Some(ExtendedPictographic),
-        "CWKCF" | "Changes_When_NFKC_Casefolded" => Some(ChangesWhenNFKCCasefolded),
-        "Bidi_M" | "Bidi_Mirrored" => Some(BidiMirrored),
-        "ASCII" => Some(Ascii),
-        "Any" => Some(Any),
-        "Assigned" => Some(Assigned),
-        _ => None,
-    }
+unicode_binary_property_rows! {
+    Alphabetic => ["Alpha", "Alphabetic"],
+    CaseIgnorable => ["CI", "Case_Ignorable"],
+    Cased => ["Cased"],
+    ChangesWhenCasefolded => ["CWCF", "Changes_When_Casefolded"],
+    ChangesWhenCasemapped => ["CWCM", "Changes_When_Casemapped"],
+    ChangesWhenLowercased => ["CWL", "Changes_When_Lowercased"],
+    ChangesWhenTitlecased => ["CWT", "Changes_When_Titlecased"],
+    ChangesWhenUppercased => ["CWU", "Changes_When_Uppercased"],
+    DefaultIgnorableCodePoint => ["DI", "Default_Ignorable_Code_Point"],
+    GraphemeBase => ["Gr_Base", "Grapheme_Base"],
+    GraphemeExtend => ["Gr_Ext", "Grapheme_Extend"],
+    IDContinue => ["IDC", "ID_Continue"],
+    IDStart => ["IDS", "ID_Start"],
+    Math => ["Math"],
+    XIDContinue => ["XIDC", "XID_Continue"],
+    XIDStart => ["XIDS", "XID_Start"],
+    ASCIIHexDigit => ["AHex", "ASCII_Hex_Digit"],
+    BidiControl => ["Bidi_C", "Bidi_Control"],
+    Dash => ["Dash"],
+    Deprecated => ["Dep", "Deprecated"],
+    Diacritic => ["Dia", "Diacritic"],
+    Extender => ["Ext", "Extender"],
+    HexDigit => ["Hex", "Hex_Digit"],
+    IDSBinaryOperator => ["IDSB", "IDS_Binary_Operator"],
+    IDSTrinaryOperator => ["IDST", "IDS_Trinary_Operator"],
+    Ideographic => ["Ideo", "Ideographic"],
+    JoinControl => ["Join_C", "Join_Control"],
+    LogicalOrderException => ["LOE", "Logical_Order_Exception"],
+    Lowercase => ["Lower", "Lowercase"],
+    NoncharacterCodePoint => ["NChar", "Noncharacter_Code_Point"],
+    PatternSyntax => ["Pat_Syn", "Pattern_Syntax"],
+    PatternWhiteSpace => ["Pat_WS", "Pattern_White_Space"],
+    QuotationMark => ["QMark", "Quotation_Mark"],
+    Radical => ["Radical"],
+    RegionalIndicator => ["RI", "Regional_Indicator"],
+    SentenceTerminal => ["STerm", "Sentence_Terminal"],
+    SoftDotted => ["SD", "Soft_Dotted"],
+    TerminalPunctuation => ["Term", "Terminal_Punctuation"],
+    UnifiedIdeograph => ["UIdeo", "Unified_Ideograph"],
+    Uppercase => ["Upper", "Uppercase"],
+    VariationSelector => ["VS", "Variation_Selector"],
+    WhiteSpace => ["space", "White_Space"],
+    Emoji => ["Emoji"],
+    EmojiComponent => ["EComp", "Emoji_Component"],
+    EmojiModifier => ["EMod", "Emoji_Modifier"],
+    EmojiModifierBase => ["EBase", "Emoji_Modifier_Base"],
+    EmojiPresentation => ["EPres", "Emoji_Presentation"],
+    ExtendedPictographic => ["ExtPict", "Extended_Pictographic"],
+    ChangesWhenNFKCCasefolded => ["CWKCF", "Changes_When_NFKC_Casefolded"],
+    BidiMirrored => ["Bidi_M", "Bidi_Mirrored"],
+    Ascii => ["ASCII"],
+    Any => ["Any"],
+    Assigned => ["Assigned"],
 }
 
 pub(crate) const FOLDS: [FoldRange; 208] = [
@@ -33200,16 +33162,33 @@ pub(crate) fn rgi_emoji_sets() -> &'static [&'static [u32]] {
     RGI_EMOJI.as_slice()
 }
 
-/// An ECMAScript Unicode property of strings recognized by this provider.
-#[derive(Debug, Clone, Copy)]
-pub enum UnicodeStringProperty {
-    BasicEmoji,
-    EmojiKeycapSequence,
-    RGIEmojiFlagSequence,
-    RGIEmojiModifierSequence,
-    RGIEmojiTagSequence,
-    RGIEmojiZWJSequence,
-    RGIEmoji,
+// One row authority supplies every exact string name, enum value and catalog row.
+macro_rules! unicode_string_property_rows {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        /// An ECMAScript Unicode property of strings recognized by this provider.
+        #[derive(Debug, Clone, Copy)]
+        pub enum UnicodeStringProperty { $($variant),+ }
+        impl UnicodeStringProperty {
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+            pub const fn name(self) -> &'static str {
+                match self { $(Self::$variant => $name),+ }
+            }
+        }
+        /// Parses one exact ECMAScript Unicode property-of-strings name.
+        pub fn unicode_string_property_from_str(s: &str) -> Option<UnicodeStringProperty> {
+            match s { $($name => Some(UnicodeStringProperty::$variant),)+ _ => None }
+        }
+    };
+}
+
+unicode_string_property_rows! {
+    BasicEmoji => "Basic_Emoji",
+    EmojiKeycapSequence => "Emoji_Keycap_Sequence",
+    RGIEmojiFlagSequence => "RGI_Emoji_Flag_Sequence",
+    RGIEmojiModifierSequence => "RGI_Emoji_Modifier_Sequence",
+    RGIEmojiTagSequence => "RGI_Emoji_Tag_Sequence",
+    RGIEmojiZWJSequence => "RGI_Emoji_ZWJ_Sequence",
+    RGIEmoji => "RGI_Emoji",
 }
 
 /// Returns the provider-owned code-point sequences for `property`.
@@ -33225,20 +33204,5 @@ pub fn unicode_string_property_sequences(
         RGIEmojiTagSequence => rgi_emoji_tag_sequence_sets(),
         RGIEmojiZWJSequence => rgi_emoji_zwj_sequence_sets(),
         RGIEmoji => rgi_emoji_sets(),
-    }
-}
-
-/// Parses one exact ECMAScript Unicode property-of-strings name.
-pub fn unicode_string_property_from_str(s: &str) -> Option<UnicodeStringProperty> {
-    use UnicodeStringProperty::*;
-    match s {
-        "Basic_Emoji" => Some(BasicEmoji),
-        "Emoji_Keycap_Sequence" => Some(EmojiKeycapSequence),
-        "RGI_Emoji_Flag_Sequence" => Some(RGIEmojiFlagSequence),
-        "RGI_Emoji_Modifier_Sequence" => Some(RGIEmojiModifierSequence),
-        "RGI_Emoji_Tag_Sequence" => Some(RGIEmojiTagSequence),
-        "RGI_Emoji_ZWJ_Sequence" => Some(RGIEmojiZWJSequence),
-        "RGI_Emoji" => Some(RGIEmoji),
-        _ => None,
     }
 }

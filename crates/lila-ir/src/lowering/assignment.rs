@@ -27,22 +27,40 @@ impl<'a> ScriptLowerer<'a> {
         source_name: String,
         value: TypedExpr,
     ) -> TypedExpr {
+        self.lower_bare_iteration_head_write_with_evidence(source_name, value)
+            .value
+    }
+
+    pub(super) fn lower_bare_iteration_head_write_with_evidence(
+        &mut self,
+        source_name: String,
+        value: TypedExpr,
+    ) -> PreparedIdentifierWrite {
         if self.uses_runtime_identifier_environment() {
-            return self.environment_identifier(
+            return PreparedIdentifierWrite::performed(self.environment_identifier(
                 source_name,
                 EnvironmentIdentifierOperationIr::Assign {
                     value: Box::new(value),
                 },
-            );
+            ));
         }
         let reference = self.locate_identifier_reference(&source_name);
         let selected = self
             .with_environment_chain
             .select_preceding(reference.declarative_position());
         if let Some(objects) = selected {
-            self.lower_with_scoped_identifier_write(source_name, value, objects, reference)
+            let plan = self.with_environment_reference_plan(source_name.clone(), objects);
+            let fallback = self.lower_located_identifier_assign_value_with_evidence(
+                source_name,
+                value.clone(),
+                reference,
+            );
+            PreparedIdentifierWrite {
+                value: plan.put_value(value, fallback.value),
+                ignored: fallback.ignored,
+            }
         } else {
-            self.lower_located_identifier_assign_value(source_name, value, reference)
+            self.lower_located_identifier_assign_value_with_evidence(source_name, value, reference)
         }
     }
 
@@ -60,6 +78,70 @@ impl<'a> ScriptLowerer<'a> {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 self.register_finite_source_binding_assignment(&name, rhs);
             }
+            if let AssignTarget::Pattern(pattern) = lhs {
+                if self.plain_async_entry_state().is_some()
+                    && contains(pattern, ContainsSymbol::AwaitExpression)
+                {
+                    if self.async_expression_prefix.is_none() {
+                        return self.unsupported_expr(
+                            "async pattern assignment requires its expression prefix owner",
+                        );
+                    }
+                    let Some((prefix, value)) =
+                        self.lower_staged_async_pattern_assignment(pattern, rhs)
+                    else {
+                        return self
+                            .unsupported_expr("async pattern assignment continuation ownership");
+                    };
+                    self.async_expression_prefix
+                        .as_mut()
+                        .expect("checked async pattern prefix")
+                        .extend(prefix);
+                    return value;
+                }
+            }
+        }
+        if self.async_expression_prefix.is_some()
+            && matches!(
+                op,
+                AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce
+            )
+            && (contains(lhs, ContainsSymbol::AwaitExpression)
+                || contains(rhs, ContainsSymbol::AwaitExpression))
+        {
+            return match AwaitedLogicalAssignmentSource::new(self, op, lhs, rhs) {
+                Some(source) => self.lower_logical_assignment_await_value(source),
+                None => self.unsupported_expr("awaited logical assignment Reference ownership"),
+            };
+        }
+        if self.plain_async_entry_state().is_some()
+            && self.async_expression_prefix.is_some()
+            && (contains(lhs, ContainsSymbol::AwaitExpression)
+                || contains(rhs, ContainsSymbol::AwaitExpression))
+        {
+            if let AssignTarget::Identifier(identifier) = lhs {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if let Some(value) = self.lower_async_identifier_assignment(op, name, rhs) {
+                    return value;
+                }
+            }
+            if let AssignTarget::Access(access) = lhs {
+                let staged = match (op, access) {
+                    (AssignOp::Assign, PropertyAccess::Simple(access)) => {
+                        self.lower_staged_generator_property_assignment(access, rhs)
+                    }
+                    _ => self.lower_resumable_property_assignment_parts(op, lhs, rhs),
+                };
+                let Some((prefix, value)) = staged else {
+                    return self
+                        .unsupported_expr("async assignment Reference continuation ownership");
+                };
+                self.async_expression_prefix
+                    .as_mut()
+                    .expect("async assignment prefix")
+                    .extend(prefix);
+                return value;
+            }
         }
         if self.uses_runtime_identifier_environment() {
             if let AssignTarget::Identifier(identifier) = lhs {
@@ -75,30 +157,38 @@ impl<'a> ScriptLowerer<'a> {
                     // declarative/global fallback before lowering the RHS, and
                     // carry that same value through Object-ER selection and
                     // the eventual write.
-                    let with_fallback = (!self.with_environment_chain.is_empty())
-                        .then(|| self.locate_identifier_reference(&name));
+                    let reference = self.locate_identifier_reference(&name);
+                    let objects = self
+                        .with_environment_chain
+                        .select_preceding(reference.declarative_position());
+                    let retained_own_global = self.is_unshadowed_script_global_binding(&name)
+                        && self
+                            .lookup_global_property_info(&name)
+                            .is_some_and(|property| {
+                                property.proven_present && !property.configurable
+                            });
+                    if objects.is_some()
+                        || (!retained_own_global
+                            && (matches!(reference, LocatedIdentifierReference::Unresolvable)
+                                || self.is_unshadowed_script_global_binding(&name)))
+                    {
+                        // HasBinding can invoke a With Proxy or a Proxy in the
+                        // global object's prototype chain. Its effects precede
+                        // the RHS, even though plain assignment performs no Get.
+                        // A retained non-configurable own global property ends
+                        // HasProperty before that prototype chain is visited.
+                        self.observe_all_planned_source_as_unknown_property_hooks();
+                        self.invalidate_unknown_user_code_effects();
+                    }
                     let static_to_string_regexp_object =
                         self.static_to_string_returns_regexp_object_expr(rhs);
-                    let static_iterator_values = self.static_object_iterator_literal_values(rhs);
                     let value = self.lower_expression(rhs);
-                    if let Some(fallback) = with_fallback {
-                        let objects = self
-                            .with_environment_chain
-                            .select_preceding(fallback.declarative_position());
-                        if let Some(objects) = objects {
-                            return self.lower_with_scoped_identifier_write(
-                                name, value, objects, fallback,
-                            );
-                        }
-                        return self.lower_located_identifier_assign_value(name, value, fallback);
+                    if let Some(objects) = objects {
+                        return self
+                            .lower_with_scoped_identifier_write(name, value, objects, reference);
                     }
-                    let result = self.lower_identifier_assign_value(name.clone(), value);
-                    if let Some(values) = static_iterator_values {
-                        self.static_iterator_binding_values
-                            .insert(name.clone(), values);
-                    } else {
-                        self.static_iterator_binding_values.remove(&name);
-                    }
+                    let result =
+                        self.lower_located_identifier_assign_value(name.clone(), value, reference);
                     if static_to_string_regexp_object {
                         self.static_to_string_regexp_object_bindings.insert(name);
                     } else {
@@ -189,6 +279,8 @@ impl<'a> ScriptLowerer<'a> {
                     .with_environment_chain
                     .select_preceding(reference.declarative_position());
                 if let Some(objects) = selected {
+                    self.observe_all_planned_source_as_unknown_property_hooks();
+                    self.invalidate_unknown_user_code_effects();
                     let value = self.lower_expression(rhs);
                     return self.lower_with_scoped_identifier_eager_compound_assignment(
                         name,
@@ -199,134 +291,60 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 if self.is_unshadowed_script_global_binding(&name)
-                    || (matches!(&reference, LocatedIdentifierReference::Unresolvable)
-                        && !self.global_property_is_proven_present(&name))
+                    || matches!(&reference, LocatedIdentifierReference::Unresolvable)
                 {
+                    // ResolveBinding/GetBindingValue precede RHS evaluation.
+                    // Their hooks may replace captured values and callees.
+                    self.observe_all_planned_source_as_unknown_property_hooks();
+                    self.invalidate_unknown_user_code_effects();
                     let value = self.lower_expression(rhs);
-                    return self.lower_global_object_environment_eager_compound_assignment(
+                    return self.lower_global_identifier_eager_compound_assignment(
                         name,
                         EagerCompoundAssignmentOp::Arithmetic(arithmetic),
                         value,
                     );
                 }
-                let binding = self.lookup_binding(&name);
-                let global_info = self.lookup_global_property_info(&name).cloned();
-                // Runtime GetValue retains the old operand before RHS effects.
-                // Snapshot its primitive domain at the corresponding lowering
-                // point; the binding may have a different value after the RHS.
-                let lhs_info = binding
-                    .as_ref()
-                    .map(|binding| {
-                        saved_compound_assignment_value_info(binding.kind, binding.possible_kinds)
-                    })
-                    .or_else(|| {
-                        global_info
-                            .as_ref()
-                            .filter(|info| info.proven_present)
-                            .map(|info| {
-                                saved_compound_assignment_value_info(
-                                    info.value_info.kind,
-                                    info.value_info.possible_kinds,
-                                )
-                            })
-                    });
-                let value = self.lower_expression(rhs);
-                // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
-                // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
-                // and neither was checked here before. Ledger **L4**: the RHS is
-                // lowered above, so the throw follows its side effects where
-                // 13.15.4 steps 1-2 put it before them; the resolution is placed
-                // at the existing resolution point; this value-domain repair
-                // does not change the separate definite-TDZ completion path.
-                match self.resolve_binding_reference(&name) {
-                    BindingResolution::Uninitialized(violation) => {
-                        let error = violation.into_throw();
-                        return TypedExpr::from_info(
-                            error.value_info(),
-                            ExprIr::Comma {
-                                lhs: Box::new(value),
-                                rhs: Box::new(error),
-                            },
-                        );
+                // GetValue of the already-located declarative Reference
+                // precedes RHS evaluation. Consume its initialization witness
+                // now; initialized const bindings still fail only at PutValue.
+                let binding = match reference {
+                    LocatedIdentifierReference::Declarative {
+                        resolution: BindingResolution::Uninitialized(violation),
+                        ..
+                    } => return violation.into_throw(),
+                    LocatedIdentifierReference::Declarative {
+                        resolution: BindingResolution::Initialized(binding),
+                        ..
+                    } => binding,
+                    LocatedIdentifierReference::Declarative {
+                        resolution: BindingResolution::Unresolvable,
+                        ..
+                    } => unreachable!("a declarative location cannot be unresolvable"),
+                    LocatedIdentifierReference::Unresolvable => {
+                        unreachable!("global compounds retain their Environment Reference")
                     }
-                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
-                }
-                // 13.15.2 `AssignmentExpression : LeftHandSideExpression op=
-                // AssignmentExpression` evaluates the LHS Reference, GetValues
-                // it, evaluates the RHS (done above), applies
-                // ApplyStringOrNumericBinaryOperator, and *then* PutValues. A
-                // `const` target fails only at that last step, so everything
-                // before it still runs and can still throw first — `const s =
-                // 'a'; s += { toString() { throw new RangeError(); } }` is a
-                // RangeError, not a TypeError.
-                //
-                // This replaces three separate `unsupported_expr("assignment to
-                // const binding")` sites further down (the coercive-add, the
-                // general-form and the specialised number/string paths). They
-                // sat *after* the specialisation analysis, so which of the three
-                // fired depended on inference — three ways to spell one refusal
-                // of a program the spec says must run. Deciding it once here, on
-                // the binding's mode alone, is both the fix and the reason the
-                // three sites can go: the analysis below is now only ever
-                // reached for a mutable target.
-                let const_target = binding.as_ref().and_then(|binding| {
-                    (binding.mode == BindingMode::Const).then(|| {
-                        (
-                            binding.storage_name.clone(),
-                            lhs_info
-                                .clone()
-                                .expect("the saved binding has an operand domain"),
-                        )
-                    })
-                });
-                if let Some((storage_name, lhs_info)) = const_target {
-                    let arithmetic = match op {
-                        AssignOp::Add => ArithmeticOp::Add,
-                        AssignOp::Sub => ArithmeticOp::Sub,
-                        AssignOp::Mul => ArithmeticOp::Mul,
-                        AssignOp::Div => ArithmeticOp::Div,
-                        AssignOp::Mod => ArithmeticOp::Mod,
-                        AssignOp::Exp => ArithmeticOp::Exp,
-                        _ => unreachable!("this match arm covers only the arithmetic operators"),
-                    };
+                };
+                let lhs_info =
+                    saved_compound_assignment_value_info(binding.kind, binding.possible_kinds);
+                let value = self.lower_expression(rhs);
+                let storage_name = binding.storage_name;
+                if binding.mode == BindingMode::Const {
+                    // GetValue and the operator precede the immutable PutValue.
                     let lhs_read =
                         TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
                     let applied = self.combine_arithmetic(arithmetic, lhs_read, value);
                     return self.immutable_binding_write(&storage_name, applied);
                 }
-                let script_global_reference =
-                    self.is_script_global_var_name(&name) && !self.has_scope_binding(&name);
-                let binding_storage_name = binding.as_ref().and_then(|binding| {
-                    (!script_global_reference).then(|| binding.storage_name.clone())
-                });
                 let string_kind = KindSet::from_kind(ValueKind::String);
                 let string_add = matches!(op, AssignOp::Add)
                     && (value.possible_kinds.is_subset_of(string_kind)
-                        || lhs_info
-                            .as_ref()
-                            .is_some_and(|lhs| lhs.possible_kinds.is_subset_of(string_kind)));
+                        || lhs_info.possible_kinds.is_subset_of(string_kind));
                 let coercive_add = matches!(op, AssignOp::Add)
                     && !string_add
-                    && lhs_info.as_ref().is_some_and(|lhs| {
-                        lhs.kind != ValueKind::Number || value.kind != ValueKind::Number
-                    });
+                    && (lhs_info.kind != ValueKind::Number || value.kind != ValueKind::Number);
                 if coercive_add {
-                    // A `const` target returned above; only mutable bindings
-                    // and global properties reach here.
-                    let Some(lhs_info) = lhs_info else {
-                        self.unsupported_with_message(format!(
-                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                        ));
-                        return TypedExpr::undefined();
-                    };
-                    let lhs = TypedExpr::from_info(
-                        lhs_info,
-                        if let Some(storage_name) = binding_storage_name.clone() {
-                            ExprIr::Identifier(storage_name)
-                        } else {
-                            ExprIr::GlobalPropertyRead { name: name.clone() }
-                        },
-                    );
+                    let lhs =
+                        TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
                     let possible_kinds = KindSet::from_kind(ValueKind::String)
                         .union(KindSet::from_kind(ValueKind::Number))
                         .union(KindSet::from_kind(ValueKind::BigInt));
@@ -343,84 +361,32 @@ impl<'a> ScriptLowerer<'a> {
                             rhs: Box::new(value),
                         },
                     );
-                    if let Some(storage_name) = binding_storage_name {
-                        self.set_binding_value_info(&name, result_info.clone());
-                        return TypedExpr::from_info(
-                            result_info,
-                            ExprIr::AssignIdentifier {
-                                name: storage_name,
-                                value: Box::new(result),
-                            },
-                        );
-                    }
-                    if script_global_reference {
-                        self.set_binding_value_info(&name, result_info.clone());
-                    }
-                    self.set_global_property_value_info(name.clone(), result_info.clone());
-                    let strictness = self.reference_strictness();
+                    self.set_binding_value_info(&name, result_info.clone());
                     return TypedExpr::from_info(
                         result_info,
-                        ExprIr::GlobalPropertyWrite {
-                            name,
+                        ExprIr::AssignIdentifier {
+                            name: storage_name,
                             value: Box::new(result),
-                            implicit: false,
-                            strictness,
                         },
                     );
                 }
-                // Anything the specialised number/string forms below cannot
-                // represent still has a meaning: read the binding, apply
-                // ApplyStringOrNumericBinaryOperator, assign the result back.
                 let needs_general_form = !string_add
-                    && (value.kind != ValueKind::Number
-                        || lhs_info
-                            .as_ref()
-                            .is_some_and(|lhs| lhs.kind != ValueKind::Number));
+                    && (value.kind != ValueKind::Number || lhs_info.kind != ValueKind::Number);
                 if needs_general_form {
-                    // A `const` target returned above.
-                    if let Some(lhs_info) = lhs_info {
-                        let arithmetic = match op {
-                            AssignOp::Add => ArithmeticOp::Add,
-                            AssignOp::Sub => ArithmeticOp::Sub,
-                            AssignOp::Mul => ArithmeticOp::Mul,
-                            AssignOp::Div => ArithmeticOp::Div,
-                            AssignOp::Mod => ArithmeticOp::Mod,
-                            AssignOp::Exp => ArithmeticOp::Exp,
-                            _ => unreachable!(),
-                        };
-                        return self.lower_identifier_arithmetic_general(
-                            &name,
-                            binding_storage_name,
-                            lhs_info,
-                            arithmetic,
-                            value,
-                        );
-                    }
-                    return self.unsupported_expr("coercive compound assignment");
+                    return self.lower_identifier_arithmetic_general(
+                        &name,
+                        storage_name,
+                        lhs_info,
+                        arithmetic,
+                        value,
+                    );
                 }
-                let result_info = if string_add {
-                    ValueInfo::new(ValueKind::String)
+                let result_info = ValueInfo::new(if string_add {
+                    ValueKind::String
                 } else {
-                    ValueInfo {
-                        kind: ValueKind::Number,
-                        possible_kinds: KindSet::from_kind(ValueKind::Number),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::none(),
-                    }
-                };
-                if binding.is_some() {
-                    self.set_binding_value_info(&name, result_info.clone());
-                    if script_global_reference {
-                        self.set_global_property_value_info(name.clone(), result_info.clone());
-                    }
-                } else if global_info.as_ref().is_some_and(|info| info.proven_present) {
-                    self.set_global_property_value_info(name.clone(), result_info.clone());
-                } else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                    ));
-                    return TypedExpr::undefined();
-                }
+                    ValueKind::Number
+                });
+                self.set_binding_value_info(&name, result_info.clone());
                 let op = match op {
                     AssignOp::Add => ArithmeticBinaryOp::Add,
                     AssignOp::Sub => ArithmeticBinaryOp::Sub,
@@ -430,22 +396,14 @@ impl<'a> ScriptLowerer<'a> {
                     AssignOp::Exp => ArithmeticBinaryOp::Exp,
                     _ => unreachable!(),
                 };
-                let strictness = self.reference_strictness();
-                let expr = if let Some(storage_name) = binding_storage_name {
+                TypedExpr::from_info(
+                    result_info,
                     ExprIr::CompoundAssignIdentifier {
                         name: storage_name,
                         op,
                         value: Box::new(value),
-                    }
-                } else {
-                    ExprIr::GlobalPropertyCompoundAssign {
-                        name,
-                        op,
-                        value: Box::new(value),
-                        strictness,
-                    }
-                };
-                TypedExpr::from_info(result_info, expr)
+                    },
+                )
             }
             AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {
                 let logical_op = match op {
@@ -497,6 +455,15 @@ impl<'a> ScriptLowerer<'a> {
                     },
                     false => reference,
                 };
+                // ResolveBinding and GetValue precede the RHS. Global and
+                // with-object hooks can change any captured/global value here.
+                if selected.is_some()
+                    || !reference.is_declarative()
+                    || self.is_unshadowed_script_global_binding(&name)
+                {
+                    self.observe_all_planned_source_as_unknown_property_hooks();
+                    self.invalidate_unknown_user_code_effects();
+                }
                 let rhs_value = self.lower_conditionally_reached_expression(rhs);
                 if let Some(objects) = selected {
                     let plan = self.with_environment_reference_plan(name.clone(), objects);
@@ -508,11 +475,6 @@ impl<'a> ScriptLowerer<'a> {
                         LogicalAssignmentReachability::WithEnvironmentFallback,
                     );
                     return plan.logical_assignment(logical_op, rhs_value, fallback);
-                }
-                if reference.is_unproven_global() {
-                    return self.lower_global_object_environment_logical_assignment(
-                        name, logical_op, rhs_value,
-                    );
                 }
                 self.lower_located_identifier_logical_assignment(
                     name,
@@ -598,6 +560,8 @@ impl<'a> ScriptLowerer<'a> {
                     .with_environment_chain
                     .select_preceding(reference.declarative_position());
                 if let Some(objects) = selected {
+                    self.observe_all_planned_source_as_unknown_property_hooks();
+                    self.invalidate_unknown_user_code_effects();
                     let value = self.lower_expression(rhs);
                     return self.lower_with_scoped_identifier_eager_compound_assignment(
                         name,
@@ -608,11 +572,14 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 if self.is_unshadowed_script_global_binding(&name)
-                    || (matches!(&reference, LocatedIdentifierReference::Unresolvable)
-                        && !self.global_property_is_proven_present(&name))
+                    || matches!(&reference, LocatedIdentifierReference::Unresolvable)
                 {
+                    // ResolveBinding/GetBindingValue precede RHS evaluation.
+                    // Their hooks may replace captured values and callees.
+                    self.observe_all_planned_source_as_unknown_property_hooks();
+                    self.invalidate_unknown_user_code_effects();
                     let value = self.lower_expression(rhs);
-                    return self.lower_global_object_environment_eager_compound_assignment(
+                    return self.lower_global_identifier_eager_compound_assignment(
                         name,
                         EagerCompoundAssignmentOp::Bitwise(bitwise),
                         value,

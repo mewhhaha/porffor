@@ -153,75 +153,76 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         fn collect_receiver_accessors(
+            lowerer: &ScriptLowerer<'_>,
             receiver: &TypedExpr,
             referenced_name: &PropertyKeyIr,
             getters: &mut BTreeSet<FunctionId>,
             setters: &mut BTreeSet<FunctionId>,
             possible_receiver_values: &mut Vec<ValueInfo>,
-        ) {
+        ) -> bool {
             if let ExprIr::Conditional {
                 then_expr,
                 else_expr,
                 ..
             } = &receiver.expr
             {
-                collect_receiver_accessors(
+                let then_known = collect_receiver_accessors(
+                    lowerer,
                     then_expr,
                     referenced_name,
                     getters,
                     setters,
                     possible_receiver_values,
                 );
-                collect_receiver_accessors(
+                let else_known = collect_receiver_accessors(
+                    lowerer,
                     else_expr,
                     referenced_name,
                     getters,
                     setters,
                     possible_receiver_values,
                 );
-                return;
+                return then_known && else_known;
             }
 
             possible_receiver_values.push(receiver.value_info());
 
             match referenced_name {
-                PropertyKeyIr::StaticString(name) => collect_property_accessors(
-                    receiver
-                        .heap_shape
-                        .as_deref()
-                        .and_then(|shape| read_heap_shape_property(shape, name)),
-                    getters,
-                    setters,
-                ),
+                PropertyKeyIr::StaticString(name) => {
+                    let property = lowerer.read_current_object_shape_property(receiver, name);
+                    let known = property.is_some();
+                    collect_property_accessors(property, getters, setters);
+                    known
+                }
                 PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol => {
                     let property = match &key.expr {
-                        ExprIr::String(description) => {
-                            WellKnownSymbol::from_description(SymbolDescription::new(description))
-                                .and_then(|symbol| {
-                                    ScriptLowerer::read_well_known_symbol_shape_property(
-                                        receiver.heap_shape.as_deref(),
-                                        symbol,
-                                    )
-                                })
+                        ExprIr::WellKnownSymbol(symbol) => {
+                            lowerer.read_current_object_symbol_shape_property(receiver, *symbol)
                         }
                         _ => None,
                     };
+                    let known = property.is_some();
                     collect_property_accessors(property, getters, setters);
+                    known
                 }
                 PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
                     let (shape_getters, shape_setters) =
                         ScriptLowerer::possible_shape_accessors(receiver.heap_shape.as_deref());
                     getters.extend(shape_getters);
                     setters.extend(shape_setters);
+                    // Snapshot accessors are candidates, not a complete
+                    // description of a computed property's current hooks.
+                    false
                 }
-                PropertyKeyIr::ArrayLength => {}
+                PropertyKeyIr::ArrayLength => true,
             }
         }
 
         let mut known_getters = BTreeSet::new();
         let mut known_setters = BTreeSet::new();
         let mut possible_receiver_values = Vec::new();
-        collect_receiver_accessors(
+        let receiver_property_is_known = collect_receiver_accessors(
+            self,
             &base_and_receiver,
             &referenced_name,
             &mut known_getters,
@@ -252,7 +253,7 @@ impl<'a> ScriptLowerer<'a> {
             self.ordinary_property_mutation_authorities(&possible_receiver_values);
         let key_may_call_user_code = Self::property_key_may_call_user_code(&referenced_name);
         let prior_unknown_effects = self.unknown_user_code_effects_observed;
-        if !receiver_shapes_are_known
+        if !receiver_property_is_known
             || base_evaluation_may_have_intervening_effects
             || key_may_call_user_code
             || key_evaluation_may_have_intervening_effects
@@ -299,7 +300,7 @@ impl<'a> ScriptLowerer<'a> {
             key_may_call_user_code,
             key_evaluation_may_have_intervening_effects,
             unknown_property_hooks_possible: base_may_be_object
-                && (!receiver_shapes_are_known
+                && (!receiver_property_is_known
                     || base_evaluation_may_have_intervening_effects
                     || key_may_call_user_code
                     || key_evaluation_may_have_intervening_effects
@@ -459,7 +460,10 @@ impl<'a> ScriptLowerer<'a> {
                 let prototype_shape = self
                     .lookup_global_property(constructor_name)
                     .and_then(|constructor| {
-                        read_heap_shape_property(constructor.heap_shape.as_deref()?, "prototype")
+                        self.read_current_heap_shape_property(
+                            constructor.heap_shape.as_deref()?,
+                            "prototype",
+                        )
                     })
                     .and_then(|prototype| match prototype {
                         ObjectShapeProperty::Data(prototype) => prototype.heap_shape,
@@ -478,7 +482,7 @@ impl<'a> ScriptLowerer<'a> {
                 .any(|constructor_name| {
                     self.lookup_global_property(constructor_name)
                         .and_then(|constructor| {
-                            read_heap_shape_property(
+                            self.read_current_heap_shape_property(
                                 constructor.heap_shape.as_deref()?,
                                 "prototype",
                             )
@@ -525,18 +529,6 @@ impl<'a> ScriptLowerer<'a> {
                                 PrototypeToStringState::Unknown;
                         }
                     }
-                    "match"
-                        if possible_authorities
-                            .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype) =>
-                    {
-                        self.number_prototype_match_is_string_match = false;
-                    }
-                    "split"
-                        if possible_authorities
-                            .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype) =>
-                    {
-                        self.number_prototype_split_is_string_split = false;
-                    }
                     _ => {}
                 }
             }
@@ -555,8 +547,6 @@ impl<'a> ScriptLowerer<'a> {
                     .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype)
                 {
                     self.number_prototype_to_string_state = PrototypeToStringState::Unknown;
-                    self.number_prototype_match_is_string_match = false;
-                    self.number_prototype_split_is_string_split = false;
                 }
                 if possible_authorities
                     .contains(&OrdinaryPropertyMutationAuthority::BooleanPrototype)
@@ -1060,32 +1050,34 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         }
 
-        let own_property = |name: &str| match metadata.base_value_info.heap_shape.as_deref()? {
-            HeapShape::Object(shape) => shape.properties.get(name).cloned(),
-            HeapShape::Array(shape) => shape.properties.get(name).cloned(),
+        let prior_property = |name: &str| {
+            self.read_current_heap_shape_property(
+                metadata.base_value_info.heap_shape.as_deref()?,
+                name,
+            )
         };
 
         match referenced_name {
-            PropertyKeyIr::StaticString(name) => match own_property(name) {
+            PropertyKeyIr::StaticString(name) => match prior_property(name) {
                 Some(ObjectShapeProperty::Data(previous)) => {
                     Some(self.merge_value_infos(previous, rhs_value_info))
                 }
                 Some(ObjectShapeProperty::Accessor { .. }) => None,
-                None => Some(rhs_value_info),
+                // Absent own data does not prove a successful write: an
+                // inherited non-writable descriptor may retain its old value.
+                None => None,
             },
             PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol => {
-                let ExprIr::String(description) = &key.expr else {
+                let ExprIr::WellKnownSymbol(symbol) = &key.expr else {
                     return None;
                 };
-                let symbol =
-                    WellKnownSymbol::from_description(SymbolDescription::new(description))?;
-                let previous = own_property(&shape_namespace_key(symbol));
+                let previous = prior_property(&shape_namespace_key(*symbol));
                 match previous {
                     Some(ObjectShapeProperty::Data(previous)) => {
                         Some(self.merge_value_infos(previous, rhs_value_info))
                     }
                     Some(ObjectShapeProperty::Accessor { .. }) => None,
-                    None => Some(rhs_value_info),
+                    None => None,
                 }
             }
             PropertyKeyIr::StringExpr(_)
@@ -1104,10 +1096,10 @@ impl<'a> ScriptLowerer<'a> {
         let (root_name, mut path) = self.binding_shape_path(target)?;
 
         if let PropertyKeyIr::StringExpr(key) = referenced_name {
-            let ExprIr::String(symbol_name) = &key.expr else {
+            let ExprIr::WellKnownSymbol(symbol) = &key.expr else {
                 return None;
             };
-            let symbol = WellKnownSymbol::from_description(SymbolDescription::new(symbol_name))?;
+            let symbol = *symbol;
             if path.as_slice() != [PropertyKeyIr::StaticString("prototype".to_string())]
                 || self.lookup_binding(&root_name).is_some()
             {
@@ -1334,6 +1326,28 @@ impl<'a> ScriptLowerer<'a> {
             self.observe_all_planned_source_as_unknown_property_hooks();
             self.invalidate_unknown_user_code_effects();
         }
+        self.complete_ordinary_property_plain_assignment(
+            access,
+            plan,
+            referenced_name,
+            metadata,
+            rhs_value,
+            rhs_may_have_intervening_effects,
+        )
+    }
+
+    /// Complete a prepared Reference with its actual RHS value. The expression
+    /// producer accounts for RHS effects; an iterator-head sink is an eager,
+    /// effect-free value already observed by IteratorValue.
+    pub(super) fn complete_ordinary_property_plain_assignment(
+        &mut self,
+        access: &boa_ast::expression::access::SimplePropertyAccess,
+        plan: OrdinaryPropertyReferencePlan,
+        referenced_name: PropertyKeyIr,
+        metadata: OrdinaryPropertyReferenceMetadata,
+        rhs_value: TypedExpr,
+        rhs_may_have_intervening_effects: bool,
+    ) -> TypedExpr {
         let written_value_info = rhs_value.value_info();
         let possible_setters =
             self.possible_ordinary_property_setters(&metadata, rhs_may_have_intervening_effects);
@@ -1506,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn intrinsic_property_installation_preserves_strict_primitive_this() {
+    fn intrinsic_property_installation_retains_the_strict_this_operand() {
         let program = lower(
             "String.prototype.q = function stringQ() { 'use strict'; return this === 'z'; }; 'z'?.q();",
         );
@@ -1534,14 +1548,27 @@ mod tests {
                 .find(|operand| matches!(operand.expr, ExprIr::This))
         });
 
+        assert!(function.strict);
+        let this_operand = this_operand.expect("strict comparison retains its this operand");
+        // A new property can reach an inherited setter. Its possible calls
+        // widen the function signature, but never replace the strict This
+        // operand with a primitive wrapper or an assumed receiver.
+        assert!(this_operand.possible_kinds.contains(ValueKind::String));
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
+            ..
+        }) = &script.body.statements[0]
+        else {
+            panic!("method installation must retain its property Reference");
+        };
         assert_eq!(
-            this_operand.map(|operand| operand.kind),
-            Some(ValueKind::String)
+            assignment.rhs().function_targets.exact_single_target(),
+            Some(&function.id)
         );
     }
 
     #[test]
-    fn intrinsic_method_transfer_preserves_acquired_callee_identity() {
+    fn intrinsic_method_transfer_retains_the_property_read_after_observable_put() {
         let program = lower(
             "var value = new Object(); value.transferred = Boolean.prototype.toString; value.transferred();",
         );
@@ -1556,15 +1583,26 @@ mod tests {
                 expression.expr
             );
         };
-        let ExprIr::CallIndirect { callee, .. } = &call.expr else {
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(receiver),
+            ..
+        } = &call.expr
+        else {
             panic!("expected indirect transferred method call: {:?}", call.expr);
         };
 
-        assert_eq!(call.kind, ValueKind::String);
-        assert_eq!(
-            callee.function_targets.exact_single_target(),
-            Some(&StandardBuiltinId::BooleanPrototypeToString.function_id())
-        );
+        // PutValue can reach a prototype setter. The later property read must
+        // remain live rather than assume it still returns the earlier method.
+        assert_eq!(call.kind, ValueKind::Dynamic);
+        assert_eq!(call.possible_kinds, KindSet::all_runtime_tags());
+        assert!(matches!(
+            callee.function_targets,
+            FunctionTargetKnowledge::Open(_)
+        ));
+        assert!(matches!(&callee.expr, ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV, operands
+        } if matches!(operands.as_slice(), [target, key] if target.expr == receiver.expr && matches!(&key.expr, ExprIr::String(key) if key == "transferred"))));
     }
 
     #[test]
@@ -1704,7 +1742,7 @@ mod tests {
     }
 
     #[test]
-    fn function_property_write_preserves_a_same_shaped_distinct_function() {
+    fn new_function_properties_do_not_prove_effect_free_inherited_writes() {
         let program = lower(
             "function changed() {} function preserved() {} changed.value = 1; preserved.value = 1; changed.marker = 0; preserved.value + 1;",
         );
@@ -1713,20 +1751,20 @@ mod tests {
         let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
             panic!("expected follow-up addition");
         };
-        assert!(
-            matches!(
-                result.expr,
-                ExprIr::CoerciveBinaryNumber {
-                    op: ArithmeticBinaryOp::Add,
-                    ..
-                } | ExprIr::BinaryNumber {
-                    op: ArithmeticBinaryOp::Add,
-                    ..
-                }
-            ),
-            "a distinct function target must retain its numeric property shape: {:?}",
-            result.expr
-        );
+        let ExprIr::CoerciveAdd { lhs, rhs } = &result.expr else {
+            panic!("inherited setters can change either function's property: {result:?}");
+        };
+        assert!(matches!(rhs.expr, ExprIr::Number(bits) if bits == 1.0_f64.to_bits()));
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } = &lhs.expr
+        else {
+            panic!("the preserved function's value must still be read at runtime: {lhs:?}");
+        };
+        assert!(matches!(operands.as_slice(), [target, key]
+            if matches!(&target.expr, ExprIr::GlobalIdentifierRead { name } if name == "preserved")
+                && matches!(&key.expr, ExprIr::String(name) if name == "value")));
     }
 
     #[test]
@@ -1834,11 +1872,29 @@ mod tests {
             panic!("expected return addition");
         };
 
-        assert!(
-            matches!(&result.expr, ExprIr::String(value) if value == "1"),
-            "ordinary receiver alternatives must preserve the exact Number prototype fact: {:?}",
-            result.expr
+        let ExprIr::MaterializeBinding { value, body, .. } = &result.expr else {
+            panic!("the Number receiver must remain evaluated once: {result:?}");
+        };
+        assert!(matches!(value.expr, ExprIr::Number(bits) if bits == 1.0_f64.to_bits()));
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(receiver),
+            args,
+            ..
+        } = &body.expr
+        else {
+            panic!("the actual acquired Number method must be called: {body:?}");
+        };
+        assert_eq!(body.kind, ValueKind::String);
+        assert_eq!(
+            callee.function_targets.exact_single_target(),
+            Some(&StandardBuiltinId::NumberPrototypeToString.function_id())
         );
+        assert!(matches!(&callee.expr, ExprIr::PropertyRead { target, key }
+            if target.expr == receiver.expr
+                && matches!(key, PropertyKeyIr::StaticString(name) if name == "toString")));
+        assert_eq!(receiver.kind, ValueKind::Number);
+        assert!(args.is_empty());
     }
 
     #[test]

@@ -75,8 +75,9 @@ where
     type Output = ClassDeclarationNode;
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
-        let decorators = parse_decorator_list(cursor, interner, self.allow_yield, self.allow_await)?
-            .into_boxed_slice();
+        let decorators =
+            parse_decorator_list(cursor, interner, self.allow_yield, self.allow_await)?
+                .into_boxed_slice();
         let token = cursor.expect((Keyword::Class, false), "class declaration", interner)?;
         let span = token.span();
         let start_linear_span = token.linear_span();
@@ -190,7 +191,13 @@ where
 
         if is_close_block {
             cursor.advance(interner);
-            Ok((super_ref, None, Vec::new(), token_span_end, token_linear_span_end))
+            Ok((
+                super_ref,
+                None,
+                Vec::new(),
+                token_span_end,
+                token_linear_span_end,
+            ))
         } else {
             let body_start = cursor.peek(0, interner).or_abrupt()?.span().start();
             let (constructor, elements) =
@@ -343,10 +350,7 @@ where
                     if contains(m.parameters(), ContainsSymbol::SuperCall)
                         || contains(m.body(), ContainsSymbol::SuperCall)
                     {
-                        return Err(Error::lex(LexError::Syntax(
-                            "invalid super call usage".into(),
-                            position,
-                        )));
+                        return Err(Error::ClassMethodHasDirectSuper { position });
                     }
 
                     if let ClassElementName::PrivateName(name) = m.name() {
@@ -527,9 +531,8 @@ fn parse_decorator_list<R: ReadChar>(
         TokenKind::Punctuator(Punctuator::At)
     ) {
         cursor.advance(interner);
-        decorators.push(
-            ExpressionParser::new(true, allow_yield, allow_await).parse(cursor, interner)?,
-        );
+        decorators
+            .push(ExpressionParser::new(true, allow_yield, allow_await).parse(cursor, interner)?);
     }
 
     Ok(decorators)
@@ -608,8 +611,9 @@ where
     type Output = (Option<FunctionExpression>, Option<function::ClassElement>);
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
-        let decorators = parse_decorator_list(cursor, interner, self.allow_yield, self.allow_await)?
-            .into_boxed_slice();
+        let decorators =
+            parse_decorator_list(cursor, interner, self.allow_yield, self.allow_await)?
+                .into_boxed_slice();
         let token = cursor.peek(0, interner).or_abrupt()?;
         let r#static = match token.kind() {
             TokenKind::Punctuator(Punctuator::Semicolon) => {
@@ -961,8 +965,10 @@ where
                 let next_token = cursor.peek(0, interner).or_abrupt()?;
                 if next_token.span().start().line_number() != accessor_span.end().line_number() {
                     cursor.expect_semicolon("expected semicolon", interner)?;
-                    let field =
-                        ClassFieldDefinition::new(Identifier::new(accessor_sym, accessor_span).into(), None);
+                    let field = ClassFieldDefinition::new(
+                        Identifier::new(accessor_sym, accessor_span).into(),
+                        None,
+                    );
                     if r#static {
                         function::ClassElement::StaticFieldDefinition(field)
                     } else {
@@ -983,8 +989,10 @@ where
                 let next_token = cursor.peek(0, interner).or_abrupt()?;
                 if next_token.span().start().line_number() != accessor_span.end().line_number() {
                     cursor.expect_semicolon("expected semicolon", interner)?;
-                    let field =
-                        ClassFieldDefinition::new(Identifier::new(accessor_sym, accessor_span).into(), None);
+                    let field = ClassFieldDefinition::new(
+                        Identifier::new(accessor_sym, accessor_span).into(),
+                        None,
+                    );
                     if r#static {
                         function::ClassElement::StaticFieldDefinition(field)
                     } else {
@@ -1009,12 +1017,8 @@ where
                                     cursor.advance(interner);
                                     let strict = cursor.strict();
                                     cursor.set_strict(true);
-                                    let mut rhs = AssignmentExpression::new(
-                                        true,
-                                        self.allow_yield,
-                                        self.allow_await,
-                                    )
-                                    .parse(cursor, interner)?;
+                                    let mut rhs = AssignmentExpression::new(true, false, false)
+                                        .parse(cursor, interner)?;
                                     cursor.expect_semicolon("expected semicolon", interner)?;
                                     cursor.set_strict(strict);
                                     let function_name = interner.get_or_intern(
@@ -1076,12 +1080,8 @@ where
                                     cursor.advance(interner);
                                     let strict = cursor.strict();
                                     cursor.set_strict(true);
-                                    let mut rhs = AssignmentExpression::new(
-                                        true,
-                                        self.allow_yield,
-                                        self.allow_await,
-                                    )
-                                    .parse(cursor, interner)?;
+                                    let mut rhs = AssignmentExpression::new(true, false, false)
+                                        .parse(cursor, interner)?;
                                     cursor.expect_semicolon("expected semicolon", interner)?;
                                     cursor.set_strict(strict);
                                     if let Some(name) = name.literal() {
@@ -1334,9 +1334,8 @@ where
                         cursor.advance(interner);
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let mut rhs =
-                            AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?;
+                        let mut rhs = AssignmentExpression::new(true, false, false)
+                            .parse(cursor, interner)?;
                         cursor.expect_semicolon("expected semicolon", interner)?;
                         cursor.set_strict(strict);
                         let function_name = interner.get_or_intern(
@@ -1426,9 +1425,12 @@ where
                         cursor.advance(interner);
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let mut rhs =
-                            AssignmentExpression::new(true, self.allow_yield, self.allow_await)
-                                .parse(cursor, interner)?;
+                        // Initializers execute in their own ordinary function;
+                        // computed names above retain the enclosing parameters.
+                        // See the spec-text issue tc39/ecma262#3333 and the
+                        // pinned await-identifier Script/Module controls.
+                        let mut rhs = AssignmentExpression::new(true, false, false)
+                            .parse(cursor, interner)?;
                         cursor.expect_semicolon("expected semicolon", interner)?;
                         cursor.set_strict(strict);
                         if let Some(name) = name.literal() {
@@ -1466,7 +1468,8 @@ where
                         )));
                         }
                         cursor.set_strict(strict);
-                        if !r#static && name.literal().map(Identifier::sym) == Some(Sym::CONSTRUCTOR)
+                        if !r#static
+                            && name.literal().map(Identifier::sym) == Some(Sym::CONSTRUCTOR)
                         {
                             let linear_span = start_linear_span.union(body.linear_pos_end());
                             let function_span_end = body.span().end();

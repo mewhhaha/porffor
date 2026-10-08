@@ -281,6 +281,48 @@ impl<T: ?Sized> Object<T> {
         &self.properties
     }
 
+    /// Reads the retained extensibility bit without invoking internal methods.
+    /// This is a host inspection operation, not ECMAScript `[[IsExtensible]]`.
+    #[must_use]
+    pub const fn raw_extensible(&self) -> bool {
+        self.extensible
+    }
+
+    /// Private brands/fields are outside the public descriptor graph domain.
+    #[must_use]
+    pub fn raw_has_private_elements(&self) -> bool {
+        !self.private_elements.is_empty()
+    }
+
+    /// Allocation-free preflight for the retained property list.
+    #[must_use]
+    pub fn raw_own_property_count(&self) -> Option<usize> {
+        self.properties.index_property_keys().len().checked_add(self.properties.shape.property_count())
+    }
+
+    /// Bounded host inspection of retained own descriptors, without Proxy traps,
+    /// getters, or any other JavaScript operation. `None` means the bound cannot
+    /// hold the complete property list; a partial snapshot is never returned.
+    #[must_use]
+    pub fn raw_own_properties_bounded(
+        &self,
+        maximum: usize,
+    ) -> Option<Vec<(PropertyKey, PropertyDescriptor)>> {
+        if self.raw_own_property_count()? > maximum {
+            return None;
+        }
+        let indexed = self.properties.index_property_keys();
+        let named = self.properties.shape.keys();
+        if indexed.len().checked_add(named.len())? > maximum {
+            return None;
+        }
+        let mut indices: Vec<_> = indexed.collect();
+        indices.sort_unstable();
+        indices.into_iter().map(PropertyKey::from).chain(named).map(|key| {
+            self.properties.get(&key).map(|descriptor| (key, descriptor))
+        }).collect()
+    }
+
     #[inline]
     pub(crate) fn properties_mut(&mut self) -> &mut PropertyMap {
         &mut self.properties

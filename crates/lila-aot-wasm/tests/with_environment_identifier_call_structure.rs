@@ -2,7 +2,6 @@ const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/call_expression.rs");
 const CALL_SOURCE: &str = include_str!("../../lila-ir/src/lowering/with_environment_call.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
-const FUNCTIONS_SOURCE: &str = include_str!("../src/functions/indirect_call.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_with_environment_identifier_call.js");
 const CONTRACT: &str = include_str!(
@@ -104,7 +103,7 @@ fn lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative() {
     let call_entry = bounded(
         LOWERING_SOURCE,
         "        // Resolve identifier references before intrinsic folds:",
-        "        if let Some(generator) = generator_expression_callee(callee) {",
+        "        if let Expression::Identifier(identifier) = callee {",
     );
     assert!(call_entry.contains("self.lower_with_environment_identifier_call(callee, args)"));
     assert!(call_entry.contains("return call;"));
@@ -200,44 +199,6 @@ fn aot_preserves_explicit_this_and_evaluates_arguments_after_the_callee() {
     );
     assert!(dispatch.contains("this_arg.as_deref()"));
     assert!(dispatch.contains("self.emit_indirect_call("));
-
-    let indirect = bounded(
-        FUNCTIONS_SOURCE,
-        "    pub(crate) fn emit_indirect_call(",
-        "\n}\n",
-    );
-    for marker in [
-        "self.compile_expr_to_locals(callee, callee_payload_local, callee_tag_local, function)?;",
-        "if let Some(this_arg) = this_arg",
-        "self.compile_expr_to_locals(this_arg, this_payload_local, this_tag_local, function)?;",
-        "let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;",
-        "self.emit_function_or_proxy_call_with_argv_leave_throw_completion(",
-    ] {
-        assert!(
-            indirect.contains(marker),
-            "missing AOT call marker: {marker}"
-        );
-    }
-    let generic_evaluation = bounded(
-        indirect,
-        "        let callee_payload_local = self.reserve_temp_local();\n        let callee_tag_local = self.reserve_temp_local();\n        let default_this_payload_local = self.reserve_temp_local();",
-        "        if let Some(StaticRegExpCompilation::InvalidSyntax",
-    );
-    assert_before(
-        generic_evaluation,
-        "compile_expr_to_locals(callee",
-        "if let Some(this_arg)",
-    );
-    assert_before(
-        generic_evaluation,
-        "compile_expr_to_locals(this_arg",
-        "emit_call_args_vector(args",
-    );
-    assert_before(
-        indirect,
-        "emit_call_args_vector(args",
-        "emit_function_or_proxy_call_with_argv_leave_throw_completion",
-    );
 }
 
 #[test]

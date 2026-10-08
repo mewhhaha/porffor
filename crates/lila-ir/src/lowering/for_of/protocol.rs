@@ -49,8 +49,28 @@ impl ForOfLoweringIr {
         plan: AsyncFunctionForOfIteratorPlanIr,
         result_kind: ValueKind,
     ) -> Self {
+        let protocol = match plan.execution() {
+            AsyncFunctionForOfIteratorExecutionIr::Synchronous(_) => {
+                IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL
+            }
+            AsyncFunctionForOfIteratorExecutionIr::Awaited(_) => {
+                IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
+            }
+        };
         Self::new(
             StatementIr::AsyncFunctionForOfIterator { iterable, plan },
+            result_kind,
+            protocol,
+        )
+    }
+
+    pub(super) fn generator_iterator(
+        iterable: TypedExpr,
+        plan: GeneratorForOfIteratorPlanIr,
+        result_kind: ValueKind,
+    ) -> Self {
+        Self::new(
+            StatementIr::GeneratorForOfIterator { iterable, plan },
             result_kind,
             IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL,
         )
@@ -86,12 +106,23 @@ impl ForOfLoweringIr {
             "a for-of head that lowered to a real specialization must not claim that no \
              iteration was lowered",
         );
+        let expected = match &self.statement {
+            StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(match plan.execution() {
+                AsyncFunctionForOfIteratorExecutionIr::Synchronous(_) => {
+                    IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL
+                }
+                AsyncFunctionForOfIteratorExecutionIr::Awaited(_) => {
+                    IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
+                }
+            }),
+            StatementIr::GeneratorForOfIterator { .. } => {
+                Some(IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL)
+            }
+            _ => None,
+        };
         debug_assert!(
-            !matches!(
-                self.statement,
-                StatementIr::AsyncFunctionForOfIterator { .. }
-            ) || self.protocol == IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL,
-            "a resumable synchronous for-of must carry its dedicated protocol witness",
+            expected.is_none_or(|expected| self.protocol == expected),
+            "a resumable for-of must carry its selected protocol witness"
         );
         (self.statement, self.result_kind)
     }

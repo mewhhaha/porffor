@@ -4,7 +4,8 @@
 
 use super::super::*;
 use super::temporal_options::{TemporalUnit, TEMPORAL_UNIT_SECONDS};
-use crate::intrinsics::temporal::TemporalIntrinsicFamily;
+use crate::gc_types::*;
+use crate::intrinsics::temporal::{TemporalIntrinsicFamily, TemporalPrototypeSource};
 
 mod fields;
 pub(crate) use fields::{
@@ -39,19 +40,6 @@ enum TemporalDurationFieldTransform {
     AbsoluteValue,
 }
 
-const TEMPORAL_DURATION_FIELD_OFFSETS: [u64; 10] = [
-    HEAP_TEMPORAL_DURATION_YEARS_OFFSET,
-    HEAP_TEMPORAL_DURATION_MONTHS_OFFSET,
-    HEAP_TEMPORAL_DURATION_WEEKS_OFFSET,
-    HEAP_TEMPORAL_DURATION_DAYS_OFFSET,
-    HEAP_TEMPORAL_DURATION_HOURS_OFFSET,
-    HEAP_TEMPORAL_DURATION_MINUTES_OFFSET,
-    HEAP_TEMPORAL_DURATION_SECONDS_OFFSET,
-    HEAP_TEMPORAL_DURATION_MILLISECONDS_OFFSET,
-    HEAP_TEMPORAL_DURATION_MICROSECONDS_OFFSET,
-    HEAP_TEMPORAL_DURATION_NANOSECONDS_OFFSET,
-];
-
 /// Declaration order: the constructor argument order, and the order the fields
 /// are written into the record.
 pub(crate) const TEMPORAL_DURATION_FIELD_NAMES: [&str; 10] = [
@@ -83,68 +71,81 @@ pub(crate) const TEMPORAL_DURATION_ALPHABETICAL_FIELDS: [(&str, usize); 10] = [
     ("years", 0),
 ];
 
-impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn reserve_temporal_duration_field_locals(&mut self) -> TemporalDurationFields {
-        TemporalDurationFields::new(std::array::from_fn(|_| self.reserve_temp_local()))
+/// Actual getter publication; its unit domain is the existing ten Duration fields.
+pub(super) enum TemporalDurationField {
+    Unit(TemporalUnit),
+    Sign,
+    Blank,
+}
+
+impl FunctionBuilder<'_> {
+    pub(crate) fn reserve_temporal_duration_field_locals(
+        &mut self,
+        function: &mut Function,
+    ) -> TemporalDurationFields {
+        TemporalDurationFields::new(std::array::from_fn(|_| {
+            self.runtime_schema().reserve_i64_local(function)
+        }))
     }
 
     pub(crate) fn release_temporal_duration_field_locals(
         &mut self,
         fields: TemporalDurationFields,
+        function: &mut Function,
     ) {
         for local in fields.number_bits_locals().iter().rev() {
-            self.release_temp_local(*local);
+            self.runtime_schema().release_i64_local(*local, function);
         }
     }
 
     pub(crate) fn emit_temporal_duration_zero_fields(
-        &mut self,
+        &self,
         fields: &TemporalDurationFields,
         function: &mut Function,
     ) {
         for local in fields.number_bits_locals() {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(*local));
+            local.store(function);
         }
     }
 
-    /// `ToIntegerIfIntegral`: `ToNumber`, then reject anything that is not an
-    /// integral finite Number with a RangeError. The result stays in `f64`
-    /// bits, preserving the entire integer Number domain. Range validation runs
-    /// after every field's observable conversion, and negative zero becomes +0.
+    /// ToIntegerIfIntegral performs the original observable ToNumber once.
+    /// Canonical fields remain Number bits, with negative zero retired to +0.
     pub(crate) fn emit_temporal_duration_field_to_number(
         &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        output_bits_local: u32,
+        input: &ValueLocals,
+        output: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_value_to_number_payload(value_tag_local, value_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_bits_local));
-        self.emit_return_current_completion_if_throw(function);
-        // Not integral: NaN, either infinity, or a value with a fraction.
-        function.instruction(&Instruction::LocalGet(output_bits_local));
+        let pending = self.runtime_schema().reserve_completion(function);
+        self.emit_value_to_number_payload(input, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        pending.value().scalar().load(function);
+        output.store(function);
+        pending.clear(function);
+        output.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(output_bits_local));
+        output.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(output_bits_local));
+        output.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::MAX)));
+        function.instruction(&Instruction::F64Const(f64::MAX.into()));
         function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.Duration field must be an integer",
-            self.result_local,
-            self.result_tag_local,
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::RangeError,
+            RuntimeErrorMessage::TEMPORAL_DURATION_FIELD_MUST_BE_AN_INTEGER,
             function,
         )?;
-        self.emit_return_current_completion(function);
+
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_temporal_duration_canonicalize_zero(output_bits_local, function);
+        self.emit_temporal_duration_canonicalize_zero(output, function);
         Ok(())
     }
 
@@ -152,17 +153,17 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_temporal_duration_sign(
         &mut self,
         field_locals: &TemporalDurationFields,
-        output_local: u32,
+        output_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(output_local));
+        (output_local).store(function);
         for local in field_locals.number_bits_locals().iter().rev() {
-            function.instruction(&Instruction::LocalGet(*local));
+            (*local).load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(*local));
+            self.open_frame(ControlFrameKind::If, function);
+            (*local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
             function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -170,7 +171,8 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::Else);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalSet(output_local));
+            (output_local).store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
     }
@@ -192,28 +194,28 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         fields: &TemporalDurationFields,
         first_unit: TemporalUnit,
-        seconds_local: u32,
-        subsecond_local: u32,
+        seconds_local: I64Local,
+        subsecond_local: I64Local,
         function: &mut Function,
     ) {
-        let quotient = self.reserve_temp_local();
-        let remainder = self.reserve_temp_local();
+        let quotient = self.runtime_schema().reserve_i64_local(function);
+        let remainder = self.runtime_schema().reserve_i64_local(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(seconds_local));
+        (seconds_local).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(subsecond_local));
+        (subsecond_local).store(function);
         for (unit, scale) in TEMPORAL_UNIT_SECONDS {
             if unit.is_larger_than(first_unit) {
                 continue;
             }
-            function.instruction(&Instruction::LocalGet(seconds_local));
-            function.instruction(&Instruction::LocalGet(fields.number_bits(unit)));
+            (seconds_local).load(function);
+            (fields.number_bits(unit)).load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::I64TruncF64S);
             function.instruction(&Instruction::I64Const(scale));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(seconds_local));
+            (seconds_local).store(function);
         }
         for unit in TemporalDurationSubsecondUnit::ALL {
             self.emit_temporal_duration_number_divmod(
@@ -223,29 +225,29 @@ impl<'a> FunctionBuilder<'a> {
                 remainder,
                 function,
             );
-            function.instruction(&Instruction::LocalGet(seconds_local));
-            function.instruction(&Instruction::LocalGet(quotient));
+            (seconds_local).load(function);
+            (quotient).load(function);
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(seconds_local));
-            function.instruction(&Instruction::LocalGet(subsecond_local));
-            function.instruction(&Instruction::LocalGet(remainder));
+            (seconds_local).store(function);
+            (subsecond_local).load(function);
+            (remainder).load(function);
             function.instruction(&Instruction::I64Const(unit.nanoseconds()));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(subsecond_local));
+            (subsecond_local).store(function);
         }
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        (seconds_local).load(function);
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Const(1_000_000_000));
         function.instruction(&Instruction::I64DivS);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(subsecond_local));
+        (seconds_local).store(function);
+        (subsecond_local).load(function);
         function.instruction(&Instruction::I64Const(1_000_000_000));
         function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        self.release_temp_local(remainder);
-        self.release_temp_local(quotient);
+        (subsecond_local).store(function);
+        self.runtime_schema().release_i64_local(remainder, function);
+        self.runtime_schema().release_i64_local(quotient, function);
     }
 
     /// `IsValidDuration` steps 2 and 5: every non-zero field must share the
@@ -257,55 +259,45 @@ impl<'a> FunctionBuilder<'a> {
         field_locals: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let sign_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
+        let sign_local = self.runtime_schema().reserve_i64_local(function);
+        let seconds_local = self.runtime_schema().reserve_i64_local(function);
+        let subsecond_local = self.runtime_schema().reserve_i64_local(function);
 
         for (unit, bound) in TemporalUnit::ALL
             .into_iter()
             .zip(TEMPORAL_DURATION_FIELD_BOUNDS)
         {
-            function.instruction(&Instruction::LocalGet(field_locals.number_bits(unit)));
+            (field_locals.number_bits(unit)).load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Abs);
             function.instruction(&Instruction::F64Const(Ieee64::from(bound)));
             function.instruction(&Instruction::F64Ge);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid Temporal.Duration: fields must not exceed the supported range",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError, RuntimeErrorMessage::INVALID_TEMPORAL_DURATION_FIELDS_MUST_NOT_EXCEED_THE_SUPPORTED_RANGE, function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
 
         self.emit_temporal_duration_sign(field_locals, sign_local, function);
         for local in field_locals.number_bits_locals() {
-            function.instruction(&Instruction::LocalGet(*local));
+            (*local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::LocalGet(sign_local));
+            (sign_local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64GtS);
             function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(*local));
+            (*local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64GtS);
-            function.instruction(&Instruction::LocalGet(sign_local));
+            (sign_local).load(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
             function.instruction(&Instruction::I32And);
             function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid Temporal.Duration: fields must not exceed the supported range",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError, RuntimeErrorMessage::INVALID_TEMPORAL_DURATION_FIELDS_MUST_NOT_EXCEED_THE_SUPPORTED_RANGE, function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
 
@@ -316,343 +308,252 @@ impl<'a> FunctionBuilder<'a> {
             subsecond_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (seconds_local).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (seconds_local).load(function);
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(seconds_local));
+        (seconds_local).load(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(TEMPORAL_DURATION_MAXIMUM_SECONDS));
         function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.Duration: fields must not exceed the supported range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError, RuntimeErrorMessage::INVALID_TEMPORAL_DURATION_FIELDS_MUST_NOT_EXCEED_THE_SUPPORTED_RANGE, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(subsecond_local);
-        self.release_temp_local(seconds_local);
-        self.release_temp_local(sign_local);
+        self.runtime_schema()
+            .release_i64_local(subsecond_local, function);
+        self.runtime_schema()
+            .release_i64_local(seconds_local, function);
+        self.runtime_schema()
+            .release_i64_local(sign_local, function);
         Ok(())
     }
 
-    /// `CreateTemporalDuration` without the validation, for callers that have
-    /// already run `emit_temporal_duration_reject_invalid`.
+    /// The caller has completed IsValidDuration or reads an existing valid record.
     pub(crate) fn emit_alloc_temporal_duration(
         &mut self,
-        field_locals: &TemporalDurationFields,
-        prototype_payload_local: Option<u32>,
+        fields: &TemporalDurationFields,
+        prototype: TemporalPrototypeSource<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_payload_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let prototype_local = match prototype_payload_local {
-            Some(local) => local,
-            None => {
-                let local = self.reserve_temp_local();
-                self.emit_load_current_builtin_temporal_prototype(
-                    TemporalIntrinsicFamily::Duration,
-                    local,
-                    function,
-                );
-                local
-            }
-        };
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_payload_local));
-        self.emit_heap_alloc_const(HEAP_TEMPORAL_DURATION_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        for (local, offset) in field_locals
-            .number_bits_locals()
-            .iter()
-            .zip(TEMPORAL_DURATION_FIELD_OFFSETS)
-        {
-            self.store_i64_local_at_offset(record_local, offset, *local, function);
-        }
-        self.store_i64_const_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_DURATION,
+        let schema = self.runtime_schema();
+        let numbers: [F64Local; 10] = std::array::from_fn(|index| {
+            let number = schema.reserve_f64_local(function);
+            fields.number_bits_locals()[index].load(function);
+            function.instruction(&Instruction::F64ReinterpretI64);
+            number.store(function);
+            number
+        });
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_temporal_object_header(
+                TemporalIntrinsicFamily::Duration,
+                prototype,
+                function,
+            )?,
             function,
         );
-        self.store_i64_local_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
+        let record = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<TemporalDurationObject>().construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::f64_local(numbers[0]),
+                    GcOperand::f64_local(numbers[1]),
+                    GcOperand::f64_local(numbers[2]),
+                    GcOperand::f64_local(numbers[3]),
+                    GcOperand::f64_local(numbers[4]),
+                    GcOperand::f64_local(numbers[5]),
+                    GcOperand::f64_local(numbers[6]),
+                    GcOperand::f64_local(numbers[7]),
+                    GcOperand::f64_local(numbers[8]),
+                    GcOperand::f64_local(numbers[9]),
+                ),
+                function,
+            ),
             function,
         );
-        function.instruction(&Instruction::LocalGet(object_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        if prototype_payload_local.is_none() {
-            self.release_temp_local(prototype_local);
+        self.completion()
+            .value()
+            .set_reference(&record, schema, function);
+        self.completion()
+            .set_normal(self.completion().value(), function);
+        record.clear(function);
+        header.clear(function);
+        for number in numbers.into_iter().rev() {
+            schema.release_f64_local(number, function);
         }
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_payload_local);
         Ok(())
     }
 
-    /// `CreateTemporalDuration`: validate, then allocate on the intrinsic
-    /// prototype.
     pub(crate) fn emit_create_temporal_duration(
         &mut self,
-        field_locals: &TemporalDurationFields,
+        fields: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_duration_reject_invalid(field_locals, function)?;
-        self.emit_alloc_temporal_duration(field_locals, None, function)
+        self.emit_temporal_duration_reject_invalid(fields, function)?;
+        self.emit_alloc_temporal_duration(fields, TemporalPrototypeSource::Intrinsic, function)
     }
 
-    /// Leaves an `i32` on the stack: 1 when the value carries
-    /// `[[InitializedTemporalDuration]]`.
     pub(crate) fn emit_temporal_duration_brand_check_i32(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        brand_local: u32,
+        &self,
+        value: &ValueLocals,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(brand_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_DURATION as i64,
+        value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            self.runtime_schema()
+                .reference_type::<TemporalDurationObject>(GcNullability::NonNullable)
+                .heap_type,
         ));
-        function.instruction(&Instruction::I64Eq);
     }
 
-    /// The `[[InitializedTemporalDuration]]` brand check on `this`. On failure
-    /// it throws and returns, so callers may treat `record_local` as live.
     pub(crate) fn emit_temporal_duration_record_from_receiver(
         &mut self,
-        record_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        self.emit_temporal_duration_brand_check_i32(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Duration receiver does not have [[InitializedTemporalDuration]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        Ok(())
+    ) -> Result<GcLocal<TemporalDurationObject>, EmitError> {
+        self.emit_temporal_record_from_receiver::<TemporalDurationObject>(function)
     }
 
     pub(crate) fn emit_temporal_duration_load_record(
-        &mut self,
-        record_local: u32,
-        field_locals: &TemporalDurationFields,
+        &self,
+        record: &GcLocal<TemporalDurationObject>,
+        fields: &TemporalDurationFields,
         function: &mut Function,
     ) {
-        for index in 0..10 {
-            self.load_i64_to_local_from_offset(
-                record_local,
-                TEMPORAL_DURATION_FIELD_OFFSETS[index],
-                field_locals.number_bits_locals()[index],
-                function,
-            );
+        let schema = self.runtime_schema();
+        let number = schema.reserve_f64_local(function);
+        for (bits, field) in fields.number_bits_locals().iter().zip([
+            TemporalDurationObjectSchema::YEARS,
+            TemporalDurationObjectSchema::MONTHS,
+            TemporalDurationObjectSchema::WEEKS,
+            TemporalDurationObjectSchema::DAYS,
+            TemporalDurationObjectSchema::HOURS,
+            TemporalDurationObjectSchema::MINUTES,
+            TemporalDurationObjectSchema::SECONDS,
+            TemporalDurationObjectSchema::MILLISECONDS,
+            TemporalDurationObjectSchema::MICROSECONDS,
+            TemporalDurationObjectSchema::NANOSECONDS,
+        ]) {
+            schema
+                .field(field)
+                .read(record, schema, function)
+                .store_f64(number, function);
+            number.load(function);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            bits.store(function);
         }
+        schema.release_f64_local(number, function);
     }
 
-    /// Brand-check `this` and load all ten fields in one step, the preamble
-    /// every prototype method shares.
     pub(crate) fn emit_temporal_duration_fields_from_receiver(
         &mut self,
-        field_locals: &TemporalDurationFields,
+        fields: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        self.emit_temporal_duration_record_from_receiver(record_local, function)?;
-        self.emit_temporal_duration_load_record(record_local, field_locals, function);
-        self.release_temp_local(record_local);
+        let record = self.emit_temporal_duration_record_from_receiver(function)?;
+        self.emit_temporal_duration_load_record(&record, fields, function);
+        record.clear(function);
         Ok(())
     }
 
-    /// Temporal proposal 7.1.1: `Temporal.Duration(years, ..., nanoseconds)`.
     pub(crate) fn emit_temporal_duration_constructor(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-        let field_locals = self.reserve_temporal_duration_field_locals();
+        let schema = self.runtime_schema();
+        self.body_entry_locals()
+            .ok_or_else(|| EmitError::unsupported("Duration constructor has no callable entry"))?
+            .new_target()
+            .tag()
+            .load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_DURATION_CONSTRUCTOR_REQUIRES_NEW,
+            function,
+        )?;
 
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Duration constructor requires new",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // Every argument is coerced before any range check runs, because the
-        // `ToNumber` calls are observable and the spec orders them first. An
-        // absent argument is 0 without any coercion at all.
+        let argument = schema.reserve_value_local(function);
+        let fields = self.reserve_temporal_duration_field_locals(function);
         for index in 0..10 {
-            self.emit_builtin_arg_to_locals(
-                index,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            );
+            self.emit_builtin_arg_to_value(index, &argument, function);
+            let field = fields.number_bits_locals()[index];
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(
-                field_locals.number_bits_locals()[index],
+            field.store(function);
+            argument.tag().load(function);
+            function.instruction(&Instruction::I32Const(
+                WasmRuntimeValueTag::Undefined as i32,
             ));
-            function.instruction(&Instruction::LocalGet(argument_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_duration_field_to_number(
-                argument_payload_local,
-                argument_tag_local,
-                field_locals.number_bits_locals()[index],
-                function,
-            )?;
+            function.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_temporal_duration_field_to_number(&argument, field, function)?;
+
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        self.emit_temporal_duration_reject_invalid(&field_locals, function)?;
-        let prototype_tag_local = self.reserve_temp_local();
-        self.emit_new_target_prototype_to_locals(
-            TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
-            crate::functions::NewTargetPrototypeFallback::RealmIntrinsic(
-                TemporalIntrinsicFamily::Duration.prototype_slot().offset(),
-            ),
-            prototype_payload_local,
-            prototype_tag_local,
+        self.emit_temporal_duration_reject_invalid(&fields, function)?;
+        let prototype =
+            self.emit_temporal_constructor_prototype(TemporalIntrinsicFamily::Duration, function)?;
+        self.emit_alloc_temporal_duration(
+            &fields,
+            TemporalPrototypeSource::Constructor(&prototype),
             function,
         )?;
-        self.release_temp_local(prototype_tag_local);
-        self.emit_alloc_temporal_duration(&field_locals, Some(prototype_payload_local), function)?;
-
-        self.release_temporal_duration_field_locals(field_locals);
-        for local in [
-            new_target_tag_local,
-            new_target_payload_local,
-            prototype_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        prototype.release(function);
+        self.release_temporal_duration_field_locals(fields, function);
+        argument.clear(function);
         Ok(())
     }
 
-    /// Every `Temporal.Duration.prototype` accessor: the ten unit getters plus
-    /// `sign` and `blank`.
     pub(crate) fn emit_temporal_duration_field(
         &mut self,
-        builtin: StandardBuiltinId,
+        field: TemporalDurationField,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let field_locals = self.reserve_temporal_duration_field_locals();
-        self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
-
-        let unit_index = match builtin {
-            StandardBuiltinId::TemporalDurationPrototypeYearsGetter => Some(0),
-            StandardBuiltinId::TemporalDurationPrototypeMonthsGetter => Some(1),
-            StandardBuiltinId::TemporalDurationPrototypeWeeksGetter => Some(2),
-            StandardBuiltinId::TemporalDurationPrototypeDaysGetter => Some(3),
-            StandardBuiltinId::TemporalDurationPrototypeHoursGetter => Some(4),
-            StandardBuiltinId::TemporalDurationPrototypeMinutesGetter => Some(5),
-            StandardBuiltinId::TemporalDurationPrototypeSecondsGetter => Some(6),
-            StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter => Some(7),
-            StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter => Some(8),
-            StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter => Some(9),
-            _ => None,
-        };
-        match unit_index {
-            Some(index) => {
-                function.instruction(&Instruction::LocalGet(
-                    field_locals.number_bits_locals()[index],
-                ));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        let schema = self.runtime_schema();
+        let fields = self.reserve_temporal_duration_field_locals(function);
+        self.emit_temporal_duration_fields_from_receiver(&fields, function)?;
+        match field {
+            TemporalDurationField::Unit(unit) => {
+                self.completion()
+                    .value()
+                    .set_number(fields.number_bits(unit), function);
             }
-            None => {
-                let sign_local = self.reserve_temp_local();
-                self.emit_temporal_duration_sign(&field_locals, sign_local, function);
-                if matches!(
-                    builtin,
-                    StandardBuiltinId::TemporalDurationPrototypeBlankGetter
-                ) {
-                    function.instruction(&Instruction::LocalGet(sign_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::I64ExtendI32U);
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                } else {
-                    function.instruction(&Instruction::LocalGet(sign_local));
-                    function.instruction(&Instruction::F64ConvertI64S);
-                    function.instruction(&Instruction::I64ReinterpretF64);
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                }
-                self.release_temp_local(sign_local);
+            TemporalDurationField::Sign => {
+                let sign = schema.reserve_i64_local(function);
+                self.emit_temporal_duration_sign(&fields, sign, function);
+                sign.load(function);
+                function.instruction(&Instruction::F64ConvertI64S);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                sign.store(function);
+                self.completion().value().set_number(sign, function);
+                schema.release_i64_local(sign, function);
+            }
+            TemporalDurationField::Blank => {
+                let sign = schema.reserve_i64_local(function);
+                let blank = schema.reserve_i32_local(function);
+                self.emit_temporal_duration_sign(&fields, sign, function);
+                sign.load(function);
+                function.instruction(&Instruction::I64Eqz);
+                blank.store(function);
+                self.completion().value().set_boolean(blank, function);
+                schema.release_i32_local(blank, function);
+                schema.release_i64_local(sign, function);
             }
         }
-
-        self.release_temporal_duration_field_locals(field_locals);
+        self.completion()
+            .set_normal(self.completion().value(), function);
+        self.release_temporal_duration_field_locals(fields, function);
         Ok(())
     }
 
@@ -665,7 +566,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )
     }
-
     pub(crate) fn emit_temporal_duration_abs(
         &mut self,
         function: &mut Function,
@@ -675,48 +575,38 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )
     }
-
-    /// Both unary transforms rebuild the duration from transformed fields, and
-    /// neither can leave the valid range that the receiver already occupies,
-    /// so no re-validation is needed.
     fn emit_temporal_duration_with_field_transform(
         &mut self,
         transform: TemporalDurationFieldTransform,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let field_locals = self.reserve_temporal_duration_field_locals();
-        self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
+        let fields = self.reserve_temporal_duration_field_locals(function);
+        self.emit_temporal_duration_fields_from_receiver(&fields, function)?;
         match transform {
             TemporalDurationFieldTransform::Negate => {
-                self.emit_temporal_duration_negate_fields(&field_locals, function);
+                self.emit_temporal_duration_negate_fields(&fields, function)
             }
             TemporalDurationFieldTransform::AbsoluteValue => {
-                for local in field_locals.number_bits_locals() {
-                    function.instruction(&Instruction::LocalGet(*local));
+                for field in fields.number_bits_locals() {
+                    field.load(function);
                     function.instruction(&Instruction::I64Const(i64::MAX));
                     function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::LocalSet(*local));
+                    field.store(function);
                 }
             }
         }
-        self.emit_alloc_temporal_duration(&field_locals, None, function)?;
-        self.release_temporal_duration_field_locals(field_locals);
+        self.emit_alloc_temporal_duration(&fields, TemporalPrototypeSource::Intrinsic, function)?;
+        self.release_temporal_duration_field_locals(fields, function);
         Ok(())
     }
-
-    /// Temporal proposal 7.3.24. The proposal deliberately forbids implicit
-    /// comparison, so this always throws.
     pub(crate) fn emit_temporal_duration_value_of(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Duration does not support implicit conversion; use compare()",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_temporal_error_and_return(
+            lila_ir::NativeErrorKind::TypeError,
+            RuntimeErrorMessage::TEMPORAL_DURATION_DOES_NOT_SUPPORT_IMPLICIT_CONVERSION_USE_COMPARE,
             function,
-        )?;
-        self.emit_return_current_completion(function);
-        Ok(())
+        )
     }
 }

@@ -1,41 +1,18 @@
-# Math.sumPrecise limb operation
+# Math.sumPrecise exact limb operations
 
-Status: implemented and focused-verified as a source-equivalent compiler
-invariant.
+The accumulator exclusively owns a private non-null `MathSumPreciseLimbArray`.
+Its factory allocates exactly 34 zeroed 64-bit limbs. This compiler-private
+array has no JavaScript tag or public object identity. No mutable capability is
+added to published BigInt limbs.
 
-## Closed authority
+Closed Add/Subtract operations fold finite binary64 significands into a signed
+exact superaccumulator. Scalar operands are `I64Local`; only proven bounded
+limb indices narrow to the GC array's i32 indexing API. Two's-complement
+magnitude extraction and guard/sticky/ties-to-even rounding retain the single
+exact final binary64 rounding step. The fixed capacity covers at most
+2^53-1 finite inputs, including subnormals and maximum finite values.
 
-`MathSumPreciseLimbOperation` is the private two-state authority for folding a
-finite binary64 coefficient into the fixed-width exact accumulator. `Add`
-belongs only to a non-negative term and `Subtract` belongs only to a negative
-term. The domain has no derived capabilities: repeated projections borrow it
-rather than depending on `Copy`, and it cannot be compared, formatted or
-defaulted into a policy outside its exhaustive consumers.
-
-Four exhaustive projections preserve the arithmetic and carry laws. `Add`
-selects unsigned addition and carry-on-less-than for both the low addend and
-incoming carry. `Subtract` selects unsigned subtraction and borrow-on-greater-
-than at those same two stages. There is no wildcard, equality, Boolean or raw
-instruction policy boundary.
-
-The sign-bit branch in `emit_math_sum_precise_add_finite` is the complete
-producer set: its true arm constructs `Subtract`, then its false arm constructs
-`Add`. The fold retains the existing operand, result and carry instruction
-order.
-
-## Guard and verification
-
-`math_sum_precise_limb_operation_structure.rs` recursively pins the complete
-source census and bounds the exact producer and four instruction projections.
-The neighboring `math_sum_precise_runtime_structure.rs` continues to own the
-fixed-width accumulator, iterator and rounding invariants.
-
-Focused verification passes the new structure target `3/3`, the neighboring
-runtime structure target `6/6` and the existing Wasm-AOT runtime CLI fixture
-`1/1`. Independent review confirmed the exact capability/mention closure,
-adjacent-item declaration guard, globally ordered arithmetic/carry projections,
-producer polarity and source equivalence. The package format and lane diff
-checks are clean, and coordinated `cargo xc`, full formatter, diff,
-module-boundary and task-plan checks are green. The Test262 Math tree and broad
-workspace suites remain deferred; this capability closure makes no new
-conformance claim.
+The old byte heap and its mirror guard are retired. This draft is source only:
+no type, numeric oracle, runtime or conformance proof has run. Existing CLI and
+new Engine cancellation/tie/subnormal/overflow controls are retained for the
+later checkpoint under the confirmed 4096 MiB aggregate memory limit.

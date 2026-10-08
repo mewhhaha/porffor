@@ -2,20 +2,21 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_while_loop(&mut self, while_loop: &WhileLoop) -> (StatementIr, ValueKind) {
-        let generator_entry_state = self.current_generator_resume_state;
-        let plain_async_entry_state = self.plain_async_entry_state();
-        let plain_async_await_loop = plain_async_entry_state.is_some()
-            && (contains(while_loop.body(), ContainsSymbol::AwaitExpression)
-                || contains(while_loop.condition(), ContainsSymbol::AwaitExpression));
-        if plain_async_await_loop
-            && (contains(while_loop.condition(), ContainsSymbol::AwaitExpression)
-                || generator_loop_has_unsupported_control(while_loop.body(), false))
-        {
-            self.unsupported(
-                "async loop with await requires an eager loop head without break or continue",
-            );
-            return (StatementIr::Empty, ValueKind::Undefined);
+        if self.async_generator_entry_state().is_some() {
+            return self.lower_async_generator_classic_while(while_loop);
         }
+        if self.plain_generator_entry_state().is_some() {
+            return self.lower_ordinary_generator_while(while_loop);
+        }
+        if let Some(entry_state) = self.plain_async_entry_state() {
+            if crate::async_with_source::plain_async_while_uses_eager_body(while_loop) {
+                return self.lower_awaited_while_condition(while_loop, entry_state);
+            }
+            return self.lower_plain_async_classic_loop(
+                crate::async_generator_source::PlainAsyncClassicLoopSource::While(while_loop),
+            );
+        }
+        let generator_entry_state = self.current_generator_resume_state;
         self.loop_depth += 1;
         let condition = self.lower_expression(while_loop.condition());
         self.loop_depth -= 1;
@@ -26,11 +27,7 @@ impl<'a> ScriptLowerer<'a> {
         let after_globals = self.global_properties.clone();
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
-        if let Some(entry_state) = generator_entry_state.or(if plain_async_await_loop {
-            plain_async_entry_state
-        } else {
-            None
-        }) {
+        if let Some(entry_state) = generator_entry_state {
             if let Some((before_suspension, suspension_statement, after_suspension, resume_state)) =
                 Self::split_resumable_loop_body(
                     body.clone(),
@@ -42,11 +39,7 @@ impl<'a> ScriptLowerer<'a> {
                 } else {
                     resume_state + 1
                 };
-                if generator_entry_state.is_some() {
-                    self.current_generator_resume_state = Some(exit_state);
-                } else {
-                    self.current_async_resume_state = Some(exit_state);
-                }
+                self.current_generator_resume_state = Some(exit_state);
                 return (
                     StatementIr::GeneratorLoop {
                         init: None,
@@ -70,10 +63,6 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("generator loop body has no reentrant suspension segment");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
-        if plain_async_await_loop {
-            self.unsupported("async loop body did not lower to a direct await sequence");
-            return (StatementIr::Empty, ValueKind::Undefined);
-        }
         (
             StatementIr::While {
                 condition,
@@ -87,16 +76,16 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         do_while: &DoWhileLoop,
     ) -> (StatementIr, ValueKind) {
-        // `StatementIr::DoWhile` has no resumable form: the async driver
-        // re-enters the body from the top and the suspension, already past its
-        // state guard, never fires again — the loop spins forever. Report it
-        // rather than emit that.
-        if self.plain_async_entry_state().is_some()
-            && (contains(do_while.body(), ContainsSymbol::AwaitExpression)
-                || contains(do_while.cond(), ContainsSymbol::AwaitExpression))
-        {
-            self.unsupported("await inside a do-while loop");
-            return (StatementIr::Empty, ValueKind::Undefined);
+        if self.async_generator_entry_state().is_some() {
+            return self.lower_async_generator_classic_do_while(do_while);
+        }
+        if self.plain_generator_entry_state().is_some() {
+            return self.lower_ordinary_generator_do_while(do_while);
+        }
+        if self.plain_async_entry_state().is_some() {
+            return self.lower_plain_async_classic_loop(
+                crate::async_generator_source::PlainAsyncClassicLoopSource::DoWhile(do_while),
+            );
         }
         let (body, body_kind) = self.lower_loop_body(do_while.body());
         self.loop_depth += 1;

@@ -44,11 +44,18 @@ positive values clamp to the String length and very large negative values
 take the method's negative-index path, instead of trapping during Wasm numeric
 conversion.
 
-The optimized direct `substring` path therefore delegates through the same
-direct-builtin call boundary as `slice`. That boundary evaluates the receiver
-and complete argument vector before entering the one standard builtin body.
-There is no inline algorithm selected according to whether an enclosing throw
-target happens to exist.
+The earlier backend closure connected direct `substring` and `slice` adapters
+to the same standard builtin bodies after receiver and complete argument-vector
+evaluation. The 2026-10-04 source successor retires inferred canonical-name
+publication: the ordinary indirect method owner retains the actual callee and
+raw receiver, evaluates the complete real arguments, and consumes the two
+coercion-hook effect flags. The final indirect emitter's exact Match/Split/Slice
+adapter interception is also removed before ordinary callee evaluation. The
+canonical range coordinator below remains the algorithm owner; no inline
+algorithm depends on an enclosing throw target.
+The successor passed the ref105 combined all-target Rust type check; runtime
+acceptance remains pending. See the
+[retirement contract](invocation-shortcut-retirement.md).
 
 Nullish receiver errors are created from the current builtin function's Realm.
 Borrowing another Realm's `slice` or `substring` therefore produces that

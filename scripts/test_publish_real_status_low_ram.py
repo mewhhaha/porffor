@@ -14,6 +14,7 @@ import unittest
 
 WRAPPER = Path(os.environ.get("PUBLISH_WRAPPER", Path(__file__).with_name("publish-real-status-low-ram.sh")))
 FAKE_CLI = r'''#!/usr/bin/env python3
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,13 @@ import sys
 
 root = Path(os.environ["FAKE_ROOT"])
 config = json.loads((root / "config.json").read_text())
+compiler = {"source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+            "source_fingerprint": "a" * 64,
+            "source_revision": {"kind": "unversioned-archive"},
+            "executable_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+if sys.argv[1:] == ["compiler-identity"]:
+    print(json.dumps(compiler))
+    sys.exit(0)
 state_path = root / "state.json"
 state = json.loads(state_path.read_text()) if state_path.exists() else {}
 command = sys.argv[2]
@@ -29,7 +37,7 @@ index = state.get(command, 0)
 state[command] = index + 1
 state_path.write_text(json.dumps(state))
 with (root / "calls.jsonl").open("a") as log:
-    log.write(json.dumps({"args": sys.argv[1:], "isolation": os.environ.get("LILA_TEST262_FORCE_CASE_RUNNER"), "disable_child": os.environ.get("LILA_TEST262_DISABLE_CASE_RUNNER")}) + "\n")
+    log.write(json.dumps({"args": sys.argv[1:], "isolation": os.environ.get("ISOLATE_CASES"), "disable_child": os.environ.get("LILA_TEST262_DISABLE_CASE_RUNNER")}) + "\n")
 if index > 3:
     print("fake CLI safety limit: wrapper kept retrying", file=sys.stderr)
     sys.exit(86)
@@ -54,6 +62,7 @@ if command == "progress-status":
     entry = entries[min(index, len(entries) - 1)]
     if "stderr" in entry:
         print(entry["stderr"], file=sys.stderr)
+    print("compiler_identity: " + json.dumps(compiler))
     if "raw" in entry:
         print(entry["raw"])
     elif "completed" in entry:
@@ -161,7 +170,10 @@ class PublicationDriverTests(unittest.TestCase):
         for flag, value in (("--jobs", "2"), ("--threads", "3"), ("--max-matrix-nodes", "4")):
             self.assertEqual(args[args.index(flag) + 1], value)
         self.assertIn("--resume", args)
-        self.assertEqual(self.calls("publish-status")[0]["args"][-2:], ["--readme-path", readme])
+        publish_args = self.calls("publish-status")[0]["args"]
+        self.assertEqual(publish_args[publish_args.index("--jobs") + 1], "2")
+        self.assertEqual(publish_args.count("--jobs"), 1)
+        self.assertEqual(publish_args[-2:], ["--readme-path", readme])
         self.assertNotIn("--readme-path", args)
 
     def test_wasm_alias_is_normalized(self):
@@ -192,13 +204,13 @@ class PublicationDriverTests(unittest.TestCase):
 
     def test_invalid_isolation_is_rejected(self):
         result = self.run_driver([], env={"ISOLATE_CASES": "2"})
-        self.assert_failure(result, "ISOLATE_CASES must be 0 or 1")
+        self.assert_failure(result, "ISOLATE_CASES must be 1: case supervision is mandatory")
         self.assertEqual(self.calls(), [])
 
-    def test_disabled_isolation_does_not_force_case_runner(self):
-        result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "0"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(all(call["isolation"] is None for call in self.calls()))
+    def test_disabled_isolation_is_rejected_before_any_compiler_call(self):
+        result = self.run_driver([], env={"ISOLATE_CASES": "0"})
+        self.assert_failure(result, "case supervision is mandatory")
+        self.assertEqual(self.calls(), [])
 
     def test_stalled_progress_stops_after_one_report(self):
         result = self.run_driver([{"completed": 0, "total": 2}])
@@ -317,11 +329,17 @@ class PublicationDriverTests(unittest.TestCase):
     def test_manifest_records_inputs_not_a_build_attestation(self):
         self.establish_manifest()
         manifest = json.loads(self.manifest_path().read_text())
-        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["schema_version"], 3)
         self.assertEqual(manifest["progress"], {"completed": 1, "total": 1})
         identity = manifest["identity"]
         self.assertEqual(identity["checkout_commit"], self.source)
         self.assertEqual(identity["executable_sha256"], self.digest)
+        self.assertEqual(identity["compiler_identity"], {
+            "source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+            "source_fingerprint": "a" * 64,
+            "source_revision": {"kind": "unversioned-archive"},
+            "executable_sha256": self.digest,
+        })
         self.assertGreater(identity["source_input_files"], 0)
         self.assertEqual(identity["suite_files"], 1)
         self.assertEqual(len(identity["source_inputs_sha256"]), 64)
@@ -366,7 +384,7 @@ class PublicationDriverTests(unittest.TestCase):
     def test_runtime_resource_and_locale_changes_are_not_mixed(self):
         original = self.establish_manifest()
         for environment, field in [({"THREADS": "2"}, "threads"), ({"JOBS": "2"}, "jobs"),
-                                   ({"ISOLATE_CASES": "0"}, "isolate_cases"), ({"TZ": "Etc/GMT+7"}, "environment")]:
+                                   ({"TZ": "Etc/GMT+7"}, "environment")]:
             with self.subTest(environment=environment):
                 result = self.run_driver([], env=environment)
                 self.assert_failure(result, "publication provenance mismatch")
@@ -432,10 +450,10 @@ class PublicationDriverTests(unittest.TestCase):
         self.assert_failure(result, "cannot read publication manifest")
         self.assertFalse(self.manifest_path().exists())
 
-    def test_disabled_isolation_clears_an_inherited_force_flag(self):
-        result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "0", "LILA_TEST262_FORCE_CASE_RUNNER": "1"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(all(call["isolation"] is None for call in self.calls()))
+    def test_legacy_force_flag_cannot_authorize_disabled_isolation(self):
+        result = self.run_driver([], env={"ISOLATE_CASES": "0", "LILA_TEST262_FORCE_CASE_RUNNER": "1"})
+        self.assert_failure(result, "case supervision is mandatory")
+        self.assertEqual(self.calls(), [])
 
     def test_enabled_isolation_clears_the_child_recursion_guard(self):
         result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "1", "LILA_TEST262_DISABLE_CASE_RUNNER": "0"})

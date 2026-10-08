@@ -1,270 +1,378 @@
 use super::*;
 
-#[must_use = "Atomics.waitAsync result Object prototype must be consumed"]
-struct AtomicsWaitAsyncResultObjectPrototypeLocal(u32);
-
-impl<'a> FunctionBuilder<'a> {
-    fn emit_atomics_wait_async_result_object_prototype(
+impl FunctionBuilder<'_> {
+    pub(super) fn emit_atomics_wait_async_object(
         &mut self,
-        function: &mut Function,
-    ) -> AtomicsWaitAsyncResultObjectPrototypeLocal {
-        let object_prototype_local = self.reserve_temp_local();
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            object_prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(object_prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
-        AtomicsWaitAsyncResultObjectPrototypeLocal(object_prototype_local)
-    }
-
-    pub(super) fn emit_atomics_wait_async_return_object(
-        &mut self,
-        outcome: AtomicsWaitOutcome,
-        function: &mut Function,
+        asynchronous: bool,
+        value: &ValueLocals,
+        out: &CompletionLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let result_object_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let AtomicsWaitAsyncResultObjectPrototypeLocal(object_prototype_local) =
-            self.emit_atomics_wait_async_result_object_prototype(function);
-
-        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(result_object_local));
-        self.release_temp_local(object_prototype_local);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "async",
-            value_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
-            function,
+        let s = self.runtime_schema();
+        let realm = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_current_function_realm(f), f);
+        let prototype = s.reserve_value_local(f);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
+            f,
+        );
+        let object = s.reserve_gc_local(f).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&prototype), f)?,
+            f,
+        );
+        let key = self.emit_binary_string_key("async", f)?;
+        let flag = s.reserve_value_local(f);
+        let boolean = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I32Const(i32::from(asynchronous)));
+        boolean.store(f);
+        flag.set_boolean(boolean, f);
+        self.emit_object_append_data_property_with_flags(
+            &object, &key, &flag, true, true, true, f,
         )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(outcome.spelling()),
-        ));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
-            function,
+        key.clear(f);
+        let key = self.emit_binary_string_key("value", f)?;
+        self.emit_object_append_data_property_with_flags(
+            &object, &key, value, true, true, true, f,
         )?;
-        function.instruction(&Instruction::LocalGet(result_object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(result_object_local);
+        key.clear(f);
+        out.value().set_reference(&object, s, f);
+        s.release_i32_local(boolean, f);
+        flag.clear(f);
+        object.clear(f);
+        prototype.clear(f);
+        realm.clear(f);
         Ok(())
     }
-
-    pub(super) fn emit_atomics_wait_async_return_promise(
+    pub(super) fn emit_atomics_wait_async_promise(
         &mut self,
-        address_local: u32,
-        deadline_nanos_local: u32,
-        function: &mut Function,
+        buffer: &GcLocal<SharedArrayBuffer>,
+        offset: I64Local,
+        deadline: I64Local,
+        host_id: I64Local,
+        out: &CompletionLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let result_object_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let waiter_local = self.reserve_temp_local();
-        let waiter_tail_local = self.reserve_temp_local();
-        let waiter_next_local = self.reserve_temp_local();
-        let waiter_host_id_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let async_payload_local = self.reserve_temp_local();
-        let AtomicsWaitAsyncResultObjectPrototypeLocal(object_prototype_local) =
-            self.emit_atomics_wait_async_result_object_prototype(function);
-        let promise_allocation_context =
-            self.emit_current_function_realm_intrinsic_promise_allocation_context(function);
-
-        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(result_object_local));
-        self.emit_alloc_promise_with_prototype(
-            promise_allocation_context,
-            promise_payload_local,
-            promise_record_local,
-            function,
+        let s = self.runtime_schema();
+        let context = self.emit_current_function_realm_intrinsic_promise_allocation_context(f);
+        let promise = self.emit_alloc_promise_with_prototype(context, f)?;
+        let waiter = s.reserve_gc_local(f).initialize(
+            s.struct_type::<AtomicsAsyncWaiter>().construct(
+                (
+                    GcOperand::boolean(true),
+                    GcOperand::reference(buffer, s),
+                    GcOperand::i64_local(offset),
+                    GcOperand::reference(&promise, s),
+                    GcOperand::i64_local(deadline),
+                    GcOperand::i64_local(host_id),
+                    GcOperand::null(s),
+                ),
+                f,
+            ),
+            f,
+        );
+        let tail = s.load_atomics_async_waiter_queue(RuntimeQueueEnd::Tail, f);
+        tail.load(s, f).is_null(f);
+        self.open_frame(ControlFrameKind::If, f);
+        s.replace_atomics_async_waiter_queue(RuntimeQueueEnd::Head, &waiter, f);
+        f.instruction(&Instruction::Else);
+        s.field(AtomicsAsyncWaiterSchema::NEXT).write(
+            &tail,
+            GcOperand::nullable_reference(&waiter, s),
+            s,
+            f,
+        );
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        s.replace_atomics_async_waiter_queue(RuntimeQueueEnd::Tail, &waiter, f);
+        let value = s.reserve_value_local(f);
+        value.set_reference(&promise, s, f);
+        self.emit_atomics_wait_async_object(true, &value, out, f)?;
+        value.clear(f);
+        tail.clear(f);
+        waiter.clear(f);
+        promise.clear(f);
+        Ok(())
+    }
+    pub(crate) fn emit_drain_atomics_wait_async_timeouts(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<I32Local, EmitError> {
+        self.emit_atomics_wait_async_timeout_checkpoint(
+            AtomicsWaitAsyncTimeoutCheckpointMode::Drain,
+            f,
+        )
+    }
+    pub(crate) fn emit_poll_atomics_wait_async_timeouts(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let progressed = self.emit_atomics_wait_async_timeout_checkpoint(
+            AtomicsWaitAsyncTimeoutCheckpointMode::Poll,
+            f,
         )?;
-        self.release_temp_local(object_prototype_local);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(async_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "async",
-            async_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-
-        self.emit_heap_alloc_const(HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(waiter_local));
-        self.store_i64_const_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-            1,
-            function,
+        self.runtime_schema().release_i32_local(progressed, f);
+        Ok(())
+    }
+    fn emit_atomics_wait_async_timeout_checkpoint(
+        &mut self,
+        mode: AtomicsWaitAsyncTimeoutCheckpointMode,
+        f: &mut Function,
+    ) -> Result<I32Local, EmitError> {
+        let s = self.runtime_schema();
+        let saved = s.reserve_completion(f);
+        saved.copy_from(self.completion(), f);
+        let progressed = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I32Const(0));
+        progressed.store(f);
+        let outcome = s.reserve_value_local(f);
+        let host_id = s.reserve_i64_local(f);
+        let status = s.reserve_i64_local(f);
+        let deadline = s.reserve_i64_local(f);
+        let now = s.reserve_i64_local(f);
+        let active = s.reserve_i32_local(f);
+        let settle = s.reserve_i32_local(f);
+        let any_active = s.reserve_i32_local(f);
+        let nearest = s.reserve_i64_local(f);
+        let delay = s.reserve_i64_local(f);
+        let current = s
+            .reserve_gc_local::<AtomicsAsyncWaiter, Nullable>(f)
+            .initialize_null(s, f);
+        let previous = s
+            .reserve_gc_local::<AtomicsAsyncWaiter, Nullable>(f)
+            .initialize_null(s, f);
+        let next = s
+            .reserve_gc_local::<AtomicsAsyncWaiter, Nullable>(f)
+            .initialize_null(s, f);
+        let agent = self
+            .functions
+            .agent_call_import_function_index()
+            .ok_or_else(|| {
+                EmitError::unsupported("waitAsync polling requires its native agent import")
+            })?;
+        let clock = self
+            .functions
+            .monotonic_clock_nanos_import_function_index()
+            .ok_or_else(|| {
+                EmitError::unsupported("waitAsync polling requires its monotonic clock")
+            })?;
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let again = self.open_frame(ControlFrameKind::Loop, f);
+        f.instruction(&Instruction::Call(clock));
+        now.store(f);
+        f.instruction(&Instruction::I64Const(i64::MAX));
+        nearest.store(f);
+        f.instruction(&Instruction::I32Const(0));
+        any_active.store(f);
+        previous.set_null(s, f);
+        let head = s.load_atomics_async_waiter_queue(RuntimeQueueEnd::Head, f);
+        current.replace(head.load(s, f), f);
+        head.clear(f);
+        let scanned = self.open_frame(ControlFrameKind::Block, f);
+        let scan = self.open_frame(ControlFrameKind::Loop, f);
+        current.load(s, f).is_null(f);
+        self.emit_branch_if_to_target(scanned, f);
+        next.replace(
+            s.field(AtomicsAsyncWaiterSchema::NEXT)
+                .read(&current, s, f)
+                .reference(),
+            f,
         );
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET,
-            address_local,
-            function,
+        s.field(AtomicsAsyncWaiterSchema::HOST_WAITER_ID)
+            .read(&current, s, f)
+            .store_i64(host_id, f);
+        s.field(AtomicsAsyncWaiterSchema::DEADLINE_NANOS)
+            .read(&current, s, f)
+            .store_i64(deadline, f);
+        s.field(AtomicsAsyncWaiterSchema::ACTIVE)
+            .read(&current, s, f)
+            .store(active, f);
+        f.instruction(&Instruction::I32Const(0));
+        settle.store(f);
+        active.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(
+            AgentHostOperation::PollAsyncWaiter.wire(),
+        ));
+        host_id.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::Call(agent));
+        status.store(f);
+        status.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_atomics_wait_outcome(AtomicsWaitOutcome::Ok, &outcome, f)?;
+        f.instruction(&Instruction::I32Const(1));
+        settle.store(f);
+        f.instruction(&Instruction::Else);
+        status.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::I64LtS);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        deadline.load(f);
+        f.instruction(&Instruction::I64Const(i64::MAX));
+        f.instruction(&Instruction::I64Ne);
+        deadline.load(f);
+        now.load(f);
+        f.instruction(&Instruction::I64LeU);
+        f.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, f);
+        // Cancellation arbitrates a notify racing the timeout: status 1 still wins.
+        f.instruction(&Instruction::I64Const(
+            AgentHostOperation::CancelAsyncWaiter.wire(),
+        ));
+        host_id.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::Call(agent));
+        status.store(f);
+        status.load(f);
+        f.instruction(&Instruction::I64Const(0));
+        f.instruction(&Instruction::I64LtS);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        status.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_atomics_wait_outcome(AtomicsWaitOutcome::Ok, &outcome, f)?;
+        f.instruction(&Instruction::Else);
+        self.emit_atomics_wait_outcome(AtomicsWaitOutcome::TimedOut, &outcome, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        f.instruction(&Instruction::I32Const(1));
+        settle.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        settle.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I32Const(1));
+        progressed.store(f);
+        s.field(AtomicsAsyncWaiterSchema::ACTIVE)
+            .write(&current, GcOperand::boolean(false), s, f);
+        let promise = s.reserve_gc_local(f).initialize(
+            s.field(AtomicsAsyncWaiterSchema::PROMISE)
+                .read(&current, s, f)
+                .reference(),
+            f,
         );
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-            promise_record_local,
-            function,
+        self.emit_resolve_promise_record(&promise, &outcome, f)?;
+        promise.clear(f);
+        previous.load(s, f).is_null(f);
+        self.open_frame(ControlFrameKind::If, f);
+        s.replace_atomics_async_waiter_queue(RuntimeQueueEnd::Head, &next, f);
+        f.instruction(&Instruction::Else);
+        s.field(AtomicsAsyncWaiterSchema::NEXT).write(
+            &previous,
+            GcOperand::reference(&next, s),
+            s,
+            f,
         );
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET,
-            deadline_nanos_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(waiter_host_id_local));
-        if let Some(agent_call_function_index) = self.functions.agent_call_import_function_index() {
-            function.instruction(&Instruction::I64Const(
-                AgentHostOperation::RegisterAsyncWaiter.wire(),
-            ));
-            function.instruction(&Instruction::LocalGet(address_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::Call(agent_call_function_index));
-            function.instruction(&Instruction::LocalSet(waiter_host_id_local));
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        next.load(s, f).is_null(f);
+        self.open_frame(ControlFrameKind::If, f);
+        s.replace_atomics_async_waiter_queue(RuntimeQueueEnd::Tail, &previous, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        s.field(AtomicsAsyncWaiterSchema::NEXT)
+            .write(&current, GcOperand::null(s), s, f);
+        f.instruction(&Instruction::Else);
+        previous.replace(current.load(s, f), f);
+        f.instruction(&Instruction::I32Const(1));
+        any_active.store(f);
+        deadline.load(f);
+        nearest.load(f);
+        f.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, f);
+        deadline.load(f);
+        nearest.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        current.replace(next.load(s, f), f);
+        self.emit_branch_to_target(scan, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        match mode {
+            AtomicsWaitAsyncTimeoutCheckpointMode::Poll => self.emit_branch_to_target(done, f),
+            AtomicsWaitAsyncTimeoutCheckpointMode::Drain => {
+                // Reactions from a settled waiter can notify another waiter.
+                // Give the actual Promise queue its turn before waiting again.
+                progressed.load(f);
+                self.emit_branch_if_to_target(done, f);
+                any_active.load(f);
+                f.instruction(&Instruction::I32Eqz);
+                self.emit_branch_if_to_target(done, f);
+                f.instruction(&Instruction::I64Const(1));
+                delay.store(f);
+                nearest.load(f);
+                f.instruction(&Instruction::I64Const(i64::MAX));
+                f.instruction(&Instruction::I64Ne);
+                nearest.load(f);
+                now.load(f);
+                f.instruction(&Instruction::I64GtU);
+                f.instruction(&Instruction::I32And);
+                self.open_frame(ControlFrameKind::If, f);
+                nearest.load(f);
+                now.load(f);
+                f.instruction(&Instruction::I64Sub);
+                f.instruction(&Instruction::I64Const(999_999));
+                f.instruction(&Instruction::I64Add);
+                f.instruction(&Instruction::I64Const(1_000_000));
+                f.instruction(&Instruction::I64DivU);
+                f.instruction(&Instruction::I64Const(1));
+                f.instruction(&Instruction::I64LtU);
+                self.open_frame(ControlFrameKind::If, f);
+                f.instruction(&Instruction::I64Const(0));
+                delay.store(f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                f.instruction(&Instruction::I64Const(AgentHostOperation::Sleep.wire()));
+                delay.load(f);
+                f.instruction(&Instruction::F64ConvertI64U);
+                f.instruction(&Instruction::I64ReinterpretF64);
+                f.instruction(&Instruction::I64Const(0));
+                f.instruction(&Instruction::Call(agent));
+                f.instruction(&Instruction::Drop);
+                self.emit_branch_to_target(again, f);
+            }
         }
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET,
-            waiter_host_id_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            0,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(waiter_tail_local));
-        function.instruction(&Instruction::LocalGet(waiter_tail_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::GlobalSet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            waiter_tail_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_next_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::LocalSet(waiter_tail_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.store_i64_local_at_offset(
-            waiter_tail_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "value",
-            promise_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(result_object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(async_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(waiter_host_id_local);
-        self.release_temp_local(waiter_next_local);
-        self.release_temp_local(waiter_tail_local);
-        self.release_temp_local(waiter_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(result_object_local);
-        Ok(())
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&saved, f);
+        next.clear(f);
+        previous.clear(f);
+        current.clear(f);
+        s.release_i64_local(delay, f);
+        s.release_i64_local(nearest, f);
+        s.release_i32_local(any_active, f);
+        s.release_i32_local(settle, f);
+        s.release_i32_local(active, f);
+        s.release_i64_local(now, f);
+        s.release_i64_local(deadline, f);
+        s.release_i64_local(status, f);
+        s.release_i64_local(host_id, f);
+        outcome.clear(f);
+        saved.clear(f);
+        Ok(progressed)
     }
 }

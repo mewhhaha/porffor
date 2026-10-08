@@ -1,8 +1,15 @@
 {
   "schema": 1,
-  "canonical_sha256": "9cee88aecc9b49b55db0b530d3831b8830e694fd3d3b2792dbb035049b983e69",
-  "payload_sha256": "ea0acde192c8b03e7db3cbf398091ad6198f9eef6eafa7793fb1dca5c6bdf4a4",
-  "payload_bytes": 6083064,
+  "canonical_sha256": "4bc17e2ed0a5a51a70ad342fa9bb7cf91af036db737775dedbf505204205699a",
+  "payload_sha256": "d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254",
+  "payload_bytes": 6091829,
   "locales": 1082,
-  "numbering_systems": 77
+  "numbering_systems": 78,
+  "numbering_supplement": {
+    "cldr_commit": "acd6d88ae493633240e19a87a721076a8a75c310",
+    "cldr_release": "48.0.0",
+    "identifier": "tols",
+    "source_manifest_sha256": "c0b70b5f5ffc5940c8f47e97ec99bd9c5596e1b81613901bffaa9a80323dc62f",
+    "unicode_release": "17.0.0"
+  }
 }

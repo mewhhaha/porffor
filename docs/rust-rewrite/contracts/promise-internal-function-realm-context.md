@@ -1,4 +1,34 @@
+> **Current atomic GC draft — 2026-10-05.** The suspended/Promise source-only
+> candidate retires obsolete raw ABI literal test recipes. Current consumers use
+> whole values and completions, typed GC records, and closed producer domains.
+> The lifecycle and IR ownership requirements, durable fixtures, pinned inventories,
+> and nonclaims below remain retained evidence.
+>
+> Raw offsets, payload/tag signatures, scalar temporary budgets, emitter-body
+> fingerprints, structure-target counts, and dated verification results below
+> describe their earlier source checkpoints. They do not verify this uncompiled,
+> unrun GC draft; no runtime, acceptance, or conformance-count update is claimed.
+>
+> The complete captured predecessor body below is preserved byte-for-byte at SHA-256
+> `299948394412eb192f99ec080d493fe4020674f6e8fe7cbd64a6eb387fe8553a`.
+
 # Promise internal-function Realm context
+
+## Current whole GC source — 2026-10-05
+
+Native AsyncIterator disposal now consumes complete values and whole completions,
+canonical defining-Realm Promise capability and immutable Realm function creation.
+Return Get, empty argument List Call and synchronous PromiseResolve failures reject
+the outer capability; the sole fulfillment callback captures nothing and returns
+undefined. Its earlier two-handler raw state/offset publication below is retired.
+See [GC async iterator disposal](gc-async-iterator-disposal.md).
+
+The request-Promise Realm structure target retains its meaningful CLI fixture
+witness; raw-offset, parser-token and exact source-count mirrors are retired.
+Every earlier command/result below keeps its historical scope. New controls and
+all atomic source are uncompiled/unrun. Whole-task source and final composition
+must finish before capped serial verification; no acceptance/count update.
+
 
 Promise resolving functions, capability executors, `finally` continuations and
 combinator element functions are observable built-in function objects. Their

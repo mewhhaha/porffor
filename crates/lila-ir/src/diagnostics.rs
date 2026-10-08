@@ -91,6 +91,11 @@ pub struct IrDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum IrDiagnosticPayload {
     Rejected(EarlyErrorCode),
+    /// A rejection found while loading a non-entry module of a graph. Same
+    /// condition and code as [`Self::Rejected`], but ParseModule failing for
+    /// an imported module surfaces from HostLoadImportedModule/Link, which
+    /// test262 spells `phase: resolution`.
+    RejectedInDependency(EarlyErrorCode),
     Unsupported,
     UnsupportedFeature(UnsupportedFeature),
     UnsupportedParserFeature,
@@ -137,6 +142,17 @@ impl IrDiagnostic {
         Self::rejected(code.code(), message, span)
     }
 
+    /// Re-attributes a rejection to a non-entry module of the graph, so it
+    /// reports at `IrDiagnosticPhase::Resolution` (a SyntaxError raised while
+    /// loading/linking) while keeping its code. Compiler gaps are unchanged.
+    #[must_use]
+    pub fn in_dependency_module(mut self) -> Self {
+        if let IrDiagnosticPayload::Rejected(code) = self.payload {
+            self.payload = IrDiagnosticPayload::RejectedInDependency(code);
+        }
+        self
+    }
+
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
             payload: IrDiagnosticPayload::Unsupported,
@@ -159,6 +175,7 @@ impl IrDiagnostic {
         match &self.payload {
             IrDiagnosticPayload::Unsupported | IrDiagnosticPayload::UnsupportedFeature(_) => true,
             IrDiagnosticPayload::Rejected(_)
+            | IrDiagnosticPayload::RejectedInDependency(_)
             | IrDiagnosticPayload::UnsupportedParserFeature
             | IrDiagnosticPayload::Lowering => false,
         }
@@ -193,6 +210,7 @@ impl IrDiagnostic {
     pub const fn kind(&self) -> IrDiagnosticKind {
         match &self.payload {
             IrDiagnosticPayload::Rejected(code) => rejection_kind(*code),
+            IrDiagnosticPayload::RejectedInDependency(_) => IrDiagnosticKind::LinkError,
             IrDiagnosticPayload::Unsupported
             | IrDiagnosticPayload::UnsupportedFeature(_)
             | IrDiagnosticPayload::UnsupportedParserFeature => IrDiagnosticKind::Unsupported,
@@ -208,7 +226,8 @@ impl IrDiagnostic {
     #[must_use]
     pub const fn code(&self) -> Option<EarlyErrorCode> {
         match &self.payload {
-            IrDiagnosticPayload::Rejected(code) => Some(*code),
+            IrDiagnosticPayload::Rejected(code)
+            | IrDiagnosticPayload::RejectedInDependency(code) => Some(*code),
             IrDiagnosticPayload::Unsupported
             | IrDiagnosticPayload::UnsupportedFeature(_)
             | IrDiagnosticPayload::UnsupportedParserFeature
@@ -223,6 +242,7 @@ impl IrDiagnostic {
         match &self.payload {
             IrDiagnosticPayload::UnsupportedFeature(feature) => Some(*feature),
             IrDiagnosticPayload::Rejected(_)
+            | IrDiagnosticPayload::RejectedInDependency(_)
             | IrDiagnosticPayload::Unsupported
             | IrDiagnosticPayload::UnsupportedParserFeature
             | IrDiagnosticPayload::Lowering => None,

@@ -193,3 +193,21 @@ fn generic_name_standard_fallback_requires_the_whole_window_to_be_stable() {
         }
     }
 }
+
+#[test]
+fn all_year_rearguard_dst_preserves_pinned_offset_at_the_utc_year_boundary() {
+    for identifier in ["Africa/Casablanca", "Africa/El_Aaiun"] {
+        for second in [
+            64_092_203_999, // 4000-12-31T21:59:59Z
+            64_092_204_000, // 4000-12-31T22:00:00Z
+            64_092_205_800, // 4000-12-31T22:30:00Z
+            64_092_211_199, // 4000-12-31T23:59:59Z
+            64_092_211_200, // 4001-01-01T00:00:00Z
+        ] {
+            assert_eq!(
+                snapshot(identifier, second),
+                (3600, TimeZoneVariant::Daylight)
+            );
+        }
+    }
+}

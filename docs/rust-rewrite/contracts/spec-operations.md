@@ -55,16 +55,21 @@ and the new runtime fixture plus four neighboring Array/TypedArray controls pass
 
 §17 records the second backend row in detail. `ToPropertyDescriptor` has the
 typed contract `Value -> PropertyDescriptor` and `MayThrow`, with exactly one
-shared converter definition and two direct Object-static-builtin call sites:
-`Object.defineProperty` and `Object.defineProperties`. Its private-field,
-non-`Copy`, `#[must_use]` reserved-locals carrier must be consumed by the
-present-descriptor object materializer, which releases the carrier's locals in
-reverse reservation order. This is not evidence for the general
-`FromPropertyDescriptor` operation, whose row remains a gap; the separate
-Reflect and Proxy descriptor paths remain open-coded nonclaims. The census is
-still `29 + 2 + 5 + 10 = 46`. The bounded evidence target passes `7/7`, the
-existing Object descriptor fixture passes `1/1`, the filtered IR operation
-units pass `53/53`, and `cargo check -p lila-aot-wasm` is green.
+shared converter definition. Its four current direct callers are
+`Object.defineProperty`, `Object.defineProperties`, Proxy `[[GetOwnProperty]]`
+trap-result conversion and `Reflect.defineProperty`. The private-field,
+non-`Copy`, `#[must_use]` reserved owner is consumed by materialization or
+completion, or retained through borrowed materialization and released once
+after its last definition consumer. Reflect's actual trap-object allocator
+requires this owner; its namespace and TypedArray inputs use a validated
+projection that preserves every field presence and runtime presence identity.
+The [conversion contract](reflect-to-property-descriptor-owner.md) records the
+source-only continuation and corrects the stale open-coded Proxy nonclaim.
+This is not evidence for the general `FromPropertyDescriptor` operation or
+complete Proxy conformance. The catalog census is unchanged. The original §17
+checkpoint recorded bounded evidence `7/7`, Object fixture `1/1`, IR operation
+units `53/53` and a green AOT Cargo check; no compilation or execution was run
+for the current Reflect conversion batch.
 
 ---
 

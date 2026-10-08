@@ -147,9 +147,9 @@ fn all_three_receiver_decisions_are_exhaustive_and_ordered() {
         error_projection,
         concat!(
             "ToLocaleStringReceiverKind::ArrayLike=>{",
-            "\"Array.prototype.toLocaleStringelementmethodisnotcallable\"}",
+            "RuntimeErrorMessage::ARRAY_PROTOTYPE_TOLOCALESTRING_ELEMENT_METHOD_IS_NOT_CALLABLE}",
             "ToLocaleStringReceiverKind::TypedArray=>{",
-            "\"TypedArray.prototype.toLocaleStringelementmethodisnotcallable\"}};"
+            "RuntimeErrorMessage::TYPEDARRAY_PROTOTYPE_TOLOCALESTRING_ELEMENT_METHOD_IS_NOT_CALLABLE}};"
         )
     );
 

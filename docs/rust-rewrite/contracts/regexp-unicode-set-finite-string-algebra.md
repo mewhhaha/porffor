@@ -1,8 +1,36 @@
 # UnicodeSets finite string algebra
 
+## Current candidate verification
+
+Seven new IR controls and nine direct Engine fixtures pass, with the Engine
+fixtures covering both Script modes. Ten selected adjacent RegExp files pass
+20 pinned modes, including both circled-M property files and the Unicode
+case-mapping neighbor. The 33 direct class-string files/66 modes describe the
+/v-only inventory; the whole inventory was not replayed by this selection.
+There are no selected direct /iv pins. The runtime pattern compiler is unchanged.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
 Status: normative implementation contract for direct `\q{…}` operands and
 exact finite Unicode properties of strings in the Rust RegExp matcher-program
-producer.
+producer. The dated/source-cohort evidence below records the original direct-q
+and keycap batches. The current producer expands all seven closed provider
+properties of strings; historical keycap-only capability limits are superseded.
 
 ## Exact conformance boundary
 
@@ -22,9 +50,9 @@ The selected raw Test262 cohort is the 27 generated files under
 - `string-literal-{union,intersection,difference}-string-literal.js`.
 
 That is 27 physical files and 54 strict/non-strict executions. The complete
-cohort is source-proven red at the selected head because the parser retains
+cohort was source-proven red at the original selected pre-batch head because the parser retained
 every valid direct class string as `RequiresClassStringSemantics` and
-`RegExpProgram::compile` returns the explicit `` `\q` string literals are
+`RegExpProgram::compile` returned the explicit `` `\q` string literals are
 unsupported `` capability error before any operator-specific matcher path.
 Focused representatives were executed; the full 54-execution refresh remains
 an integration verification step rather than a claimed fresh measurement.
@@ -78,12 +106,36 @@ static witness, not on the exact product after algebra. Thus
 is empty. Empty strings are retained as real set members and make an admitted
 matcher atom nullable.
 
-`ClassSetValue` also carries sticky direct-`\q` provenance through every set
-operation. Any `iv` class which used a direct class-string operand remains an
-explicit `RequiresUnicodeSetStringCaseFolding` capability even if algebra
-eliminates the strings or normalizes every singleton into ranges. This is the
-honest conservative boundary for cases such as `[\q{a}&&A]`: applying case
-closure only after raw set algebra is not equivalent to the specification.
+The prepared `/iv` successor applies Unicode simple folding to each direct
+class-string and finite-property operand before algebra. Multi-code-point keys are canonicalized
+character by character and deduplicated. Singletons enter the same fold-closed
+range representation as ordinary characters, so intersections, subtractions
+and nested complements agree with ordinary set operands. The static
+`MayContainStrings` witness still follows the original syntax, including empty
+and multi-code-point alternatives eliminated by algebra.
+
+Each surviving string position then uses the existing scoped-modifier emitter
+to match its complete simple-fold equivalence class. This reuses existing ASCII
+class and range-pool instructions, retaining fallible range and instruction
+bounds. Simple folding preserves code-point lengths and lone surrogates; it
+does not expand sharp s into two letters. Fold-invariant provider strings keep
+their existing instructions. The retired direct-string capability and its
+syntax-only placeholder chain are removed rather than left as unreachable
+states. No Wasm opcode, program descriptor or runtime compiler capability is
+added.
+
+The source proposal is uncompiled and unexecuted. Seven added IR regressions and
+nine paired Engine controls remain required, together with retained compiler
+and matcher controls. The circled-M controls cover bare property matching,
+property/direct intersection and both subtraction directions, `/v` sensitivity,
+and scoped modifiers for `Basic_Emoji` and `RGI_Emoji`. The pin has 33 direct class-string files (66 Script modes),
+all `/v`-only: they provide adjacent coverage, not direct `/iv` evidence. No
+conformance count or historical execution result changes.
+
+Normative obligations come from [CompileToCharSet](https://tc39.es/ecma262/multipage/text-processing.html#sec-runtime-semantics-compiletocharset),
+[MaybeSimpleCaseFolding](https://tc39.es/ecma262/multipage/text-processing.html#sec-maybesimplecasefolding),
+[CompileAtom](https://tc39.es/ecma262/multipage/text-processing.html#sec-runtime-semantics-compileatom),
+and [MayContainStrings](https://tc39.es/ecma262/multipage/text-processing.html#sec-static-semantics-maycontainstrings).
 
 ## Closed matcher-atom lowering
 
@@ -140,6 +192,9 @@ subtraction all consume the canonical finite product above. The property sets
 `MayContainStrings` independently of the post-algebra product, preserving the
 negated-class early error.
 
+At this historical keycap-only checkpoint, the following capability limits
+were still present; the current all-seven projection supersedes them.
+
 `Basic_Emoji` and the remaining `RGI_Emoji*` properties retain
 `RequiresUnicodePropertyOfStrings`. Adding another property requires its own
 revision-pinned table and focused raw inventory; recognizing its name is not
@@ -154,39 +209,45 @@ seven-variant authority for the exact ECMAScript property names, and the
 provider's sequence accessor projects all seven variants exhaustively.
 
 Lila parses the source spelling into that domain once at the RegExp boundary.
-Its catch-all-free match then has one semantic arm per provider variant:
+At the historical authority-hardening checkpoint, its catch-all-free match
+had one semantic arm per provider variant:
 `EmojiKeycapSequence` consumes the provider sequences and enters
 `FiniteClassSet`; `BasicEmoji` and each of the five `RGIEmoji*` variants enter
 the explicit `RequiresUnicodePropertyOfStrings` capability. No raw property
 name is matched again inside Lila, and no handwritten keycap table remains.
 Adding a provider variant therefore makes both the provider table projection
 and the Lila semantic projection fail to compile until the new case is owned.
-This is an invariant-only authority change: the admitted keycap behavior and
-the six unsupported capability outcomes are unchanged.
+At that authority-hardening checkpoint, admitted keycap behavior and the six
+other capability outcomes were unchanged. The current exhaustive projection
+lowers all seven provider variants through the finite property constructor.
 
 ## Case-insensitive boundary
 
-This cohort uses `v` without `i`. Code-point-only results with no direct-`\q`
-provenance keep the existing case closure. Any `iv` set which used a direct
-class string remains the distinct typed
-`RequiresUnicodeSetStringCaseFolding` capability until operand-local
-MaybeSimpleCaseFolding is represented. It must not emit a post-algebra range
-closure or exact-literal matcher and pretend that it implements `Canonicalize`.
+The original admitted cohort used `v` without `i` and retained direct `/iv`
+class strings as a capability boundary. The prepared source-only successor now
+represents operand-local `MaybeSimpleCaseFolding` before set algebra and matches
+each surviving position through its simple-fold equivalence class. Verification
+of that successor remains pending; the historical `/v` results do not prove its
+new `/iv` behavior. Post-algebra closure alone cannot implement `Canonicalize`
+for strings or normalize singleton aliases before set operations.
 
-The finite keycap property is an explicit identity-fold exception: `#`, `*`,
-ASCII digits, FE0F and 20E3 are all unchanged by simple case folding, so its
-`iv` atom is bytecode-identical to `v`. The constructor is named
-`finite_case_invariant_property_of_strings`, the IR witness compares both
-programs, and the Wasm fixture executes the `iv` form. A future finite property
-containing a casable code point must not use that constructor; it needs the
-operand-local folding representation above.
+The provider operands use `finite_property_of_strings(strings, folding)` with
+the active scoped modifier context. `Basic_Emoji` and `RGI_Emoji` contain
+U+24C2 U+FE0F; the first code point simple-folds to U+24DC. Their string keys must
+therefore fold before intersection or subtraction with a direct class string,
+and their `/iv` matching instructions differ from `/v`. The other five pinned
+provider tables are fold-invariant. The original keycap witness checks `#`, `*`,
+ASCII digits, FE0F and 20E3, and its `iv` atom remains bytecode-identical to `v`.
+The two pinned circled-M property files use `/v` only; their four Script modes
+are adjacent controls and provide no direct `/iv` execution evidence.
 
 ## Explicit nonclaims
 
-This contract implements only the exact finite `Emoji_Keycap_Sequence`
-property table. It does not implement `Basic_Emoji`, the remaining
-`RGI_Emoji*` properties, arbitrary runtime pattern compilation, or broad
-UnicodeSets conformance. It does not change malformed `\q` syntax or
+The current static producer implements the finite tables for
+`Emoji_Keycap_Sequence`, `Basic_Emoji`, `RGI_Emoji_Flag_Sequence`,
+`RGI_Emoji_Modifier_Sequence`, `RGI_Emoji_Tag_Sequence`, `RGI_Emoji_ZWJ_Sequence`
+and `RGI_Emoji`. It does not imply arbitrary runtime property-pattern compilation
+or broad UnicodeSets conformance. It does not change malformed `\q` syntax or
 negated-class early errors. It does not add a new Wasm matcher opcode or data
 pool: finite source and property strings lower to the existing ordered matcher
 bytecode. Global/sticky wrappers, `lastIndex`, RegExp subclass behavior,
@@ -206,13 +267,13 @@ The focused `lila-ir` witness must prove:
 - forward and reverse programs preserve alternative priority while reversing
   only each string sequence;
 - nested set operations produce the same canonical product as top-level ones;
-- direct finite strings no longer produce a capability error, while an `iv`
-  string set remains explicit unsupported; and
-- the exact twelve-member keycap table enters the same direct-atom and set
-  algebra path while other string properties remain typed unsupported;
+- direct `/iv` operands fold before algebra, including singleton aliases,
+  and surviving string positions match their simple-fold equivalence classes;
+- all seven provider tables enter the same finite direct-atom and set algebra
+  path; the original keycap table retains its twelve-member witness;
 - the strict provider parser and exhaustive seven-arm provider/Lila
-  projections are the sole property-name and sequence authorities, with the
-  provider sequence accessor consumed only by the finite keycap arm;
+  projections are the sole property-name and sequence authorities, with every
+  arm using the provider sequence accessor;
 - the source-derived 37-file keycap inventory stays unflagged, contains exactly
   three parse-negative files, and has no runner, shortcut, or known-failure
   mask; and

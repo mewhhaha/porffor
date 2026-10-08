@@ -1,141 +1,85 @@
+//! Annex B accessor lookup stops at the first present own descriptor.
 use super::*;
 
+#[derive(Clone, Copy)]
 enum PrototypeLookup {
     Getter,
     Setter,
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     fn compile_object_prototype_lookup_builtin(
         &mut self,
         mode: PrototypeLookup,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Object.prototype accessor lookup receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Object.prototype accessor lookup receiver",
-            )
-        })?;
-        let object_get_own_property_descriptor_meta = self
-            .functions
-            .get(&StandardBuiltinId::ObjectGetOwnPropertyDescriptor.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Object.getOwnPropertyDescriptor`",
-                )
-            })?;
-        let object_payload_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-        let key_payload_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let descriptor_payload_local = self.reserve_temp_local();
-        let descriptor_tag_local = self.reserve_temp_local();
-        let accessor_key_local = self.reserve_temp_local();
-        let accessor_present_local = self.reserve_temp_local();
-        let accessor_payload_local = self.reserve_temp_local();
-        let accessor_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
-        self.emit_value_to_object_locals(
-            receiver_payload_local,
-            receiver_tag_local,
-            object_payload_local,
-            object_tag_local,
-            function,
-        )?;
-        self.emit_value_to_property_key_locals(key_payload_local, key_tag_local, function)?;
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.emit_direct_js_call(
-            &object_get_own_property_descriptor_meta,
-            None,
-            &[
-                (object_payload_local, object_tag_local),
-                (key_payload_local, key_tag_local),
-            ],
-            descriptor_payload_local,
-            descriptor_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(descriptor_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let accessor_name = match &mode {
-            PrototypeLookup::Getter => "get",
-            PrototypeLookup::Setter => "set",
-        };
-        function.instruction(&Instruction::I64Const(self.strings.payload(accessor_name)));
-        function.instruction(&Instruction::LocalSet(accessor_key_local));
-        self.emit_object_own_data_field_read(
-            descriptor_payload_local,
-            descriptor_tag_local,
-            accessor_key_local,
-            accessor_present_local,
-            accessor_payload_local,
-            accessor_tag_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let object = schema.reserve_value_local(function);
+        let key_value = schema.reserve_value_local(function);
+        let selected = schema.reserve_value_local(function);
+        let output = schema.reserve_completion(function);
+        let pending = schema.reserve_completion(function);
+        let found = schema.reserve_i32_local(function);
+        output.initialize(function);
+        pending.initialize(function);
+        receiver.copy_from(
+            self.body_entry_locals()
+                .expect("accessor lookup owns a native entry")
+                .this_value(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(accessor_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(accessor_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::Br(2));
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_value_to_current_function_realm_object_locals(&receiver, &pending, function)?;
+        self.emit_native_object_abrupt_exit(&pending, &output, exit, function);
+        object.copy_from(pending.value(), function);
+        self.emit_builtin_arg_to_value(0, &key_value, function);
+        let key = self.emit_value_to_property_key_locals(&key_value, function)?;
+        let done = self.open_frame(ControlFrameKind::Block, function);
+        let next = self.open_frame(ControlFrameKind::Loop, function);
+        let descriptor = self.emit_proxy_target_own_descriptor(&object, &key, function)?;
+        descriptor.emit_found_i32(schema, function);
+        found.store(function);
+        found.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        selected.set_undefined(function);
+        descriptor.emit_accessor_i32(schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        match mode {
+            PrototypeLookup::Getter => descriptor.read_getter(&selected, schema, function),
+            PrototypeLookup::Setter => descriptor.read_setter(&selected, schema, function),
+        }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_object_get_prototype_of(
-            object_payload_local,
-            object_tag_local,
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(prototype_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::Br(2));
+        output.set_normal(&selected, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(prototype_payload_local));
-        function.instruction(&Instruction::LocalSet(object_payload_local));
-        function.instruction(&Instruction::LocalGet(prototype_tag_local));
-        function.instruction(&Instruction::LocalSet(object_tag_local));
-        function.instruction(&Instruction::Br(0));
+        descriptor.clear(function);
+        found.load(function);
+        self.emit_branch_if_to_target(done, function);
+        self.emit_object_get_prototype_of(&object, &pending, function)?;
+        self.emit_native_object_abrupt_exit(&pending, &output, exit, function);
+        pending.value().tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Null as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(done, function);
+        object.copy_from(pending.value(), function);
+        self.emit_branch_to_target(next, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(prototype_tag_local);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(accessor_tag_local);
-        self.release_temp_local(accessor_payload_local);
-        self.release_temp_local(accessor_present_local);
-        self.release_temp_local(accessor_key_local);
-        self.release_temp_local(descriptor_tag_local);
-        self.release_temp_local(descriptor_payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(key_payload_local);
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(object_payload_local);
+        key.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&output, function);
+        schema.release_i32_local(found, function);
+        pending.clear(function);
+        output.clear(function);
+        selected.clear(function);
+        key_value.clear(function);
+        object.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -145,7 +89,6 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.compile_object_prototype_lookup_builtin(PrototypeLookup::Getter, function)
     }
-
     pub(in crate::builtins) fn compile_object_prototype_lookup_setter_builtin(
         &mut self,
         function: &mut Function,

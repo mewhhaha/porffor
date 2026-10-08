@@ -22,7 +22,7 @@
 //! | String | Example | Accessor | Consumed by |
 //! |---|---|---|---|
 //! | member name | `"iterator"` | [`WellKnownSymbol::member_name`] | §19.4.2's key on the `Symbol` intrinsic; source text |
-//! | description | `"Symbol.iterator"` | [`WellKnownSymbol::description`] | Table 1's `[[Description]]`, **and this compiler's runtime string encoding of the symbol value** |
+//! | description | `"Symbol.iterator"` | [`WellKnownSymbol::description`] | Table 1's `[[Description]]`; never the Symbol's value or identity |
 //! | shape namespace key | `"@@Symbol.iterator"` | [`shape_namespace_key`] | user object-literal shape maps, which must be unreachable from string-keyed reads |
 //!
 //! [`WellKnownSymbol::description`] is generated as
@@ -186,10 +186,8 @@ macro_rules! well_known_symbols {
 
             /// Table 1's `[[Description]]` column — e.g. `"Symbol.iterator"`.
             ///
-            /// This is also this compiler's runtime string encoding of the symbol
-            /// *value*: a well-known symbol is an `ExprIr::String(description)`
-            /// carrying `ValueKind::Symbol`. The `ValueKind` is what
-            /// distinguishes it from an ordinary string.
+            /// `ExprIr::WellKnownSymbol` retains the closed identity separately;
+            /// an ordinary string containing this description stays a String.
             #[must_use]
             pub const fn description(self) -> &'static str {
                 match self {
@@ -220,7 +218,7 @@ macro_rules! well_known_symbols {
                 None
             }
 
-            /// Recovers the symbol from its runtime string encoding.
+            /// Recognizes a closed metadata description without creating a Symbol.
             ///
             /// `None` for a `"Symbol."`-prefixed description outside the fifteen:
             /// the description namespace is open (a program may compute one), the
@@ -308,10 +306,10 @@ pub fn shape_namespace_key(symbol: WellKnownSymbol) -> String {
 /// a well-known-symbol test.
 ///
 /// An **open** predicate over an **open** domain, and not derivable from
-/// [`WellKnownSymbol`]: a program can produce a `ValueKind::Symbol` string that
-/// is not one of the fifteen. Callers that need a well-known symbol must use
-/// [`WellKnownSymbol::from_description`]; this answers only "is this in the
-/// namespace at all". It is contract ledger entry R2.
+/// [`WellKnownSymbol`]: source and shape metadata can contain descriptions
+/// outside the fifteen. This answers only "is this in the namespace at all";
+/// actual Symbol expressions retain `ExprIr::WellKnownSymbol` identities.
+/// It is contract ledger entry R2's source-metadata boundary.
 #[must_use]
 pub const fn is_symbol_description(name: &str) -> bool {
     let prefix = SYMBOL_DESCRIPTION_PREFIX.as_bytes();

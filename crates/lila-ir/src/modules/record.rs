@@ -1,6 +1,6 @@
-//! Source Text Module Records (ECMA-262 16.2.1.6).
+//! Shared static tables for Source Text, JSON synthetic and Script graph records.
 //!
-//! Owns `ParseModule` (16.2.1.6.1) and the static entry tables it produces:
+//! Owns `ParseModule` (16.2.1.6.1), the admitted JSON record factory and static tables:
 //! `ImportEntries` (16.2.2.3), `ExportEntries` (16.2.3.2), `ModuleRequests`,
 //! and the module `[[Environment]]` shape (9.1.1.5) that
 //! `InitializeEnvironment` (16.2.1.6.4) would create.
@@ -411,6 +411,32 @@ pub struct ModuleEnvBindingIr {
     pub indirect: Option<(ModuleRequestIr, ImportNameIr)>,
 }
 
+/// A scalar host catalog cannot represent an unpaired UTF-16 surrogate.
+/// This proof is minted from the actual interned source value, never Display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CatalogEligibility {
+    Eligible,
+    Unrepresentable,
+}
+
+impl CatalogEligibility {
+    fn from_symbol(interner: &Interner, symbol: Sym) -> Self {
+        match interner.resolve_expect(symbol).utf8() {
+            Some(_) => Self::Eligible,
+            None => Self::Unrepresentable,
+        }
+    }
+
+    fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Eligible, Self::Eligible) => Self::Eligible,
+            (Self::Eligible, Self::Unrepresentable)
+            | (Self::Unrepresentable, Self::Eligible)
+            | (Self::Unrepresentable, Self::Unrepresentable) => Self::Unrepresentable,
+        }
+    }
+}
+
 /// One `import(...)` call site found in a module body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynamicImportSiteIr {
@@ -421,9 +447,37 @@ pub struct DynamicImportSiteIr {
     pub phase: ImportPhaseIr,
     /// Compile-time knowledge of the request's `[[Attributes]]`.
     pub attributes: DynamicImportAttributesIr,
+    catalog_eligibility: CatalogEligibility,
 }
 
 impl DynamicImportSiteIr {
+    /// Projects one declared host key to this call site's occurrence.
+    /// Computed operands can select every declared key they have not ruled out;
+    /// phase remains owned by the actual call site, never by host resolution.
+    pub(super) fn catalog_occurrence(&self, key: &ModuleRequestKeyIr) -> Option<ModuleRequestIr> {
+        match self.catalog_eligibility {
+            CatalogEligibility::Eligible => {}
+            CatalogEligibility::Unrepresentable => return None,
+        }
+        if self
+            .static_specifier
+            .as_ref()
+            .is_some_and(|specifier| specifier != key.specifier())
+        {
+            return None;
+        }
+        match &self.attributes {
+            DynamicImportAttributesIr::Known(attributes)
+                if attributes.as_slice() != key.attributes() =>
+            {
+                None
+            }
+            DynamicImportAttributesIr::Known(_) | DynamicImportAttributesIr::Runtime => {
+                Some(ModuleRequestIr::from_key(key.clone(), self.phase))
+            }
+        }
+    }
+
     /// The full occurrence whose key graph discovery can ask the host to resolve.
     ///
     /// Runtime attributes deliberately discover the empty request variant.
@@ -441,11 +495,19 @@ impl DynamicImportSiteIr {
     }
 }
 
-/// A [Source Text Module Record][spec] (16.2.1.6), minus evaluation state.
+/// Shared linking tables of a genuine Source Text, JSON synthetic or Script record.
 ///
 /// [spec]: https://tc39.es/ecma262/#sec-source-text-module-records
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceTextModuleRecordIr {
+enum ModuleRecordDataIr {
+    SourceText,
+    Script,
+    Json(lila_front::ParsedJson),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleRecordIr {
+    data: ModuleRecordDataIr,
     /// Index of this record in the graph.
     pub id: ModuleUnitId,
     /// Host-normalized resolution key this record is registered under.
@@ -454,6 +516,13 @@ pub struct SourceTextModuleRecordIr {
     pub source_len: usize,
     /// `[[HasTLA]]`: the module body contains a top-level `await`.
     pub has_top_level_await: bool,
+    /// Strictness of a script entry's own code.
+    ///
+    /// Modules are always strict and never consult this; the linker reads it
+    /// only for `entry_is_script` graphs, where the entry body is emitted
+    /// after the module wrapper and its own directive prologue would otherwise
+    /// be buried mid-script, silently compiling strict entry code as sloppy.
+    pub script_entry_strict: bool,
     /// `[[RequestedModules]]`, source order, deduplicated by canonical key and
     /// phase.
     ///
@@ -486,10 +555,13 @@ pub struct SourceTextModuleRecordIr {
     pub import_meta_sites: Vec<SourceSpan>,
     /// Every `import(...)` call site in the module body.
     pub dynamic_import_sites: Vec<DynamicImportSiteIr>,
+    // Only the AST factory can mint these denied keys. Display collisions do
+    // not become host identities, including when diagnostic attrs are empty.
+    catalog_unrepresentable_requests: BTreeSet<ModuleRequestKeyIr>,
 }
 
 /// Shape of a module's `export default`, from the merged script's point of
-/// view. See [`SourceTextModuleRecordIr::default_export_form`].
+/// view. See [`ModuleRecordIr::default_export_form`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefaultExportFormIr {
     /// The module has no `export default`.
@@ -507,7 +579,57 @@ pub enum DefaultExportFormIr {
     },
 }
 
-impl SourceTextModuleRecordIr {
+impl ModuleRecordIr {
+    pub const fn kind(&self) -> ModuleKindIr {
+        match &self.data {
+            ModuleRecordDataIr::SourceText => ModuleKindIr::SourceText,
+            ModuleRecordDataIr::Script => ModuleKindIr::Script,
+            ModuleRecordDataIr::Json(_) => ModuleKindIr::Json,
+        }
+    }
+
+    pub(super) fn json_source(&self) -> Option<&lila_front::ParsedJson> {
+        match &self.data {
+            ModuleRecordDataIr::Json(source) => Some(source),
+            _ => None,
+        }
+    }
+
+    /// JSON has exactly one mutable default cell, initialized to undefined at linking.
+    pub(super) fn json(source: &lila_front::ParsedJson, id: ModuleUnitId, key: ModuleKey) -> Self {
+        Self {
+            data: ModuleRecordDataIr::Json(source.clone()),
+            id,
+            key,
+            source_len: source.source_text().len(),
+            has_top_level_await: false,
+            script_entry_strict: true,
+            requested_modules: Vec::new(),
+            module_resolution_requests: Vec::new(),
+            import_entries: Vec::new(),
+            local_export_entries: vec![LocalExportEntryIr {
+                local_name: LocalName::AnonymousDefault,
+                export_name: ExportName::new("default"),
+            }],
+            indirect_export_entries: Vec::new(),
+            star_export_entries: Vec::new(),
+            environment: vec![ModuleEnvBindingIr {
+                name: LocalName::AnonymousDefault,
+                kind: ModuleBindingKindIr::Let,
+                mutable: true,
+                initialized_before_evaluation: true,
+                in_tdz_until_evaluated: false,
+                indirect: None,
+            }],
+            import_meta_sites: Vec::new(),
+            dynamic_import_sites: Vec::new(),
+            catalog_unrepresentable_requests: BTreeSet::new(),
+        }
+    }
+    pub(super) fn catalog_key_is_eligible(&self, key: &ModuleRequestKeyIr) -> bool {
+        !self.catalog_unrepresentable_requests.contains(key)
+    }
+
     /// The merged spelling of one of *this* record's `[[LocalName]]`s.
     ///
     /// [`LocalName::merged_in`] takes a bare `ModuleUnitId`, so "which unit does
@@ -740,7 +862,7 @@ pub(crate) fn embeddable_unit_source(source: &str) -> std::borrow::Cow<'_, str> 
 
 pub fn rewrite_import_meta(
     source: &str,
-    record: &SourceTextModuleRecordIr,
+    record: &ModuleRecordIr,
 ) -> Result<String, ImportMetaRewriteError> {
     if record.import_meta_sites.is_empty() {
         return Ok(source.to_string());
@@ -975,6 +1097,40 @@ fn module_request(
     )
 }
 
+fn static_catalog_eligibility(
+    interner: &Interner,
+    request: &boa_ast::declaration::ModuleRequest,
+) -> CatalogEligibility {
+    request.attributes().iter().fold(
+        CatalogEligibility::from_symbol(interner, request.specifier().sym()),
+        |eligibility, attribute| {
+            eligibility
+                .and(CatalogEligibility::from_symbol(interner, attribute.key()))
+                .and(CatalogEligibility::from_symbol(interner, attribute.value()))
+        },
+    )
+}
+
+fn record_request(
+    interner: &Interner,
+    request: &boa_ast::declaration::ModuleRequest,
+    admission: super::admission::GraphAdmission,
+) -> ModuleRequestIr {
+    match admission {
+        super::admission::GraphAdmission::LoadedClosure => module_request(interner, request),
+        super::admission::GraphAdmission::CompleteCatalog => {
+            match static_catalog_eligibility(interner, request) {
+                CatalogEligibility::Eligible => module_request(interner, request),
+                CatalogEligibility::Unrepresentable => ModuleRequestIr::new(
+                    resolved_name(interner, request.specifier().sym()),
+                    ImportPhaseIr::from_ast(request.phase()),
+                    ModuleRequestAttributesIr::empty(),
+                ),
+            }
+        }
+    }
+}
+
 /// `ParseModule` (16.2.1.6.1): builds a module record from the front end's
 /// retained parse product.
 ///
@@ -994,9 +1150,36 @@ pub fn parse_module_record(
     source: &ParsedModule,
     id: ModuleUnitId,
     key: ModuleKey,
-) -> Result<SourceTextModuleRecordIr, Vec<IrDiagnostic>> {
+) -> Result<ModuleRecordIr, Vec<IrDiagnostic>> {
+    parse_record_with_admission(
+        source,
+        id,
+        key,
+        super::admission::GraphAdmission::LoadedClosure,
+    )
+}
+
+pub(super) fn parse_module_record_for_catalog(
+    source: &ParsedModule,
+    id: ModuleUnitId,
+    key: ModuleKey,
+) -> Result<ModuleRecordIr, Vec<IrDiagnostic>> {
+    parse_record_with_admission(
+        source,
+        id,
+        key,
+        super::admission::GraphAdmission::CompleteCatalog,
+    )
+}
+
+fn parse_record_with_admission(
+    source: &ParsedModule,
+    id: ModuleUnitId,
+    key: ModuleKey,
+    admission: super::admission::GraphAdmission,
+) -> Result<ModuleRecordIr, Vec<IrDiagnostic>> {
     let record = source.with_compiler_session(|module, interner| {
-        build_module_record(module, interner, source.source(), id, key)
+        build_module_record(module, interner, source.source(), id, key, admission)
     });
 
     // Early errors first: a `SyntaxError` outranks an unsupported feature, and
@@ -1005,6 +1188,9 @@ pub fn parse_module_record(
     if !early_errors.is_empty() {
         return Err(early_errors);
     }
+    source.with_compiler_session(|module, interner| {
+        super::dynamic::validate_linker_identifiers(module.into(), interner, &record.key)
+    })?;
 
     // `[[HasTLA]]` is a property of the record, never a failure of ParseModule:
     // 16.2.1.6.1 step 12 simply stores it. What it costs is decided later, by
@@ -1019,17 +1205,22 @@ fn build_module_record(
     source: &SourceUnit,
     id: ModuleUnitId,
     key: ModuleKey,
-) -> SourceTextModuleRecordIr {
+    admission: super::admission::GraphAdmission,
+) -> ModuleRecordIr {
     let item_list = module.items();
     let items = item_list.items();
     let text = source.source_text.as_str();
     let lines = LineIndex::new(text);
 
-    let mut record = SourceTextModuleRecordIr {
+    let mut record = ModuleRecordIr {
+        data: ModuleRecordDataIr::SourceText,
         id,
         key,
         source_len: source.source_text.len(),
         has_top_level_await: false,
+        // Modules are strict by 16.2.1.6.1; the linker never reads this field
+        // for them, so the value is documentation, not behavior.
+        script_entry_strict: true,
         requested_modules: Vec::new(),
         module_resolution_requests: Vec::new(),
         import_entries: Vec::new(),
@@ -1039,6 +1230,7 @@ fn build_module_record(
         environment: Vec::new(),
         import_meta_sites: Vec::new(),
         dynamic_import_sites: Vec::new(),
+        catalog_unrepresentable_requests: BTreeSet::new(),
     };
 
     // 16.2.2.2 ModuleRequests, over *all* module items in source order. The
@@ -1053,16 +1245,22 @@ fn build_module_record(
     // and `[[RequestedModules]]` order is what fixes dependency evaluation
     // order for otherwise independent dependencies.
     for item in items {
-        let request = match item {
-            ModuleItem::ImportDeclaration(import) => module_request(interner, import.request()),
+        let source_request = match item {
+            ModuleItem::ImportDeclaration(import) => import.request(),
             ModuleItem::ExportDeclaration(export) => match export.as_ref() {
-                ExportDeclaration::ReExport { request, .. } => {
-                    module_request(interner, request.module_request())
-                }
+                ExportDeclaration::ReExport { request, .. } => request.module_request(),
                 _ => continue,
             },
             ModuleItem::StatementListItem(_) => continue,
         };
+        let request = record_request(interner, source_request, admission);
+        if static_catalog_eligibility(interner, source_request)
+            == CatalogEligibility::Unrepresentable
+        {
+            record
+                .catalog_unrepresentable_requests
+                .insert(request.key().clone());
+        }
         push_unique_request_key(&mut record.module_resolution_requests, request.key());
         push_unique_request(&mut record.requested_modules, &request);
     }
@@ -1073,7 +1271,7 @@ fn build_module_record(
         let ModuleItem::ImportDeclaration(import) = item else {
             continue;
         };
-        let request = module_request(interner, import.request());
+        let request = record_request(interner, import.request(), admission);
         // The span of the binding the entry creates. `ImportDeclaration` itself
         // carries no span in boa 0.21.1, and the binding is the useful thing to
         // point a diagnostic at anyway.
@@ -1122,7 +1320,7 @@ fn build_module_record(
         };
         match export.as_ref() {
             ExportDeclaration::ReExport { kind, request } => {
-                let request = module_request(interner, request.module_request());
+                let request = record_request(interner, request.module_request(), admission);
                 match kind {
                     ReExportKind::Namespaced { name: Some(name) } => {
                         record.indirect_export_entries.push(IndirectExportEntryIr {
@@ -1251,6 +1449,7 @@ fn build_module_record(
 
     let mut scan = ModuleBodyScan {
         interner: Some(interner),
+        admission,
         text,
         lines: Some(&lines),
         ..ModuleBodyScan::default()
@@ -1275,7 +1474,7 @@ fn build_module_record(
 /// constructors. That is not redundancy — it is the whole point. A single
 /// shared conversion no longer type-checks, so the case that used to hide a
 /// `local_name`/`export_name` swap now cannot.
-fn push_local_export(record: &mut SourceTextModuleRecordIr, name: &str) {
+fn push_local_export(record: &mut ModuleRecordIr, name: &str) {
     record.local_export_entries.push(LocalExportEntryIr {
         local_name: LocalName::from_bound_name(name),
         export_name: ExportName::new(name),
@@ -1290,7 +1489,7 @@ fn push_local_export(record: &mut SourceTextModuleRecordIr, name: &str) {
 /// place a `[[LocalName]]` is decided from anything other than BoundNames.
 fn push_default_export(
     declared_name: &str,
-    record: &mut SourceTextModuleRecordIr,
+    record: &mut ModuleRecordIr,
     default_local: &mut Option<LocalName>,
 ) {
     let local_name = if declared_name == ExportName::DEFAULT {
@@ -1309,7 +1508,7 @@ fn push_default_export(
 fn module_environment(
     item_list: &boa_ast::ModuleItemList,
     interner: &Interner,
-    record: &SourceTextModuleRecordIr,
+    record: &ModuleRecordIr,
     default_local: Option<&LocalName>,
 ) -> Vec<ModuleEnvBindingIr> {
     let items = item_list.items();
@@ -1488,6 +1687,7 @@ fn push_default_binding(
 #[derive(Debug, Default)]
 struct ModuleBodyScan<'a> {
     interner: Option<&'a Interner>,
+    admission: super::admission::GraphAdmission,
     /// The module source text, needed to turn boa positions into byte offsets.
     text: &'a str,
     lines: Option<&'a LineIndex>,
@@ -1575,6 +1775,74 @@ fn dynamic_import_attributes(
     DynamicImportAttributesIr::Known(attributes)
 }
 
+/// For Known attributes, retain only the final literal data property per
+/// actual UTF-16 key. Runtime options remain possible declared variants.
+fn dynamic_catalog_eligibility(
+    node: &ImportCall,
+    interner: Option<&Interner>,
+) -> CatalogEligibility {
+    let Some(interner) = interner else {
+        return CatalogEligibility::Unrepresentable;
+    };
+    let specifier = match node.argument() {
+        Expression::Literal(literal) => match literal.kind() {
+            LiteralKind::String(symbol) => CatalogEligibility::from_symbol(interner, *symbol),
+            _ => CatalogEligibility::Eligible,
+        },
+        _ => CatalogEligibility::Eligible,
+    };
+    let Some(Expression::ObjectLiteral(options)) = node.options() else {
+        return specifier;
+    };
+    let mut with_value = None;
+    for property in options.properties() {
+        let PropertyDefinition::Property(PropertyName::Literal(name), value) = property else {
+            return specifier;
+        };
+        let key = interner.resolve_expect(name.sym());
+        if key.utf16().iter().copied().eq("__proto__".encode_utf16()) {
+            return specifier;
+        }
+        if key.utf16().iter().copied().eq("with".encode_utf16()) {
+            with_value = Some(value);
+        }
+    }
+    let Some(Expression::ObjectLiteral(attributes)) = with_value else {
+        return specifier;
+    };
+    let mut final_properties: Vec<(Vec<u16>, CatalogEligibility)> = Vec::new();
+    for property in attributes.properties() {
+        let PropertyDefinition::Property(PropertyName::Literal(name), value) = property else {
+            return specifier;
+        };
+        let key = interner.resolve_expect(name.sym());
+        if key.utf16().iter().copied().eq("__proto__".encode_utf16()) {
+            continue;
+        }
+        let Expression::Literal(value) = value else {
+            return specifier;
+        };
+        let LiteralKind::String(value) = value.kind() else {
+            return specifier;
+        };
+        let eligibility = CatalogEligibility::from_symbol(interner, name.sym())
+            .and(CatalogEligibility::from_symbol(interner, *value));
+        if let Some((_, previous)) = final_properties
+            .iter_mut()
+            .find(|(previous, _)| previous.as_slice() == key.utf16())
+        {
+            *previous = eligibility;
+        } else {
+            final_properties.push((key.utf16().to_vec(), eligibility));
+        }
+    }
+    final_properties
+        .into_iter()
+        .fold(specifier, |eligibility, (_, property)| {
+            eligibility.and(property)
+        })
+}
+
 impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
     type BreakTy = core::convert::Infallible;
 
@@ -1599,10 +1867,26 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
             },
             _ => None,
         };
+        let catalog_eligibility = dynamic_catalog_eligibility(node, self.interner);
+        let attributes = match (self.admission, catalog_eligibility) {
+            (
+                super::admission::GraphAdmission::CompleteCatalog,
+                CatalogEligibility::Unrepresentable,
+            ) => DynamicImportAttributesIr::Known(ModuleRequestAttributesIr::empty()),
+            (super::admission::GraphAdmission::LoadedClosure, CatalogEligibility::Eligible)
+            | (
+                super::admission::GraphAdmission::LoadedClosure,
+                CatalogEligibility::Unrepresentable,
+            )
+            | (super::admission::GraphAdmission::CompleteCatalog, CatalogEligibility::Eligible) => {
+                dynamic_import_attributes(node, self.interner)
+            }
+        };
         self.dynamic_import_sites.push(DynamicImportSiteIr {
             static_specifier,
             phase: ImportPhaseIr::from_ast(node.phase()),
-            attributes: dynamic_import_attributes(node, self.interner),
+            attributes,
+            catalog_eligibility,
         });
         node.visit_with(self)
     }
@@ -1617,14 +1901,29 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
         node.visit_with(self)
     }
 
-    /// `for await (... of ...)` is the other half of `[[HasTLA]]`.
+    /// Resource disposal is an implicit Await even when the initializer is
+    /// nullish or the declaration is never reached. Classic-for resource heads
+    /// also visit this lexical declaration; nested function bodies retain their
+    /// own depth and cannot make the enclosing module asynchronous.
+    fn visit_lexical_declaration(
+        &mut self,
+        node: &'ast LexicalDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        if self.function_depth == 0 && node.is_await_using() {
+            self.top_level_await = true;
+        }
+        node.visit_with(self)
+    }
+
+    /// Iterator Await and asynchronous resource heads both contribute to HasTLA.
     ///
-    /// It is *not* an `Await` expression in the AST — boa records it as a flag
-    /// on the loop — so the `visit_await` arm above cannot see it and a module
-    /// whose only top-level `await` is a `for await` would otherwise be
-    /// reported as having none.
+    /// Neither is an Await expression or a lexical declaration in the AST:
+    /// Boa stores iteration Await on the loop and resource disposal on its head.
     fn visit_for_of_loop(&mut self, node: &'ast ForOfLoop) -> ControlFlow<Self::BreakTy> {
-        if self.function_depth == 0 && node.r#await() {
+        if self.function_depth == 0
+            && (node.r#await()
+                || matches!(node.initializer(), IterableLoopInitializer::AwaitUsing(_)))
+        {
             self.top_level_await = true;
         }
         node.visit_with(self)
@@ -1651,12 +1950,54 @@ pub fn scan_module_requests(source: &ParsedModule) -> Vec<ModuleRequestKeyIr> {
             source.source(),
             0,
             ModuleKey::from_host(ANONYMOUS_MODULE_KEY),
+            super::admission::GraphAdmission::LoadedClosure,
         )
     });
     requests_with_dynamic_imports(
         record.module_resolution_requests,
         &record.dynamic_import_sites,
     )
+}
+
+/// Actual host-loading occurrences retain phase until the loader decides
+/// whether to open a loaded target's dependencies. Resolution remains keyed by
+/// the phase-free key; a later non-source occurrence promotes the same row.
+pub(super) fn scan_module_loading_requests(source: &ParsedModule) -> Vec<ModuleRequestIr> {
+    let record = source.with_compiler_session(|module, interner| {
+        build_module_record(
+            module,
+            interner,
+            source.source(),
+            0,
+            ModuleKey::from_host(ANONYMOUS_MODULE_KEY),
+            super::admission::GraphAdmission::LoadedClosure,
+        )
+    });
+    loading_requests_with_dynamic_imports(record.requested_modules, &record.dynamic_import_sites)
+}
+
+pub(super) fn loading_requests_with_dynamic_imports(
+    requests: Vec<ModuleRequestIr>,
+    sites: &[DynamicImportSiteIr],
+) -> Vec<ModuleRequestIr> {
+    let mut loading: Vec<ModuleRequestIr> = Vec::new();
+    for request in requests.into_iter().chain(
+        sites
+            .iter()
+            .filter_map(DynamicImportSiteIr::discovery_request),
+    ) {
+        if let Some(previous) = loading
+            .iter_mut()
+            .find(|previous| previous.key() == request.key())
+        {
+            if previous.phase() == ImportPhaseIr::Source && request.phase().loads_dependencies() {
+                *previous = request;
+            }
+        } else {
+            loading.push(request);
+        }
+    }
+    loading
 }
 
 /// Reads the statically resolvable `import(...)` requests in a Script without
@@ -1675,12 +2016,46 @@ pub(crate) fn script_entry_record(
     source: &ParsedScript,
     id: ModuleUnitId,
     key: ModuleKey,
-) -> SourceTextModuleRecordIr {
-    SourceTextModuleRecordIr {
+) -> Result<ModuleRecordIr, Vec<IrDiagnostic>> {
+    script_record_with_admission(
+        source,
+        id,
+        key,
+        super::admission::GraphAdmission::LoadedClosure,
+    )
+}
+
+pub(super) fn script_entry_record_for_catalog(
+    source: &ParsedScript,
+    id: ModuleUnitId,
+    key: ModuleKey,
+) -> Result<ModuleRecordIr, Vec<IrDiagnostic>> {
+    script_record_with_admission(
+        source,
+        id,
+        key,
+        super::admission::GraphAdmission::CompleteCatalog,
+    )
+}
+
+fn script_record_with_admission(
+    source: &ParsedScript,
+    id: ModuleUnitId,
+    key: ModuleKey,
+    admission: super::admission::GraphAdmission,
+) -> Result<ModuleRecordIr, Vec<IrDiagnostic>> {
+    let script_entry_strict =
+        source.with_compiler_session(|script, interner| -> Result<_, Vec<IrDiagnostic>> {
+            super::dynamic::validate_linker_identifiers(script.into(), interner, &key)?;
+            Ok(script.strict())
+        })?;
+    Ok(ModuleRecordIr {
+        data: ModuleRecordDataIr::Script,
         id,
         key,
         source_len: source.source_text.len(),
         has_top_level_await: false,
+        script_entry_strict,
         requested_modules: Vec::new(),
         module_resolution_requests: Vec::new(),
         import_entries: Vec::new(),
@@ -1689,14 +2064,23 @@ pub(crate) fn script_entry_record(
         star_export_entries: Vec::new(),
         environment: Vec::new(),
         import_meta_sites: Vec::new(),
-        dynamic_import_sites: script_dynamic_import_sites(source),
-    }
+        dynamic_import_sites: script_sites_with_admission(source, admission),
+        catalog_unrepresentable_requests: BTreeSet::new(),
+    })
 }
 
 pub(super) fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr> {
+    script_sites_with_admission(source, super::admission::GraphAdmission::LoadedClosure)
+}
+
+fn script_sites_with_admission(
+    source: &ParsedScript,
+    admission: super::admission::GraphAdmission,
+) -> Vec<DynamicImportSiteIr> {
     source.with_compiler_session(|script, interner| {
         let mut scan = ModuleBodyScan {
             interner: Some(interner),
+            admission,
             text: &source.source_text,
             ..ModuleBodyScan::default()
         };
@@ -1731,7 +2115,7 @@ mod tests {
         module
     }
 
-    fn record_of(source: &str) -> SourceTextModuleRecordIr {
+    fn record_of(source: &str) -> ModuleRecordIr {
         parse_module_record(&source_unit(source), 0, ModuleKey::from_host("main.mjs"))
             .expect("module record should build")
     }
@@ -2385,6 +2769,13 @@ mod tests {
         for source in [
             "await Promise.resolve(1);\n",
             "for await (const value of []) { value; }\n",
+            "await using resource = null;\n",
+            "{ await using resource = undefined; }\n",
+            "if (false) { await using resource = null; }\n",
+            "for (await using resource = null; false;) {}\n",
+            "for (await using resource of []) {}\n",
+            "for await (await using resource of []) {}\n",
+            "class Example { [await 0]() {} }\n",
         ] {
             let record =
                 parse_module_record(&source_unit(source), 0, ModuleKey::from_host("main.mjs"))
@@ -2402,6 +2793,21 @@ mod tests {
              const beta = async () => { for await (const v of []) { v; } };\n",
         );
         assert!(!record.has_top_level_await);
+    }
+
+    #[test]
+    fn only_module_owned_async_disposal_contributes_to_has_tla() {
+        for source in [
+            "using resource = null; for (using next of []) {}",
+            "async function f() { await using resource = null; }",
+            "const f = async () => { for (await using resource of []) {} };",
+            "async function* g() { for (await using resource = null; false;) {} }",
+            "const object = { async method() { await using resource = null; } };",
+            "class Example { async method() { await using resource = null; } }",
+            "class Example { field = async () => { await using resource = null; }; }",
+        ] {
+            assert!(!record_of(source).has_top_level_await, "{source}");
+        }
     }
 
     // -- `import.meta` and `import()` --------------------------------------
@@ -2424,6 +2830,7 @@ mod tests {
                     static_specifier: Some("./static.mjs".to_string()),
                     phase: ImportPhaseIr::Evaluation,
                     attributes: known_attributes(Vec::new()),
+                    catalog_eligibility: CatalogEligibility::Eligible,
                 },
                 // A computed specifier is not statically discoverable, so the
                 // target cannot be compiled into the artifact.
@@ -2431,6 +2838,7 @@ mod tests {
                     static_specifier: None,
                     phase: ImportPhaseIr::Evaluation,
                     attributes: known_attributes(Vec::new()),
+                    catalog_eligibility: CatalogEligibility::Eligible,
                 },
                 // Nesting inside a function does not hide the site: the whole
                 // point is that the target is reachable at run time.
@@ -2438,19 +2846,20 @@ mod tests {
                     static_specifier: Some("./nested.mjs".to_string()),
                     phase: ImportPhaseIr::Evaluation,
                     attributes: known_attributes(Vec::new()),
+                    catalog_eligibility: CatalogEligibility::Eligible,
                 },
             ]
         );
     }
 
-    fn record_with_id(source: &str, id: ModuleUnitId) -> SourceTextModuleRecordIr {
+    fn record_with_id(source: &str, id: ModuleUnitId) -> ModuleRecordIr {
         parse_module_record(&source_unit(source), id, ModuleKey::from_host("main.mjs"))
             .expect("module record should build")
     }
 
     /// Every slice a site addresses, so a test can say what was found without
     /// hard-coding byte offsets.
-    fn site_slices<'a>(source: &'a str, record: &SourceTextModuleRecordIr) -> Vec<&'a str> {
+    fn site_slices<'a>(source: &'a str, record: &ModuleRecordIr) -> Vec<&'a str> {
         record
             .import_meta_sites
             .iter()

@@ -1,8 +1,11 @@
 const MATCHER: &str = concat!(
     include_str!("../src/builtins/regexp.rs"),
+    include_str!("../src/builtins/regexp/program.rs"),
     include_str!("../src/builtins/regexp/backreference.rs"),
     include_str!("../src/builtins/regexp/range_search.rs"),
     include_str!("../src/builtins/regexp/word_boundary.rs"),
+    include_str!("../src/builtins/regexp/matcher_workspace.rs"),
+    include_str!("../src/builtins/regexp/transient.rs"),
 );
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/regexp-matcher-result-domain.md");
@@ -158,47 +161,39 @@ fn matcher_result_is_the_exact_private_no_capability_domain() {
         "impl<'a>FunctionBuilder<'a>{",
     );
     assert_eq!(declaration, "Match,NoMatch,Failed(RegExpMatcherFailure),}");
-    let prefix = bounded(
-        &matcher,
-        "const_:()=assert!(RegExpChoiceFrameKind::Ordinary.word()==0);",
-        "enumRegExpMatcherResult{",
-    );
-    assert_eq!(prefix, "");
+    assert!(!matcher.contains("RegExpChoiceFrameKind"));
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
         assert!(!matcher.contains(&format!("impl{capability}forRegExpMatcherResult")));
     }
     assert!(!matcher.contains("pubenumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(crate)enumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(super)enumRegExpMatcherResult"));
-    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 57);
+    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 53);
 }
 
 #[test]
 fn all_result_producers_name_one_legal_result_state() {
     let matcher = lexically_normalized(MATCHER);
-    assert_eq!(
-        matcher.matches("self.emit_regexp_match_result(").count(),
-        52
-    );
+    assert_eq!(matcher.matches(".emit_regexp_match_result(").count(), 46);
     assert_eq!(matcher.matches("RegExpMatcherResult::Match,").count(), 1);
     assert_eq!(matcher.matches("RegExpMatcherResult::NoMatch,").count(), 3);
     assert_eq!(
         matcher
             .matches("RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),")
             .count(),
-        46
+        40
     );
     assert_eq!(
         matcher
             .matches("RegExpMatcherResult::Failed(RegExpMatcherFailure::ResourceExhausted),")
             .count(),
-        2
+        1
     );
     assert_eq!(
         matcher
-            .matches("3,3,RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),")
+            .matches("self.checkpoint,self.start,self.start,RegExpMatcherResult::Failed(failure),")
             .count(),
-        10
+        1
     );
     assert_eq!(
         matcher
@@ -223,7 +218,7 @@ fn sole_writer_consumes_and_exhaustively_projects_the_result() {
         "function.instruction(&Instruction::I64Const(status.abi_word()));}",
     );
     assert!(writer.starts_with(
-        "&self,start_local:u32,end_local:u32,result:RegExpMatcherResult,function:&mutFunction,){"
+        "&self,checkpoint:I64Local,start_local:I64Local,end_local:I64Local,result:RegExpMatcherResult,function:&mutFunction,){"
     ));
     assert!(!writer.contains("found:i64"));
     assert!(!writer.contains("status:RegExpMatcherStatus"));

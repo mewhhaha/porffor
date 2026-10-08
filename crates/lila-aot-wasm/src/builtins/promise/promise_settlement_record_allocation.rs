@@ -1,70 +1,65 @@
 use super::*;
 
-#[must_use = "Promise settlement record allocation context must be consumed"]
+#[must_use = "Promise settlement record prototype is consumed by allocation"]
 pub(super) struct PromiseSettlementRecordAllocationContext {
-    prototype_local: u32,
+    prototype: ValueLocals,
 }
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn emit_self_backed_promise_settlement_record_allocation_context(
         &mut self,
         function: &mut Function,
     ) -> PromiseSettlementRecordAllocationContext {
-        let prototype_local = self.reserve_temp_local();
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
             function,
         );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
-        PromiseSettlementRecordAllocationContext { prototype_local }
+        realm.clear(function);
+        PromiseSettlementRecordAllocationContext { prototype }
     }
-
     pub(super) fn emit_alloc_promise_settlement_record(
         &mut self,
         context: PromiseSettlementRecordAllocationContext,
+        settlement: PromiseSettlement,
+        value: &ValueLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_alloc_plain_object_with_prototype(Some(context.prototype_local), None, function)?;
-        self.release_temp_local(context.prototype_local);
-        Ok(())
+    ) -> Result<GcLocal<OrdinaryObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let object = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&context.prototype), function)?,
+            function,
+        );
+        let (status, property) = match settlement {
+            PromiseSettlement::Fulfill => ("fulfilled", "value"),
+            PromiseSettlement::Reject => ("rejected", "reason"),
+        };
+        let status_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(status, function)?,
+            function,
+        );
+        let status_value = schema.reserve_value_local(function);
+        status_value.set_reference(&status_string, schema, function);
+        for (name, entry) in [("status", &status_value), (property, value)] {
+            let string = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
+            let key = PropertyKeyLocals::from_string(schema, &string, function);
+            self.emit_object_append_data_property_with_flags(
+                &object, &key, entry, true, true, true, function,
+            )?;
+            key.clear(function);
+            string.clear(function);
+        }
+        status_value.clear(function);
+        status_string.clear(function);
+        context.prototype.clear(function);
+        Ok(object)
     }
 }

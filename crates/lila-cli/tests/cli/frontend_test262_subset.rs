@@ -82,8 +82,9 @@
 //!   here, and the CLI passes no `--threads`.
 //! - Those workers are **scoped threads in one process**, not child processes:
 //!   `execute_cases` uses `thread::scope` + `spawn_scoped` per slot with 64 MiB
-//!   stacks. The per-case child runner is off by default (`case_runner_bin` is
-//!   `None`; only `LILA_TEST262_FORCE_CASE_RUNNER=1` turns it on).
+//!   stacks. Current Test262 execution always supervises one real compiler
+//!   process per admitted case; the original memory observation above predates
+//!   that whole-case deadline boundary.
 //! - `--jobs` (Cranelift threads) defaults to half the logical CPUs = 2.
 //!
 //! So the 8.7 GiB is 187 cases run as **4 concurrent cold Wasm-AOT compiles in

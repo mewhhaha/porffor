@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "purpose": "selected genuine tols supplement; base CLDR47 XML and Unicode16 properties remain otherwise unchanged",
+  "cldr_release": "48.0.0",
+  "cldr_commit": "acd6d88ae493633240e19a87a721076a8a75c310",
+  "unicode_release": "17.0.0",
+  "identifier": "tols",
+  "files": [
+    {
+      "path": "cldr/common/supplemental/numberingSystems.xml",
+      "bytes": 11834,
+      "sha256": "c5b9b208c6fe7bd3ce4e1c6cbb8f3337480aca620c9cf703ef3b6c74d4258c16"
+    },
+    {
+      "path": "cldr/common/bcp47/number.xml",
+      "bytes": 8381,
+      "sha256": "0c10e9578f2191527475d0f57105d56c399b2f44425ceebadf474e50157abbb6"
+    },
+    {
+      "path": "cldr/common/main/root.xml",
+      "bytes": 290595,
+      "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17"
+    },
+    {
+      "path": "ucd/UnicodeData.txt",
+      "bytes": 2198209,
+      "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c"
+    }
+  ]
+}

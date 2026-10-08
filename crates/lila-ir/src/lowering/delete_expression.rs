@@ -10,18 +10,13 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         match target {
+            Expression::Optional(optional) => self.lower_optional_delete_property(optional),
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
                 if self.is_constructor_prototype_expr(access.target(), ARRAY_NAME) {
                     self.array_prototype_mutated = true;
                 }
                 if self.is_number_prototype_property_expr(target, "toString") {
                     self.number_prototype_to_string_state = PrototypeToStringState::ObjectPrototype;
-                }
-                if self.is_number_prototype_property_expr(target, "match") {
-                    self.number_prototype_match_is_string_match = false;
-                }
-                if self.is_number_prototype_property_expr(target, "split") {
-                    self.number_prototype_split_is_string_split = false;
                 }
                 if self.is_boolean_prototype_property_expr(target, "toString") {
                     self.boolean_prototype_to_string_state =
@@ -71,43 +66,16 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     }
                 };
-                if self.is_global_this_expr(access.target()) {
+                if matches!(&target.expr, ExprIr::ExecutionGlobalObject) {
                     if let PropertyKeyIr::StaticString(name) = &key {
-                        // The direct-global IR has a dedicated early return,
-                        // but aliases still carry the same object shape. A
-                        // successful delete can expose an inherited accessor;
-                        // a failed delete cannot be distinguished yet.
-                        self.invalidate_ordinary_property_shape_aliases(&target.value_info());
+                        // This is a property Reference even when a same-named
+                        // global lexical binding exists. Retain the evaluated
+                        // receiver/key while clearing the actual-global fact.
                         self.record_global_property_delete(name);
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::DeleteGlobalProperty {
-                                name: name.clone(),
-                                strictness: self.reference_strictness(),
-                            },
-                        );
                     }
                 }
                 self.update_well_known_symbol_prototype_property(access.target(), &key, None);
-                if target.heap_shape.is_none() || Self::property_key_may_call_user_code(&key) {
-                    // An unknown object can be a Proxy, and an object-valued
-                    // key can run arbitrary source code during ToPropertyKey.
-                    self.invalidate_unknown_user_code_effects();
-                } else {
-                    // Delete may succeed and expose an inherited accessor, or
-                    // fail and preserve the own property. Until descriptor
-                    // attributes are tracked, neither outcome may retain an
-                    // exact target or enclosing-alias shape.
-                    self.invalidate_ordinary_property_shape_aliases(&target.value_info());
-                }
-                TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::DeleteProperty {
-                        target: Box::new(target),
-                        key,
-                        strictness: self.reference_strictness(),
-                    },
-                )
+                self.lower_delete_property_from_evaluated(target, key)
             }
             Expression::PropertyAccess(PropertyAccess::Private(_)) => {
                 self.unsupported_expr("unsupported unary operator")
@@ -132,13 +100,7 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     // HasBinding/unscopables can create the global property
                     // before rejecting this object environment candidate.
-                    TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::DeleteGlobalProperty {
-                            name: name.clone(),
-                            strictness: Strictness::Sloppy,
-                        },
-                    )
+                    self.lower_global_identifier_delete(name.clone())
                 } else {
                     self.lower_identifier_delete_fallback(name.clone())
                 };
@@ -159,59 +121,70 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// Consume an already acquired raw property Reference without performing Get.
+    pub(super) fn lower_delete_property_from_evaluated(
+        &mut self,
+        target: TypedExpr,
+        key: PropertyKeyIr,
+    ) -> TypedExpr {
+        if target.heap_shape.is_none() || Self::property_key_may_call_user_code(&key) {
+            // An unknown object can be a Proxy, and an object-valued
+            // key can run arbitrary source code during ToPropertyKey.
+            self.invalidate_unknown_user_code_effects();
+        } else {
+            // Delete may succeed and expose an inherited accessor, or
+            // fail and preserve the own property. Until descriptor
+            // attributes are tracked, neither outcome may retain an
+            // exact target or enclosing-alias shape.
+            self.invalidate_ordinary_property_shape_aliases(&target.value_info());
+        }
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::DeleteProperty {
+                target: Box::new(target),
+                key,
+                strictness: self.reference_strictness(),
+            },
+        )
+    }
+
     fn lower_identifier_delete_fallback(&mut self, name: String) -> TypedExpr {
         if self.is_unshadowed_script_global_binding(&name) {
-            self.record_global_property_delete(&name);
-            return TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Boolean),
-                ExprIr::DeleteGlobalProperty {
-                    name,
-                    strictness: Strictness::Sloppy,
-                },
-            );
+            return self.lower_global_identifier_delete(name);
         }
-        if name == GLOBAL_THIS_NAME
-            || name == "undefined"
+        if name == "undefined"
             || self.lookup_binding(&name).is_some()
             || (self.root_functions_need_body_initialization()
                 && self.visible_function_names.contains_key(&name))
             || (name == "arguments" && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some())
+            || self
+                .lookup_global_property_info(&name)
+                .is_some_and(|info| info.proven_present && !info.configurable)
         {
             return TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Boolean),
                 ExprIr::DeleteIdentifier { name },
             );
         }
-        if let Some(info) = self.lookup_global_property_info(&name).cloned() {
-            if info.proven_present && info.configurable {
-                self.record_global_property_delete(&name);
-                return TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    // `delete <identifier>` is an early SyntaxError in
-                    // strict code, and this arm only fires for a
-                    // configurable property, so [[Delete]] cannot fail.
-                    ExprIr::DeleteGlobalProperty {
-                        name,
-                        strictness: Strictness::Sloppy,
-                    },
-                );
-            }
-            if info.proven_present {
-                return TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::DeleteIdentifier { name },
-                );
-            }
+        self.lower_global_identifier_delete(name)
+    }
+
+    fn lower_global_identifier_delete(&mut self, name: String) -> TypedExpr {
+        // A proven present root property ends HasBinding before prototype
+        // hooks and DeleteBinding never invokes its getter. A dormant body
+        // or uncertain property must account for an inherited Proxy first.
+        if self.current_owner_id != SCRIPT_OWNER_ID
+            || !self.global_property_is_proven_present(&name)
+        {
+            self.observe_all_planned_source_as_unknown_property_hooks();
+            self.invalidate_unknown_user_code_effects();
         }
-        // Not a declared binding and not proven present: whether the global
-        // object has the property is a runtime fact (`globalThis.x = 1` or a
-        // computed write can create it). Global DeleteBinding asks the object,
-        // whose [[Delete]] of an absent property is `true`.
         self.record_global_property_delete(&name);
         TypedExpr::from_info(
             ValueInfo::new(ValueKind::Boolean),
             ExprIr::DeleteGlobalProperty {
                 name,
+                // Strict identifier deletion is an early SyntaxError.
                 strictness: Strictness::Sloppy,
             },
         )

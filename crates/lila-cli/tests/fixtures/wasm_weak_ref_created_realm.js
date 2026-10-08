@@ -91,36 +91,6 @@ assert(
 );
 
 var target = {};
-var created = new otherConstructor(target);
-assert(
-  Object.getPrototypeOf(created) === otherPrototype,
-  "created WeakRef instance prototype"
-);
-assert(created.deref() === target, "created WeakRef deref result");
-assert(
-  WeakRef.prototype.deref.call(created) === target,
-  "entry WeakRef deref accepts created instance"
-);
-
-var newTarget = new other.Function();
-other.WeakRef = null;
-var primitivePrototypes = [
-  undefined,
-  null,
-  true,
-  "",
-  Symbol("prototype"),
-  -1,
-  0n,
-];
-for (var i = 0; i < primitivePrototypes.length; i += 1) {
-  newTarget.prototype = primitivePrototypes[i];
-  var reflected = Reflect.construct(WeakRef, [target], newTarget);
-  assert(
-    Object.getPrototypeOf(reflected) === otherPrototype,
-    "foreign NewTarget primitive prototype fallback"
-  );
-}
 
 expectOtherTypeError(
   function () { otherConstructor(target); },

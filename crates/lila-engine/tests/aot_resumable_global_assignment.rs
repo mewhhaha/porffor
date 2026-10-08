@@ -169,3 +169,53 @@ print(globalThis.x);
         &["function", "true", "23"],
     );
 }
+
+#[test]
+fn suspended_global_put_rechecks_lexical_delegation_without_reresolving_its_reference() {
+    for prelude in ["", "'use strict';\n"] {
+        assert_trace(
+            &format!(
+                "{prelude}{}",
+                r#"
+globalThis.resumedAddedLet = 1;
+function* writeLet() { resumedAddedLet = yield; }
+var letWriter = writeLet();
+letWriter.next();
+__lilaRealmEvalScript('let resumedAddedLet = 2;');
+letWriter.next(3);
+print(Reflect.get(globalThis, 'resumedAddedLet'));
+print(__lilaRealmEvalScript('resumedAddedLet;'));
+
+globalThis.resumedAddedConst = 4;
+function* writeConst() { resumedAddedConst = yield; }
+var constWriter = writeConst();
+constWriter.next();
+__lilaRealmEvalScript('const resumedAddedConst = 5;');
+try { constWriter.next(6); } catch (error) { print(error instanceof TypeError); }
+print(Reflect.get(globalThis, 'resumedAddedConst'));
+print(__lilaRealmEvalScript('resumedAddedConst;'));
+
+globalThis.resumedAddedTdz = 7;
+function* writeTdz() { resumedAddedTdz = yield; }
+var tdzWriter = writeTdz();
+tdzWriter.next();
+try { __lilaRealmEvalScript("let resumedAddedTdz = (() => { throw 'install marker'; })();"); }
+catch (error) { if (error !== 'install marker') throw error; }
+try { tdzWriter.next(8); } catch (error) { print(error instanceof ReferenceError); }
+print(Reflect.get(globalThis, 'resumedAddedTdz'));
+
+function* strictMissing() { 'use strict'; resumedStillMissing = yield; }
+var missingWriter = strictMissing();
+missingWriter.next();
+__lilaRealmEvalScript('let resumedStillMissing = 9;');
+try { missingWriter.next(10); } catch (error) { print(error instanceof ReferenceError); }
+print(Object.prototype.hasOwnProperty.call(globalThis, 'resumedStillMissing'));
+print(__lilaRealmEvalScript('resumedStillMissing;'));
+"#
+            ),
+            &[
+                "1", "3", "true", "4", "5", "true", "7", "true", "false", "9",
+            ],
+        );
+    }
+}

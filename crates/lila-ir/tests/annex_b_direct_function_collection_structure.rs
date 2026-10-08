@@ -1,5 +1,5 @@
 const ANALYSIS_SOURCE: &str = include_str!("../src/analysis.rs");
-const LIB_SOURCE: &str = include_str!("../src/lib.rs");
+const IR_TESTS_SOURCE: &str = include_str!("../src/tests/annex_b.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/language.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/annex-b-direct-function-collection.md");
@@ -116,7 +116,7 @@ fn annex_b_direct_function_collection_is_private_non_derived_and_exhaustive() {
     let policy = balanced_block_after(consumer, "match direct_function_collection {");
     assert_eq!(
         code_without_whitespace(policy),
-        "matchdirect_function_collection{AnnexBDirectFunctionCollection::Skip=>{}AnnexBDirectFunctionCollection::Record=>{letdirect_functions=items.iter().filter_map(|item|matchitem{StatementListItem::Declaration(declaration)=>matchdeclaration.as_ref(){Declaration::FunctionDeclaration(function)=>Some(function),_=>None,},StatementListItem::Statement(_)=>None,}).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);}}"
+        "matchdirect_function_collection{AnnexBDirectFunctionCollection::Skip=>{}AnnexBDirectFunctionCollection::Record=>{letdirect_functions=items.iter().filter_map(statement_list_item_function_declaration).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);}}"
     );
     assert_eq!(
         consumer
@@ -212,7 +212,7 @@ fn exactly_six_named_producers_preserve_owner_switch_and_recursive_order() {
         .expect("missing switch case recursion after aggregation");
     assert_eq!(
         code_without_whitespace(&recursive[aggregation_start..aggregation_end]),
-        "letdirect_functions=statement.cases().iter().flat_map(|case|case.body().statements()).filter_map(|item|matchitem{StatementListItem::Declaration(declaration)=>matchdeclaration.as_ref(){Declaration::FunctionDeclaration(function)=>Some(function),_=>None,},StatementListItem::Statement(_)=>None,}).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);"
+        "letdirect_functions=statement.cases().iter().flat_map(|case|case.body().statements()).filter_map(statement_list_item_function_declaration).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);"
     );
     assert_before(
         recursive,
@@ -229,7 +229,7 @@ fn annex_b_collection_contract_names_the_existing_behavioral_witnesses() {
         "annex_b_switch_declarations_share_one_case_block_binding",
         "annex_b_copy_bypasses_a_same_named_catch_binding",
     ] {
-        assert!(LIB_SOURCE.contains(&format!("fn {test}()")));
+        assert!(IR_TESTS_SOURCE.contains(&format!("fn {test}()")));
         assert!(CONTRACT.contains(test));
     }
     assert!(CLI_TESTS.contains("fn run_wasm_backend_supports_annex_b_block_functions()"));

@@ -34,6 +34,11 @@
       "sha256": "5b80cfe93e16c89b23dcd046ec76d9e39781386e6dfdfa7bb2d8f6dbc87955a7"
     },
     {
+      "path": "common/main/de.xml",
+      "bytes": 592674,
+      "sha256": "7530b4c93f36102965b09685aea50b82934707a2bd025b7fc61ae0acb8a7114c"
+    },
+    {
       "path": "common/main/en.xml",
       "bytes": 435987,
       "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
@@ -42,6 +47,31 @@
       "path": "common/main/en_US.xml",
       "bytes": 459,
       "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
+    },
+    {
+      "path": "common/main/fr.xml",
+      "bytes": 602136,
+      "sha256": "dd1034b6e8c2fde6eb66d00462651beb26fad1fd09eccbea6b250fd7130ae3e3"
+    },
+    {
+      "path": "common/main/hi.xml",
+      "bytes": 565329,
+      "sha256": "e5bdf2a148b5e80555f6e73241a47a5f3c039518063faebde7046bb0db011e21"
+    },
+    {
+      "path": "common/main/it.xml",
+      "bytes": 428903,
+      "sha256": "c5ec8e2e304e7b16f58e7012afe40ce2acc28c0c340d494ba2388ee86008667d"
+    },
+    {
+      "path": "common/main/ja.xml",
+      "bytes": 512646,
+      "sha256": "a19cd8bea5cc68b132ace70dd99b65935edf8114367a835f7717b3a3dbd81118"
+    },
+    {
+      "path": "common/main/ko.xml",
+      "bytes": 498327,
+      "sha256": "f7b9615d694e1821e4ad2bad8986cf3d57fe5f0f491662adb67b9833a43b036d"
     },
     {
       "path": "common/main/root.xml",
@@ -62,6 +92,11 @@
       "path": "common/main/zh_Hans_CN.xml",
       "bytes": 483,
       "sha256": "0a531ee82fcc7e4bfcb4dd2307d9f49ed5221491d178aa71c0d08037df042d0a"
+    },
+    {
+      "path": "common/rbnf/ja.xml",
+      "bytes": 5140,
+      "sha256": "309af27ba239cb732c00babd6ccaca9361a08129d26becb63d882657b4947c8c"
     },
     {
       "path": "common/rbnf/zh.xml",
@@ -105,9 +140,10 @@
     },
     {
       "path": "selector.json",
-      "bytes": 576,
-      "sha256": "cdbdc37fd59e9e29e60eedbc1aa2c1d42c7c1e996be54e22678c5b79fe6dde8e"
+      "bytes": 1223,
+      "sha256": "bf6b6390769997731252f5209cd2e4b4ed60fcbcded07f78816c7180145db6de"
     }
   ],
-  "total_bytes": 4315663
+  "total_bytes": 7521465,
+  "file_count": 28
 }

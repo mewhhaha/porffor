@@ -3,12 +3,24 @@ use std::collections::BTreeMap;
 use crate::datetime::DateTimeFormatError;
 
 use super::pattern::{DayPeriod, NameContext, NameWidth};
+use super::profile::CalendarDataKind;
 use super::raw;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+pub(super) enum EraSource {
+    #[serde(rename = "gregorian")]
+    Gregorian,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+pub(super) enum MonthYearType {
+    #[serde(rename = "leap")]
+    Leap,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum NameKey {
-    Era(NameWidth, u8),
-    Month(NameContext, NameWidth, u8),
+    Era(NameWidth, u8, Option<EraSource>),
+    Month(NameContext, NameWidth, u8, Option<MonthYearType>),
     Weekday(NameContext, NameWidth, u8),
     Period(NameContext, NameWidth, DayPeriod),
     CyclicYear(NameWidth, u8),
@@ -18,9 +30,17 @@ pub(super) enum NameKey {
 
 pub(super) struct FieldNames(BTreeMap<NameKey, String>);
 impl FieldNames {
-    pub(super) fn from_raw(records: Vec<raw::Name>) -> Result<Self, DateTimeFormatError> {
+    pub(super) fn from_raw(
+        records: Vec<raw::Name>,
+        calendar: CalendarDataKind,
+    ) -> Result<Self, DateTimeFormatError> {
         let mut names = BTreeMap::new();
         for record in records {
+            if (record.kind != "era" && record.era_source_calendar.is_some())
+                || (record.kind != "month" && record.year_type.is_some())
+            {
+                return Err(invalid());
+            }
             let width = record
                 .width
                 .as_deref()
@@ -48,27 +68,61 @@ impl FieldNames {
                 record.index,
                 record.period.as_deref(),
             ) {
-                ("era", None, Some(width), Some(index @ 0..=1), None) => NameKey::Era(width, index),
-                ("month", Some(context), Some(width), Some(index @ 1..=12), None) => {
-                    NameKey::Month(context, width, index)
+                ("era", None, Some(width), Some(index), None)
+                    if width != NameWidth::Short
+                        && calendar.valid_era(index, record.era_source_calendar) =>
+                {
+                    NameKey::Era(width, index, record.era_source_calendar)
+                }
+                ("month", Some(context), Some(width), Some(index), None)
+                    if width != NameWidth::Short
+                        && (1..=calendar.month_names()).contains(&index)
+                        && (record.year_type.is_none()
+                            || (calendar == CalendarDataKind::Hebrew && index == 7)) =>
+                {
+                    NameKey::Month(context, width, index, record.year_type)
                 }
                 ("weekday", Some(context), Some(width), Some(index @ 0..=6), None) => {
                     NameKey::Weekday(context, width, index)
                 }
-                ("day_period", Some(context), Some(width), None, Some(period)) => NameKey::Period(
-                    context,
-                    width,
-                    DayPeriod::parse(period).ok_or_else(invalid)?,
-                ),
+                ("day_period", Some(context), Some(width), None, Some(period))
+                    if width != NameWidth::Short =>
+                {
+                    NameKey::Period(
+                        context,
+                        width,
+                        DayPeriod::parse(period).ok_or_else(invalid)?,
+                    )
+                }
                 (
                     "cyclic_year",
                     Some(NameContext::Format),
                     Some(width),
                     Some(index @ 1..=60),
                     None,
-                ) => NameKey::CyclicYear(width, index),
-                ("leap_month", None, None, None, None) => NameKey::NumericLeapMonth,
-                ("leap_month", Some(context), Some(width), None, None) => {
+                ) if width != NameWidth::Short
+                    && matches!(
+                        calendar,
+                        CalendarDataKind::Chinese | CalendarDataKind::Dangi
+                    ) =>
+                {
+                    NameKey::CyclicYear(width, index)
+                }
+                ("leap_month", None, None, None, None)
+                    if matches!(
+                        calendar,
+                        CalendarDataKind::Chinese | CalendarDataKind::Dangi
+                    ) =>
+                {
+                    NameKey::NumericLeapMonth
+                }
+                ("leap_month", Some(context), Some(width), None, None)
+                    if width != NameWidth::Short
+                        && matches!(
+                            calendar,
+                            CalendarDataKind::Chinese | CalendarDataKind::Dangi
+                        ) =>
+                {
                     NameKey::LeapMonth(context, width)
                 }
                 _ => return Err(invalid()),

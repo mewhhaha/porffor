@@ -1,29 +1,31 @@
 # Module entry completion
 
 A Module's entry evaluation has its own completion owner. An unrelated rejected
-Promise cannot stand in for that result. Canonical Module-entry graphs own an intrinsic Evaluate Promise even when every
-body is synchronous. Retained source-phase drivers keep their separate execution
-path. The host completion owner is shared by both.
+Promise cannot stand in for that result. Canonical Module-entry graphs own an
+intrinsic Evaluate Promise even when every body is synchronous. Module and Script
+graphs share canonical activations for TLA, deferred requests and cycles; Script
+roots retain ordinary completion without a Module entry operation. Source-only
+JavaScript targets reject after load/parse as described in the
+[source-phase contract](source-text-module-source-phase-rejection.md). There is
+no fabricated source cell or retained product driver. This 2026-10-03 retirement
+is source-only; executable acceptance is pending.
 
 ## Trusted entry boundary
 
-The linker records one private entry operation. Canonical graphs
-identify their final `ModuleEvaluate` operation. Retained Module drivers identify
-their final private synchronous or asynchronous arrow call. The original Module
+The linker records one private Module entry operation: the final
+`ModuleEvaluate` operation of the canonical graph. The original Module
 parse, early errors, private source spans and independent global Script prelude
 remain authoritative. The same source spelling in an ordinary Script produces
 no entry operation. There is no source-callable intrinsic.
 
 `ModuleEntryEvaluationIr` has private fields and only the trusted linker boundary
-can construct it. Its closed kind records synchronous completion or an intrinsic
-Promise result. The AOT emitter checks that a Module-entry graph and the private
-root operation have the same owner. Dependency collection, function reachability,
+can construct it. Its closed kind records the intrinsic Promise result. The AOT
+emitter checks that a Module-entry graph and the private root operation have the same owner. Dependency collection, function reachability,
 global-property planning and throw inference traverse the actual operand.
 
-A synchronous entry yields `undefined` on success. A Promise entry adopts
-the exact intrinsic Promise returned by Evaluate or the retained driver, retaining its object
-and result through a module-instance global. The passive heap-root inventory
-names this persistent root separately from module records; no executable
+The entry adopts the exact intrinsic Promise returned by Evaluate, retaining
+its object and result through a module-instance global. The passive heap-root
+inventory names this persistent root separately from module records; no executable
 collector or linear-memory tracing claim is added. Adoption marks that Promise handled
 directly; it does not read `.then`, `constructor` or `Symbol.species`, call user
 code or create another Promise. An already-enqueued rejection candidate remains
@@ -37,7 +39,6 @@ including `Atomics.waitAsync` timeouts, before sampling the entry:
 | State at the checkpoint | Result |
 | --- | --- |
 | Earlier prelude or instantiation throw | Preserve that exact throw; adoption may not have happened. |
-| Synchronous entry completed | Normal `undefined`. |
 | Entry Promise fulfilled | Normal `undefined`, regardless of its fulfillment value. |
 | Entry Promise rejected | Throw its exact stored payload and tag, including `undefined`. |
 | Entry Promise still pending | `IncompleteModuleEvaluation`, a host outcome. |
@@ -82,9 +83,10 @@ negative. Agent failures retain their existing aggregate classification.
 ## Scope and verification
 
 Canonical TLA/deferred execution uses the [async lifecycle](module-async-lifecycle.md)
-with runtime DFS, completion capabilities and private reaction kinds. Script-entry
-and source-phase graphs retain their explicit admission boundaries. Host rejection
-policy never supplies or substitutes the module's evaluation completion.
+with runtime DFS, completion capabilities and private reaction kinds. Script
+roots use those module activations for import jobs while preserving Script scope,
+strictness and completion. Source-only JavaScript targets retain the explicit
+post-load/parse rejection boundary. Host rejection policy never supplies or substitutes the module's evaluation completion.
 
 Focused verification targets:
 

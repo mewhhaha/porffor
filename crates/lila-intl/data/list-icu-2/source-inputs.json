@@ -1,0 +1,102 @@
+{
+  "archive": "sources.tar.gz",
+  "archive_bytes": 66909,
+  "archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e",
+  "capture_evidence_sha256": "f790b787ab355cf3b5500f03fd03ef4c9453695d79bf130c194749c150f4f6f4",
+  "files": [
+    {
+      "bytes": 18047,
+      "path": "crates/icu_list-2.0.1.crate",
+      "sha256": "f67934757bda073a8e358550100d70edb4689c2acc216f51d023233b84b39d41"
+    },
+    {
+      "bytes": 18592,
+      "path": "crates/icu_list_data-2.0.0.crate",
+      "sha256": "5a456a2412458ca45e181d9d51c5090ef8cd90f5692e11d34bafab3b3be1c76b"
+    },
+    {
+      "bytes": 26685,
+      "path": "crates/writeable-0.6.3.crate",
+      "sha256": "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+    },
+    {
+      "bytes": 109,
+      "path": "icu_provider_source-2.0.0/.cargo_vcs_info.json",
+      "sha256": "da86da3d64c58506e46f67cc131f311b5c42693761ca81f136f7785a17a1c77b"
+    },
+    {
+      "bytes": 1805,
+      "path": "icu_provider_source-2.0.0/src/cldr_serde/list_patterns.rs",
+      "sha256": "154cade8287cf18e98329d0e3bf8f10b82d55ad7abd53f2c7053f4851bc88615"
+    },
+    {
+      "bytes": 8278,
+      "path": "icu_provider_source-2.0.0/src/list/mod.rs",
+      "sha256": "8df708a24facd2ef2ff0987adde09154f63a066ba6820e7255c6a2acb7437012"
+    }
+  ],
+  "packages": [
+    {
+      "archive_member": "crates/icu_list-2.0.1.crate",
+      "crate_checksum": "f67934757bda073a8e358550100d70edb4689c2acc216f51d023233b84b39d41",
+      "name": "icu_list",
+      "runtime_dependency": true,
+      "vcs": {
+        "git": {
+          "sha1": "31e2bfa8e39e069dcef6de3f6914c5d722e90d00"
+        },
+        "path_in_vcs": "components/list"
+      },
+      "version": "2.0.1"
+    },
+    {
+      "archive_member": "crates/icu_list_data-2.0.0.crate",
+      "crate_checksum": "5a456a2412458ca45e181d9d51c5090ef8cd90f5692e11d34bafab3b3be1c76b",
+      "name": "icu_list_data",
+      "runtime_dependency": true,
+      "vcs": {
+        "git": {
+          "sha1": "5e404744dd6c9dd7f86aac82586e3fa98ea75f7f"
+        },
+        "path_in_vcs": "provider/data/list"
+      },
+      "version": "2.0.0"
+    },
+    {
+      "archive_member": "crates/writeable-0.6.3.crate",
+      "crate_checksum": "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4",
+      "name": "writeable",
+      "runtime_dependency": true,
+      "vcs": {
+        "git": {
+          "sha1": "e8d5b7561cf6cc4bee35286f5d5e569100dfa79d"
+        },
+        "path_in_vcs": "utils/writeable"
+      },
+      "version": "0.6.3"
+    },
+    {
+      "crate_checksum": "32d236c2aa47798c69a3a805dc0cb6068bc22e5beb3e0f72ee5a316e57d32913",
+      "name": "icu_provider_source",
+      "runtime_dependency": false,
+      "selected_members": [
+        "icu_provider_source-2.0.0/src/list/mod.rs",
+        "icu_provider_source-2.0.0/src/cldr_serde/list_patterns.rs",
+        "icu_provider_source-2.0.0/.cargo_vcs_info.json"
+      ],
+      "vcs": {
+        "git": {
+          "sha1": "5e404744dd6c9dd7f86aac82586e3fa98ea75f7f"
+        },
+        "path_in_vcs": "provider/source"
+      },
+      "version": "2.0.0"
+    }
+  ],
+  "runtime_policy": "Use exact Cargo.lock-selected compiled data; source archive verification does not execute the native constructor or DFA.",
+  "schema_version": 1,
+  "upstream_data": {
+    "CLDR": "47.0.0",
+    "ICU": "icu4x/2025-05-01/77.x"
+  }
+}

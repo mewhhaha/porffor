@@ -1,5 +1,143 @@
 # T24 — Globals, native errors, Annex B and remaining host-visible builtins
 
+## ShadowRealm implementation batch — 2026-10-07 dry source
+
+The native family now has catalog and prototype publication, a strongly rooted
+Realm instance, nonconstructible wrapped callables, finite `evaluate` and
+`importValue` export/rejection continuations. Shared metadata copying preserves
+bind's original errors and ShadowRealm's boundary conversion. Finite evaluation
+owns fresh lexical environments, strict/sloppy variable lifetime and receiver
+Realm selection; unavailable source remains an explicit runtime capability gap.
+
+Module initialization is reusable for a selected Realm, with distinct namespace
+and evaluation state. Realm-origin host requests and intrinsic Promise reactions
+are written. Retained finite-source parses close nested and aliased requests
+before artifact cache identity; emission reuses the accepted IR. Four native regression
+targets cover constructor and wrapper behavior, source lifetimes, module caches,
+borrowed methods, actual errors, cycles and top-level await. The workspace check
+passes, and `tasks-shadow-native2` passes four gate functions for construction,
+finite evaluation, wrapped callable identity/execution and isolated module
+caches. Remaining native cohorts and full pinned acceptance are still open.
+
+The [implementation contract](../docs/rust-rewrite/contracts/shadowrealm-implementation-sequence.md)
+and [finite-source contract](../docs/rust-rewrite/contracts/shadowrealm-finite-evaluate.md)
+name the production consumers and deferred controls. Optional forwarding and
+finite computed-key candidates pass the complete workspace/IR checkpoint. The
+optional-alias native cohort passes both modes in 364.18 seconds; its queue was
+deliberately stopped during the second case after 466 seconds (exit 143), leaving
+seven cases incomplete or unstarted. Shared Realm initialization now passes
+`tasks-realm-bootstrap1` in 210 seconds: source guards, the all-feature/all-target workspace check
+(60.36 seconds; Cargo: 59.02) and 16 focused AOT controls (six helper unit, ten
+integration), with none failed or ignored. The validated optional artifact has
+main/initializer/ShadowRealm bodies of 534,595/662,558/24,632 bytes; every body is
+below 1 MiB and both callers share the helper. Earlier IR/cache/catalog and
+native passes keep their preceding-source scope. `tasks-dry-closure-native2`
+received an unexpected SIGTERM at 188 seconds (exit 143) during its first strict
+compile. Sloppy execution passed, but no function completed; accounting recorded
+3.8 GiB peak without an OOM termination entry. `tasks-dry-closure-native3`
+subsequently ended after 5,153 seconds with 30 functions passing, four failing
+and 19 incomplete or unstarted (SIGTERM; 4 GiB service peak, no OOM termination
+entry). The joined repair gives public `globalThis` real binding semantics,
+retains Global Environment References through reads and mutations, and rejects
+duplicate class-function identities. Its compile/IR/AOT checkpoint and native
+follow-up are pending. Historical failure counts stay unchanged until canonical
+publication; focused results do not close T24.
+
+## NativeHost atomic source — 2026-10-05
+
+The native host entries now consume complete GC values and whole completions.
+RealmEvalScript retains the finite prepared-AOT source policy; arbitrary
+dynamic JavaScript source remains explicit unsupported debt. Print converts
+full arguments in order before its sole output boundary;
+parseInt and parseFloat read UTF-16 with the shared ECMAScript whitespace
+policy. AssertThrows accepts callable Proxies and observes the thrown object's
+constructor once for exact identity. Created Realms use shared completed
+bootstrap, an actual new Global Environment and canonical every-Realm globals;
+their host facade captures that Realm through the function factory.
+
+Agent Broadcast transports the SAB resource and ToInt32 id, and Receive
+returns a fresh Array pair for the harness callback. The actual host effect
+authority marks Print, RealmEvalScript, AgentStart, Broadcast, Report and Sleep
+as synchronous user-code entries; native Receive remains false. The harness's
+callback is a separate source call effect. Finite native and included-harness
+controls are authored, with original abrupt cutoffs, coercion order and saved
+error Realms. They do not claim native threading execution.
+
+The duplicate raw created-Realm installer guards are retired; meaningful
+private lifecycle/domain and retained semantic witnesses remain. Historical
+focused results below do not verify this source. Final representation/helper/
+guard composition, compilation, runtime and full T24 acceptance remain open.
+See [NativeHost GC values](../docs/rust-rewrite/contracts/native-host-gc-values.md).
+
+The earlier scalar-ABI, raw-offset and duplicate-bootstrap source descriptions
+below retain their recorded predecessor scope, including sections labelled
+current at those earlier checkpoints. They are not current GC allocation or
+publication claims.
+
+
+## Global and Error native caller effects — 2026-10-04 dry source
+
+Five remaining URI/Annex B globals and all nine Error constructors now record
+synchronous user code, as does Error.prototype.toString. Unescape retains its
+preceding corrected flag. The live owners perform input/message conversion,
+NewTarget prototype observation, cause-options Has/Get, errors iteration or
+ordered name/message observation. Their caller effects invalidate captured
+kind, shape and element facts through the existing analysis owner. A consumed
+const catalog rule requires these reviewed family obligations.
+
+Meaningful lowering controls and finite paired Engine cohorts retain original
+acquisition, complete ordinary/spread/ignored operands, callback changes,
+prefix/abrupt order and called-function Realms. Native IDs, ordinals, installers,
+result domains and native algorithms keep their owners. No compilation or
+runtime acceptance is claimed. All remaining task source precedes the confirmed
+4096 MiB capped serial verification checkpoint. Wider catalog effects, URI
+allocation, native algorithm closure and full T24 remain open. See the
+[caller-effect contract](../docs/rust-rewrite/contracts/global-error-caller-effects.md).
+
+## AggregateError iterator list — 2026-10-04 dry source
+
+AggregateError now uses the shared synchronous iterator owner for every errors
+input. Arrays and Arguments observe their actual Symbol.iterator property;
+primitive Strings iterate code points. General IsCallable and Proxy-aware Call
+handle both the iterator method and cached next. Done is read before value,
+terminal value is omitted, and operation abrupt completions propagate without
+IteratorClose.
+
+NewTarget prototype, message conversion and cause installation retain their
+existing order before acquisition. The unpublished errors Array uses the called
+constructor's intrinsic Realm, independently of the source and NewTarget.
+The private non-Copy iterator locals and sixth closed consumer retain one
+acquisition/step/release lifetime; all four native protocol errors enter the
+existing exhaustive body-Realm projection.
+
+Two paired strict/sloppy WasmAot Engine cohorts cover call/Construct, both Realm
+directions, overrides, callable Proxies, cached next, prefix precedence, original
+foreign throws, no close and property attributes. Existing architecture guards
+are maintained. This complete batch passed the ref97 combined all-target Rust
+type checkpoint. Emitted-Wasm and runtime verification remain pending; full T24
+and conformance stay open.
+See the [iterator-list contract](../docs/rust-rewrite/contracts/aggregate-error-iterator-list.md).
+
+## Historical error-message authority — 2026-10-03 source checkpoint
+
+At the 2026-10-03 source checkpoint, the compiler-authored error boundary consumed
+a closed catalog of 1,187 messages, also interned by production StringPool
+collection. Transitive callers, closed collection/RegExp projections and 62
+Intl property/message pairs use
+that authority. Source diagnostics are admitted from their actual closed IR
+owners after collection; this proves text membership, without a generative
+Rust pool identity. Existing source assertions have been maintained against
+their real catalog, caller or prose owners and independently reviewed.
+The forward Flat batch adds the maximum-safe-result-length diagnostic through
+the same catalog and current-function Realm throw owner.
+
+That checkpoint was integrated but uncompiled and unexecuted. The ref97 combined
+Rust type check now covers the integrated source without refreshing this
+historical catalog count. Error Realm/completion behavior, URI allocation and
+broad Annex B/host acceptance remain open. Published conformance counts are
+unchanged. See the
+[message contract](../docs/rust-rewrite/contracts/runtime-error-message-domain.md).
+
 **Status:** In progress — errors/globals/URI/host exotics are broad but not fully closed
 
 **Parallel group:** Feature lane; split by errors, globals and Annex B  
@@ -7,6 +145,19 @@
 **Blocks:** Remaining builtins/Annex B/harness portions of T26
 
 ## Current repository state
+
+The 2026-10-04 remaining invocation source removes the host unescape literal
+fold and both call-site bypasses. The original callee and all operands, including
+ignored extras and spread, reach the independently live native algorithm.
+Unescape's actual catalog row records synchronous user code through input
+ToString, invalidating captured caller facts through the existing effect owner.
+Native UTF-16/Annex B behavior and defining-Realm errors remain independent.
+
+Actual lowering and paired Engine sources retain operand/coercion effects,
+original throws and Realm errors. They remain uncompiled and unexecuted until
+the full-task source pass finishes and capped verification begins. Full T24,
+URI allocation and pinned closure remain open. See the
+[contract](../docs/rust-rewrite/contracts/remaining-invocation-reference-ownership.md).
 
 Native errors, global constants/functions, URI codecs, Annex B builtins,
 IsHTMLDDA and AbstractModuleSource have dedicated runtime/backend paths and
@@ -19,9 +170,14 @@ mapping. A new error family omitted from that authority is therefore a compile
 error, and an invalid internal spelling can no longer silently fall back to
 `%Object.prototype%`.
 
-The current token-aware shortcut inventory assigns 5 observations to T24.
-That census includes exact rewrite calls, source contract guards and selector
-tables omitted by the historical line-oriented checkpoints below.
+The final two T24 rewrite authorities (`S15.1.1.3_A1.js` static eval
+replacement and `Boolean/proto-from-ctor-realm.js` Proxy substitution) were
+retired on 2026-09-28: both originals pass 2/2 sloppy/strict Wasm-AOT
+executions via prepared direct eval and the prepared zero-argument
+cross-realm Function path, so the token-aware shortcut inventory now assigns 0
+observations to T24. That census includes exact rewrite calls, source contract
+guards and selector tables omitted by the historical line-oriented checkpoints
+below.
 
 The 19 host-backed callables now also come from one macro-backed
 `HostBuiltinId` row source. Each global row classifies its exposure, and that

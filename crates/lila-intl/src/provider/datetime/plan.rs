@@ -73,8 +73,9 @@ pub(super) fn select<'p>(
     profile: &'p Profile,
     request: &DateTimePlanRequest,
 ) -> Result<ValidatedPlan<'p>, DateTimeFormatError> {
-    let locale = locale::validate(profile, &request.locale)?;
-    let calendar = locale.calendar(request.locale.calendar);
+    let admitted = locale::validate(profile, &request.locale)?;
+    let locale = admitted.locale();
+    let calendar = admitted.calendar();
     match request.matcher {
         DateTimeFormatMatcher::Basic | DateTimeFormatMatcher::BestFit => {}
     }

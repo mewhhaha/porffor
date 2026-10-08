@@ -1,23 +1,23 @@
-# Static typeof kind domain
+# typeof over runtime values
 
-`compile_typeof_payload` owns one exhaustive `ValueKind` match at the point
-where a singleton inferred kind may replace runtime tag observation. Undefined,
-null, Array, Arguments, Boolean, Number, BigInt, Symbol and String project to
-their exact `typeof` text. A known type replaces only runtime tag observation:
-the operand still evaluates exactly once before its payload is discarded and
-the type string is returned. Its effects and abrupt completions remain
-observable, including numeric coercions and comma expressions. Function
-retains its payload evaluation and HTMLDDA observation before returning
-`"undefined"` or `"function"`.
+`compile_typeof_payload` evaluates its operand exactly once into `ValueLocals`,
+then calls `emit_typeof_value` with that same complete value. Operand effects and
+abrupt completions precede type observation. Inferred `ValueKind` precision,
+including Object or Dynamic, does not replace this evaluation or discard the
+operand's GC reference.
 
-Object and Dynamic deliberately project to no static result and continue into
-the existing runtime tag path. The compiler therefore has no partial helper and
-no `unreachable!` assertion for a kind the helper's parameter type admitted. A
-new `ValueKind` cannot compile until this decision is extended.
+`emit_typeof_value` starts with `"object"` for null and non-callable heap values,
+then projects Undefined, Boolean, Number, BigInt, Symbol and String runtime tags
+to their exact text. It tests actual callability before publishing `"function"`:
+Function objects, bound functions and the Proxy's retained call capability use
+the shared callable owner. The HTMLDDA observation runs last and selects
+`"undefined"`, including when that value is otherwise callable. No public
+property lookup or inferred source kind substitutes for these runtime facts.
 
-The existing distrust of calls and runtime-backed Arguments storage, the
-singleton gate, Function payload evaluation, HTMLDDA behavior and runtime tag
-fallback remain unchanged.
+The focused source guards retain one operand evaluation, exact primitive
+spellings and object default, whole-value callability, and HTMLDDA precedence.
+The contract now follows the runtime owner that replaced the earlier static
+`ValueKind` match; it does not require that retired optimization to return.
 
 ```sh
 cargo test -p lila-aot-wasm --test typeof_static_kind_structure
@@ -25,6 +25,6 @@ cargo test -p lila-engine tests::wasm_backend_supports_typeof_core -- --exact --
 cargo test -p lila-engine --test aot_runtime_import_reachability
 ```
 
-The earlier total-domain target passed `3/3`, and the exact core `typeof`
-engine witness passed `1/1`. Those results predate the operand-evaluation
-repair; its source guard and runtime regressions are included above.
+The earlier static-domain target passed `3/3`, and the exact core `typeof`
+engine witness passed `1/1`. Those are predecessor results, not verification of
+the current guard updates. Their joined checkpoint remains pending.

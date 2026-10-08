@@ -3,6 +3,22 @@
 use crate::*;
 
 #[test]
+fn run_wasm_backend_validates_typedarray_length_before_prototype() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_typed_array_length_before_prototype.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(4)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_typedarray_from_arraylike_length_abrupt_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -1214,6 +1230,28 @@ fn run_wasm_backend_succeeds_for_typedarray_join_buffer_witness_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(123"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_typedarray_from_array_skips_length_prevalidation() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_typed_array_from_array_skips_length_prevalidation.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(7)"), "{stdout}");
 }
 
 #[test]

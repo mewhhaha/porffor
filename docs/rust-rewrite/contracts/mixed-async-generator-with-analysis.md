@@ -1,0 +1,11 @@
+# Mixed async-generator With analysis
+
+Analysis assigns the mixed whole With owner only from the actual checked `AsyncGeneratorWithSource` in its FunctionBody scope. The enum carries an opaque identity token whose private constructor consumes that source proof. The lowering dispatch must recover checked source for the same AST node; an equal-shaped With at another source identity cannot consume its token. Eager FunctionBody With still receives separate head and body phases.
+
+The analysis census follows the source allocator's actual foreign boundaries. ForOf bodies, legacy eager ForIn/Switch scopes and the sticky suffix after a sync using or admitted await-using declaration retain their original continuation owner. The resource-suffix predicate is one physical source helper consumed by both source planning and analysis. Leaving a statement list restores its surrounding domain. Nested functions have their own analyzed execution and source walk.
+
+The original analyzed Object Environment Record and hidden binding name stay authoritative. The checked whole owner reserves that existing hidden row in `finalize_capture_plans` before physical slots and capture hops are assigned. Existing lexical/function/static capture algorithms then include the actual record, and the original eval-role projection names its real object slot. Analysis does not mint a second environment, backing object or GC layout.
+
+The Generator, Async and mixed With carriers retain one private `CheckedWithObjectEnvironmentIr`. Its sole constructor validates the actual final ToObject publication and retained read, the unique invocation head allocation and the original single-row child Object Environment Record. The original check order and error meanings are preserved. Public carrier constructor arguments and read-only getters stay the same; private malformed-input controls rebuild raw constructor arguments instead of mutating the proof.
+
+Five private controls cover eager and suspended phases, actual foreign/resource boundaries, same-shaped foreign AST refusal, original nested closure capture slots/hops and the distinction between rejected foreign bodies and independently owned nested callables. These controls are authored and unrun. Compilation, native fixture execution and conformance verification remain part of the coordinated batch checkpoint.

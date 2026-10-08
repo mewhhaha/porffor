@@ -169,6 +169,16 @@ pub fn fold(cu: u32) -> u32 {
     }
 }
 
+/// Sorted nonidentity mappings from the same ranges used by [`fold`].
+pub fn fold_mappings() -> impl Iterator<Item = (u32, u32)> {
+    FOLDS.iter().flat_map(|range| {
+        (range.first()..=range.last()).filter_map(move |codepoint| {
+            let canonical = range.apply(codepoint);
+            (canonical != codepoint).then_some((codepoint, canonical))
+        })
+    })
+}
+
 fn uppercase(cu: u32) -> u32 {
     let searched = TO_UPPERCASE.binary_search_by(|fr| {
         if fr.first() > cu {

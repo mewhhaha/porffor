@@ -1,8 +1,1594 @@
 # Lila
 
+## Closure audit and verification — 2026-10-08
+
+The integrated ownership and Unicode batch passes the workspace type check,
+2,166 IR/doctest checks (one existing documentation example ignored), 24 focused
+AOT controls, two exhaustive Unicode inventory comparisons and twelve native
+Unicode/RegExp/URI functions. Repository audits and formatting pass. The native
+Realm fixtures now install their missing ordinary Test262 wrapper; assertions
+are unchanged. The original five-second campaign still times out during emission.
+
+The task plan remains open: real weak-reference support, unresolved Temporal
+rounding, full pinned conformance and canonical publication remain required.
+See the [current checkpoint](tasks/README.md#closure-audit-and-verification--2026-10-08)
+for exact evidence scopes, commands and retained failures.
+
+## Focused iteration checkpoint — 2026-10-08
+
+The fresh all-feature/all-target workspace check, shortcut source audit,
+generated accounting and task-plan validator pass. The sole failed ShadowRealm
+fixture from the retained 45-pass/one-failure native queue now passes its focused
+rerun after the existing detached-call correction. The original five-second
+CrossRealm campaign still times out during Wasm emission; its selected worker
+was rebuilt, its deadline is unchanged and full-suite counts remain historical.
+See the [current task checkpoint](tasks/README.md#focused-iteration-checkpoint--2026-10-08)
+for commands, resource limits and the distinct evidence scopes.
+
+## Implementation and verification — 2026-10-08
+
+The current source batch joins live prototype/property facts, ordinary global
+Reference ordering, removal of source-name and operand-discarding shortcuts,
+implicit module await from `await using`, RegExp character domains, Temporal
+partial-date formatting, Intl sign placement and selected locale ownership.
+ShadowRealm now has native construction, finite evaluation, wrapped callables
+and per-Realm module imports. Optional forwarding and finite computed keys feed
+the existing source-candidate owner while actual Get/Call execution stays live.
+Function-cache hits now update the recency used for bounded pruning.
+
+`tasks-dry-closure-foundation2` passes the all-feature/all-target workspace check
+in 67.45 seconds, all 2,135 IR tests across 144 targets, 16 cache checks and both
+prepared-source catalog checks. No test failed or was ignored. The complete
+checkpoint took 390 seconds under one CPU, 4096 MiB aggregate RAM and zero swap;
+retained native modules remain capped at one entry and 64 MiB. Module ownership
+checks pass within the existing parent budgets. The generated shortcut inventory
+passes with 26 classified observations: 23 harness adaptations, three diagnostic
+entries and zero semantic shortcuts. Pinned conformance counts are unchanged.
+
+`tasks-shadow-native2` passed four native gate functions in 1,050 seconds:
+construction/subclass branding, finite-evaluation lifetimes, wrapped callable
+identity/execution and isolated module caches. The first three cover strict and
+sloppy modes. `tasks-dry-closure-native1` then passed the optional-alias cohort in
+both modes in 364.18 seconds. It was deliberately stopped during its second
+case after 466 seconds (exit 143); seven cases were incomplete or unstarted.
+
+`tasks-realm-bootstrap1` passes in 210 seconds: source guards, the all-feature/
+all-target workspace check (60.36 seconds; Cargo: 59.02) and all 16 focused AOT
+controls (six helper unit tests, ten integration tests), with none failed or
+ignored. The validated optional artifact has main at 534,595 bytes, the shared
+initializer at 662,558 and ShadowRealm at 24,632. Every body stays below 1 MiB,
+and both bootstrap callers use the same helper. The earlier IR/cache/catalog
+and native passes retain their preceding-source scope.
+
+`tasks-dry-closure-native2` received an unexpected SIGTERM after 188 seconds
+(exit 143), during the first function's strict-mode compilation. Sloppy namespace
+execution passed, but no test function completed. Service accounting recorded a
+3.8 GiB peak and no OOM termination entry.
+
+`tasks-dry-closure-native3` ended on 2026-10-08 with 30 native functions
+passing, four failing and 19 incomplete or unstarted. It received SIGTERM after
+5,153 seconds under one CPU, 4096 MiB and zero swap. Service accounting reported
+4 GiB peak without an OOM termination entry; the termination cause is unconfirmed.
+The durable result journal preserves every completed outcome. The failures are
+public-global binding shadowing, strict global-var assignment after RHS deletion,
+and both class-initializer grammar controls exposing duplicate function IDs.
+
+The joined source repair separates source `globalThis` from proven global-object
+identity and retains Global Environment References through reads, deletion,
+plain/logical/eager assignment and numeric updates. Class-owning functions keep
+canonical bodies when specialization cannot remap their complete identity graph;
+Wasm planning rejects duplicate function IDs. Source review also adds related
+getter, Proxy and late-lexical controls to two existing native cohorts. Obsolete
+raw-global mutation IR paths are removed. Arithmetic compound assignment now
+consumes its initialization witness before lowering the RHS, preserving TDZ
+ordering while initialized const writes still follow operand coercion.
+
+`tasks-global-class-repair2` passed the workspace check and all 48 planning
+controls before an unexplained SIGTERM at 477 seconds interrupted full IR.
+The joined TDZ/assertion successor, `tasks-global-class-repair3`, finishes in
+525 seconds. Its all-feature/all-target workspace check passes in 80.68 seconds;
+all 19 affected AOT controls and the CLI inspection control pass, including both
+original class artifacts. Full IR completes all 144 targets: 2,141 controls pass,
+six fail and none are ignored. `tasks-function-conversion-repair1` resolves all
+six stale receiver, effect and dynamic-source assertions: its four exact unit
+controls and all five number-constructor controls pass. The workspace check
+passes in 81.52 seconds; the whole checkpoint finishes in 120 seconds.
+
+The Function-family repair converts arguments whose count is absent from the
+prepared table before reporting the typed source boundary. Its expanded native
+cohort passes for all four constructor kinds, including ordered conversions,
+original exceptions and exactly-once effects. `tasks-dry-closure-native4` then
+received SIGTERM after 460 seconds during the public-global fixture's strict
+native compilation; sloppy execution completed, but that function has no result.
+The durable journal retains one completed pass and 44 unfinished functions.
+Successful unchanged controls retain their preceding-source scope.
+
+`tasks-original-campaign-trace1` reproduces the original five-second failure
+without changing its seed or deadline. CrossRealm seed 1270 times out during
+Wasm emission, after 5.39 ms parsing and 219.02 ms lowering, before native
+compilation or JavaScript execution. SpecExec completes all eight actions;
+the transformed case and Temporal seed remain unrun. Retained worker stderr
+identifies repeated absent Collator metadata probes. This is performance failure
+evidence, not a semantic equivalence result.
+
+The reviewed Collator precheck now rejects impossible locale/type pairs using
+that provider's exact metadata inventory and ICU fallback chain. Complete
+profile admission and projection recording remain unchanged. Both source
+identities are refreshed; all ten focused Collator image/projection controls pass.
+
+The latest source join removes the obsolete rejection of suspending Switch in
+an ordinary generator that captures an enclosing With environment. Existing
+captured cells, CaseBlock records and retained assignment References own the
+composition; the native Switch cohort now covers it in sloppy mode. String-pool
+slots also retain checked insertion indices, so later literals cannot renumber
+already collected builtin strings, and literal lookup uses direct map access.
+The all-feature/all-target workspace check passes in 110.81 seconds, along with
+seven IR, ten Collator and three string-pool unit controls. The first process
+ended with SIGTERM during artifact checks. Its successor runs only those four
+unfinished checks: all pass, including identical shared coercion-helper bytes
+across changed source literals. No control fails or is ignored in the completed
+24-test scope. Native execution and measured cache-speed gains remain pending.
+
+`tasks-dry-closure-native5` completes the expanded captured-With scenario's
+sloppy execution: emission takes 16.30 seconds, native compilation 333.11 seconds
+and JavaScript execution 183.77 ms. Its 1,638,171-byte main body selects the
+existing size-optimized compiler; strict main is also oversized at 1,201,087.
+The run is deliberately stopped after 511 seconds during strict compilation to
+finish a shared global-read owner. No native test function completes. Scoped
+and persistent-ancestor logs record no OOM event; the 4096 MiB cap is retained.
+The 45-function native queue remains open.
+
+The joined successor outlines complete global ResolveBinding/GetBindingValue
+through four typed helpers for strict/sloppy reads and typeof. The caller passes
+its selected Global Environment and actual execution Realm; the existing
+Reference, delegate refresh, TDZ and whole-exception operations remain the
+semantic owner. Retained mutation References stay in their original caller.
+All 14 affected Intl identity generators and final checks pass without changing
+payload bytes. The enlarged original Switch artifact now checks real helper
+calls and the unchanged 1 MiB body limit; the existing global-read native cohort
+adds foreign-Realm and TDZ controls. Joined verification remains pending.
+
+Known acceptance gaps remain. Genuine weak reachability needs a runtime facility;
+arbitrary unavailable dynamic source and Temporal's unresolved collapsed-rounding
+policy remain explicit limitations. The original five-second campaign failure,
+sustained performance evidence, remaining native cohorts, full pinned conformance
+and independent-host acceptance remain open. Historical evidence below keeps its
+original scope; this checkpoint does not close task acceptance.
+
+See the [property-fact contract](docs/rust-rewrite/contracts/primitive-property-read-effects.md),
+[source-identity contract](docs/rust-rewrite/contracts/compiler-source-identity.md) and
+[ShadowRealm contract](docs/rust-rewrite/contracts/shadowrealm-implementation-sequence.md).
+
+## Earlier verified checkpoints — 2026-10-07
+
+The complete Temporal conversion batch passed the all-feature, all-target
+workspace type check and all 28 selected AOT controls on 2026-10-07. Every
+retained fixture body is below 1 MiB: Duration.round is 888,220 bytes, bootstrap
+is 863,565 and the async run is 208,269. The scheduling fixture has 15,279,867
+code bytes. Shared conversions preserve the actual callable FunctionContext,
+caller Environment, option presence and whole completions.
+
+Native compilation and instantiation now complete under the 4096 MiB cap
+(82.57 seconds for compilation of the original lifecycle fixture). Independent
+host signatures have separate canonical type groups with compile-time ordering
+checks. Main's defining-Realm repair passes the workspace type check and its
+native prototype/captured-cell control. The original lifecycle fixture now
+executes without the null trap, but its missing output exposed premature async
+completion on Await. The shared suspension return repair covers ordinary Await,
+module handoff, async disposal and awaited iterator steps/closing. The joined
+repair gives known Symbols a distinct IR variant and restores explicit progress
+transport between Atomics waiting and Promise jobs. `tasks-symbol-progress1`
+passes the full type check, all 20 Symbol IR controls and three native controls:
+ordinary Await, awaited iterator closing and the original mixed array lifecycle
+in strict and sloppy modes. Its two failures have a joined repair:
+`tasks-constructor-progress1` passes the workspace type check and all three
+affected native controls. All fifteen Symbol identities agree across constant,
+dynamic and created-Realm reads; the waiter reaction notifies the second waiter;
+all twelve typed-array constructors retain their actual storage kind even with
+a different newTarget prototype. Planning and emission now share one compiled
+builtin list. No controls were ignored. The full IR and first native
+record/campaign acceptance batch completed under the same resource cap.
+The completed source batch adds real JSON module records, bounded URI/prelude/loader
+robustness targets, cross-Realm/Temporal campaign producers, and opt-in,
+post-job snapshots of actual rooted completion values through
+both backends and differential schema v7. Bounded graphs retain aliases,
+descriptors, Symbol origin and intrinsic Realm identities; unsupported exotics
+and exhausted budgets remain red. The batch passed the whole-workspace,
+all-feature, all-target type check. Its first focused pass completed 103 tests
+successfully and failed seven, with none ignored. The failures exposed six
+outdated source assertions and an oracle source-import attribute/error issue;
+their joined repair passes the current type check and all 22 affected controls.
+Native and campaign acceptance remain pending.
+
+T25's five independent IR-admission controls, 19 robustness library controls,
+two worker/CLI native-input replay controls, two compiler-inspection controls,
+three Engine RSS sampler controls and 24 CLI performance controls pass. Actual
+native runtime-profile controls and sustained campaigns remain pending. The
+current full IR run (`tasks-for-in-capture2`) passes all 2,096 unit and
+integration controls across 141 targets with none failed or ignored. Five
+compile-fail documentation controls pass; one pre-existing illustrative snippet
+is ignored. The native cohort finishes with five passing and five failing test
+functions, none ignored. URI execution, worker/CLI prelude and filesystem checks,
+created-Realm graph anchors and explicit graph rejection pass. A joined source
+repair addresses private loop-cell lookup, duplicate inferred function names
+and the Module fixture URL. The earlier worker cold-compilation timeout is
+retained as performance evidence; the campaign failure at its five-second
+budget remains open. Verification keeps the original deadlines.
+`tasks-loop-name1` passes the workspace type check in 49.72 seconds and four of
+seven native controls: the original post-job graph, both inferred-name controls
+and generator phase ordering. Three failures lead to a complete source repair
+for initializer/selector binding lifetimes and private module resume, which had
+repeated instantiation and left JSON defaults undefined. The joined admission
+repair retains checked loop/CaseBlock targets through catch/finalizer regions.
+It passes the workspace type check in 51.22 seconds, 18 focused controls and
+validation of all four original mixed-loop artifacts. `tasks-scope-native5`
+finishes with six native test functions passing, two failing and none ignored:
+both ordinary-generator, both module-resume and both rooted worker controls pass.
+The mixed phase fixture passes both modes; its completion fixture fails at the
+first awaited iterator value after a checked loop. The joined repair binds
+ForOf/ForIn input cells and retains head declarations in their iteration scope,
+rejects missing owned aliases, and loads trusted constructors from installed Realm
+slots. `tasks-iterator-intrinsics3` passes the all-feature/all-target workspace
+check in 37.60 seconds and finishes native acceptance with eight test functions
+passing, two failing and none ignored. Both original failures are resolved: all
+four mixed-loop fixtures and the original JSON fixture pass. All three ForOf
+family controls pass both modes, along with Annex B ForIn and both module intrinsic/
+error-category controls. Remaining ForIn failures are a labelled async admission
+gap and an ordinary-generator head TDZ assertion. Their joined source repair
+admits checked iterator labels and makes capture analysis count every physical
+named-function self record. The workspace check passes in 53.98 seconds.
+`tasks-for-in-capture2` passes the full IR suite, both labelled Wasm admission
+controls and all five affected native tests. The original ForIn controls pass
+both modes, along with named-function assignment and direct-eval self-binding
+controls. Assertions and deadlines are unchanged. Temporal converter literals
+now share the actual helper gate. `tasks-temporal-literals1` passes the workspace
+check in 45.97 seconds, the PlainDate-only Wasm regression and all five remaining
+paired-mode Realm controls. Fresh test processes with a 64 MiB retained-module
+cache also pass publication, whose earlier strict compile reached the 4 GiB cap.
+`tasks-remaining-isolated1` completes 50 native test functions: 39 pass and 11
+fail, with none ignored and no OOM. All three selected Intl controls, the array
+storage control, both RegExp modes and the CLI manifest path pass. The joined
+repair retains prepared Script kind, gives shared Temporal converters their
+actual host imports, corrects an embedded-graph URL and permits lazy GC capacity
+in the profiling assertion. Resource fixtures now use legal clause Blocks;
+all nine corrected parsing/lowering checks pass. Calendar diagnostics identify
+Gregorian fallthrough for omitted lunisolar domains; their arithmetic dispatch
+now uses an exhaustive match. Accessor-order fixtures pass their original bags
+directly. Verification of the joined repairs and broad/pinned conformance remain open.
+The joined repair passes the full workspace check in 49.14 seconds and the
+converter artifact regression. Its native collection completed 17 functions:
+12 pass and five fail; five remain unfinished after an intentional stop for
+repairs. Follow-up diagnostics identify two incorrect leap-month `since`
+assertions and a Duration fixture that incorrectly permits calendar-unit
+addition. Their corrections and the resource binding-alias repair are written.
+The successor passes the full workspace check in 63 seconds and completes all
+ten functions: eight pass and two fail, with none ignored. All three corrected
+calendar fixtures pass both modes, as do ordinary/async resource scopes, switch
+resource lifetime, indirect eval and fresh Script cells; nested direct-eval
+context also passes. The remaining repairs move a resource lifetime observation
+inside its finalizer and admit known Symbol arguments to Realm Script's existing
+ToString error path. Unknown executable source remains an AOT capability gap.
+The follow-up passes the workspace check, all 2,097 IR tests across 141 targets,
+five compile-fail documentation tests and the corrected resource completion
+fixture. One pre-existing illustrative documentation snippet remains ignored.
+Non-String eval identity passes both modes. The final Realm fixture captures
+its Symbol before calls that can invalidate mutable global facts and passes
+both modes in 246.96 seconds. All three affected IR admission controls pass.
+The collected resource/calendar/Script repair batch is verified; full pinned
+conformance and the remaining campaign, performance and host acceptance stay open.
+The earlier 13 Intl service controls,
+seven oracle controls and native-observation control retain their original
+scope. Verification keeps one CPU, 4096 MiB aggregate RAM and zero swap. The
+new source batch, native acceptance, broad suites and pinned conformance remain open.
+
+Ordinary-generator and plain async array/With/ForIn owners have independent
+source reviews. Mixed async generators now have reviewed complete classic-loop,
+If, value, With, Switch and ForIn source owners. The successor joins complete
+mixed literals, optional chains, private/Super References, suspended assignment
+and per-key initialization, catch patterns and lawful sloppy head initializers.
+Ordinary generators and plain async functions now share the consuming Reference
+and operand algorithms. Plain async classic loops and all three resumable
+protocols share complete ForOf/ForAwait/ForIn phases. Checked resource scopes
+extend across lexical lists, per-key initialization, classic heads and nested
+blocks in switch clauses. Direct clause-level resource declarations remain early errors.
+Suspended lexical async `super()` captures the original constructor and derived
+new.target before evaluating arguments, then uses the original this-binding path.
+Private source certificates retain exact
+Await/Yield kinds, phase ranges and captured Block/Try ancestry. The original
+Reference, environment, iterator, completion and request machinery remains
+shared. Checked Object Environment and two-cell CaseBlock storage proofs gate
+all actual With and complete generator Switch carriers. Selector terminal values
+are consumed before their generated operand bindings leave scope.
+Meaningful controls are written and typechecked; execution remains pending.
+
+Custom Intl source has eight independently reviewed locale filters: List,
+RelativeTime, DisplayNames, Duration, coupled NumberFormat/PluralRules,
+DateTimeFormat, Collator and Segmenter. Wasm build/run accepts
+`--intl-profile custom:ID` with `--intl-list-locales`,
+`--intl-relative-time-locales`, `--intl-displaynames-locales`,
+`--intl-duration-locales`, `--intl-number-locales`, `--intl-datetime-locales`,
+`--intl-collator-locales` and `--intl-segmenter-locales`. Original global
+authorities and actual fallback dependencies stay available. Segmenter retains
+all eight global Unicode/LSTM/dictionary rows for arbitrary input scripts while
+filtering actual locale-tailored overrides. SDK, cache, workers and CLI
+consume the selected owners; this successor has no runtime acceptance.
+
+The unverified successor adds mixed array patterns, complete `for…of` and
+`for await…of` phases, and resource lifetimes for lexical lists, iterator heads,
+classic `for` heads and the whole `switch` CaseBlock. Checked constructors bind
+actual source registrations, retained cells, suspension kinds and finalizers;
+native code consumes the original iterator and disposal machinery.
+
+`--intl-profile conformance` selects the complete pinned twelve-image group.
+Strict Custom manifests now compose locale, currency, calendar, numbering-system,
+named-zone and service projections. Native producers physically retain selected
+data and actual dependencies. Service selection distinguishes requested public
+operations from retained dependencies. Sparse bundles and Wasm sections carry
+that checked selection; missing or extra frames reject before execution.
+`lila intl export` and `intl inspect` retain the complete legacy format and add
+the sparse format. A valid `supportedValuesOf` key with omitted data reports
+explicit unavailability. SDK, manifest v6, cache v18 and CLI consumers are written.
+
+RegExp choices now use the linked snapshot arena and checked recursive required
+runs, including completed optional/choice-owning child counters and discharged
+capture-writing assertions through full ordered snapshots. Proven independent
+iterations use the input's UTF-16 bound while preserving captures, alternative
+priority and the exact finite optional gap. Pure empty syntax is simplified by
+the original literal and runtime compiler owners. Generated differential
+campaigns consume arithmetic, object-probe and module-graph grammars with
+preserving reducers. `module-graph-v2` adds exact attributed dynamic imports and
+top-level Await; its checked dependency order prevents self/ancestor waits.
+`object-mutations-v2` adds ordered property, prototype and integrity changes,
+with actual operation results and alias-preserving reduction.
+`control-flow-v1` adds checked finite statement trees across ordinary, Generator,
+Async and AsyncGenerator execution, including finalizers, labelled control and
+captured cells. The same real completion/print observer and campaign journal
+retain initial and reduced executions.
+`negative-source-v1` tracks actual frontend rejection phases.
+`builtin-stateful-v1` exercises bounded builtin operation schedules, and
+`metamorphic-stateful-v1` retains both actual programs and observations after
+checked equivalent source transformations. Paired cases have a dedicated replay
+command; all eleven grammar campaigns retain their original worker limits.
+Bounded robustness campaigns and crash/timeout minimization retain actual
+worker stages and exact native input bytes. Test262 failures and newly passing
+cases have a separate seed/replay bridge preserving their original modes,
+harnesses, source pins and failure owners.
+These changes pass the current type check and await runtime results. Cross-host data
+evidence and full pinned conformance remain open.
+Every payload uses one CPU, 4096 MiB aggregate RAM, zero swap and serial workers.
+Generated suite counts are unchanged; earlier results retain their exact scope.
+
+`lila performance compile` now has source support for separate preparation,
+lowering, emission and product Wasm validation measurements, with retained
+artifacts, actual size inventories and compatible-baseline comparisons.
+`lila performance runtime` measures the existing product execution phases in
+fresh stores and records actual GC heap capacity before and after execution.
+The source successor adds opt-in Linux process RSS sampling at 10 ms intervals,
+with entry/final readings and invocation-owned thread shutdown. Version-two
+reports retain the sampling scope and observations; budgets consume the sampled
+maximum only when every measured invocation supplied it. Other threads and
+retained caches contribute to process RSS. Allocation, live-GC size, collection
+count, pause and exact GC/linear-memory peaks remain explicitly unavailable.
+Both commands retain the fixed twenty-source corpus. The three Engine RSS
+sampler controls and all 24 CLI performance controls pass; actual native profile
+controls and idle-machine measurements remain pending.
+`lila performance conformance` aggregates verified matrix timeout/slow-case
+evidence and actual node invocation timings when retained; historical missing
+timing remains unavailable. `lila performance data` measures the physical
+components of existing admitted Intl bundles with Unicode/tzdb provenance.
+These source additions await the same combined verification checkpoint.
+`lila performance check` enforces an explicit budget policy against retained,
+compatible repeated compiler/runtime measurements and keeps each rule's result.
+Test262 compile-negative checks now require structured phase/type provenance;
+runtime error text cannot satisfy an oracle entry-parser rejection.
+Oracle runtime/resolution negatives also require the actual phase and native
+Error brand with an admitted intrinsic constructor. Host failures retain their
+separate provenance across catches and rethrows. These controls are source-only.
+
+The coercion repair and T25 source lanes are written with their controls and
+contracts. The combined type/focused checkpoint precedes broad checks, which
+reuse build artifacts under the resource cap.
+
+## Earlier Switch/object/RelativeTime source pass — 2026-10-06
+
+Ordinary generators now have authored Switch regions, complete yielding Throw
+operands and object-pattern key/target/default/rest suspension owners. The same
+pattern lowering retains original lexical and scoped For cells. A parser-scope
+proof separates inferred class display labels from explicit inner class bindings,
+preserving outer reads, closures and TDZ. Actual frontend cover conversion and
+native destructuring consumers are joined. These changes have independent source
+reviews and meaningful strict/sloppy GC and completion controls; they are unrun.
+
+One checked Custom Intl profile now composes independently filtered ListFormat
+and RelativeTimeFormat data. List filtering retains Duration dependencies;
+RelativeTime filtering retains the actual Number owner. SDK, cache, workers and
+CLI share that selection. Wasm build/run accept `--intl-profile custom:ID` with
+`--intl-list-locales fr,ja`, `--intl-relative-time-locales fr,pl`, or both flags.
+The source includes native frame admission, formatting, cache and CLI controls.
+Other component filters and complete Conformance producers remain open.
+
+Array-owned suspensions, broader ForIn/With and suspended iterator/resource/mixed
+async owners remain source work. Compilation, native execution, measured size
+and pinned conformance follow the complete source pass. Every verification
+payload is capped at one CPU, 4096 MiB aggregate RAM, zero swap and serial workers.
+Generated counts remain unchanged; historical results retain their earlier scope.
+See the [batch workflow](docs/rust-rewrite/batch-workflow.md).
+
+## Earlier exact/optional/List source pass — 2026-10-06
+
+The uncompiled successor adds exact decimal RegExp bounds and source-sized native
+counters, complete optional-chain suspension regions and terminal property Delete,
+eager assignment patterns/scoped For heads, and a physically filtered ListFormat
+profile shared with DurationFormat. Independent source reviews cover these owners;
+the corrected capture-only replay proof remains separate from general huge nullable
+acceleration. Existing controls are retained, with obsolete numeric-domain assertions
+updated to the admitted exact-bound behavior.
+
+Compilation, native execution, artifact-size measurement and pinned conformance
+remain deferred while the remaining source batches are written. Historical checks
+below retain their exact earlier scope. Every verification payload uses one CPU,
+4096 MiB aggregate RAM, zero swap and serial workers. Generated counts are unchanged.
+See the [batch workflow](docs/rust-rewrite/batch-workflow.md).
+
+The current atomic GC draft carries complete values, completions, callable
+contexts, environments, jobs and native records through the typed Wasm GC
+schema. Array storage, native entry families, disposal continuations and the
+whole Temporal family have completed source chunks with meaningful controls.
+Named-zone, calendar and epoch owners are joined. The raw heap providers and
+51 unused passive layout modules are retired. The complete source batch,
+including retained compiler controls and source-guard composition, has finished
+independent source review.
+
+Before focused verification, the complete source batch and its integration
+repairs passed the whole-workspace,
+all-feature, all-target Rust type check on 2026-10-05. This checks Rust types and
+consts, including authored test targets; emitted Wasm validation, runtime
+regressions and pinned conformance remain pending. The run
+confirmed the 4 GiB aggregate kernel cap, zero swap, grouped OOM and one CPU.
+Subsequent verification retains that cap and serial workers. The selected
+weak/ephemeron capability remains explicitly unavailable. Published full-suite
+status is unchanged. See the
+[record architecture](crates/lila-aot-wasm/docs/heap-layout.md),
+[Temporal GC contract](docs/rust-rewrite/contracts/temporal-gc-values.md) and
+[batch workflow](docs/rust-rewrite/batch-workflow.md).
+
+The cheap repository checkpoint through MAIN132 is complete: 22 resource/process controls pass,
+and all 13 commands pass after the affected formatting, module assertions and
+56-entry shortcut inventory checks. These checks ran under the confirmed 4 GiB
+aggregate cap and one CPU. Emitted Wasm, JavaScript runtime and real Test262
+have not been verified for this source batch.
+
+The first default-product focused compiler/GC checkpoint attempted 86 test
+functions: 60 passed, 21 failed and five have no completed results because the
+sparse Array target aborted with a stack overflow. No tests were ignored.
+The shared emitter, planning and Realm failures are being repaired as one source
+batch before affected regressions resume. Broad suites and pinned conformance
+remain unverified; these focused results do not close task acceptance.
+
+The first repair batch through MAIN134 passes the whole-workspace,
+all-feature, all-target type checkpoint and all four affected source checks.
+The affected 28-test attempt then aborted its dense-storage target with a
+compiler stack overflow. It was cancelled after source inspection proved the
+remaining ObjectDelete/ProxyDelete emitter cycle: zero test results completed,
+all 28 remain incomplete, and no tests are counted as skipped or passing.
+The owned runner and descendants were cleaned up. The confirmed 4 GiB cap,
+zero swap and one worker remained enforced. A complete source successor covers
+the typed Delete helper, supervised Test262 compilation deadline, selected
+object differential probes and Realm-owned RegExp legacy state before another
+verification attempt. This successor has no inherited type/runtime/conformance
+pass; task acceptance and canonical publication remain open.
+
+
+The 58-path successor through MAIN135 passed the all-feature, all-target
+workspace type check (attempt31) and all four affected source checks. Its complete
+focused compiler/GC cohort contained 88 test functions: 45 passed, three failed
+emitted-Wasm validation, 40 remained incomplete and none were ignored. The dense
+test completed without the earlier native stack overflow; it and two reached
+module controls rejected a missing i64 operand. Verification was cancelled with
+exit 143 before repeating the shared invalid emission, and owned processes were
+retired. Source inspection found four single-constant, double-store initializations
+in Temporal and RegExp literals. The complete source successor repairs them and
+adds whole-corpus differential reporting, a fresh-run conformance closure gate
+and measured performance reports. Its code, controls, CLI routes and contracts
+are written; its type check passed and current runtime acceptance remains pending.
+Broader generation/reduction tooling, runtime verification, current pinned
+conformance, idle-machine timing and task acceptance remain open. Generated
+full-suite counts are unchanged. Every verification payload retains the confirmed
+4096 MiB aggregate cap, zero swap and one CPU; scratch uses disk-backed
+`target/verification-tmp` because shared `/tmp` is nearly full.
+
+MAIN136 passed the all-feature, all-target workspace type check (attempt32)
+and all four repository checks. Its focused compiler/GC attempt completed
+45 passing controls and two failures, with 41 incomplete and none ignored.
+The dense control reached a later Wasm validation error: two TypedArray
+constructor alignment branches consumed an i64 remainder as an i32 condition.
+The owned runner was cancelled with exit 143 and its reached processes were
+confirmed retired. The next source repair normalizes both nonzero conditions
+and strengthens the existing construction cohort before verification resumes.
+Current runtime acceptance and broad/pinned verification remain open.
+
+The MAIN137 alignment source repair passed all four repository checks and
+compiled in the focused default-product run. That 92-control run stopped after
+45 passes and one emitted-Wasm validation failure; 46 controls remained
+incomplete and none were ignored. Validation reached a later RegExp finite-atom
+branch that loaded a checked I64 Boolean word as an I32 condition. MAIN138 stores
+that checked predicate in I32Local and requires explicit zero-extension for
+numeric width arithmetic. It also connects property-definition and assignment
+facades to their existing typed runtime helpers; their compilers retain private
+physical bodies. This removes repeated source emission while preserving whole
+completion, receiver, strictness and caller-environment ownership. The complete
+code, semantic controls and contracts passed the all-feature, all-target type
+check (attempt33) and all four repository checks. The 102-control focused run
+stopped after 45 passes and one code-growth failure, leaving 56 incomplete and
+none ignored. The dense-literal module now passes Wasm validation; its producer
+added 259,840 bytes for 896 elements, exceeding the 229,376-byte bound. No later
+target ran after this failure. MAIN139 replaces per-element numeric-key and
+generic property-definition dispatch with complete standard descriptors
+published directly into the existing Array indexed storage. Its fresh-literal
+owner preserves holes, active-Realm prototypes and expression/abrupt order.
+This source repair awaits focused verification; broad/pinned acceptance remains
+open and published full-suite counts are unchanged.
+
+The next T23 source batch carries real immutable ICU Locale, ListFormat and
+Collator component images. Their operation consumers load admitted data; the
+artifact carries matching payloads and the Engine checks them before cached or
+fresh native execution. Source review also moved the 605 existing IR controls
+out of the public facade without changing their names or source literals, and
+replaced the retired no-collector CLI assertion with live closure/catch roots.
+MAIN142 passed the whole-workspace, all-feature, all-target Rust type checkpoint
+(attempt36, 96.545 seconds) under the confirmed memory/CPU limits after the exact
+exporter build dependency and T02 iterator-family owner repairs. This establishes
+the shared image SDK foundation, without runtime or conformance proof. The next
+complete source batch adds the real native Number/Plural profile image and the
+seven-marker ICU Segmenter image, followed by actual native DisplayNames,
+RelativeTimeFormat and DurationFormat template images. Duration retains the
+selected Number and List owners; RelativeTime retains selected Number/Plural
+ownership, and DisplayNames retains selected Locale canonicalization data.
+Artifact admission now covers twelve component images. The final source lanes
+add the complete IANA2026a transition/country authority, DateTime profiles and
+four actual calendar payloads, CLDR timezone names and four native Locale
+information tables. Locale retains its actual keyword-alias payload, and
+Collator retains its own complete locale inventory. DateTime plans bind the
+selected DateTime, Locale and IANA content identities. The provider rejects
+foreign dependent owners even when their content digests match.
+
+All current operation consumers now use retained selected image data. The
+finite pinned Minimal and named Custom provider therefore declares Embedded
+placement. Unused normal baked-data dependencies are removed; build exporters
+and independent development oracles remain explicit. This complete successor
+is source-only: compilation, native execution, artifact controls and reproducible
+byte verification remain pending. Conformance and general filtered custom
+images remain open; current Custom names group exact pinned components and
+produce their selected Custom identity through artifact admission. Named-zone
+settings retain their complete provider-identity check. The library now carries
+`CompileOptions.intl_profile` through preparation, compiled units, cache identity
+and agent workers. The CLI accepts `--intl-profile minimal|custom:ID` for Wasm
+builds and Script/Module execution. One admitted bundle supplies both emitted
+frames and compiled catalogues; supported-values-only programs carry its full
+bound image group. Explicit unsupported choices reject before source execution.
+These consumer controls are authored, with compilation and runtime acceptance
+still pending. See the [selection contract](docs/rust-rewrite/contracts/intl-compilation-profile.md).
+Published full-suite counts are unchanged.
+
+The ordinary generator source now retains complete yielding selectors and
+conditional/logical arms, eager operator operands and template substitution
+order. Compound assignments retain GetValue before the RHS; plain assignments
+capture a WriteOnly Reference and defer PutValue errors until after the RHS.
+The existing iterator linear assignment route is preserved. Source private
+GetValue applies getter effects before later property/call evaluation.
+
+Eager binding patterns consume complete suspended initializers through the
+existing single-Get and binding-iterator owners. Staged object literals allocate
+once and define each actual property with the same ordinary/native semantic
+body: computed key conversion precedes the value, prepared class naming
+precedes class initialization, and methods keep the retained object as HomeObject.
+Returned and discarded literals use that same owner. Independent source reviews
+and authored GC/abrupt-order controls are complete for these scopes; compilation
+and execution remain pending. Eager assignment-pattern and scoped classic For
+head joins now have independent source peers. Suspensions inside patterns, broader iterator/control,
+mixed async-generator and resource continuations remain explicit compiler work.
+See the [pattern initializer contract](docs/rust-rewrite/contracts/generator-pattern-initializers.md)
+and [statement consumer contract](docs/rust-rewrite/contracts/generator-statement-consumers.md).
+
+Recent staging directories and local receipts under `target` disappeared during
+the interrupted turn. The integrated source and three watched logs survive.
+The source successor is retained in the working tree with small recovery
+notes outside `target`; missing receipts are not recreated as new proof.
+
+The new developer commands are `differential replay-corpus`,
+`test262 close-release` and `performance report`. Their contracts describe
+[retained corpus reports](docs/rust-rewrite/contracts/differential-whole-corpus.md),
+[two fresh full pinned conformance runs](docs/rust-rewrite/contracts/conformance-closure.md)
+and [repeated timing with compatible baselines](docs/rust-rewrite/contracts/performance-reporting.md).
+
 Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, library,
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
+
+The current NativeHost atomic GC source uses whole values/completions, the
+registered native collector and shared completed created-Realm bootstrap.
+Created globals exclude caller source overrides and entry-only host extensions.
+UTF-16 parsers, callable-Proxy AssertThrows and native agent SAB/Int32 message
+pairs have finite authored controls. Obsolete raw-offset and duplicate-installer
+mirrors are retired; retained semantic witnesses keep their historical scope.
+The selected weak-reference/ephemeron facility remains unavailable. Source,
+types, controls and representation/helper/guard composition are included in
+the completed source checkpoint; passing compilation and semantic execution
+remain pending.
+Earlier manual-heap/publication descriptions and results below belong to their
+recorded predecessors. Published status counts are unchanged. See
+[NativeHost GC values](docs/rust-rewrite/contracts/native-host-gc-values.md).
+
+On 2026-10-03, the verified 130-file candidate and its documentation were
+installed in MAIN. Subsequent broad verification completed ordinary workspace
+targets, retaining their failures, and completed rustdoc and the fake fixture
+suite. The Intl run was interrupted at the user's request to focus on
+implementation; the Temporal tail did not run. These partial results remain
+scoped to that earlier source. On 2026-10-04 the combined whole-workspace
+all-target type check passed after the shared compiler corrections, including
+the complete Indian calendar, grouped generator Property Reference, target-only
+grouped async Property Reference and Object.defineProperty entry-order batches.
+A later combined all-target type check also passed with the private-owner
+cleanup, global numeric call repair and generator local for-of control. At ref80,
+`cargo xc --locked --offline` also passed with the local async for-of and Persian
+calendar batches, covering the integrated Rust source and test targets at ref80
+in 30 seconds of watched wall time. At ref82 the same combined check passed
+with the complete Coptic/Ethiopic/Ethioaa batch, also in 30 seconds. At ref83
+the complete Islamic civil/tabular batch and its Rust test targets passed the
+same check in 30 seconds. At ref84 the complete Umm al-Qura batch passed
+the combined check, including its table and reference-policy const validation,
+in 30 seconds. Formatting, module inventory and task-plan checks passed.
+Emitted Wasm, focused runtime regressions and broad verification remain pending;
+this checkpoint supplies no new conformance counts. Later source changes require
+their own combined checkpoint. The complete Hebrew source integrated at ref86;
+its first combined check stopped on one missing exhaustive arithmetic enum arm
+in the ROC era helper. The next complete batch repairs that arm and checks
+supplied MonthDay years for every range-checked calendar before resolving the
+month. The requested month/day may lie outside the full ISO carrier if another
+date in that native year intersects it. At ref87 the successor combined
+whole-workspace/all-target type check passed in 30 seconds of watched wall
+time, including Hebrew and the shared MonthDay admission correction. Formatting,
+module inventory and task-plan checks passed. Emitted-Wasm/runtime acceptance
+remains pending.
+The next combined ref91 check stopped on one exhaustive era-accessor match
+that omitted Chinese and Dangi. Attempt13 retains exit101 after 30 seconds;
+the source correction explicitly leaves both accessors undefined, consistent
+with their closed no-era domain and existing projection controls. Formatting,
+module inventory and task-plan checks passed before that attempt. At ref93 the successor combined all-target Rust type check passed in 30 seconds
+of watched wall time (Cargo22.73 seconds), including Chinese/Dangi, nested switch
+disposal, String symbol methods and the complete Array copy-method Realm batch.
+Formatting, module inventory and task-plan checks passed; emitted-Wasm/runtime
+and conformance remain pending.
+At ref97 the combined whole-workspace/all-target Rust type check passed in
+30 seconds of watched wall time (Cargo 17.03 seconds), including AggregateError,
+Iterator.from, splice retirement and the current shared Concat species owner.
+Formatting, module inventory and task-plan checks passed. Emitted-Wasm validation,
+runtime regressions, broad suites and pinned conformance remain pending.
+Remaining task work follows the
+[implementation-first workflow](docs/rust-rewrite/batch-workflow.md).
+Published full-suite counts are unchanged.
+
+The current AggregateError source uses shared iterator acquisition and stepping
+for Array/Arguments overrides, primitive Strings and callable Proxy methods.
+It preserves constructor prefix order and original abrupt completions without
+closing, and allocates the errors Array in the called constructor Realm.
+Two paired Engine cohorts and maintained architecture guards are authored;
+the batch passed the ref97 combined Rust type check. Runtime verification remains
+pending. See the
+[iterator-list contract](docs/rust-rewrite/contracts/aggregate-error-iterator-list.md).
+
+The current Iterator.from source validates acquisition once before a consumed
+record can publish identity or a wrapper. Its methods accept callable Proxies,
+retain cached next and fresh return lookup, and forward arbitrary Call results.
+Two paired cohorts extend the existing Engine target; the ref97 combined Rust
+type check passed; emitted-Wasm/runtime verification remains pending. See the
+[completed-record contract](docs/rust-rewrite/contracts/iterator-from-completed-record.md).
+
+The current splice source retires the synthetic Object.keys spread operation
+and retains the original callee, receiver and real argument iteration through
+the shared indirect-call owner. General argument coercion, species and result
+Realm use the existing canonical splice compiler. Actual IR controls and two
+paired cohorts passed the ref97 combined Rust type check with AggregateError
+and Iterator.from. Emitted-Wasm/runtime verification remains pending. See the
+[Splice contract](docs/rust-rewrite/contracts/array-splice-algorithm-owner.md).
+
+The current generator source admits bare identifier assignment heads in eager
+synchronous for-of loops. A consumed head proof preserves the original target
+write, with an entry-only iterator-value sink and no declaration binding mode.
+Resume does not repeat assignment; head failures use the existing close owner.
+IR controls and three paired Engine cohorts passed the ref100 combined
+all-target Rust type check in 15 seconds of watched wall time (Cargo 11.08
+seconds). Runtime and conformance verification remain pending. See the
+[continuation contract](docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+The next complete generator source batch admits eager ordinary-property
+assignment heads through the existing fused property Reference and PutValue
+owner. It evaluates the raw base and key once at iteration entry, retains the
+raw receiver and strictness, and performs no property Get or replay on resume.
+Constructor/lowering controls and three further paired Engine cohorts are
+authored, covering head errors, inherited setters, cached next and yielding
+finalizers. This source passed the ref105 combined all-target Rust type check
+in 30 seconds of watched wall time (Cargo 17.07 seconds). Runtime and full T15
+acceptance remain pending. See the
+[continuation contract](docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+The next complete generator source admits eager Let/Const array and object
+binding-pattern heads in synchronous for-of loops. A shared checked initializer
+owns matching TDZ names and every fresh iteration cell, including uncaptured
+bindings. Mandatory generator completion pairs its exact eager prefix with the
+checked body and keeps the Dynamic iterator-value sink local to entry. Object
+patterns use the semantic destructuring owner for one Get/default decision;
+the actual source mode reaches head setup independently from sink storage.
+
+Constructor/lowering controls and three further paired Engine cohorts are
+authored, retaining the earlier eighteen cohorts. They cover captured/interleaved
+cells, nested/rest/default/computed bindings, TDZ and original abrupt errors,
+inner-before-outer close, no-close stepping failures and two yielding finalizer
+steps. This newer source is uncompiled and unexecuted. Var/assignment patterns,
+suspended heads or iterable expressions, async generators, resource heads and
+foreign control owners remain separate work. Full task acceptance and published
+counts remain unchanged. See the
+[lexical-pattern contract](docs/rust-rewrite/contracts/plain-generator-for-of-lexical-pattern-heads.md).
+
+The next indexed-collection invocation source batch retains the acquired method
+and original receiver for all 55 selected Array/TypedArray targets, with the
+full argument list and actual spread iteration. One consumed result match
+replaces canonical-name substitution and the admitted-target result hole.
+Live result facts account for arbitrary species and join results, ToObject
+receiver returns and mutable iterator prototypes. Callback/effect analysis and
+finite paired Engine controls passed the ref105 combined all-target Rust type
+check. Emitted-Wasm/runtime and full T16/T17 acceptance remain pending. See the
+[invocation contract](docs/rust-rewrite/contracts/indexed-collection-invocation-reference.md).
+
+The related source retirement removes five direct Array join/toString/reverse
+returns and the inferred String substring/slice canonical-name branch. These
+source calls now use the acquired callee, raw receiver and full real argument
+list through the existing indirect owners. The final Wasm emitter's exact
+Match/Split/Slice interception is also retired, so it evaluates the actual callee
+before complete arguments. Truthful result and caller facts survive own overrides,
+argument replacement and coercion hooks; both String
+range catalog rows record synchronous user code. Actual IR controls and two
+paired Engine cohorts are authored with current documentation. The ref105
+grouped all-target Rust type check passed; all executable acceptance remains
+pending. See the
+[retirement contract](docs/rust-rewrite/contracts/invocation-shortcut-retirement.md).
+
+The 2026-10-04 complete String invocation-family source retires thirty-three
+canonical-name substitutions and the primitive CharCodeAt/Split gates. Existing
+acquired-callee and raw-receiver owners retain every ordinary/spread argument,
+including ignored operands. MatchAll now publishes arbitrary normal hook values
+in both live result analysis and the spread signature. CharCodeAt/CodePointAt
+spread signatures retain Number and Number-or-Undefined results.
+
+All forty-seven generic String catalog rows record synchronous user code; the
+two internal-brand ToString/ValueOf rows remain distinct. A consumed const
+catalog rule makes a missing generic flag fail compilation. Existing invocation
+effects invalidate captured kind, shape and element facts through coercion and
+symbol hooks, including Concat. No new backend or native algorithm is introduced.
+
+Actual lowering controls and three finite paired Engine cohorts are authored
+with code, invariant and documentation. They cover all thirty-three native
+aliases, real spread/cached-next mutation, argument replacement, arbitrary
+Number/Function/Symbol hooks, raw Proxy receivers, both borrowed error Realms,
+full nullish Split.call arguments and original abrupt identity. The ref105
+passing Rust proof belongs to the predecessor; this successor still needs its
+grouped type check and emitted-Wasm/runtime acceptance. Locale case algorithms
+and full T18/T19/T26/pinned acceptance remain open. See the
+[String invocation contract](docs/rust-rewrite/contracts/string-invocation-family.md).
+
+The next dry source successor removes the primitive Number borrowed Match/Split
+shortcuts and their complete copied-boolean lifecycle. Actual property
+acquisition, raw primitive receivers and full ordinary/spread arguments now
+reach the existing indirect owner. Arbitrary hook returns retain conservative
+facts and synchronous effects; argument IR is no longer discarded by the static
+separator throw shortcut. Existing Number/Boolean conversion policies and live
+native String bodies retain their owners.
+
+The unproduced StringCharCodeAt IR variant, sole inline emitter and HTML-name-only
+metadata are also deleted. Native CharCodeAt and all thirteen HTML algorithms
+remain independently live. Exhaustive visitor and architecture controls follow
+the actual remaining domain, including the eighth shape-accessor producer.
+Meaningful IR and two paired Engine cohorts are authored, but this successor is
+type/runtime unverified. The full-task source pass precedes capped verification.
+See the [Number and dispatch contract](docs/rust-rewrite/contracts/number-string-hook-and-dispatch-retirement.md).
+
+The next complete dry source batch retains the acquired TypedArray.from/of and
+Array iterator next functions, raw receivers and full arguments through the
+existing indirect owner. TypedArray results claim Object without an invented
+ordinary shape. Borrowed species getters retain arbitrary raw this values;
+the ArrayBuffer species .call shortcut that substituted boxed/global this is
+removed while existing forwarding and dynamic-source analysis remain live.
+
+Both literal-fold call sites and their sole host helpers are removed, so Number
+predicates and unescape preserve the actual callee, first and ignored operands,
+spread and original abrupt completion. Native algorithms remain live. The
+private static RegExp owner retains its two functions and denies dead helpers.
+Call, Bind, ArrayIteratorNext, TypedArrayOf and Unescape catalog rows record
+synchronous user code through their actual Call/Get/Construct/coercion owners.
+Meaningful lowering and three paired Engine cohorts are authored; type/runtime,
+full tasks and pinned acceptance remain pending until the complete source pass
+reaches capped verification. See the
+[remaining invocation contract](docs/rust-rewrite/contracts/remaining-invocation-reference-ownership.md).
+
+The next global/Error source batch records synchronous user code for the five
+remaining URI/Annex B globals, all nine Error constructors and
+Error.prototype.toString. Their live conversion, prototype/options Get and
+iteration owners can change captured caller facts. A consumed const catalog
+rule prevents those reviewed effects from losing their flags. Lowering controls
+and finite paired Engine cohorts are authored; compilation and runtime remain
+unverified until all task source is complete and capped verification begins.
+Native algorithms, wider catalog effects and full T24 remain open. See the
+[caller-effect contract](docs/rust-rewrite/contracts/global-error-caller-effects.md).
+
+The dry provenance successor binds current schema-8 execution snapshots to the
+embedded compiler build fingerprint, source revision and executing-image SHA-256.
+One checked owner holds version and compiler identity; writers/resume require
+the actual compiler and all aggregate children retain their parent's producer.
+Legacy 4–7 evidence stays unbound history. Publication and backlog carry native
+identity, and the schema-3 session manifest requires it before progress writes.
+Read-only current-schema comparisons preserve different compiler producers.
+Controls are authored; compilation/runtime and current-pin publication remain
+unverified until the full task source pass reaches capped verification. See the
+[compiler provenance contract](docs/rust-rewrite/contracts/snapshot-compiler-provenance.md).
+
+Object binding defaults now use the shared semantic destructuring operation in
+ordinary lexical/var declarations and synchronous, async and generator heads.
+The cloned property read and separate simple-name optimizers are retired; one
+GetV supplies the selected default and preserves primitive getter receivers.
+Maintained IR controls and three paired Engine cohorts are authored for getters,
+TDZ/var policy, fresh captured cells and abrupt/close ordering. Compilation and
+runtime remain unverified until all task source reaches capped verification.
+See the [single-Get contract](docs/rust-rewrite/contracts/object-binding-single-get.md).
+
+The numeric caller-effect source marks 62 reviewed Number/BigInt, global numeric,
+Math and Atomics entries for synchronous user hooks. Consumed const checks retain
+that effect and the eight noncoercing exceptions. Six IR controls and three paired
+finite Engine cohorts cover captured facts, full arguments, iteration, formatters,
+atomic preparation, abrupt cutoffs and native Realms. Native algorithms retain
+their existing owners; compilation and runtime acceptance remain unverified until
+all task source reaches capped verification. See the
+[numeric effect contract](docs/rust-rewrite/contracts/numeric-native-caller-effects.md).
+
+Private IR leaves own expression-statement staging, awaited-while prefix
+validation, class callable-flow finalization, expression throw analysis and
+static literal compilation. Catalog native-name validation has its own private
+owner alongside callable source-text materialization.
+The parent dispatchers and mandatory validation constructors retain their
+ownership. Module checks follow the actual emitted JSON parser and current IR
+inventory; the cleanup's combined all-target Rust type check passed.
+Emitted-byte equivalence and runtime verification remain pending. See the
+[module task](tasks/02-modularize-ir-and-wasm-backend.md).
+
+Global `isNaN` and `isFinite` now retain their real emitted ToNumber path instead
+of folding literal strings or arrays through host parsing. This preserves the
+ECMAScript string grammar, live array conversion hooks, argument order and
+native BigInt/Symbol errors. The later invocation source retires Number
+predicate call-site folds while retaining native type-only semantics and full
+argument evaluation. The earlier global numeric batch passed the combined
+all-target Rust type check; the later fold retirement remains unverified.
+Execution and full T20 acceptance remain pending. See the
+[numeric task](tasks/20-number-bigint-math-json.md).
+
+Plain synchronous generators with eager identifier-headed `for-of` loops now
+carry unlabelled local `break` and `continue` through their existing Yield/Try
+continuations. The checked body owns those targets. Continue consumes iteration
+cleanup without closing; break waits for the selected finalizer completion and
+then closes once before following code. Labelled and foreign branch targets,
+async generators and suspending heads retain their explicit boundaries. Three
+strict/sloppy Engine fixture sources cover finalizer replacement, close errors,
+cached next and captured cells. The combined all-target Rust type check passed;
+execution and full T15 acceptance remain pending. See the
+[generator contract](docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+Plain async synchronous `for-of` bodies now own unlabelled local `break` and
+`continue`, including completion selected by awaiting finalizers. A mandatory
+ownership check runs before eager-body admission. Both async and generator
+loops consume the same closed branch domain and shared target lifecycle, while
+their continuation states remain separate. Three finite paired Engine cohorts
+cover interleaved owners, cached next, captured cells, finalizer replacement and
+close errors through awaiting outer clauses. The ref80 combined all-target Rust
+type check passed; emitted Wasm and runtime checks remain pending, and full T14
+remains open. See the
+[async loop contract](docs/rust-rewrite/contracts/async-for-of-continuations.md).
+
+Hebrew calendar source joins variable month counts, canonical MonthCode fields,
+complete projection, partial references and calendar arithmetic. The emitted
+integer leaf supplies actual adjacent-new-year lengths. Closed month and year
+policies replace fixed-count and common-base assumptions. One consumed month
+constructor retains the original validated code through agreement and overflow;
+getters and receiver defaults borrow the complete projection. Calendar and code
+enums generate their own consumed census, also used by the source pool. Private
+Date and YearMonth difference modules give field and rounding authors separate
+owners. Six paired Engine cohorts are authored. Supplied MonthDay years use
+whole-native-year intersection before month resolution; the same admission
+owner now covers the earlier range-checked calendars and retires their
+chosen-date ISO-year gate. The ref87 combined all-target Rust type check passed;
+emitted-Wasm and runtime acceptance remain pending. Remaining calendars
+and full T22 stay open. See the
+[Hebrew contract](docs/rust-rewrite/contracts/temporal-hebrew-calendar-ownership.md).
+
+Chinese/Dangi calendar source uses related Gregorian years and canonical regular
+or leap month codes. A private native constructor validates the complete pinned
+retained catalog and both day/month-serial joins. The actual Temporal emission
+predicate appends its immutable image; other modules do not construct it.
+Outside the retained interval, one emitted year owner uses exact signed mean
+lunar/solar arithmetic with paired day/millisecond moments. Projection,
+fields, partial references, serial balance, difference and relative operations
+consume that same owner. MonthDay uses the complete specification reference
+policy, including post-1972 and absent-code cases. Six paired Engine cohorts
+are authored. This newer batch still needs its combined type and runtime
+checkpoints; full T22 and conformance acceptance remain open. See the
+[Chinese/Dangi contract](docs/rust-rewrite/contracts/temporal-east-asian-calendar-ownership.md).
+
+Umm al-Qura calendar source now admits the required AH1300..1600 table,
+with civil arithmetic outside that range. Literal year records are validated
+at construction for month lengths, 354/355-day totals, contiguous ISO starts
+and both civil joins. The emitted year/epoch lookups consume those records;
+table arithmetic remains separate from the Type-II civil/tabular kind.
+AH/BH era membership shares the consumed typed era selector. MonthDay's
+absent-year regulation and final reference use const-derived month-specific
+day-30 years, each chosen from a fully converted date on or before 1972-12-31.
+Projection, fields, arithmetic, partial dates and relative operations keep the
+existing ISO carriers and their distinct limits. Six finite paired Engine
+cohorts include both table edges and every latest day30 reference class;
+the earlier civil/tabular fixture's obsolete Umm al-Qura rejection is removed.
+The ref84 combined all-target Rust type and const checks passed. Emitted-Wasm
+and runtime acceptance remain pending; remaining calendars and full T22 stay open. See the
+[Umm al-Qura contract](docs/rust-rewrite/contracts/temporal-umalqura-calendar-ownership.md).
+
+Islamic civil and tabular calendar source now joins complete projection,
+calendar-coordinate fields, arithmetic, partial references and relative
+operations. The closed epoch kind and Type-II leap policy feed exact signed
+integer conversion. The shared projection consumes the arithmetic domain's
+common-year length, adding its real leap flag for 354/355 lunar days. AH/BH
+resolution and reporting share one involution; non-positive input era years
+remap across the reporting boundary. The `islamicc` alias selects civil.
+Six finite paired Engine cohorts cover boundaries, hook order, carrier limits
+and borrowed Realms. The ref83 combined all-target Rust type check passed;
+emitted-Wasm and runtime verification remain pending, and full T22 remains open.
+See the
+[Islamic tabular contract](docs/rust-rewrite/contracts/temporal-islamic-tabular-calendar-ownership.md).
+
+Coptic, Ethiopic and Ethioaa now share one closed thirteen-month arithmetic
+family, including the `ethiopic-amete-alem` calendar alias. Its emitted integer
+leaf supplies complete projection, month lengths, signed-year conversion and
+latest MonthDay references. A retained calendar count feeds all four field
+decoders, getters, addition, difference and rounding, including YearMonth and
+PlainDate month-to-year carry. Ethiopian era inputs may cross the reported
+era boundary; exact `am` and `aa` share the resolver's affine year policy.
+Six paired Engine control sources cover fields, arithmetic, partial dates,
+relative operations, carrier limits and borrowed Realms. The complete batch
+passed the ref82 combined all-target Rust type check; emitted Wasm and runtime
+verification remain pending. Additional calendars and full T22 remain open. See the
+[thirteen-month contract](docs/rust-rewrite/contracts/temporal-thirteen-month-calendar-ownership.md).
+
+Persian calendar support now joins complete projection, calendar-coordinate
+field conversion, arithmetic and partial-date references. It uses the pinned
+ICU 33-year integer policy and its correction years, including Euclidean
+arithmetic for zero and negative years. The signed `ap` era, latest MonthDay
+reference and calendar-day-one YearMonth conversion share the retained calendar
+and existing completed owners. Finite paired Engine controls are authored;
+the ref80 combined all-target Rust type check passed. Emitted Wasm, focused
+runtime checks and full T22 acceptance remain pending.
+See the [Persian calendar contract](docs/rust-rewrite/contracts/temporal-persian-calendar-ownership.md).
+
+The Indian calendar batch adds full calendar-date projection, calendar-coordinate
+field resolution, arithmetic and partial-date reference ownership. Plain,
+zoned and relative Duration consumers retain the actual canonical calendar
+through rounding. Indian's March boundary and distinct month lengths are
+emitted integer arithmetic. Six finite Engine cohorts cover fields, arithmetic,
+partial carriers, boundary dates and borrowed intrinsic Realms. Its all-target
+Rust type check passed; emitted Wasm and execution remain pending. Additional calendars and full T22
+acceptance remain open. See the
+[Indian calendar contract](docs/rust-rewrite/temporal-indian-calendar.md).
+
+TypedArray `toReversed`, `toSorted` and `with` now construct through a private
+same-type result owner using the called method's defining-Realm intrinsic.
+All twelve element kinds have explicit constructor dependencies; source
+`constructor` and species properties are not observed. `with` retains its
+captured length and index, replacement, fresh-index order. TypedArray sorting
+continues comparisons after a normal result that detached the buffer, with
+fresh indexed writeback; comparator and result-coercion throws still propagate.
+Paired semantic sources are authored and unexecuted; full T17 acceptance
+remains open. See the [same-type contract](docs/rust-rewrite/contracts/typed-array-create-same-type-ownership.md).
+
+All four Array copy methods now allocate through the existing defining-Realm
+intrinsic Array owner: `toReversed`, `with` and `toSpliced` join `toSorted`.
+Receiver constructors/species and replaced public Array globals are not read.
+The three new calls retain existing conversion, Get and hole-publication order.
+Two paired Engine cohorts are authored; the ref93 combined all-target Rust
+type check passed, and emitted-Wasm/runtime verification remains pending. Array `sort` retains actual HasProperty results for TypedArray
+receivers, so indices outside the view remain holes even with a larger ordinary
+length. Full T16 acceptance remains open. See the
+[copy-method Realm contract](docs/rust-rewrite/contracts/array-by-copy-realm.md).
+
+Proxy ownKeys list conversion now performs the observable length and indexed
+Gets for Array and other object trap results. It captures every valid key before
+checking duplicates, so a later getter's thrown value keeps its required
+precedence. Target validation now snapshots actual extensibility, obtains the
+target's real own-key list and completes every own-descriptor lookup before
+checking required keys. A private completed target owner retains those snapshots
+through mutation and nested Proxy operations; completed-list publication consumes
+the validated result. The recursive extensibility helper carries the outer
+operation's trusted Realm context for generated errors. The recursive
+GetPrototypeOf and PreventExtensions helpers now retain that context too.
+Object.preventExtensions also selects its defining-Realm TypeError when a trap
+returns false; Reflect preserves the Boolean result. Native errors and fresh
+result Arrays use the called builtin's defining Realm. The paired semantic
+controls are authored and unexecuted; full T11 remains open. See the
+[ownKeys result contract](docs/rust-rewrite/contracts/proxy-own-keys-result-ownership.md).
+
+Proxy Get, Set, Has and Delete invariants now obtain nested target descriptors
+through the actual GetOwnProperty algorithm. A private completed descriptor
+owner preserves hook order, Symbol identity and original thrown values before
+outer constraints; prescribed Boolean and absent-descriptor shortcuts remain.
+Generated errors retain the operation Realm, and inline Delete routes them
+through active catch/finally handlers. Authored paired controls remain
+uncompiled and unexecuted; full T11 remains open. See the
+[target descriptor contract](docs/rust-rewrite/contracts/proxy-target-descriptor-completion.md).
+
+Object.defineProperty now rejects primitive targets before key coercion or
+property-descriptor reads. Caller argument expressions still evaluate before
+builtin entry. The guard selects the called builtin's intrinsic TypeError and
+returns its abrupt completion immediately. Paired controls cover unread hooks,
+valid exotic targets, Proxy Boolean policies and both borrowed Realm directions.
+The all-target Rust type check passed; emitted Wasm and runtime controls remain
+pending, and full T11 remains open. See the
+[entry-order contract](docs/rust-rewrite/contracts/object-define-property-entry-order.md).
+
+The next String symbol-method batch retains one observed method and its receiver
+in a private consuming owner. All six String entries use the existing callable
+Proxy path; original nullish hooks enter fallback once, and created RegExp hooks
+use required invocation. The inherited `matchAll` retry and mutable public
+RegExp-prototype lookup are retired. Global-RegExp flags still precede hook
+lookup, and native errors use the called builtin's intrinsic Realm. Existing
+Engine and CLI sources are extended; the complete batch passed the ref93
+combined all-target Rust type check and remains unexecuted. Full String/RegExp and pinned conformance acceptance stay open. See
+the [symbol-method contract](docs/rust-rewrite/contracts/string-symbol-hook-operation.md).
+
+The next plain-async switch batch admits `await using` in supported nested
+blocks. A private source proof runs before case-state allocation, and the case
+constructor accepts only an actual AsyncFunction disposal capability with an
+adjacent suffix/dispose/resume/exit sequence. The existing resource finalizer
+retains pending completion and block cells through its implicit awaits; switch
+selection, fallthrough and break routing keep their current owners. Three
+paired Engine cohorts and invalid-owner/state-gap IR controls are authored.
+The complete batch passed the ref93 combined Rust all-target type checkpoint;
+emitted Wasm/runtime verification remains pending. Direct resource declarations in CaseClause or
+DefaultClause retain their SyntaxError. Resource loop heads, suspended resource
+initializers, unrelated loop composition and generator switches remain separate
+work. See the [async switch contract](docs/rust-rewrite/contracts/plain-async-switch-continuations.md).
+
+The dry async-switch follow-up admits stageable awaited case selectors through
+the existing activation dispatcher. It saves the discriminant once before
+CaseBlock, validates each selector prefix and decision state, and preserves
+ordered selection, shared lexical cells, fallthrough and completion routing.
+The preceding combined workspace type check covered this source and its Rust test
+targets; emitted Wasm and runtime controls remain pending. Optional/compound
+selector awaits, asynchronous iterator suspension, unsupported resource shapes,
+enclosing-loop composition and generator switches remain dependent work. Earlier switch
+receipts remain scoped to their source; see the
+[async switch contract](docs/rust-rewrite/contracts/plain-async-switch-continuations.md).
+
+The unverified namespace spelling update shares the real lexer's Unicode
+identifier authority with generated module export readers and namespace aliases.
+Combining marks, connector punctuation and the
+existing Unicode 17 additions retain their exact decoded names and live binding
+cells. Reserved-word checks and anonymous-default minting are unchanged. The
+regression sources are authored; compilation and execution remain pending.
+
+Module and Script graphs now share canonical module activations for TLA,
+deferred requests and cycles. Source-only JavaScript targets load and parse
+without loading their children; static source bindings reject during linking,
+and dynamic `import.source` rejects with native SyntaxError before evaluation.
+The fabricated source object and retained merged driver are removed. Phaseful
+host requests preserve cached-target promotion and original load/parse failures.
+This source-reviewed change remains uncompiled and unexecuted; positive module
+source loader kinds and full module conformance remain open. The source
+successor replaces the Test262 harness's substitute AbstractModuleSource class
+with the real defining-Realm native intrinsic, retrieved through the explicit
+Test262 host surface. Constructor/getter roots and created-Realm identity have
+authored controls; they remain unexecuted. See the
+[source-phase contract](docs/rust-rewrite/contracts/source-text-module-source-phase-rejection.md).
+
+The dry differential implementation adds schema v4 with a complete immutable
+embedded module graph. Its entry owns source, goal and identity; exact referrer,
+specifier and attribute rows select declared targets without ambient loading.
+Both backend adapters consume the same graph, and case/cache identities include
+all supplied sources, edges and independent metadata URLs, including unused
+rows. Computed imports reuse the actual AOT module records and import jobs.
+Spec-exec creates embedded-session Realms in one context so their parser symbols
+share its interner, with a separate module cache for each Realm. Seven finite
+paired replay cases and adapter controls are authored; compilation and execution
+remain pending. See the
+[embedded graph contract](docs/rust-rewrite/contracts/differential-embedded-module-graph.md).
+
+Plain async conditional, logical and optional Property/Call values now retain each selected arm's await prefix in the existing If dispatcher, with
+activation-owned results and one evaluation of each branch condition.
+Logical `&&`, `||` and `??` retain the original left GetValue
+once; nullish selection uses strict comparisons, and skipped RHSs schedule no
+await jobs.
+Optional property keys retain the original base and complete each Get before a
+later key suspends. Each nullish guard skips the entire remaining suffix. If
+nested nullish chains remove every suspension, the result uses an ordinary If
+without claiming continuation states.
+Checked source admission also closes the expression-statement await mis-hoist
+and covers constructor arguments and import options. Nested values, switch selectors and checked awaited while conditions use the
+same branch owner. The while owner validates each branch state range, restores
+condition scope before its eager body, and restarts effects at the back edge. The authored invocation, TDZ and Realm
+controls remain uncompiled and unexecuted. Call-bearing optional tails are
+checked before state allocation and admitted outside all loops. Each Call keeps
+its original callee and raw receiver before awaited arguments; nullish guards
+skip the complete suffix and Call results survive later key suspensions.
+Grouped optional callees and tags ending in a property retain their terminal
+Reference before unconditional outer arguments or substitutions, including
+earlier same-chain Calls. Existing and new IR controls and three further paired
+semantic sources are authored; see the
+[optional Call contract](docs/rust-rewrite/contracts/optional-call-await-ownership.md)
+and the
+[grouped Reference contract](docs/rust-rewrite/contracts/grouped-optional-reference-await-ownership.md).
+Grouped chains ending in a Call now retain the completed callee/tag Value
+with an undefined outer receiver before arguments or GetTemplateObject and
+substitutions. A private terminal kind comes from the actual grouped source;
+the full-tail consumer also owns target-only suspension while preserving any
+inner grouped method receiver. The existing three paired fixtures are extended
+with returned functions/tags, optional outer skipping, spread order, template
+cache and genuine abrupt Realm controls. They remain uncompiled and unexecuted;
+see the [grouped Call Value contract](docs/rust-rewrite/contracts/grouped-optional-call-value-await-ownership.md).
+Grouped terminal Property callees and tags now also admit an Await in the
+target before a synchronous tail. The existing producer captures the resolved
+base once and the terminal raw receiver/callee before outer operands. The three
+paired fixtures add thenable mutation, Proxy/Symbol, primitive receiver,
+recursive first-Call, template-site and abrupt controls. The all-target Rust
+type check passed; emitted Wasm and execution remain pending.
+Delete References, private/super links, loop Calls, awaited
+bodies, other loop heads, mixed Await/Yield
+and async-generator branch values
+retain explicit boundaries; see the
+[conditional-await contract](docs/rust-rewrite/contracts/conditional-await-expression-ownership.md)
+and the [logical](docs/rust-rewrite/contracts/logical-await-expression-ownership.md)
+and [optional-property](docs/rust-rewrite/contracts/optional-property-await-ownership.md)
+await contracts and the [awaited while contract](docs/rust-rewrite/contracts/plain-async-awaited-while-condition.md).
+Awaited logical assignments outside loops now retain a declarative binding or
+an ordinary property Reference before the selected RHS suspends. Property writes
+reuse the original receiver, target and normalized key; TDZ Get and selected
+immutable/failed Set preserve error ordering. Runtime/with/global/unresolved
+identifiers and suspended LHS/private/super targets remain explicit gaps. These
+controls are also uncompiled and unexecuted; see the [logical assignment contract](docs/rust-rewrite/contracts/logical-assignment-await-reference-ownership.md).
+
+The dry implementation also routes boxed String writes through ordinary
+descriptor semantics, retains resolved var destructuring targets across source
+getters, and makes Wasm bodies own their typed local declarations. The existing
+differential campaign now offers versioned bitwise and bounded product grammars
+with exact integer conversions, explicit signed-zero results and arity-aware
+reduction. The product grammar bounds every intermediate's magnitude by 2^48 and requires
+explicit selection; the default remains bitwise V2. These changes remain uncompiled and
+unexecuted; see the [local declaration contract](docs/rust-rewrite/contracts/local-declaration-authority.md)
+and the [bitwise](docs/rust-rewrite/contracts/differential-integer-bitwise-grammar.md)
+and [product](docs/rust-rewrite/contracts/differential-integer-product-grammar.md)
+differential grammar contracts.
+
+The dry RegExp implementation adds computed named captures and named
+backreferences to the emitted pattern compiler. A completed capture inventory
+owns name validation and reference resolution; workspace reservations preserve
+descriptor alignment, and class escapes retain the complete named-capture
+context. Computed non-Unicode lookbehind now uses the existing reverse matcher,
+retaining sequence direction, capture boundaries and nested assertion exits.
+Accepted computed `u`/`v` routes now retain their validated character mode for
+full-code-point classes and complements, Unicode folding and scoped word
+boundaries, surrogate pairing and mode-specific syntax checks. Both existing
+fold tables remain available to computed backreferences. Braced Unicode escapes
+now decode complete code-point atoms and class endpoints, including lone
+surrogates, through the same mode owner; existing name validation handles braced
+GroupSpecifier spellings. Unicode named references now use the same completed
+capture inventory and directional matcher, including forward references,
+supplementary folding and canonical name spellings. Unicode mode enables named
+reference grammar even without declarations, so unknown names reject as syntax.
+Computed code-point property escapes now consume the complete exact alias
+catalog and pinned ranges through an immutable module image. Operand-owned
+folding preserves the different `u` and `v` complement order. The emitted
+`v` parser now also owns nested union, intersection and subtraction of code-point
+and finite-string sets, with strict escapes and exact static string checks.
+Complete `\q` keys and all seven Unicode string properties share checked private
+workspace and existing matcher instructions. Operand-local `/iv` folding precedes
+algebra; lowering tries longest strings, then singleton characters, then empty.
+Reverse matching and nullable repetitions use the existing matcher. A completed
+pattern and capture inventory remain required before publication. Three paired
+finite-string semantic sources and maintained admission controls are authored;
+see the [catalog contract](docs/rust-rewrite/contracts/runtime-regexp-finite-string-catalog.md)
+and [computed set contract](docs/rust-rewrite/contracts/runtime-regexp-computed-unicode-sets.md).
+Compilation and execution are pending; see the
+[named-capture contract](docs/rust-rewrite/contracts/runtime-regexp-named-capture-inventory.md)
+and [lookbehind contract](docs/rust-rewrite/contracts/runtime-regexp-lookbehind-direction.md).
+The [Unicode character contract](docs/rust-rewrite/contracts/runtime-regexp-unicode-character-domain.md)
+records this accepted-route correction and its unexecuted finite controls.
+The [braced escape contract](docs/rust-rewrite/contracts/runtime-regexp-braced-unicode-escape.md)
+records the follow-on grammar extension and its pending verification.
+The [Unicode named reference contract](docs/rust-rewrite/contracts/runtime-regexp-named-unicode-reference.md)
+records name resolution and the authored matching/syntax controls.
+Native property ranges now consume exact validated ECMAScript aliases and an
+exhaustive pinned-data projection, rejecting four ICU-only mixed-case spellings.
+The Unicode 17 delta consumes the same owner. Computed patterns now use its
+complete cached projection, with checked immutable-image addresses and a
+completed-pattern owner required by lowering and publication. Compilation and
+execution are pending, including normal Cargo lock resolution; see the
+[native alias contract](docs/rust-rewrite/contracts/regexp-native-unicode-property-alias.md)
+and [computed property contract](docs/rust-rewrite/contracts/runtime-regexp-codepoint-property.md).
+The [computed set-algebra contract](docs/rust-rewrite/contracts/runtime-regexp-computed-unicode-sets.md)
+records the unexecuted nesting, folding, syntax and recompile controls.
+
+Calls, constructors and tags with staged awaits or generator yields retain their evaluated
+callee and Reference-derived receiver before arguments. Factory-owned argument
+snapshots retain spread values without observing iteration again after resume.
+Grouped optional property callees and tags use the chain's conditional receiver
+owner; a terminal Call supplies a retained Value with an undefined outer receiver. Await and Yield share one invocation staging authority, and source
+admission rejects unsupported operands before consuming continuation states.
+Seventeen await and fourteen yield regression sources remain
+uncompiled and unexecuted; see the
+[suspended invocation contract](docs/rust-rewrite/contracts/suspended-call-argument-ownership.md).
+
+Ordinary-generator conditional/logical values and optional operands consume
+complete source-owned OrdinaryGeneratorIf regions. The entire yielded base
+runs before shorting; keys and arguments may own multiple or delegated Yields
+and complete selected branches. A retained live cell guards the whole suffix;
+skipped and selected arms have distinct ranges and a fresh join. Completed Gets
+retain callee and raw receiver before arguments, spreads finish before later
+Yields, and Call results reset the next Call's receiver. Constructor values
+consume a completed chain without a call receiver. A grouped terminal Call also
+supplies its completed Value to an ordinary outer Call or tag. Its callee is
+pinned without an outer receiver before unconditional arguments, spread capture
+or template substitutions, including when the inner chain shorts to undefined.
+The same guarded chain plan owns inner Yields before outer operand states.
+A private checked terminal domain now admits Property References too: only the
+last selected Get consumes the receiver destination, retaining the actual raw
+receiver across outer Yield. Earlier Gets retain their original values.
+Grouping still ends inner shorting, so ordinary outer arguments and tag
+substitutions run before callability rejection. The existing three paired
+fixtures retain their prior controls and add Property receiver, mutation,
+spread, template-site and abrupt cases. Compilation and execution of this new
+batch remain pending; full T15 stays open. See the
+[grouped yield contract](docs/rust-rewrite/contracts/grouped-optional-call-value-yield-ownership.md).
+The complete source plan
+checks state arithmetic and final count before publication, and normal-only
+result publication retains injected Throw/Return and existing finally routing.
+The three earlier value fixtures and three new chain fixtures, each paired in
+strict/sloppy modes, and IR controls remain uncompiled and unexecuted; see the
+[generator value contract](docs/rust-rewrite/contracts/plain-generator-value-branch-ownership.md)
+and [optional chain contract](docs/rust-rewrite/contracts/generator-optional-chain-yield-ownership.md).
+
+All seven Array species-producing methods now use the existing shared
+ArraySpeciesCreate emitter. The last `flat` and `concat` copies are removed,
+including Flat's later duplicate Proxy-array constructor lookup. Authored
+controls cover Proxy constructors, ordinary Object results, once-only lookup
+and original abrupt values. Flat now uses one ascending traversal with coupled
+private parent frames, captured lengths, full numeric depth conversion and
+shared target definitions. Sparse and inherited properties remain live during
+traversal. Compilation and execution remain pending. See the
+[species consumer contract](docs/rust-rewrite/contracts/array-species-consumer-ownership.md)
+and [Flat traversal contract](docs/rust-rewrite/contracts/array-flat-forward-traversal.md).
+
+Reflect descriptor conversion now uses the shared validated owner. Its allocator
+requires that owner, and attribute projections preserve field presence and
+descriptor classification. JSON stringify preparation observes callable
+replacers first, inherited and Proxy-aware indexed values, and ordinary `toJSON`
+lookup for all object kinds. Async and generator identifier-headed `for-of`
+plans require the original source name and validate its canonical TDZ placeholder
+before accepting the environment layout. These changes are source-reviewed;
+compilation and execution remain pending. See the
+[descriptor contract](docs/rust-rewrite/contracts/reflect-to-property-descriptor-owner.md),
+[JSON preparation contract](docs/rust-rewrite/contracts/json-stringify-preparation-get.md)
+and [binding contract](docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+JSON.parse now uses the emitted parser and one canonical reviver traversal for
+all ordinary calls. Static materialization is removed. Replacement objects,
+including Function and Arguments, use live descendants, and private parse
+metadata cannot invoke inherited getters. All 22 DataView access methods now
+require private validated read or write owners. Shared BigInt conversion errors
+use the existing defining-Realm policy, including borrowed setters. The authored
+regressions and maintained checks are uncompiled and unexecuted. See the
+[reviver contract](docs/rust-rewrite/contracts/json-reviver-frame.md),
+[DataView contract](docs/rust-rewrite/contracts/data-view-access-owner.md) and
+[conversion Realm contract](docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md).
+
+The existing shared allocator now validates the memory32 start and one-past end
+before narrowing its page count or committing the heap cursor. Heap-enabled
+builders require that shared helper; the unreachable inline allocator is removed.
+The maintained allocation regression is updated but unexecuted. Semantic Wasm-GC migration
+remains open; see the [allocation boundary contract](docs/rust-rewrite/contracts/memory32-allocation-bound.md).
+
+Compiler-authored native errors now use one message catalog for both emission
+and string-pool collection. Closed builtin and Intl projections select admitted
+messages; source-owned diagnostics retain their original text through checked
+pool handles. Source review and existing assertion maintenance are complete;
+compilation and semantic verification remain pending. See the
+[error-message contract](docs/rust-rewrite/contracts/runtime-error-message-domain.md).
+
+The four TypedArray species methods now share a private construction owner.
+Default constructors come from immutable slots in the executing method's
+defining Realm, including borrowed methods whose receiver comes from another
+Realm. All twelve kinds have entry- and created-Realm publication and installer
+dependencies. Custom constructors use Proxy-aware Construct; only a genuine,
+currently valid, content-compatible result of the required length can reach
+copy/write or publication. Map retains species-before-callback order, filter
+retains callbacks-before-species, slice retains its conditional fresh source
+check, and subarray retains its complete two- or three-argument vector. The
+paired semantic controls are authored; compilation and execution remain pending.
+See the [species ownership contract](docs/rust-rewrite/contracts/typed-array-species-create-ownership.md).
+
+The nine integer Atomics operations now require an address produced by a fresh
+view and backing-length check after argument coercions. Fixed-view bounds,
+removed tracking indices, detachment and abrupt conversion retain their ordered
+error paths. The implementation and consumed resize/growth fixture remain
+uncompiled and unexecuted; see the
+[Atomics revalidation contract](docs/rust-rewrite/contracts/atomics-access-revalidation.md).
+
+Set predicates and algebra now retain a completed set-like record across
+their iteration helpers, coupling the converted size, original receiver and
+once-observed methods. This source change is uncompiled and unexecuted; see the
+[completed record contract](docs/rust-rewrite/contracts/completed-set-like-record.md).
+
+Temporal contextual rounding now constructs provisional endpoints before
+validating the selected window for rounding and exact total division. The
+additional calendar shift applies only to year/month windows. Regression
+sources for constrained calendars, retained fields and DST ties remain
+unexecuted; adjacent Apia gaps stay explicit. See the
+[selected-window contract](docs/rust-rewrite/contracts/temporal-selected-rounding-window.md).
+
+Tagged templates now carry parsed-source plans into fresh prepared eval,
+Realm Script and Function-constructor executions. Repeated calls and escaping
+closures retain their defining execution's lazy cache through immutable
+contexts, including class elements and suspended functions. Cached arrays use
+the defining Realm's Array prototype. This source is uncompiled and unexecuted;
+see the [template ownership contract](docs/rust-rewrite/contracts/template-site-source-ownership.md).
+
+Central GC declarations now drive encoded structs, arrays and typed accessors.
+A consumed registry seals the function prefix and recursive type groups into
+the existing module package. Function declarations now come from the same
+consumed body identity as code, including the distinct prepared-Script entry;
+assembly no longer accepts a separately built function section. Callable origins now own body roles
+and indices, while private family inputs distinguish semantic new.target from
+suspended activations in actual calls. Runtime dispatch reads one Function
+object and resume uses its saved family record; Async Arrows retain their
+lexical owner's new.target across await. These scalar-ABI changes and paired semantic controls
+remain uncompiled and unexecuted. The registry now also declares current Intl and
+Temporal configurations, RegExp programs, binary views, collection cursors,
+private elements, Promise/jobs, modules, suspended disposal and Atomics waiters.
+Its 151 declared owners also capture helper iterators, function protocols and
+native closure state. Mutable Promise capability executor state is separate
+from the completed capability; async disposal retains its nullable function
+Realm context. The Environment schema also declares the actual parameter
+environment's strong function-body link: initially absent, published after the
+body record exists and retained for resume traversal. The existing registry
+generates its nullable mutable reference storage and typed accessors. The owner
+count is now 151 with two appended direct-eval rows and the Environment's
+strong caller-context edge. A completed context groups the four original
+derived-constructor BindingCells and retains mutable invocation snapshots.
+Escaping arrows must read the exact capture-proven lexical owner; a generic
+ancestor search would cross ordinary function boundaries. The current internal
+Object-tagged context binding still requires atomic replacement by that typed
+edge. This is an uncompiled declaration foundation;
+semantic values, callable ABIs, allocations and roots still require the atomic
+migration described in the [GC plan](docs/rust-rewrite/value-heap-gc.md).
+
+The selected runtime's weak capability now governs the actual sixteen WeakMap,
+WeakSet, WeakRef and FinalizationRegistry builtin routes as well as engine policy.
+Valid weak construction or storage reports an uncatchable typed unavailable
+capability before any weak record can be returned. Installed intrinsic surfaces
+and earlier JavaScript validation/prototype errors remain observable. The old
+strong-retaining weak producers are retired; strong Map/Set algorithms retain
+their existing paths. Engine and Test262 preserve capability failures separately
+from JavaScript exceptions, so they cannot satisfy runtime-negative tests.
+This source and its replacement controls remain uncompiled and unexecuted;
+semantic GC and real weak reachability remain open. See the
+[weak capability boundary](docs/rust-rewrite/contracts/weak-unavailable-runtime-boundary.md).
+
+The current host runtime-tag ABI also has one concrete row domain consumed by
+both exhaustive completion decoders. Compiler-only Dynamic cannot be constructed
+as a runtime tag. Valid wire tags and decode outcomes are preserved; this source
+change remains uncompiled and unexecuted.
+
+The unverified implementation batch adds descriptor-based admission of fresh Script global
+lexical declarations, symbol-aware object-rest exclusion before descriptor
+traps, and ordinary String concat method lookup with receiver and argument
+ordering. Native builtin source uses captured initial names and a closed
+catalogue name invariant. Arguments objects receive a real writable,
+non-enumerable, configurable own @@iterator property, initialized from their
+defining Realm's original Array values intrinsic; replacement, deletion and
+inherited symbol lookup use the ordinary property model.
+These source changes and their regressions have not been compiled or executed.
+The preceding candidate receipts remain scoped to their exact earlier Source.
+Fresh whole-batch compilation, focused regressions, pinned replay and the broad
+checkpoint remain required; published conformance counts are unchanged. See
+the [Script lexical admission contract](docs/rust-rewrite/contracts/fresh-script-restricted-global-lexicals.md),
+[concat lookup contract](docs/rust-rewrite/contracts/string-concat-method-lookup.md),
+[native source contract](docs/rust-rewrite/contracts/native-function-source-syntax.md)
+and [Arguments iterator contract](docs/rust-rewrite/contracts/arguments-iterator-own-property.md).
+
+The batch also corrects two Engine test fixtures. The disconnected worker
+fixture uses the required product engine policy, and three shared-agent
+fixtures use a named 120,000 ms startup/execution budget because cold worker
+compilation occurs inside the root deadline. The completed MAIN Engine target
+recorded 798 passes and four failures (child exit 101); its diagnostics are
+retained. These test-only corrections remain uncompiled and unexecuted in the
+combined workspace. Native compiler contention has not been established.
+
+The same pending implementation includes seven test-only corrections for stale
+expectations in six MAIN target groups. Static finite RegExp class strings
+keep positive matching controls. The later dry named-capture implementation
+replaces its computed named-group refusal controls with positive fixtures;
+The subsequent lookbehind source batch also replaces that refusal with computed
+matching fixtures. The later computed Unicode code-point and finite-string
+sets have genuine matching/syntax sources; executable verification is pending.
+The remaining corrections preserve structural ownership checks and update
+existing Intl operation and Locale-data inventories. All seven original
+failures remain recorded. The corrected tests and the combined workspace
+still require fresh compilation and execution. The retained MAIN failures
+supply no inherited pass.
+
+The unverified signature foundation replaces seventeen handwritten Wasm function
+types and parallel indices with one closed definition used by module
+registration, imports, helpers and indirect calls. Existing type order and
+shapes remain unchanged. This source has not been compiled or executed;
+JavaScript semantic heap migration and the URI allocation-pressure failure
+remain open. Fresh combined verification is required.
+Published conformance counts are unchanged. See the
+[GC migration plan](docs/rust-rewrite/value-heap-gc.md) and
+[module ownership contract](docs/rust-rewrite/contracts/compiled-module-package-ownership.md).
+
+The unverified class-field implementation assigns anonymous class initializers their
+original numeric, BigInt, computed, Symbol, literal or private name before
+nested class static evaluation. Computed keys retain their once-normalized
+identity for later instances. See the
+[class-field naming contract](docs/rust-rewrite/contracts/class-field-named-evaluation.md).
+
+The unverified parseInt implementation reuses binary64 modulo conversion for its signed
+32-bit radix, including finite magnitudes beyond i64. ToString precedes the
+single ToNumber conversion, and actual thrown values retain their identity.
+See the [radix conversion contract](docs/rust-rewrite/contracts/parse-int-radix-conversion.md).
+
+The unverified Array.from implementation closes an acquired iterator when a proxy result
+property definition throws, while preserving that original exception if
+reading or calling return also fails. Mapper failures close; iterator
+next/done/value and noniterable array-like failures retain their existing
+no-close routes. See the
+[property-definition close contract](docs/rust-rewrite/contracts/array-from-proxy-definition-close.md).
+
+The combined workspace has no compiler/runtime result. Compilation, focused
+regressions, complete pinned cases and a broad checkpoint are deferred until the
+complete implementation pass across all tasks is finished. No further compilation
+or testing runs during that pass. Later verification requires the confirmed
+4 GiB process-tree cap and serial workers described in the
+[resource budget](docs/rust-rewrite/contracts/verification-memory-budget.md). Published conformance
+counts are unchanged.
+
+The admitted T14 batch owns continuation regions for non-loop labels around
+supported Block, If and Try bodies with ordinary awaits or awaited `while`
+conditions. Normal completion and an early labelled break advance to the
+region's own exit before any following await; `finally`, rejection and captured
+body environments retain their completion routes. Switch case/discriminant
+continuations and implicit disposal/iterator body suspensions remain explicit
+compiler gaps. The combined T12/Async/Locale checkpoint passes 43 focused stages
+with 1,520 selected Rust tests, a fresh CLI build, and all 65 exact pinned modes
+from 39 files. Its receipt-only acceptance and 107-path MAIN admission complete;
+the former broad checkpoint is INCOMPLETE: session 30300 ended without an
+owned terminal, so its exit and cause remain unknown. These targeted results do
+not close T12/T14/T23 or change published full-suite counts. See the
+[computed import contract](docs/rust-rewrite/contracts/script-computed-import-admission.md),
+[awaited while contract](docs/rust-rewrite/contracts/plain-async-awaited-while-condition.md)
+and [labelled region contract](docs/rust-rewrite/contracts/plain-async-labelled-region.md).
+
+The focused candidate implements checked CaseBlock continuation owners for
+plain async switches. An admitted awaited discriminant runs before CaseBlock
+instantiation; eager selectors run once in source order, and selected bodies
+resume or fall through without reevaluating them. Switch breaks own a distinct
+exit, including breaks routed through awaited finalizers. The named IR and
+paired Wasm-AOT Engine switch controls pass in the same-Source checkpoint.
+Awaited selectors, implicit disposal/iterator suspension, suspending switch
+composition with outer loops and generator switch suspension remain compiler
+boundaries. No new switch-specific pinned packet was authored. The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+Candidate verification grants no MAIN or full-suite admission; a new MAIN
+broad checkpoint remains required. See the
+[async switch contract](docs/rust-rewrite/contracts/plain-async-switch-continuations.md).
+
+The integrated T22 batch carries named IANA zones through Temporal construction,
+projection, disambiguation, day and transition queries, arithmetic, Duration
+relative operations, conversions and locale formatting. It retains exact
+nanoseconds, zone identity and actual calendar slots in emitted Wasm. A narrow
+compiler diagnostic remains for unresolved contextual rounding windows from
+upstream issue 3310. The admitted Temporal calendars remain ISO8601, Gregorian,
+Buddhist, ROC and Japanese; broader calendars and Intl services remain open.
+System defaults still choose UTC. See the
+[consumer batch and authority notes](docs/rust-rewrite/temporal-named-zone-consumer-batch.md).
+
+Temporal product verification passes all-target checking, 74 native tests and
+all 50 selected Engine tests, including the named-zone Instant string repair.
+The retained replay stopped after 133 passing physical files (266 modes) on
+missing enumeration. The new enumeration checkpoint passes that transition-boundary
+file in both modes across all 447 primary zones. The failed run remains retained;
+the complete T22 replay and full Date/Temporal conformance remain open.
+
+The compiled `Intl.supportedValuesOf` builtin exposes all six keys through a
+checked catalogue of actually consumed provider data. Its argument conversion,
+errors and fresh called-Realm Arrays execute in Wasm. The verified predecessor has four
+DateTimeFormat calendars and 78 positional digit systems; the remaining
+required calendars and missing Intl services remain T23 debt.
+Chinese DateTimeFormat support remains enumerated, exposing the separate
+Chinese Temporal calendar gap rather than hiding it. On 2026-10-01 the preceding
+three-calendar enumeration checkpoint passes five native tests, nine compiler
+structure tests, one IR control, all six paired Engine controls and three
+neighboring Intl CLI controls. The complete pinned enumeration cohort records
+38/50 passes, and fourteen consumer files record 16/28 passes. All 24 failed
+modes retain their owners and reasons; the separate smoke suite passes 191/191.
+See the
+[enumeration contract and verification limits](docs/rust-rewrite/intl-supported-values.md)
+and [Temporal completion notes](docs/rust-rewrite/contracts/temporal-created-realm-completion.md).
+The Buddhist DateTimeFormat addition uses the pinned CLDR patterns, era names
+and real ICU solar-calendar projection. It preserves Chinese availability and
+formats exact Temporal inputs through the existing Wasm boundary. Its focused checkpoint passes
+all 210 native library tests, eight compiler structure tests and 38 Engine
+tests, including its six paired controls and the enumeration and formatting
+neighbors. Full calendar, Temporal and Intl conformance remain open. These
+results belong to the integrated predecessor; this staged PR/List/Collator
+composition now includes the explicit Buddhist data/source join and still
+requires its own coherent product verification.
+See the [Buddhist formatting contract](docs/rust-rewrite/intl-datetime-buddhist.md).
+The shared Tolong Siki addition consumes an exact CLDR48/UCD17 supplement
+in the existing NumberFormat and DateTimeFormat profiles and renderers. The
+77 original CLDR47 digit tables remain unchanged; the new `tols` alphabet,
+source-declared patterns and decimal-number spacing classification are admitted
+together. Formatting identities disclose the supplement without claiming a
+global Unicode upgrade. Its native and paired Engine controls are unexecuted;
+RelativeTimeFormat and broader Intl conformance remain open. See the
+[Tolong Siki contract](docs/rust-rewrite/intl-numbering-tols.md).
+T22 and T23 remain in progress. Published conformance counts are unchanged.
+
+The completed 2026-10-01 Buddhist predecessor checkpoint records 518/558
+real modes across 279 physical files, with all 40 Runtime Bugs retained and no
+exclusions. The five exact Temporal calendar-mismatch files pass 10/10 modes,
+and the complete transition-boundary loop passes 2/2 across 447 primary zones.
+The whole DateTimeFormat cohort records 468/496 passes (248 physical files);
+the whole enumeration cohort records 38/50 passes (25 physical files). The
+separate smoke suite passes 191/191 executions from 190 physical files.
+Calendar and locale coverage, Chinese Temporal construction, range formatting
+and missing Intl consumers retain T22/T23 ownership. These results apply to the
+Buddhist predecessor, before the joined PluralRules, ListFormat, Collator,
+system-zone and Tolong Siki source. That composition requires its own product
+verification; the complete T22 checkpoint and full conformance remain open.
+
+The 2026-09-29 continuation fixes RHS ordering for plain `super` assignments,
+admits Array and Arguments member references in `for-in`/`for-of` heads, and
+corrects Duration relative-date rounding windows and calendar annotations.
+Script dynamic imports now use canonical module jobs while retaining Script
+globals and exact callable source; strict eval initializes local `var` cells
+before its body. Focused checks pass 17 eval tests, 13 Script import tests,
+95 neighboring module tests, 11 super/Duration tests, the loop-reference CLI
+fixture and six pinned `target-super` executions. Full IR verification passes
+1,555 tests and all-target checking passes. The `Math.sumPrecise` and `parseFloat`
+owner splits preserve emitted bytes for all 765 CLI fixtures. Broader workspace
+integration and current full-suite publication remain pending.
+Published conformance counts are unchanged.
+
+The preceding continuation batch adds synchronous `for-of` body suspension in plain
+generators with identifier heads, including captured iteration cells and
+yielding finalizers. It also aligns the emitted RegExp pattern compiler's
+unbounded-plus encoding with static compilation and corrects stale Temporal
+test expectations. Named Temporal zones now use the shared IANA catalogue:
+unknown names throw RangeError, while available names report a typed compiler
+gap until transition resolution and consumers are implemented. The status
+publisher now requires measured passing fake-suite executions. All-target
+checking and 1,558 IR tests pass. Focused product verification passes nine
+generator loop tests (18 observations), seven zone-boundary tests (30
+observations), ten runtime RegExp compiler tests and the fixed-offset Temporal
+regression. All 39 neighboring continuation tests and 42 module/eval tests also
+pass, together with three measured-publication regressions and all 16 pinned
+generator yield/delegation executions. The other 19 affected pinned selections
+pass all 234 executions, and the full fake suite passes 191 executions from
+190 physical files. Broad verification remains pending. The interrupted
+workspace run has no final result. See the [generator continuation contract](docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
 
 The 2026-09-22 baseline repairs are preserved in PR #52. The latest focused
 checkpoint passes both original failures from the preceding 3,446-pass,
@@ -25,18 +1611,73 @@ Bounded verification and remaining scope are recorded in the
 [constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). The provider
 now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
 services remain open.
+The admitted ABI16 Locale batch implements `getWeekInfo`, `getTextInfo`,
+`getHourCycles` and `getNumberingSystems` through typed native data queries and
+real Wasm result construction. Week and hour-cycle defaults share canonical
+regional selection; text direction preserves unknown scripts; numbering-system
+defaults use the actual NumberFormat locale profile. Present Unicode slot values
+remain lossless, including empty and unknown hour-cycle/numbering values. Fresh
+result descriptors, receiver brands and defining-Realm allocation are covered by
+the accepted combined checkpoint above. The rejected closed hour-cycle proposal
+and all failed source/fixture checkpoints remain historical evidence. See the
+[week](docs/rust-rewrite/aot-intl-locale-week-info.md),
+[text](docs/rust-rewrite/aot-intl-locale-text-info.md),
+[hour-cycle](docs/rust-rewrite/aot-intl-locale-hour-cycles.md) and
+[numbering-system](docs/rust-rewrite/aot-intl-locale-numbering-systems.md) contracts.
+
+The focused candidate adds `getCalendars`, `getCollations` and `getTimeZones`.
+Calendar defaults preserve pinned CLDR preference order and filter against
+actually consumed DateTime calendars. Collation defaults query the matched
+sort profile. Time-zone defaults use pinned IANA country membership and only
+the immutable base region; absence returns undefined. Explicit `ca`/`co` values
+remain lossless Wasm-owned singleton paths. ABI17 typed framed responses are
+checked before fresh defining-Realm arrays are published. Native, wire, IR,
+compiler and all eight paired Engine Locale fixtures pass with the corrected
+UTF-8 byte-counted request framing, as do all 15 selected primary files and
+30 modes. The earlier stage 50 one-pass/seven-failure attempt remains recorded.
+The unchanged generated Intl data retains its earlier 14-generator provenance;
+this request repair did not rerun generators. MAIN admission and its fresh broad checkpoint remain required.
+See the [three-method contract](docs/rust-rewrite/aot-intl-locale-information-lists.md).
+
 Published conformance counts are unchanged.
 
 The direct Wasm `Intl.DateTimeFormat` path now uses a pure host provider for
 pinned CLDR 47 patterns, calendar fields and parts. Its locale profiles cover
-`en`/`en-US`, `ar`/`ar-EG` and Simplified Chinese, with Gregorian, ISO8601 and
-Chinese calendars and all 77 positional numbering systems. Date and Plain
+`en`/`en-US`, `ar`/`ar-EG` and Simplified Chinese, with Gregorian, ISO8601,
+Chinese and Buddhist calendars and all 78 positional numbering systems through
+the unchanged base47 data plus the selected tols supplement. Date and Plain
 Temporal locale methods share the same constructor and formatting boundary.
 The Instant locale method now uses that intrinsic boundary with exact
 nanoseconds and called-method Realm semantics; its verification is pending.
 Named zones use pinned IANA transitions and localized CLDR display names.
 See the [provider contract](docs/rust-rewrite/intl-datetime-provider.md) and
 [pinned profile details](docs/rust-rewrite/intl-datetime-locale-kernel.md).
+The proposed schema-2 profile shares complete checked calendar and zone-name
+records while preserving these calendars, locales and digits. Its generated
+pools reconstruct the previous materialized data byte for byte. Native
+verification of the expanded successor is recorded below; Wasm product
+verification remains pending. See the
+[pooling contract](docs/rust-rewrite/intl-datetime-profile-pools.md).
+A complete source successor now proposes 16 calendars across 13 locale records,
+with 208 genuine associations, checked calendar-specific month and era names,
+and the same public domain in the provider, wire decoder and Wasm callers.
+Its profile and report reproduce from pinned CLDR47 inputs plus an explicit
+CLDR48 era supplement; all 78 positional alphabets remain present. On
+2026-10-01, the isolated combined calendar/range source passes all 283 native
+library tests and all three public API tests, with no failures or ignores.
+Its complete workspace/all-target check also passes. Focused compiler checks
+pass 27 structure tests and the retained string-seed regression; three Engine
+tests pass six strict/sloppy scripts, including every one of the 208 calendar
+associations and the genuine range endpoints. MAIN admission, the complete
+workspace checkpoint and pinned verification remain pending. See the
+[calendar domain](docs/rust-rewrite/intl-datetime-calendar-domain.md) and
+[genuine profile source proof](docs/rust-rewrite/intl-datetime-profile-pools.md).
+A separate source successor retains genuine default CLDR endpoint patterns for
+range fallback, alongside ASCII alternatives for single events. The checked
+companions preserve interval text and equal-range behavior. Its three native
+controls pass in the combined checkpoint above; its Engine endpoint control
+also passes in both modes. The complete pinned replay remains pending. See the
+[range endpoint contract](docs/rust-rewrite/intl-datetime-range-endpoints.md).
 The vendored Chinese/Dangi calendar uses a documented integer approximation
 for distant dates, joined continuously to retained modern calculations. Its
 [calendar-domain contract](docs/rust-rewrite/intl-calendar-domain.md) records
@@ -47,11 +1688,70 @@ is pending and published conformance counts are unchanged.
 The `Intl.NumberFormat` implementation covers construction, scalar and range
 formatting, parts, resolved and supported locales, and Number/BigInt locale
 methods. JavaScript observations compile to Wasm; exact numeric operations and
-pinned CLDR 47 formatting run in the pure Rust provider through Intl ABI 5.
+pinned CLDR 47 formatting run in the pure Rust provider through the versioned Intl host ABI.
 See the [NumberFormat contract](docs/rust-rewrite/contracts/intl-numberformat-wasm.md)
 for option ordering, Realm ownership and provider limits. Focused product
 verification passes all 16 tests after preserving arbitrary constructor
 throws in catch inference. Published conformance counts are unchanged.
+
+The staged `Intl.PluralRules` batch authors construction, supported/resolved
+locales, cardinal/ordinal selection and range selection through compiled Wasm
+and the pinned primitive provider. It shares exact numeric and digit-option
+operations with NumberFormat. Compilation and product verification of this
+batch remain pending. See the [PluralRules contract](docs/rust-rewrite/contracts/intl-pluralrules-wasm.md).
+Published conformance counts are unchanged.
+
+The staged `Intl.ListFormat` batch authors construction, supported/resolved
+locales, string formatting and parts through compiled Wasm and the pinned ICU
+list provider. It preserves iterable observations, iterator closing, called
+Realm ownership and original UTF-16 elements, including empty strings and lone
+surrogates. Compilation and product verification remain pending. See the
+[ListFormat contract](docs/rust-rewrite/intl-listformat-provider.md).
+Published conformance counts are unchanged.
+
+A staged Collator service adds genuine search data, a cached branded compare
+callable and immutable `String.prototype.localeCompare` dispatch. The isolated
+native foundation passes 7,056 constructor configurations across 144 exported
+metadata identities, including search/default and UTF-16 controls. Those counts
+are native data checks, not JavaScript AvailableLocales or Test262 coverage.
+The staged 16 Engine tests (32 modes) and 75-file pinned cohort (150 modes)
+remain unexecuted. See the
+[Collator provider and consumer contract](docs/rust-rewrite/intl-collator-provider.md).
+T23 remains open; published conformance counts are unchanged.
+
+A new isolated service batch supplies compiled `Intl.DisplayNames` and
+`Intl.RelativeTimeFormat` constructors, supported/resolved locales and output
+methods. JavaScript option reads, coercions, errors, private brands and Realm
+allocation stay in Wasm. Checked native kernels consume genuine thirteen-locale
+CLDR profiles through host ABI 10. DisplayNames retains the possible `undefined`
+result when fallback is disabled; RelativeTimeFormat shares exact NumberFormat
+rounding and PluralRules selection, including negative zero and literal-only
+Arabic patterns. Enumeration admission checks all 307 reachable currencies
+through DisplayNames and all 78 positional numbering systems through
+RelativeTimeFormat. The 22 new Engine tests (44 planned strict/sloppy scripts)
+and the new native, host and IR controls are authored; their coherent runtime
+verification remains pending. See the [Wasm consumer contract](docs/rust-rewrite/contracts/intl-display-relative-wasm.md)
+and [provider integration](docs/rust-rewrite/intl-display-relative-provider.md).
+The DN/RTF predecessor passes 316 native controls, three public calendar
+controls, six host controls, the artifact identity gate, both optional-value
+IR controls and all 11 catalogue controls. A fresh compile passes after the
+RTF temporary allocation repair, and all 72 heap controls pass. The next
+module checkpoint exposes a stale Collator last-global expectation. The
+complete Segmenter batch updates the registry and prototype-domain fixtures;
+fresh affected backend and Engine checks remain pending. Original failed
+checkpoints remain retained.
+
+The next isolated batch joins compiled `Intl.Segmenter`, its retained
+Segments objects, `containing` and fresh iterators. Genuine ICU 2.0.1 data
+and Unicode 16 rules supply UTF-16 boundaries through host ABI 11. Each
+result retains the original string and uses the called function Realm.
+The finite 17-locale service domain is separate from global AvailableLocales.
+The complete source batch plans 340 native controls, three new host controls,
+14 Engine tests/28 modes and the exact 79-file pinned cohort/158 modes.
+These Segmenter runtime gates remain unexecuted. See the
+[Segmenter contract](docs/rust-rewrite/contracts/intl-segmenter-wasm.md).
+DurationFormat and full Intl conformance retain T23 ownership. Published
+conformance counts are unchanged.
 
 Synchronous `using` loop heads in async functions and canonical async modules
 are admitted only when the complete eager loop region cannot suspend. Disposal,
@@ -222,7 +1922,9 @@ ordered disposal, including nested function scopes. Module Test262 helpers
 execute as an independent global Script. Host globals referenced only by
 prepared Script, Function or module-prelude sources are included in entry
 initialization, while their declarations still wait for source execution;
-Script-entry and source-phase drivers retain explicit scope and lifecycle gaps.
+The 2026-10-03 dry retirement uses canonical activations for Script imports too;
+JavaScript source-phase requests reject after load/parse. Fresh executable
+verification remains pending.
 The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
 [case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
 correct forward non-whitespace movement across UTF-16 surrogate pairs,
@@ -303,17 +2005,21 @@ two retained). Modules remain 147/153 (54 repaired, 93 retained); six asynchrono
 deferred-module cases remain. All four comparisons finish without crashes or
 timeouts. These bounded results do not update the generated full-suite status.
 
-Computed legacy RegExp patterns now reach an emitted Wasm parser and compiler
-through the existing constructor and `compile` paths. It emits the same immutable
-program descriptors as static compilation, with explicit syntax, capability and
-resource outcomes. Compilation clears released workspace before heap reuse,
-preserving the compact descriptor and fresh-object initialization. Scoped
-`i`/`m`/`s` modifiers compose with nested groups and changed-flag clones. Dynamic
-`u`/`v`, named groups and lookbehind remain outside this runtime compiler's
-grammar; supported static programs remain available. The
+Computed RegExp patterns reach an emitted Wasm parser and compiler through the
+constructor and `compile` paths. It emits the same immutable program descriptors
+as static compilation, with explicit syntax and resource outcomes.
+Compilation clears released workspace before heap reuse. Scoped `i`/`m`/`s`
+modifiers compose with the runtime grammar. The current unverified source adds
+Unicode character modes, named groups, lookbehind, exact code-point properties
+and complete finite-string `v` algebra. All seven string properties and `\q`
+keys lower through the same matcher, with operand-local folding, longest-first
+choices and checked publication. The unused computed-string rejection status is
+retired; independently live static-pattern semantic rejections remain outside
+JavaScript completion. Compilation and execution of these new sources are due.
+The
 [runtime compiler contract](docs/rust-rewrite/contracts/regexp-runtime-compiler.md)
-records ownership, grammar and the verification boundary. This addition does not
-change the generated conformance counts.
+records ownership, grammar and verification; generated conformance counts are
+unchanged.
 
 Ordinary `.match` calls read the actual method and enter its shared callable body.
 This keeps replacement methods, getter and argument order, and exceptions while
@@ -381,6 +2087,15 @@ The focused Wasmtime regression target and remaining UTC/time-zone limitations
 are described in [the Date parsing follow-up](docs/rust-rewrite/aot-date-parsing.md).
 This does not change the published conformance counts below.
 
+The staged configured-system-zone Date batch connects local getters/setters,
+multiargument construction and local display to one immutable Realm choice,
+with compatible gap/fold inversion followed by TimeClip. It moves DateValue to
+the existing private GC slots, fixes fractional MakeFullYear, and retains exact
+historical second offsets in its implementation-defined display name. These
+sources and controls remain uncompiled and unexecuted; they do not change the
+published status block. See the [Date component contract](docs/rust-rewrite/contracts/date-component-setter-operation.md)
+and [current-time/display contract](docs/rust-rewrite/contracts/date-current-time-source.md).
+
 Array `flatMap` now uses shared observable length, callability, species and
 property operations. Its source length is captured before mapper validation and
 species side effects; sparse properties and Proxy traps remain live during
@@ -440,12 +2155,17 @@ baseline; this change does not update the generated conformance counts.
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:
 - Fake wasm-safe Test262 subset: `187/187` green
-- Fake full Rust rewrite suite: `190/190` green
-- Full pinned real Test262 for Rust rewrite: **not green / current pinned aggregate not yet fully republished**
-- Current real-suite pin: `ecma262=ecma262-current-draft` `test262=e9d582d6b8b13afc5ba9a676664741592b5c7f69`
-- Last complete cached `spec-exec` publish is stale for the current pin and must not be reported as current progress.
+- Fake full Rust rewrite suite: `191/191` green
+- Pinned real Test262 baseline (`wasm-aot`, refreshed `2026-10-02`): `96678/102043` not green (`94.7%`)
+- Real Test262 goal: Success=96678/102043 (94.7%); burn down NotImplemented=1125, Crash=39, Bug=4201 to zero
+- Pinned revisions: `ecma262=ecma262-current-draft` `test262=aa55200d1310384c5cf69ea95b2a2ecba457007b`
+- Current real outcomes: `Success=96678`, `NotImplemented=1125`, `Crash=39`, `Bug=4201`
+- Biggest current real failing kinds: `Runtime=4441`, `Unsupported=753`, `HostHarness=162`
+- Biggest current real failing origins: `unknown=5191`, `icu-intl=162`, `boa-parser=9`
+- Worst current real matrix targets: `intl402/DurationFormat: 0/222 passed`, `intl402/Temporal/PlainDateTime: 29/250 passed`, `intl402/Temporal/ZonedDateTime: 54/250 passed`
+- Published status artifacts: `/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.json` and `/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.txt`
 
-As of `2026-04-30`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until the full pinned real Test262 run is green for Rust path and the status artifact is republished.
+As of `2026-10-02`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.
 
 Status refresh commands:
 - `cargo test -p lila-engine --quiet`
@@ -528,14 +2248,23 @@ The largest remaining closure work is:
 
 - publish a complete current-pin Wasm-AOT Test262 aggregate and generated
   failure backlog;
-- remove the large Test262 path/source materialization layer. The
+- complete host/runtime verification after retiring the Test262 path/source
+  materialization layer. The
   [generated shortcut census](test262/backlog/current-shortcut-status.md),
-  refreshed `2026-09-08`, records 112 observations: 31 legitimate harness
-  adaptations, 39 diagnostic instrumentation sites and 42 semantic shortcuts.
+  verified `2026-09-29`, records 56 observations: 23 legitimate harness
+  adaptations, 33 diagnostic instrumentation sites and zero semantic shortcuts.
   Refresh with `bash scripts/audit-test262-shortcuts.sh --check` followed by
   `python3 scripts/generate-shortcut-status.py`. These are classified source
-  observations, not conformance results. This census retains the
-  audit-coverage rebaseline: the scanner covers multiline
+  observations, not conformance results. The per-path rewrite dispatcher,
+  resizable-helper static-subclass substitution and TypedArray literal/split
+  helper plan are deleted; ordinary materialization retains original case
+  sources and complete configured helper bodies. The source/generator audits,
+  host ABI check, nine Python accounting tests, 15 scanner unit tests and shell
+  ledger-drift controls pass. T03's required Cargo and pinned host/runtime gates
+  remain open; see [the current checkpoint and refresh commands](tasks/03-conformance-harness-integrity.md#current-repository-state).
+  The historical retirement notes below retain each cohort's recorded evidence
+  and describe the helper routes that existed at that checkpoint. The census
+  retains the audit-coverage rebaseline: the scanner covers multiline
   expressions, same-line multiplicity, exact rewrite calls, source contract
   guards and normalized `match`/`matches!` selector tables. Reduced assertion
   selection is now gone. The final twelve T18 semantic observations are gone,
@@ -550,10 +2279,11 @@ The largest remaining closure work is:
   `charAt`, `charCodeAt`, `indexOf`, `match` and `slice` leaf-green claims below
   are dated rewrite-backed checkpoints, not current raw-source Wasm-AOT
   results. All 17,540 physical sources and 33,715 executions that
-  formerly selected a reduced body now receive the full LocalMerged
-  `assert.js`. The typed-array literal contract contains 319 physical sources
-  and 622 executions: 296/576 use the full assertion helper and 23/46 explicitly
-  omit unused assertion code. The SameValue and CompareArray assertion modes,
+  formerly selected a reduced body receive the full LocalMerged
+  `assert.js`. Before its retirement, the typed-array literal contract covered
+  319 physical sources and 622 executions: 296/576 used the full assertion
+  helper and 23/46 explicitly omitted unused assertion code. The SameValue and
+  CompareArray assertion modes,
   their prelude constants and their source-shape predicates no longer exist.
   The compact typed-array descriptor probe now accepts only the `TypeError`
   raised by a strict write to non-writable `length` or `name`; every other
@@ -1141,12 +2871,17 @@ Build the Rust CLI:
 ./scripts/dev.sh build
 ```
 
-The developer wrapper uses `lld` when available, falls back to the system
-linker, and caps Cargo at half the machine's logical CPUs (at most eight on the
-primary 16-core development machine). It deliberately shares Cargo's normal
-`target/` directory. `./scripts/dev.sh check`, `exact-test`, `test262`, and
-`timings` provide the corresponding fast-loop commands; set `LILA_JOBS` to
-request a lower cap.
+Build flags remain in `.cargo/config.toml`; Cargo now defaults to one build job
+and shares its normal `target/` directory. `./scripts/dev.sh check`, `exact-test`,
+`test262`, and `timings` retain those flags and artifacts. The CPU-affinity wrapper
+also defaults Cargo to one job and preserves any tighter requested job cap.
+
+During the current full-task dry-coding pass, compilation and tests are deferred.
+Later verification runs through `python3 scripts/limited_verification.py -- ...`,
+which requires a confirmed 4 GiB kernel cap for the command and all descendants,
+zero swap, grouped out-of-memory termination and serial worker defaults. It
+refuses to start without those controls; it never falls back to an uncapped run.
+See the [memory contract](docs/rust-rewrite/contracts/verification-memory-budget.md).
 
 Run the built binary directly:
 
@@ -1196,9 +2931,15 @@ Wasm-AOT compilation uses one process-wide Wasmtime engine and a shared
 Cranelift pool. The pool defaults to half the logical CPUs; `lila --jobs N ...`
 overrides it, while Test262 `--threads N` controls case workers independently.
 Every execution still creates a fresh realm, Store, and Wasmtime instance.
-Up to 64 immutable compiled Wasmtime Modules are retained in-process with LRU
-eviction so a warmed chunk does not deserialize/relink the same native code;
-module state is never shared between executions.
+The process-local LRU now retains at most 64 immutable compiled Wasmtime Modules
+and 512 MiB of their compilation images. Set `LILA_MODULE_MEMORY_CACHE_ENTRIES`
+and `LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES` to positive decimal limits; invalid or
+zero values retain the defaults. Oversized modules execute without retention,
+and concurrent misses reuse an existing cache winner. The budget measures code,
+data and debug images; active instances, compilation and process RSS have other
+owners. Module state remains fresh for every execution. This 2026-10-03 source
+change and its owner tests await compilation and runtime verification; see the
+[image budget contract](docs/rust-rewrite/contracts/module-memory-image-budget.md).
 
 Compiled-code storage is Lila-owned and capped at 2 GiB total: 1 GiB for
 Cranelift function stencils and a 1 GiB whole-program budget split evenly
@@ -1237,27 +2978,28 @@ CI can sample and recompile function-cache hits with
 The conformance goal is literal full pinned Test262 green for the Rust path, with
 fake-suite progress kept separate from real-suite progress.
 
-Useful local checks:
+After the full implementation pass, local checks use the memory cap:
 
 ```sh
-cargo test -p lila-engine --quiet
-./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p lila-cli --test cli -- --test-threads=2
-./target/debug/lila test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
-./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
+python3 scripts/limited_verification.py -- cargo test -p lila-engine --quiet
+./scripts/run-watched.sh --label cli --stall 900 -- \
+  python3 scripts/limited_verification.py -- cargo test -p lila-cli --test cli -- --test-threads=1
+python3 scripts/limited_verification.py -- ./target/debug/lila --jobs 1 test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm --threads 1
+python3 scripts/limited_verification.py -- ./target/debug/lila --jobs 1 test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --threads 1
 ```
 
-The CLI suite is 617 default-executing tests (618 compile; 8 more sit behind the
-`spec-exec-oracle` feature): about 26 minutes at `--test-threads=8` on 16 CPUs,
-an estimated 1 h 45 min at `--test-threads=2`. Raise the thread count on a
-machine with spare cores, but keep `--stall 900` — a single cold Wasm-AOT
-compile can exceed the 300 s default of log silence, and the guard then kills a
-healthy run with exit code 124.
+Historical CLI measurements used 617 default-executing tests (618 compiled;
+8 more behind `spec-exec-oracle`): about 26 minutes at `--test-threads=8` on
+16 CPUs and an estimated 1 h 45 min at `--test-threads=2`. Those measurements do
+not establish current capped timing. The current policy uses serial workers
+and keeps `--stall 900`: a cold Wasm-AOT compile can exceed the 300 s default of
+log silence, causing the stall guard to end it with exit code 124.
 
-**Do not use `--test-threads=1`.** libtest then runs every test on the thread
-named `main`, the per-test name the suite routes on is unavailable, and all 617
-tests fall back to spawning a cold `lila` child process instead of the warm
-in-process call the 26-minute figure is built on. It is correct and terminating,
-just far slower. For a single test use `-- --exact <name>`.
+With `--test-threads=1`, libtest runs on the thread named `main`, so the suite
+uses its bounded cold-child route with the original arguments. That route
+remains correct and inherits the memory scope, but the historical warm-suite
+26-minute figure does not describe it. The current resource policy keeps serial
+execution. For a single test use `-- --exact <name>`.
 
 It no longer needs `--skip atomics_wait_core`: that case is green and the
 known-failure row was removed in batch 6. The guarded child-process path remains
@@ -1272,6 +3014,20 @@ declared failure that fails for a *different* reason, a renamed or deleted
 declared test, an orphan ledger row, or an `#[ignore]` with no owner all turn
 rung 1c red. Green means exactly the declared outcomes, for the declared
 reasons.
+
+The 2026-10-04 dry source moves every differential backend attempt into a
+fresh selected worker. The parent loads native JSON/graph metadata; JavaScript
+admission, Realm construction, compilation and execution run inside the attempt
+deadline for both Wasm-AOT and spec-exec. The supervisor checks compiler source
+and selected-image provenance, bounds request/journal/frame IO, and retires the
+process group before publishing a completed observation. Crashes, timeouts,
+malformed journals and cleanup failures stay red with any committed incomplete
+print prefix. An initial or reduced campaign worker failure cannot persist a
+corpus case. CLI embedders select the actual executable with `--worker-bin PATH`;
+the CLI defaults to its own image. Current compile/runtime/control acceptance
+is unverified. Finish all remaining task source before verification through the
+4096 MiB aggregate launcher. See the
+[worker lifecycle](docs/rust-rewrite/contracts/differential-worker-lifecycle.md).
 
 Developer differential builds expose a versioned bounded replay protocol.
 `lila differential replay <case.json> --oracle spec-exec` keeps schema v1's
@@ -1295,31 +3051,45 @@ Script bytes and fingerprints are unchanged. See the
 and
 [schema-v3 observation contract](docs/rust-rewrite/contracts/differential-primitive-print-transcript.md).
 
+The additive schema v4 `primitive_completion_print_transcript` source path carries
+a validated embedded graph and admits Script or Module entries. Entry fields
+have one owner; declared requests distinguish Script, Module and Unlocated
+referrers, exact specifiers and complete attributes. Metadata URLs are independent
+observations. Both loaders deny absent rows. V4 uses the same primitive and
+ordered-print comparator as v3, while its case and mismatch identities retain
+the complete graph SHA-256. Unused source or resolution changes therefore change
+identity. Existing v1/v2/v3 wire bytes, fingerprints, signatures and loading
+policies remain unchanged. The seven authored v4 cases and current source guards
+remain uncompiled and unexecuted; this adds no verified conformance count. See
+the [embedded graph contract](docs/rust-rewrite/contracts/differential-embedded-module-graph.md).
+
 The same builds also expose a deterministic bounded campaign:
 `lila differential generate-arithmetic <output.json> --seed N --checks N
 --depth 1|2|3|4 --max-replays N --oracle spec-exec` generates and, on a
-backend mismatch, type-safely reduces the `integer-arithmetic-v1` Add/Sub
-corpus slice. Like `differential replay`, it requires a
+backend mismatch, reduces the selected closed arithmetic grammar. The default
+is `integer-bitwise-v2`; `--grammar integer-arithmetic-v1` selects the original
+Add/Sub profile, while `--grammar integer-product-v3` selects bounded products
+and negation with signed-zero checks. Both extensions remain uncompiled and
+unexecuted. Like `differential replay`, the campaign requires a
 `--features spec-exec-oracle` build and explicit oracle selection.
 
-For local Wasm-AOT Test262 iteration, use the default in-process case runner:
-execution remains exact-source, realm-isolated, and epoch-timeout bounded while
-reusing the process-wide engine and caches. Set
-`LILA_TEST262_FORCE_CASE_RUNNER=1` only for crash reproduction or deliberate
-per-case process isolation. Ensure `LILA_CACHE_DIR` is writable; on a
-representative 18.48 MiB TypedArray iterator module, a cold exact run took about
-50 seconds while an identical warm run completed in 2 seconds from the program
-and module caches.
+Wasm-AOT Test262 execution uses a supervised case process. The request deadline
+starts before spawning and covers parsing, lowering, emission, native compilation
+and execution; timeout or cancellation retires and reaps that process group.
+Library harness callers must select a worker executable implementing the hidden
+single-case route. Discovery alone does not need an execution worker. The old
+FORCE/DISABLE case-runner variables cannot select an unbounded in-process product
+path. These source changes await the combined executable checkpoint.
 
 For real-suite publication, prefer the low-RAM wrapper so the top-level matrix
 checkpoints one node at a time, isolates each case in a reclaimable process,
 uses one compiler job by default, and only publishes after verified completion.
-Set `ISOLATE_CASES=0` or raise `JOBS` and `THREADS` only when more memory is
-available. The wrapper asks Lila's Rust matrix planner for progress between
+Case isolation is mandatory; `ISOLATE_CASES=0` is rejected. Keep `JOBS` and
+`THREADS` at one for the 4 GiB verification budget. The wrapper asks Lila's Rust matrix planner for progress between
 nodes and only accepts the product backend:
 
 ```sh
-./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
+python3 scripts/limited_verification.py -- ./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
 ```
 
 Oracle matrices remain available through `lila test262 report-all
@@ -1610,11 +3380,22 @@ Recent focused progress through `2026-09-01`:
   awaits inside catch and finally clauses. The checked body keeps clause
   states contiguous and preserves captured iteration, body and catch scopes.
   Iterator acquisition remains once-only; abrupt body completion closes the
-  iterator after nested finalizers. Direct `break`/`continue`, suspended head
-  operands, nested resumable loops and `for await` bodies with explicit awaits
-  remain separate unsupported shapes. See the
+  iterator after nested finalizers. Current-loop unlabelled `break`/`continue`
+  retain their checked completion owner. Suspended head operands, nested resumable
+  loops and foreign or labelled control remain explicit capability gaps. See the
   [continuation contract](docs/rust-rewrite/contracts/async-for-of-continuations.md)
   for the exact scope and required verification; published status is unchanged.
+
+- The next source batch admits body Await in plain async `for await` loops
+  with eager Var/Let/Const identifier binding heads. One completed plan couples
+  checked body states to awaited Next/Close and retained protocol storage. The
+  existing emitter preserves cached next, fresh captured head cells, local
+  completion through awaited finalizers, close precedence and rejection Realms.
+  Captured body/catch scopes and wider head/loop composition remain explicit
+  source gaps. Meaningful IR controls and three finite paired Engine cohorts are
+  authored; current compilation, runtime, guards and pinned acceptance remain
+  unverified. See the
+  [for-await body contract](docs/rust-rewrite/contracts/plain-async-for-await-body-continuations.md).
 
 - A bare identifier in a `for await` head now writes its resolved outer
   Reference through a synthetic iterator-result slot instead of being declared
@@ -2081,9 +3862,20 @@ Recent focused progress through `2026-09-01`:
   unsupported, crash or bug outcomes. The runtime fixture exposed and closed a
   reverse-lookbehind gap by sharing the canonical Unicode range-membership
   emitter in both matcher directions. Other Unicode properties of strings and
-  direct class-string `/iv` folding remain explicit typed capability
-  boundaries. This records no broader
+  direct class-string `/iv` folding remained explicit typed capability
+  boundaries at that checkpoint. This records no broader
   UnicodeSets or RegExp completion claim.
+- The focused RegExp compiler candidate adds operand-local Unicode simple
+  folding for direct `/iv` class strings and finite property strings, preserving
+  finite-set algebra, singleton aliases, empty members and forward/reverse
+  alternative priority. The circled-M sequences in `Basic_Emoji` and `RGI_Emoji`
+  use the same normalization. Seven new IR controls and nine Engine fixtures
+  covering both Script modes pass. The 33-file/66-mode direct class-string
+  inventory is `/v`-only; this checkpoint replays ten selected adjacent RegExp
+  files and 20 modes, including two circled-M property files and the Unicode
+  case-mapping neighbor. There are no selected direct `/iv` pins. The emitted
+  runtime pattern compiler and published conformance counts are unchanged. See
+  the [finite-string contract](docs/rust-rewrite/contracts/regexp-unicode-set-finite-string-algebra.md).
 - A bounded matcher batch now implements RepeatMatcher's nullable
   unbounded-quantifier progress rule. At clean pre-batch commit `44247b836b`,
   exact unflagged Test262 file `built-ins/RegExp/nullable-quantifier.js`
@@ -3455,9 +5247,19 @@ Recent focused progress through `2026-09-01`:
   signed rounding and return intrinsic Duration objects. Difference options
   are read and coerced in order before recognized units are checked against
   the Instant time-unit range, preserving later option throws. Entry and created
-  Realms share the Instant and Duration member definitions, and method results
-  retain the calling built-in's intrinsic prototype even when public
-  constructor bindings change. A distinct branded `Temporal.ZonedDateTime` record now retains
+  Realms share the member definitions for all eight implemented Temporal
+  families and publish the complete `Temporal.Now` namespace. Constructor
+  defaults use the NewTarget's Realm, and method results select the executing
+  built-in's immutable intrinsic prototype even when public constructor
+  bindings change. This created-Realm completion is integrated and passes
+  all-target checking, eight compiler structure controls and the arithmetic
+  string-pool regression. Eight Temporal Engine targets pass all 43 tests,
+  including locale and relative Duration controls. Five of six created-Realm
+  tests also pass; the descriptor test exposed missing `get ` prefixes on all
+  13 PlainMonthDay/PlainYearMonth getters. Their native names are corrected,
+  and the existing fixture now checks every published getter in entry and
+  created Realms. Revised descriptor execution, pinned replay and broader
+  verification remain pending. A distinct branded `Temporal.ZonedDateTime` record now retains
   exact epoch nanoseconds, a stored time-zone string, and the canonical
   `iso8601` calendar identifier; UTC spellings are canonicalized to `UTC`, and
   numeric offset syntax is range-checked. Its static `from` path now copies
@@ -6883,8 +8685,13 @@ Recent focused progress through `2026-09-01`:
   ranges, named-capture candidates and name bytes. RegExp objects and clones
   retain one allocation handle; matcher reads use that descriptor's section
   bounds. This is the [program boundary](docs/rust-rewrite/contracts/regexp-program-boundary.md)
-  shared by the static and runtime RegExp compilers. Runtime Unicode modes,
-  named captures and lookbehind remain explicit capability gaps.
+  shared by the static and runtime RegExp compilers. Emitted section locals
+  belong to a validated owner minted only after the consumer's corrupt-program
+  return has been emitted. This source invariant remains unverified by
+  compilation or runtime checks as of `2026-10-03`. Computed named captures and
+  lookbehind, validated Unicode modes, exact properties and complete finite-string
+  algebra are authored in the current dry implementation; combined compilation
+  and semantic verification remain pending.
   The complete `built-ins/RegExp/prototype/Symbol.replace` and
   `built-ins/String/prototype/replaceAll` Test262 leaves report `70/70` and
   `45/45` passing as of `2026-07-15`. The adjacent
@@ -7233,7 +9040,8 @@ backend boundary, not a new conformance claim.
 The complete AOT library test inventory is split into eight deterministic
 shards. Each test runs in a fresh process; failures, ignored tests, missing
 executions and timeouts fail the shard. Run the entire inventory locally
-with `python3 scripts/run_aot_unit_shard.py 0 1`, or the same CI partitions
+with `python3 scripts/limited_verification.py -- python3 scripts/run_aot_unit_shard.py 0 1`,
+or the same CI partitions
 with indices `0` through `7` and a shard count of `8`. See
 [the control-flow review](docs/rust-rewrite/aot-control-flow-review.md) for
 the focused commands and verification boundaries. These tests do not
@@ -7245,9 +9053,9 @@ participates in Cargo's unit fingerprint and the environment variable *replaces*
 config values rather than merging with them, so a wrapper that exported
 `RUSTFLAGS` while bare `cargo` did not made the two entry points invalidate each
 other's artifacts on every alternation. Keep linker flags in the config file and
-out of the wrapper. `LILA_JOBS` still requests a lower job count for a single
-invocation; job count does not affect codegen and so does not fork the
-fingerprint.
+out of the wrapper. The default Cargo job count is one; explicit worker settings
+remain available outside the current capped verification policy. Job count does
+not affect codegen and so does not fork the fingerprint.
 
 The dev/test profiles retain incremental compilation and line-table source
 locations, compile dependencies at `opt-level=2`, and keep Lila workspace
@@ -7275,28 +9083,36 @@ are separately adjustable. Measured over a 300-case sample on `2026-07-30`:
   hit thereafter. It does not fully saturate at suite scale either, but a large
   budget keeps the hot shared set resident instead of letting LRU evict it.
 
-A sweep therefore wants a large function tier and small program/module tiers:
+The historical large-machine sweep used a 32 GiB function tier. Those settings
+are outside the current 4 GiB verification budget. After the full source pass,
+a bounded sweep uses smaller cache ceilings and serial workers:
 
 ```sh
-LILA_FUNCTION_CACHE_LIMIT_BYTES=34359738368 \
-LILA_MODULE_CACHE_LIMIT_BYTES=536870912 \
-LILA_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
-  ./target/release/lila test262 report-all --resume --threads 8 --jobs 8
+LILA_FUNCTION_CACHE_LIMIT_BYTES=268435456 \
+LILA_MODULE_CACHE_LIMIT_BYTES=134217728 \
+LILA_PROGRAM_CACHE_LIMIT_BYTES=134217728 \
+  python3 scripts/limited_verification.py -- \
+    ./target/release/lila test262 report-all --resume --threads 1 --jobs 1
 ```
 
 Capture representative large-crate build timings with:
 
 ```sh
-./scripts/dev.sh timings
-./scripts/dev.sh exact-test -p lila-cli run_wasm_backend_succeeds_for_supported_fixture -- --exact
+python3 scripts/limited_verification.py -- ./scripts/dev.sh timings
+python3 scripts/limited_verification.py -- ./scripts/dev.sh exact-test -p lila-cli run_wasm_backend_succeeds_for_supported_fixture -- --exact --test-threads=1
 ```
 
-The checked-in cross-feature latency workload is
-`benchmarks/wasm-aot-20.txt`. Run the ignored authoritative Wasmtime-AOT
-benchmarks on an idle machine with:
+The portable cross-feature latency workload is the private compiled corpus in
+`crates/lila-cli/tests/perf/chunk_cases.rs`. It retains the original twenty
+fixtures and order from the former machine-local manifest; missing fixtures
+fail all-target compilation. The three probes keep their original timing spans,
+limits and opt-in policy. The ref105 grouped all-target Rust type and hygiene
+checks passed; actual timing acceptance remains pending. See the
+[portable corpus contract](docs/rust-rewrite/contracts/portable-performance-corpus.md).
+Run the ignored authoritative Wasmtime-AOT benchmarks on an idle machine with:
 
 ```sh
-cargo test -p lila-cli --test perf -- --ignored --nocapture --test-threads=1
+python3 scripts/limited_verification.py -- cargo test -p lila-cli --test perf -- --ignored --nocapture --test-threads=1
 ```
 
 Measured on the 16-logical-CPU development machine on `2026-07-10`:
@@ -7337,10 +9153,12 @@ after every node and checkpoints every 10 cases within a node, so the sweep is
 interruptible and resumable; poll it from another shell with
 `lila test262 progress-status --snapshot-name <name>`.
 
-Reproduce the calibration with:
+The calibration above used historical eight-worker settings. After the full
+source pass, the capped serial command below collects a new calibration; its
+timings require fresh measurement:
 
 ```sh
-./target/release/lila test262 report --matrix-node built-ins/Array --snapshot-name calib50 --snapshot-dir target/test262-scratch/calib --threads 8 --jobs 8
+python3 scripts/limited_verification.py -- ./target/release/lila test262 report --matrix-node built-ins/Array --snapshot-name calib-serial --snapshot-dir target/test262-scratch/calib-serial --threads 1 --jobs 1
 ```
 
 Existing developer artifacts are never cleaned automatically. If an old
@@ -7366,9 +9184,9 @@ nothing in an ordinary `cargo test` run.
 
 ```sh
 git stash
-LILA_GOLDEN_OUT=$PWD/target/golden/before cargo test -p lila-aot-wasm --test emit_golden
+LILA_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emit_golden -- --test-threads=1
 git stash pop
-LILA_GOLDEN_OUT=$PWD/target/golden/after cargo test -p lila-aot-wasm --test emit_golden
+LILA_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emit_golden -- --test-threads=1
 diff -r target/golden/before target/golden/after
 ```
 
@@ -7380,25 +9198,26 @@ fixture, and its `debug_dump` narrows the divergence to a specific builtin.
 Fixtures that fail to parse or emit are recorded as failures rather than
 skipped, so a refactor that changes which fixtures emit is caught too.
 
-The capture fans across the machine with 64 MiB worker stacks — lowering and
+The historical capture used concurrent 64 MiB worker stacks — lowering and
 emission recurse deeply enough to overflow the 2 MiB default, and each fixture
 emits a full ~9.4 MiB bootstrap module. Measured `2026-07-30` on the 16-core
 development machine: `9 m 58 s` at 1079% CPU for all 527 fixtures, against
 roughly 104 minutes for the same work serially.
 
-Start with focused package tests while working, then widen only when the change
-touches shared behavior:
+After the complete dry source pass, run the selected focused package tests
+and then the required broad checkpoint under the confirmed budget:
 
 ```sh
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli --test cli array::            # one area, ~1-3 min
-cargo test -p lila-test262 --quiet
+python3 scripts/limited_verification.py -- cargo test -p lila-engine --quiet
+python3 scripts/limited_verification.py -- cargo test -p lila-cli --test cli array:: -- --test-threads=1
+python3 scripts/limited_verification.py -- cargo test -p lila-test262 --quiet
 ```
 
 Wrap anything long in the stall guard rather than watching elapsed time:
 
 ```sh
-./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p lila-cli --test cli -- --test-threads=2
+./scripts/run-watched.sh --label cli --stall 900 -- \
+  python3 scripts/limited_verification.py -- cargo test -p lila-cli --test cli -- --test-threads=1
 ```
 
 `scripts/run-watched.sh` writes the command's output to `target/watched/<label>.log`,
@@ -7415,6 +9234,14 @@ modules of one target rather than separate `tests/*.rs` files because each extra
 integration target statically relinks a 143 MB binary. Per-test cost varies by
 more than 1.7x across modules, so do not extrapolate one module's runtime to the
 whole suite.
+
+Follow [the batch workflow](docs/rust-rewrite/batch-workflow.md). In the current
+pass, finish source, types, meaningful controls and documentation across all
+remaining tasks before any further compilation or tests. Independent authors
+work concurrently using inspection, isolated formatting and syntax checks.
+After the complete pass, one integrator uses the confirmed memory cap to compile
+once, run focused regressions and then broad suites sequentially. Preserve every
+failed result and report exactly what ran and what remains unverified.
 
 Every expected non-green outcome in **`lila-cli`'s three integration-test
 targets** (`cli`, `perf`, `async_generator`) is declared in
@@ -7439,7 +9266,11 @@ tree-wide; it has already silently swallowed two files, which is why the ledger
 is a `.tsv` and why it is loaded with `include_str!` so its absence is a compile
 error.
 
-The workspace forbids unsafe Rust through workspace lints. JavaScript is
+Handwritten product crates forbid unsafe Rust through workspace lints. The
+`lila-intl-collator-data` crate preserves the ten exact ICU exporter files and
+allows their static-data macro expansion only inside its private baked module;
+its handwritten root defaults to deny. The native Intl service consumes its
+immutable typed provider and keeps the workspace forbid lint. JavaScript is
 permitted only as pinned Test262 content, embedded harness data, Rust test
 fixtures and reproducers, or vendored source; it must not become a product
 compiler/runtime or publication path.
@@ -7474,8 +9305,8 @@ manifest, and legacy results without a manifest fail closed: retain those result
 and choose a fresh snapshot name rather than relabeling them. A per-family POSIX
 lock prevents concurrent publishers; the supervised child retains the lock and
 receives termination signals. Changing only `MAX_MATRIX_NODES` or `README_PATH`
-does not change the execution identity. `ISOLATE_CASES` now explicitly controls
-inherited case-runner flags in both modes.
+does not change the execution identity. Case isolation remains mandatory;
+the wrapper rejects a request for an in-process publication.
 
 This requires Python 3 and POSIX `fcntl` in addition to the existing Bash/Git
 requirements. It records observed inputs, **not proof that the executable was
@@ -7490,6 +9321,14 @@ fake CLI validates publication orchestration, not JavaScript conformance.
 
 [Current shortcut accounting](test262/backlog/current-shortcut-status.md) is generated from the classified source audit, including input hashes and semantic-only removal ownership. Run `bash scripts/audit-test262-shortcuts.sh --check`, then `python3 scripts/generate-shortcut-status.py` to regenerate it, or add `--check` to reject a stale report. These are observations, not test passes or a completion percentage. The Rust publisher remains the only owner of the generated conformance block.
 
+The 2026-09-29 source checkpoint verifies 56 observations: 23 legitimate
+adaptations, 33 diagnostics and zero semantic shortcuts. The complete T03
+host/runtime acceptance checkpoint and current-pin full-suite publication remain
+open. For this plain-file vendored suite, verify the clean content pin with
+`git rev-parse --verify HEAD:test262/vendor/test262`; `git -C` in the vendor
+directory resolves the enclosing Lila repository. The runner uses the suite
+tree identity, currently `aa55200d1310384c5cf69ea95b2a2ecba457007b`.
+
 ## Real shard evidence validation
 
 The Array callback workflow binds its shared CLI artifact to the checked-out commit and verifies the executable SHA-256 before execution. Every real subtree shard must report the exact execution count derived from the native modulo partition, the Wasm-AOT backend, all executions passing, and zero in every failure bucket. `python3 scripts/check-test262-shard-report.py --inventory <list-output> --report <shard-output> --shard <index/count>` checks that contract without rewriting evidence. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_test262_shard_report.py -v`. The Rust runner still owns the complete execution-ID manifest checks; this textual report gate supplements them and does not establish full-suite conformance or raw-source shortcut closure.
@@ -7500,8 +9339,165 @@ errors, and rejects invalid dynamic-only dependency closures through their
 import promises. Static dependency syntax errors remain compile-time
 SyntaxErrors. Generated import operations use intrinsic promises and reflection
 identities, so replacing global Promise or its prototype methods does not alter
-internal scheduling. TLA, Script-entry and source-phase module drivers remain
-separate. See [the module import job contract](docs/rust-rewrite/contracts/module-import-jobs.md).
+internal scheduling. The 2026-10-03 dry retirement shares canonical activations
+with TLA and Script imports; JavaScript source requests reject after load/parse.
+Fresh executable verification remains pending. See
+[the module import job contract](docs/rust-rewrite/contracts/module-import-jobs.md).
 
 JSON revivers use the canonical property-definition path for descriptor and
 extensibility checks; see [the contract and regression scope](docs/rust-rewrite/json-reviver-property-definitions.md).
+
+The first complete Segmenter all-target check records one genuine encoder
+type mismatch and five missing-export errors from stale native workspace
+artifacts reused across isolated source roots. The type successor converts
+the positive-zero constant to the selected encoder’s Ieee64 representation
+and rebuilds all twelve workspace packages before the next all-target check.
+Fresh native, host, IR, backend, Engine and pinned results remain pending.
+
+The fresh Segmenter native checkpoint runs all340 library controls and stops
+with286 passes and54 failures at one shared provider-construction defect: the
+mandatory LSTM certificate omitted the prefix-match metadata used by the pinned
+ICU constructor. The source successor enables that metadata for the four
+script-prefix requests, retains the exact CJK dictionary request and missing-
+model rejection, and refreshes the Segmenter kernel identity. Its positive
+certificate control now runs before deliberate omission probes. Fresh compiler,
+focused runtime, pinned and final MAIN admission gates remain pending.
+
+The model-request successor passes340 native library controls,3 public
+calendar controls,9 host controls, the artifact identity gate,4 IR controls
+and11 catalog controls. The backend heap checkpoint then records71/72 passes
+and an actual constructor temporary-local release-order assertion. Its source
+follow-up moves the oldest retained Segmenter object release after all eleven
+younger locals without changing emitted operations, allocation order, data,
+protocols or Realm behavior. The failed command remains retained. Fresh
+compilation, backend/Engine verification, exact pinned replay and final MAIN
+admission remain pending; earlier passes retain their executed source scope.
+
+
+The constructor-lifetime successor passes all72 heap controls,5 module
+controls and the ordinary-prototype and preseeded-string controls. Its next
+three-test structural target records2 passes and one actual101 failure:
+the RelativeTimeFormat expected source string still uses a one-line match
+arm, while the production arm has formatting braces. The bounded successor
+updates only that expected string to the exact production arm; all names,
+assertions, domain cardinality and production source remain unchanged. The
+failed command is retained. Fresh compilation, the corrected structural
+target, all remaining Engine gates and exact pinned replay remain pending.
+
+
+The next coordinated Intl batch adds the real Wasm-AOT DurationFormat family
+and Temporal.Duration.prototype.toLocaleString. Five standard builtin entries
+reach compiled constructor, supported-locales, resolved-options, format and
+formatToParts consumers. A single private initializer performs locale and
+option processing for both the constructor and Temporal caller; the latter
+reads its branded stored duration fields. The native service uses genuine
+captured duration patterns and the existing NumberFormat, PluralRules and
+ListFormat algorithms. Its three operations extend the Intl host ABI to12.
+The 112-byte formatter has two traced text pointers and twelve scalar option
+words; entry and created-Realm constructors use their own prototype slot.
+
+This is source completion, with fresh whole-batch compilation and execution
+still pending. The native inventory is371 library controls, with four new
+host controls, two new IR controls and14 Engine controls/28 strict/sloppy
+observations. The exact pinned DurationFormat111 files/222 modes is a separate
+unexecuted gate. Malformed host frames remain traps; semantically invalid
+mixed-sign or out-of-bounds duration records return the checked rejection
+sentinel before any output write, becoming a JavaScript RangeError. Existing
+published status counts keep their original compiler provenance. T23 and the
+full pinned Intl and Temporal gates remain open.
+
+
+The Realm-fixture successor passes the corrected structural target3/3,
+all27 earlier baseline structural controls, Engine characterization1,
+Buddhist calendar7 and calendar/range controls3. DisplayNames then records
+13 passes and one failure among14 controls; RelativeTimeFormat and Segmenter
+Engine targets remain unexecuted. The failed dialect fixture still expects
+Spanish (Cyrillic, Mexico), while genuine CLDR47 data and the already passed
+native dialect control select Mexican Spanish (Cyrillic). The successor
+changes only that dialect expected string, preserving its standard-mode
+meaning and every other assertion. All production, native data, algorithms
+and seven identity components remain exact. Fresh affected Engine execution,
+exact pinned replay and MAIN admission remain pending; the actual failure
+and each earlier scoped pass are retained.
+
+
+The DisplayNames fixture successor records all14 controls passing. The
+RelativeTimeFormat target records seven passes and one constructor-control
+failure; Segmenter Engine execution remains pending. That constructor fixture
+uses a custom newTarget whose ordinary prototype has no format method. Its
+initialized-brand assertion now borrows Intl.RelativeTimeFormat.prototype.format,
+as the adjacent custom-prototype control already does. Constructor observation
+order, abrupt completions and primitive-options boxing assertions remain exact;
+ECMA-402 2025 CoerceOptionsToObject and the pinned constructor tests require the
+boxing behavior. Only this fixture expression and status documentation change.
+Production, genuine native data and seven identity components remain exact.
+Fresh affected Engine execution, pinned replay and MAIN admission remain pending;
+the actual failure and earlier scoped passes are retained.
+
+
+The RelativeTimeFormat intrinsic-borrow successor passes all22 DisplayNames
+and RelativeTimeFormat Engine controls. Segmenter records13 passes and one
+cross-realm failure: its raw Engine fixture calls undeclared $262.createRealm,
+so it throws ReferenceError before the first realm assertion. Test262's runner
+owns that adapter separately; direct Engine tests use the authorized
+__lilaCreateRealm intrinsic. A Root-owned Wasm-AOT diagnostic with only that
+host call corrected passes all seven original realm/newTarget assertions.
+This successor corrects the same call in the Segmenter fixture and both
+DurationFormat fixtures that used the undeclared adapter. Every existing
+assertion remains exact. Production and all seven native identity components
+are unchanged. The complete combined batch now requires a fresh23-stage
+checkpoint (575 Rust controls,113 explicit Script observations), a fresh CLI,
+six exact pinned subtrees and broad verification. The preceding failures are
+retained; no execution or conformance pass is inferred from this source edit.
+
+
+The combined DurationFormat checkpoint's first fresh all-target compile
+records a real exit101 before native or Engine execution. Rust rejects a
+duplicate available_locales accessor and an existing const assertion comparing
+the u32 wire tag with the u16 global operation code. This successor retains
+the original accessor and widens that code to u32 within the unchanged
+compile-time assertion. The genuine Duration identity generator binds both
+corrected source files into its103-input/55-package kernel; generation, check,
+nine source identity controls and owned Rust formatting pass. Primary data,
+all other native identities, shared compiler and AOT source remain exact.
+The full23-stage575-control checkpoint, fresh CLI, exact pinned subtrees and
+broad verification remain mandatory; the failed compile is retained.
+
+
+The native compile successor passes the fresh all-target compile and370 of371
+library controls, including all31 new Duration controls. The remaining
+canonical-encoding fixture expects host-call-abi11 although the checked
+Duration ABI is12. Its single literal now matches12 while preserving every
+other full-encoding field/assertion. Genuine generation/check refreshes all
+seven identity components: five source-bound pairs and the List-to-Duration
+input binding change, while Collator/DateTimeFormat identities and primary
+data remain exact. All31 identity source controls and formatting pass. The
+same audit moves the module guard's existing terminal failure gate after its
+Duration clauses; valid source passes, and configuration/layout violations
+now fail instead of returning success. Production compiler/runtime behavior
+is unchanged. Fresh full575-control execution, CLI, all672 pinned modes and
+broad verification remain pending; the actual370/1 failure is retained.
+
+
+The fresh ABI-corrected checkpoint passes the all-target compile, all371
+native Intl controls plus3 public calendar controls,13 host controls, the
+artifact gate and6 IR value-flow controls. Its catalog target then records
+10 passes and1 failure: the authored expected host-caller list interleaves
+the four DurationFormat entries with RelativeTimeFormat despite their later
+function ordinals. The expectation now lists those four entries once after
+Segmenter, matching the independent registry metadata partition. Production
+registry rows, host flags, native identities and primary data remain exact.
+The actual failed checkpoint is retained; fresh575/113 execution, current
+CLI, all672 pinned modes and broad verification remain required.
+
+
+The 2026-10-01 pinned RelativeTimeFormat run completes160 modes with148
+passes and12 runtime failures across six Polish format/parts sources. Its
+relative-time profile lacks Polish and resolves those requests to English.
+The separate source repair captures genuine pinned CLDR47 Polish fields
+and extends only RelativeTimeFormat's checked locale domain from13 to14.
+The shared Polish decimal/grouping data and cardinal rules are already
+present and remain unchanged. Original failed evidence is retained; fresh
+verification, all672 combined pinned modes, MAIN admission and the broad
+checkpoint remain required. This focused result does not change published
+full-suite counts or close T23/T26.

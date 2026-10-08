@@ -4,14 +4,14 @@ use super::*;
 use crate::number_format::numeric::{CompactExponentRow, PluralOperand};
 use crate::number_format::plural_rules::{CategoryRule, OperandRelation};
 
-struct Reader {
-    bytes: &'static [u8],
+struct Reader<'a> {
+    bytes: &'a [u8],
     position: usize,
     table: NumberProfileTable,
     index: u32,
 }
 
-impl Reader {
+impl<'a> Reader<'a> {
     fn error(&self, reason: NumberProfileError) -> InvalidNumberProfile {
         InvalidNumberProfile {
             table: self.table,
@@ -20,7 +20,7 @@ impl Reader {
         }
     }
 
-    fn take(&mut self, count: usize) -> Result<&'static [u8], InvalidNumberProfile> {
+    fn take(&mut self, count: usize) -> Result<&'a [u8], InvalidNumberProfile> {
         let end = self
             .position
             .checked_add(count)
@@ -61,10 +61,16 @@ impl Reader {
         ]))
     }
 
-    fn text(&mut self) -> Result<&'static str, InvalidNumberProfile> {
+    fn text(&mut self) -> Result<Box<str>, InvalidNumberProfile> {
         let length = self.index()?;
-        core::str::from_utf8(self.take(length)?)
-            .map_err(|_| self.error(NumberProfileError::InvalidUtf8))
+        let source = core::str::from_utf8(self.take(length)?)
+            .map_err(|_| self.error(NumberProfileError::InvalidUtf8))?;
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(source.len())
+            .map_err(|_| self.error(NumberProfileError::Allocation))?;
+        owned.push_str(source);
+        Ok(owned.into_boxed_str())
     }
 
     fn currency(&mut self) -> Result<[u8; 3], InvalidNumberProfile> {
@@ -180,14 +186,39 @@ impl Reader {
     }
 }
 
-pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumberProfile> {
+pub(super) fn decode(
+    bytes: &[u8],
+    locale: &crate::LocaleDataImage,
+) -> Result<NumberProfiles, InvalidNumberProfile> {
+    decode_inner(bytes, None, locale)
+}
+
+pub(super) fn decode_projected(
+    catalogue: &crate::number_image::projection::NumberCatalogue<'_>,
+    locale: &crate::LocaleDataImage,
+) -> Result<NumberProfiles, InvalidNumberProfile> {
+    decode_inner(catalogue.binary(), Some(catalogue), locale)
+}
+
+fn decode_inner(
+    bytes: &[u8],
+    catalogue: Option<&crate::number_image::projection::NumberCatalogue<'_>>,
+    locale: &crate::LocaleDataImage,
+) -> Result<NumberProfiles, InvalidNumberProfile> {
     let mut reader = Reader {
         bytes,
         position: 0,
         table: NumberProfileTable::Header,
         index: 0,
     };
-    if reader.take(8)? != b"LNF47\0\x01\0" {
+    let sparse_numbering =
+        catalogue.is_some_and(|catalogue| catalogue.numbering_systems().is_some());
+    let expected_header: &[u8] = if sparse_numbering {
+        b"LNF47\0\x03\0"
+    } else {
+        b"LNF47\0\x02\0"
+    };
+    if reader.take(8)? != expected_header {
         return Err(reader.error(NumberProfileError::Version));
     }
     let texts = reader.table(NumberProfileTable::Strings, Reader::text)?;
@@ -312,7 +343,7 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
             per_pattern: PatternId(r.index()?),
         })
     })?;
-    let plural_rules = reader.table(NumberProfileTable::PluralRules, |r| {
+    let mut read_rules = |r: &mut Reader| {
         r.list(|r| {
             Ok(CategoryRule {
                 category: r.category()?,
@@ -341,7 +372,9 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
             })
         })
         .map(CardinalRules)
-    })?;
+    };
+    let plural_rules = reader.table(NumberProfileTable::PluralRules, &mut read_rules)?;
+    let ordinal_rules = reader.table(NumberProfileTable::OrdinalRules, &mut read_rules)?;
     let plural_ranges = reader.table(NumberProfileTable::PluralRanges, |r| {
         let mut categories = [CardinalCategory::Other; 36];
         for category in &mut categories {
@@ -352,8 +385,18 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
     let profiles = reader.table(NumberProfileTable::Profiles, |r| {
         Ok(LocaleProfile {
             default_numbering: r.u8()?,
-            numbering: r.list(|r| r.index().map(NumberingProfileId))?,
+            numbering: r.list(|r| {
+                let value = r.u32()?;
+                if sparse_numbering && value == u32::MAX {
+                    Ok(None)
+                } else {
+                    Ok(Some(NumberingProfileId(
+                        usize::try_from(value).map_err(|_| r.error(NumberProfileError::Index))?,
+                    )))
+                }
+            })?,
             plural_rules: PluralRulesId(r.index()?),
+            ordinal_rules: OrdinalRulesId(r.index()?),
             plural_ranges: PluralRangeId(r.index()?),
             currencies: CurrencySetId(r.index()?),
             units: [
@@ -374,7 +417,7 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
     locale_profiles
         .try_reserve_exact(locale_rows.len())
         .map_err(|_| reader.error(NumberProfileError::Allocation))?;
-    for &(locale, profile) in &locale_rows {
+    for (locale, profile) in locale_rows.into_vec() {
         locales.push(locale);
         locale_profiles.push(profile);
     }
@@ -392,7 +435,7 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
         .try_reserve_exact(systems.len())
         .map_err(|_| reader.error(NumberProfileError::Allocation))?;
     for system in &systems {
-        system_names.push(system.name);
+        system_names.push(system.name.clone());
     }
     let unit_names = reader.table(NumberProfileTable::Units, Reader::text)?;
     reader.table = NumberProfileTable::CurrencyFractions;
@@ -411,6 +454,8 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
         return Err(reader.error(NumberProfileError::TrailingBytes));
     }
     let result = NumberProfiles {
+        locale_data: locale.clone(),
+        domains: NumberLocaleDomains::Complete,
         texts,
         patterns,
         signed_patterns,
@@ -424,6 +469,7 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
         currency_sets,
         unit_sets,
         plural_rules,
+        ordinal_rules,
         plural_ranges,
         profiles,
         locales: locales.into_boxed_slice(),
@@ -436,6 +482,9 @@ pub(super) fn decode(bytes: &'static [u8]) -> Result<NumberProfiles, InvalidNumb
         digit_set,
         whitespace_set,
     };
-    result.validate()?;
+    match catalogue {
+        Some(catalogue) => result.validate_projected(catalogue)?,
+        None => result.validate()?,
+    }
     Ok(result)
 }

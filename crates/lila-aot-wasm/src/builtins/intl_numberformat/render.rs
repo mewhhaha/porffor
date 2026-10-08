@@ -1,316 +1,279 @@
-use super::numeric_input::NfNumericLocals;
-use super::provider_wire::{NfOperation, NfResponseReader, NfWireField};
 use super::*;
+use crate::builtins::intl_provider_wire::IntlNumberProviderRequest;
+use crate::functions::ArgumentListConstruction;
 
 enum NfInputs<'a> {
-    Scalar(&'a NfNumericLocals),
+    Scalar(&'a IntlMathematicalValueLocals),
     Range {
-        start: &'a NfNumericLocals,
-        end: &'a NfNumericLocals,
+        start: &'a IntlMathematicalValueLocals,
+        end: &'a IntlMathematicalValueLocals,
     },
 }
-
 impl FunctionBuilder<'_> {
-    pub(super) fn emit_nf_result_object(
+    fn emit_intl_number_provider_format(
         &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let prototype = self.reserve_temp_local();
-        let realm = self.reserve_temp_local();
-        let intrinsics = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(prototype));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm,
-            function,
-        );
-        for (source, offset, destination) in [
-            (realm, HEAP_REALM_INTRINSICS_OFFSET, intrinsics),
-            (
-                intrinsics,
-                HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-                prototype,
-            ),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-            self.load_i64_to_local_from_offset(source, offset, destination, function);
-        }
-        function.instruction(&Instruction::LocalGet(prototype));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.emit_alloc_plain_object_with_prototype(Some(prototype), None, function)?;
-        for local in [intrinsics, realm, prototype] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    pub(super) fn emit_nf_output_array_entry(
-        &mut self,
-        array: u32,
-        index: u32,
-        payload: u32,
-        kind: ValueKind,
-        function: &mut Function,
-    ) {
-        let entry = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(array, HEAP_PTR_OFFSET, entry, function);
-        function.instruction(&Instruction::LocalGet(entry));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry));
-        self.store_i64_const_at_offset(entry, HEAP_ARRAY_TAG_OFFSET, kind.tag() as u64, function);
-        self.store_i64_local_at_offset(entry, HEAP_ARRAY_PAYLOAD_OFFSET, payload, function);
-        self.store_i64_const_at_offset(
-            entry,
-            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-            ARRAY_DESCRIPTOR_NORMAL_DATA,
-            function,
-        );
-        self.release_temp_local(entry);
-    }
-
-    fn emit_nf_provider_format(
-        &mut self,
-        record: u32,
+        record: &GcLocal<IntlNumberFormatObject>,
         inputs: NfInputs<'_>,
         mode: NfFormatMode,
-        destination: u32,
+        out: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let request = self.reserve_temp_local();
-        let response = self.reserve_temp_local();
-        let count = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let kind = self.reserve_temp_local();
-        let part_type = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        let source = self.reserve_temp_local();
-        let object = self.reserve_temp_local();
-        let key = self.reserve_temp_local();
-        let string_tag = self.reserve_temp_local();
-        let approximately = self.reserve_temp_local();
-        let (operation, fields, range) = match inputs {
-            NfInputs::Scalar(input) => (
-                NfOperation::ScalarParts,
-                vec![
-                    NfWireField::Configuration(record),
-                    NfWireField::Numeric(input),
-                ],
-                false,
-            ),
+        let (request, range) = match inputs {
+            NfInputs::Scalar(input) => (IntlNumberProviderRequest::Scalar { record, input }, false),
             NfInputs::Range { start, end } => (
-                NfOperation::RangeParts,
-                vec![
-                    NfWireField::Configuration(record),
-                    NfWireField::Numeric(start),
-                    NfWireField::Numeric(end),
-                ],
+                IntlNumberProviderRequest::Range { record, start, end },
                 true,
             ),
         };
-        self.emit_nf_provider_request(operation, &fields, request, function)?;
-        self.emit_nf_provider_call(operation, request, response, function)?;
-        let reader = NfResponseReader::new(self, response, function);
-        reader.word(self, count, function);
+        let response = self.emit_intl_number_provider_call(request, function)?;
+        let schema = self.runtime_schema();
+        let reader = response.reader(schema, function);
+        let count = schema.reserve_i64_local(function);
+        let index = schema.reserve_i64_local(function);
+        let code = schema.reserve_i64_local(function);
+        let recognized = schema.reserve_i32_local(function);
+        let approximately = schema.reserve_i32_local(function);
+        reader.read_u64(count, schema, function);
         reader.require_records(count, if range { 24 } else { 16 }, function);
-        match mode {
-            NfFormatMode::String => self.emit_nf_set_string(destination, "", function),
-            NfFormatMode::Parts => self
-                .emit_alloc_array_payload_with_length_in_current_function_realm(
-                    count,
-                    destination,
-                    function,
-                )?,
-        }
-        self.emit_nf_set_const(string_tag, ValueKind::String.tag() as i64, function);
-        self.emit_nf_set_const(index, 0, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
+        let text = match mode {
+            NfFormatMode::String => Some(
+                schema
+                    .reserve_gc_local(function)
+                    .initialize(self.emit_interned_string_reference("", function)?, function),
+            ),
+            NfFormatMode::Parts => None,
+        };
+        let parts = match mode {
+            NfFormatMode::Parts => Some(ArgumentListConstruction::new(schema, function)),
+            NfFormatMode::String => None,
+        };
+        let part_type = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_interned_string_reference("", function)?, function);
+        let source = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_interned_string_reference("", function)?, function);
+        let value = schema.reserve_value_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        index.store(function);
+        let done = self.open_frame(ControlFrameKind::Block, function);
+        let next = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        reader.word(self, kind, function);
-        self.emit_nf_set_const(part_type, 0, function);
-        self.emit_nf_set_const(approximately, 0, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(done, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        reader.read_u64(code, schema, function);
+        set_i32(recognized, 0, function);
+        set_i32(approximately, 0, function);
         if range {
-            self.emit_nf_if_eq(kind, lila_intl::NUMBER_APPROXIMATELY_SIGN_CODE, function);
-            self.emit_nf_set_string(part_type, "approximatelySign", function);
-            self.emit_nf_set_const(approximately, 1, function);
+            code.load(function);
+            function.instruction(&Instruction::I64Const(
+                lila_intl::NUMBER_APPROXIMATELY_SIGN_CODE as i64,
+            ));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            part_type.replace(
+                self.emit_interned_string_reference("approximatelySign", function)?,
+                function,
+            );
+            set_i32(recognized, 1, function);
+            set_i32(approximately, 1, function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
         for part in NumberPartKind::ALL {
-            self.emit_nf_if_eq(kind, part.wire_code(), function);
-            self.emit_nf_set_string(part_type, part.name(), function);
+            code.load(function);
+            function.instruction(&Instruction::I64Const(part.wire_code() as i64));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            part_type.replace(
+                self.emit_interned_string_reference(part.name(), function)?,
+                function,
+            );
+            set_i32(recognized, 1, function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(part_type));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        recognized.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         if range {
-            reader.word(self, kind, function);
-            self.emit_nf_if_nonzero(approximately, function);
-            function.instruction(&Instruction::LocalGet(kind));
+            reader.read_u64(code, schema, function);
+            approximately.load(function);
+            code.load(function);
             function.instruction(&Instruction::I64Const(
                 RangePartSource::Shared.wire_code() as i64
             ));
             function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::Unreachable);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            self.emit_nf_set_const(source, 0, function);
+            set_i32(recognized, 0, function);
             for attribution in RangePartSource::ALL {
-                self.emit_nf_if_eq(kind, attribution.wire_code(), function);
-                self.emit_nf_set_string(source, attribution.name(), function);
+                code.load(function);
+                function.instruction(&Instruction::I64Const(attribution.wire_code() as i64));
+                function.instruction(&Instruction::I64Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                source.replace(
+                    self.emit_interned_string_reference(attribution.name(), function)?,
+                    function,
+                );
+                set_i32(recognized, 1, function);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            recognized.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
             function.instruction(&Instruction::Unreachable);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        reader.bytes(self, value, function);
+        let part_text = reader.read_utf8(schema, function);
         match mode {
             NfFormatMode::String => {
-                self.emit_concat_string_payloads_local(destination, value, function)?;
-                function.instruction(&Instruction::LocalSet(destination));
-            }
-            NfFormatMode::Parts => {
-                self.emit_nf_result_object(function)?;
-                function.instruction(&Instruction::LocalSet(object));
-                for (name, payload) in [("type", part_type), ("value", value)]
-                    .into_iter()
-                    .chain(range.then_some(("source", source)))
-                {
-                    self.emit_nf_set_string(key, name, function);
-                    self.emit_object_append_data_property_with_flags(
-                        object, key, payload, string_tag, true, true, true, function,
-                    )?;
-                }
-                self.emit_nf_output_array_entry(
-                    destination,
-                    index,
-                    object,
-                    ValueKind::Object,
+                let text = text.as_ref().expect("String mode owns accumulator");
+                text.replace(
+                    self.emit_concat_gc_strings(text, &part_text, function),
                     function,
                 );
             }
+            NfFormatMode::Parts => {
+                let object = self.emit_intl_number_result_object(function)?;
+                value.set_reference(&part_type, schema, function);
+                self.emit_intl_number_append_result_property(&object, "type", &value, function)?;
+                value.set_reference(&part_text, schema, function);
+                self.emit_intl_number_append_result_property(&object, "value", &value, function)?;
+                if range {
+                    value.set_reference(&source, schema, function);
+                    self.emit_intl_number_append_result_property(
+                        &object, "source", &value, function,
+                    )?;
+                }
+                value.set_reference(&object, schema, function);
+                parts
+                    .as_ref()
+                    .expect("Parts mode owns List")
+                    .append(&value, schema, function);
+                object.clear(function);
+            }
         }
-        function.instruction(&Instruction::LocalGet(index));
+        part_text.clear(function);
+        index.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Br(0));
+        index.store(function);
+        self.emit_branch_to_target(next, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        reader.finish(self, function);
-        for local in [
-            approximately,
-            string_tag,
-            key,
-            object,
-            source,
-            value,
-            part_type,
-            kind,
-            index,
-            count,
-            response,
-            request,
-        ] {
-            self.release_temp_local(local);
+        reader.finish(schema, function);
+        match mode {
+            NfFormatMode::String => {
+                let text = text.expect("String mode owns accumulator");
+                out.set_reference(&text, schema, function);
+                text.clear(function);
+            }
+            NfFormatMode::Parts => {
+                let list = parts.expect("Parts mode owns List").finish(self, function);
+                let array = self.emit_array_from_argument_list(&list, function)?;
+                out.set_reference(&array, schema, function);
+                array.clear(function);
+                list.clear(function);
+            }
         }
+        value.clear(function);
+        source.clear(function);
+        part_type.clear(function);
+        schema.release_i32_local(approximately, function);
+        schema.release_i32_local(recognized, function);
+        schema.release_i64_local(code, function);
+        schema.release_i64_local(index, function);
+        schema.release_i64_local(count, function);
+        response.clear(function);
         Ok(())
     }
-}
-
-impl FunctionBuilder<'_> {
     pub(crate) fn emit_intl_number_format_bound_format(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        let input = NfNumericLocals::reserve(self);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-            object,
+        let schema = self.runtime_schema();
+        let context = self
+            .body_entry_locals()
+            .and_then(|entry| entry.function_context())
+            .ok_or_else(|| {
+                EmitError::unsupported("NumberFormat closure lacks actual function context")
+            })?;
+        let capture = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<FunctionContext>()
+                .field(FunctionContextSchema::BUILTIN_CAPTURE)
+                .read(context, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            object,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record,
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BuiltinClosureCapture>()
+                .field(BuiltinClosureCaptureSchema::NUMBER_FORMAT)
+                .read(&capture, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        self.emit_builtin_arg_to_locals(0, value.payload, value.tag, function);
-        self.emit_nf_observe_numeric(value, &input, function)?;
-        self.emit_nf_provider_format(
-            record,
+        let value = schema.reserve_value_local(function);
+        let out = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &value, function);
+        let input = self.emit_intl_mathematical_value(&value, function)?;
+        self.emit_intl_number_provider_format(
+            &record,
             NfInputs::Scalar(&input),
             NfFormatMode::String,
-            self.result_local,
+            &out,
             function,
         )?;
-        self.emit_nf_set_const(
-            self.result_tag_local,
-            ValueKind::String.tag() as i64,
-            function,
-        );
-        input.release(self);
-        for local in [value.tag, value.payload, record, object] {
-            self.release_temp_local(local);
-        }
+        self.completion().initialize(function);
+        self.completion().value().copy_from(&out, function);
+        input.clear(schema, function);
+        out.clear(function);
+        value.clear(function);
+        record.clear(function);
+        capture.clear(function);
         Ok(())
     }
     pub(crate) fn emit_intl_number_format_to_parts(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        let input = NfNumericLocals::reserve(self);
-        self.emit_nf_record_from_receiver(record, function)?;
-        self.emit_builtin_arg_to_locals(0, value.payload, value.tag, function);
-        self.emit_nf_observe_numeric(value, &input, function)?;
-        self.emit_nf_provider_format(
-            record,
+        let record = self.emit_nf_record_from_receiver(function)?;
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        let out = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &value, function);
+        let input = self.emit_intl_mathematical_value(&value, function)?;
+        self.emit_intl_number_provider_format(
+            &record,
             NfInputs::Scalar(&input),
             NfFormatMode::Parts,
-            self.result_local,
+            &out,
             function,
         )?;
-        self.emit_nf_set_const(
-            self.result_tag_local,
-            ValueKind::Array.tag() as i64,
-            function,
-        );
-        input.release(self);
-        for local in [value.tag, value.payload, record] {
-            self.release_temp_local(local);
-        }
+        self.completion().initialize(function);
+        self.completion().value().copy_from(&out, function);
+        input.clear(schema, function);
+        out.clear(function);
+        value.clear(function);
+        record.clear(function);
         Ok(())
     }
     pub(crate) fn emit_intl_number_format_range(
@@ -318,86 +281,109 @@ impl FunctionBuilder<'_> {
         mode: NfFormatMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let left = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        let right = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        let start = NfNumericLocals::reserve(self);
-        let end = NfNumericLocals::reserve(self);
-        self.emit_nf_record_from_receiver(record, function)?;
-        self.emit_builtin_arg_to_locals(0, left.payload, left.tag, function);
-        self.emit_builtin_arg_to_locals(1, right.payload, right.tag, function);
-        for tag in [left.tag, right.tag] {
-            self.emit_nf_if_eq(tag, ValueKind::Undefined.tag() as u64, function);
-            self.emit_nf_type_error(NF_RANGE_UNDEFINED, function)?;
+        let record = self.emit_nf_record_from_receiver(function)?;
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        let out = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &left, function);
+        self.emit_builtin_arg_to_value(1, &right, function);
+        for value in [&left, &right] {
+            emit_tag_is(value, WasmRuntimeValueTag::Undefined, function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_intl_number_type_error(NF_RANGE_UNDEFINED, function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        self.emit_nf_observe_numeric(left, &start, function)?;
-        self.emit_nf_observe_numeric(right, &end, function)?;
-        self.emit_nf_provider_format(
-            record,
+        let start = self.emit_intl_mathematical_value(&left, function)?;
+        let end = self.emit_intl_mathematical_value(&right, function)?;
+        self.emit_intl_number_provider_format(
+            &record,
             NfInputs::Range {
                 start: &start,
                 end: &end,
             },
             mode,
-            self.result_local,
+            &out,
             function,
         )?;
-        self.emit_nf_set_const(
-            self.result_tag_local,
-            match mode {
-                NfFormatMode::String => ValueKind::String.tag(),
-                NfFormatMode::Parts => ValueKind::Array.tag(),
-            } as i64,
-            function,
-        );
-        end.release(self);
-        start.release(self);
-        for local in [right.tag, right.payload, left.tag, left.payload, record] {
-            self.release_temp_local(local);
-        }
+        self.completion().initialize(function);
+        self.completion().value().copy_from(&out, function);
+        end.clear(schema, function);
+        start.clear(schema, function);
+        out.clear(function);
+        right.clear(function);
+        left.clear(function);
+        record.clear(function);
         Ok(())
     }
     pub(crate) fn emit_intl_number_format_getter(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let bound = self.reserve_temp_local();
-        self.emit_nf_record_from_receiver(record, function)?;
-        self.load_i64_to_local_from_offset(
-            record,
-            HEAP_INTL_NF_BOUND_FORMAT_OFFSET,
-            bound,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(bound));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let record = self.emit_nf_record_from_receiver(function)?;
+        let schema = self.runtime_schema();
+        let bound = schema
+            .reserve_gc_local::<FunctionObject, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<IntlNumberFormatObject>()
+                    .field(IntlNumberFormatObjectSchema::BOUND_FORMAT)
+                    .read(&record, schema, function)
+                    .reference(),
+                function,
+            );
+        bound.load(schema, function).is_null(function);
+        self.open_frame(ControlFrameKind::If, function);
         let meta = self
             .functions
             .get(&StandardBuiltinId::IntlNumberFormatBoundFormat.function_id())
             .cloned()
             .ok_or_else(|| {
-                EmitError::unsupported("missing NumberFormat bound format dependency")
+                EmitError::unsupported("missing NumberFormat bound-format dependency")
             })?;
-        self.emit_current_builtin_realm_closure_value(
-            &meta,
-            self.this_payload_local
-                .expect("checked NumberFormat receiver"),
-            bound,
-            function,
-        )?;
-        self.store_i64_local_at_offset(record, HEAP_INTL_NF_BOUND_FORMAT_OFFSET, bound, function);
-        function.instruction(&Instruction::End);
-        self.emit_nf_copy(bound, self.result_local, function);
-        self.emit_nf_set_const(
-            self.result_tag_local,
-            ValueKind::Function.tag() as i64,
+        let capture = schema
+            .reserve_gc_local::<BuiltinClosureCapture, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<BuiltinClosureCapture>()
+                    .publish(
+                        BuiltinClosurePayload::IntlNumberFormat(&record),
+                        schema,
+                        function,
+                    )
+                    .nullable(),
+                function,
+            );
+        let callable = schema.reserve_gc_local(function).initialize(
+            self.emit_current_builtin_realm_closure_value(&meta, &capture, function)?,
             function,
         );
-        self.release_temp_local(bound);
-        self.release_temp_local(record);
+        schema
+            .struct_type::<IntlNumberFormatObject>()
+            .field(IntlNumberFormatObjectSchema::BOUND_FORMAT)
+            .write(
+                &record,
+                GcOperand::nullable_reference(&callable, schema),
+                schema,
+                function,
+            );
+        bound.replace(callable.load(schema, function).nullable(), function);
+        callable.clear(function);
+        capture.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let callable = schema.reserve_gc_local(function).initialize(
+            bound.load(schema, function).require_non_null(function),
+            function,
+        );
+        self.completion().initialize(function);
+        self.completion()
+            .value()
+            .set_reference(&callable, schema, function);
+        callable.clear(function);
+        bound.clear(function);
+        record.clear(function);
         Ok(())
     }
 }

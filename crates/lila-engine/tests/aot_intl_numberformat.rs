@@ -96,6 +96,22 @@ fn locale_style_data() {
 }
 
 #[test]
+fn localized_measurement_signs_and_range_sources() {
+    assert_number_format_script(
+        include_str!("fixtures/intl-numberformat/17-measurement-signs.js"),
+        "ok measurement signs",
+    );
+}
+
+#[test]
+fn best_fit_uses_selected_likely_subtags_for_number_and_primitive_locale_output() {
+    assert_number_format_script(
+        include_str!("fixtures/intl-numberformat/18-likely-subtag-matching.js"),
+        "ok likely subtag matching",
+    );
+}
+
+#[test]
 fn newtarget_observation() {
     assert_number_format_script(
         include_str!("fixtures/intl-numberformat/09-newtarget-observation.js"),

@@ -1,11 +1,11 @@
 use crate::datetime::{DateTimeFormatError, DateTimeHourCycle};
 
 use super::super::{
-    calendar::{Fields, Year},
+    calendar::{CalendarId, CalendarYear, Fields},
     names::NameKey,
     pattern::{DayPeriod, Field, NameContext, NameWidth, Pattern, PeriodKind},
     plan::ValidatedPlan,
-    profile::{invalid, Profile},
+    profile::{invalid, AlgorithmicField, Calendar, Locale, Profile},
 };
 
 pub(super) fn format(
@@ -15,7 +15,29 @@ pub(super) fn format(
     field: Field,
     fields: Fields,
 ) -> Result<String, DateTimeFormatError> {
-    let names = &plan.calendar.names;
+    format_fields(
+        profile,
+        plan.locale,
+        plan.calendar,
+        &plan.numbering,
+        pattern,
+        field,
+        fields,
+    )
+}
+
+// Both the admitted request path and private expanded-profile acceptance use
+// this same renderer; the latter cannot publish a public calendar identifier.
+pub(in crate::provider::datetime) fn format_fields(
+    profile: &Profile,
+    locale: &Locale,
+    calendar: &Calendar,
+    numbering: &str,
+    pattern: &Pattern,
+    field: Field,
+    fields: Fields,
+) -> Result<String, DateTimeFormatError> {
+    let names = &calendar.names;
     let name = |key| names.get(key).map(str::to_owned);
     let number = |value: i64, width| {
         let system = pattern
@@ -29,48 +51,88 @@ pub(super) fn format(
                     .find(|(symbol, _)| symbol.is_none())
             })
             .map(|(_, system)| system.as_str())
-            .unwrap_or(&plan.numbering);
-        if let Some(labels) = profile.algorithmic.get(system) {
-            if !matches!(field, Field::Day(_)) {
-                return Err(invalid(
-                    "finite algorithmic numbering used for a different field",
-                ));
-            }
-            return usize::try_from(value - 1)
-                .ok()
-                .and_then(|index| labels.get(index))
-                .cloned()
-                .ok_or_else(|| invalid("day outside the finite numbering field"));
+            .unwrap_or(numbering);
+        if let Some(algorithm) = profile.algorithmic.get(system) {
+            return match algorithm {
+                AlgorithmicField::FiniteDay(labels) => {
+                    if !matches!(field, Field::Day(_)) {
+                        return Err(invalid(
+                            "finite algorithmic numbering used for a different field",
+                        ));
+                    }
+                    usize::try_from(value - 1)
+                        .ok()
+                        .and_then(|index| labels.get(index))
+                        .cloned()
+                        .ok_or_else(|| invalid("day outside the finite numbering field"))
+                }
+                AlgorithmicField::JapaneseYear { first_year } => {
+                    let CalendarYear::Era { year, .. } = fields.year else {
+                        return Err(invalid(
+                            "Japanese year numbering used for a cyclic calendar",
+                        ));
+                    };
+                    if fields.calendar != CalendarId::Japanese || !matches!(field, Field::Year(_)) {
+                        return Err(invalid(
+                            "Japanese year numbering used for a different field",
+                        ));
+                    }
+                    // Inspect the complete year before width2's modulo100.
+                    // Year101 must use decimal fallback, never the first-year label.
+                    if display_year(i64::from(year)) == 1 {
+                        Ok(first_year.clone())
+                    } else {
+                        super::positional(profile, locale, "latn", value, 1)
+                    }
+                }
+            };
         }
-        super::positional(profile, plan.locale, system, value, width)
+        super::positional(profile, locale, system, value, width)
     };
     match field {
         Field::Era(width) => match fields.year {
-            Year::Era { era, .. } => name(NameKey::Era(width, era)),
-            Year::Cyclic { .. } => Err(invalid("cyclic calendar pattern contains era")),
+            CalendarYear::Era { name: era, .. } => name(era.key(fields.calendar, width)?),
+            CalendarYear::Cyclic { .. } => Err(invalid("cyclic calendar pattern contains era")),
         },
         Field::Year(width) => {
             let year = match fields.year {
-                Year::Era { year, .. } => i64::from(year),
-                Year::Cyclic { year, .. } => i64::from(year),
+                CalendarYear::Era { year, .. } => i64::from(year),
+                CalendarYear::Cyclic { year, .. } => i64::from(year),
             };
+            // FormatDateTimePattern converts nonpositive calendar years before
+            // applying numeric or two-digit formatting. Buddhist has one era
+            // and can expose such years; Gregorian era years are positive.
+            let year = display_year(year);
             number(if width == 2 { year % 100 } else { year }, width)
         }
         Field::RelatedYear(width) => match fields.year {
-            Year::Cyclic { related, .. } => number(i64::from(related), width),
-            Year::Era { .. } => Err(invalid("era calendar pattern contains related year")),
+            CalendarYear::Cyclic { related_iso, .. } => number(i64::from(related_iso), width),
+            CalendarYear::Era { .. } => Err(invalid("era calendar pattern contains related year")),
         },
         Field::CyclicYear(width) => match fields.year {
-            Year::Cyclic { year, .. } => name(NameKey::CyclicYear(width, year)),
-            Year::Era { .. } => Err(invalid("era calendar pattern contains cyclic year")),
+            CalendarYear::Cyclic { year, .. } => name(NameKey::CyclicYear(width, year)),
+            CalendarYear::Era { .. } => Err(invalid("era calendar pattern contains cyclic year")),
         },
         Field::Month { context, width } => {
-            let month = if width <= 2 {
-                number(i64::from(fields.month), width)?
+            let month = if fields.calendar == CalendarId::Hebrew {
+                // Hebrew numeric requests keep real month names (CLDR-15510).
+                // Source name indices remain separate from standard month codes.
+                let width = if width <= 2 {
+                    NameWidth::Abbreviated
+                } else {
+                    month_width(width)
+                };
+                name(fields.month.key(fields.calendar, context, width))?
+            } else if width <= 2 {
+                number(i64::from(fields.month.name_index(fields.calendar)), width)?
             } else {
-                name(NameKey::Month(context, month_width(width), fields.month))?
+                name(
+                    fields
+                        .month
+                        .key(fields.calendar, context, month_width(width)),
+                )?
             };
-            if !fields.leap_month {
+            if !fields.month.uses_leap_placeholder(fields.calendar) {
                 return Ok(month);
             }
             let key = if width <= 2 {
@@ -82,6 +144,10 @@ pub(super) fn format(
         }
         Field::Day(width) => number(i64::from(fields.day), width),
         Field::Weekday { context, width } => name(NameKey::Weekday(context, width, fields.weekday)),
+        Field::NumericWeekday { width, .. } => {
+            let first = locale.first_weekday.sunday_index();
+            number(i64::from((fields.weekday + 7 - first) % 7 + 1), width)
+        }
         Field::DayPeriod { kind, width } => {
             let am_pm = if fields.hour < 12 {
                 DayPeriod::Am
@@ -106,7 +172,7 @@ pub(super) fn format(
                         am_pm
                     }
                 }
-                PeriodKind::Flexible => plan.locale.periods.select(
+                PeriodKind::Flexible => locale.periods.select(
                     fields.hour,
                     fields.minute,
                     fields.second,
@@ -153,5 +219,13 @@ fn month_width(width: u8) -> NameWidth {
         4 => NameWidth::Wide,
         5 => NameWidth::Narrow,
         _ => unreachable!("validated textual month width"),
+    }
+}
+
+fn display_year(year: i64) -> i64 {
+    if year <= 0 {
+        1 - year
+    } else {
+        year
     }
 }

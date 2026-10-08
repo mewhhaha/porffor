@@ -1,5 +1,67 @@
 use super::*;
 use boa_ast::StatementList;
+use boa_interner::Sym;
+
+pub(crate) use crate::async_generator_source::{
+    AsyncGeneratorArrayPatternSource, AsyncGeneratorArrayPatternSourceStates,
+    AsyncGeneratorClassicLoopSource, AsyncGeneratorExpressionSource, AsyncGeneratorFunctionSource,
+    AsyncGeneratorIfSource, AsyncGeneratorIfSourceStates, AsyncGeneratorLoopSourceStates,
+    AsyncGeneratorPatternSource, AsyncGeneratorSourceDomain, AsyncGeneratorSourceError,
+    AsyncGeneratorSourceRange,
+};
+
+pub(crate) use crate::async_pattern_source::{
+    append_async_expression_states, AsyncArrayPatternSource, AsyncArrayPatternSourceStates,
+    AsyncObjectPatternSource, AsyncPatternDefaultStates, AsyncPatternSource,
+};
+
+pub(crate) use crate::async_with_source::{
+    append_async_statement_protocol_items, append_async_statement_protocol_states,
+    append_async_statement_states, contains_plain_async_phase, AsyncWithSource,
+    AsyncWithSourceStates,
+};
+
+#[path = "generator_with_source.rs"]
+mod generator_with_source;
+pub(crate) use generator_with_source::{GeneratorWithSource, GeneratorWithSourceStates};
+#[path = "generator_region_presence.rs"]
+mod generator_region_presence;
+pub(crate) use generator_region_presence::contains_ordinary_generator_phase_owner;
+#[path = "generator_for_in_source.rs"]
+mod generator_for_in_source;
+pub(crate) use generator_for_in_source::{
+    mixed_for_in_head_mode_and_kind, ForInSourceIdentity, GeneratorForInHeadKind,
+    GeneratorForInHeadProof,
+};
+
+pub(crate) use crate::generator_value_branch_source::{
+    CheckedGeneratorCompoundAssignmentSource, CheckedGeneratorDeleteSource,
+    GeneratorArrayPatternSource, GeneratorArrayPatternSourceStates,
+    GeneratorCompoundAssignmentOperation, GeneratorDeleteOperand, GeneratorExpressionSourcePlan,
+    GeneratorGroupedOptionalInvocationSource, GeneratorGroupedOptionalReferenceSource,
+    GeneratorObjectPatternSource, GeneratorOptionalArgumentSource, GeneratorOptionalBaseSource,
+    GeneratorOptionalChainLink, GeneratorOptionalChainSource, GeneratorOptionalChainStates,
+    GeneratorOptionalDeleteSource, GeneratorOptionalDeleteTerminal, GeneratorOptionalKeySource,
+    GeneratorOptionalOperandSource, GeneratorPatternAssignmentSource,
+    GeneratorPatternInitializerSource, GeneratorValueBranchAdmission, GeneratorValueBranchKind,
+    GeneratorValueBranchSource, GeneratorValueRegionStates,
+};
+
+#[path = "generator_switch_source.rs"]
+mod generator_switch_source;
+pub(crate) use generator_switch_source::{
+    append_generator_switch_suspensions, CheckedEmptyStatementCompletionSource,
+    CheckedGeneratorSwitchSource, GeneratorSwitchSourceStates,
+};
+
+#[path = "generator_source_plan.rs"]
+mod generator_source_plan;
+pub(crate) use generator_source_plan::{
+    append_generator_for_of_suspensions, append_generator_region_suspensions,
+};
+pub(crate) use generator_source_plan::{
+    generator_for_of_source_shape_is_supported, GeneratorSuspensionRegion,
+};
 
 /// The normal Number/BigInt results an already-inferred primitive can produce
 /// through ToNumeric. An untracked object can observably produce either kind.
@@ -243,23 +305,6 @@ pub(crate) fn supported_bound_names(
     )
 }
 
-/// True when every element of an object binding pattern is a plain
-/// `{ key: name }` / `{ name }` element with a literal property name, i.e. the
-/// shape the statement-per-binding lowering can emit directly. Nested patterns
-/// (`{ a: [b] }`) and rest properties (`{ a, ...rest }`) need the semantic
-/// `ObjectDestructure` node instead.
-pub(crate) fn object_pattern_binds_only_single_names(bindings: &[ObjectPatternElement]) -> bool {
-    bindings.iter().all(|element| {
-        matches!(
-            element,
-            ObjectPatternElement::SingleName {
-                name: PropertyName::Literal(_),
-                ..
-            }
-        )
-    })
-}
-
 pub(crate) fn function_declaration_key(function: &FunctionDeclaration) -> String {
     let span = function.linear_span();
     format!(
@@ -426,263 +471,17 @@ pub(crate) fn generator_body_has_no_suspension(body: &FunctionBody) -> bool {
     !contains(body, ContainsSymbol::YieldExpression)
 }
 
-#[derive(Default)]
-struct ResumableStateAllocator {
-    current_state: u32,
-    suspension_points: Vec<ResumableSuspensionPointIr>,
-}
-
-impl ResumableStateAllocator {
-    fn suspend(&mut self, kind: ResumableSuspensionKindIr) {
-        let suspend_state = self.current_state;
-        self.current_state += 1;
-        self.suspension_points.push(ResumableSuspensionPointIr {
-            kind,
-            suspend_state,
-            resume_state: self.current_state,
-        });
-    }
-
-    /// Burn one state without recording a suspension point, so the next
-    /// `suspend` starts from a state nothing else resumes into.
-    fn reserve(&mut self) {
-        self.current_state += 1;
-    }
-
-    fn reserve_async_disposable_finalizer(&mut self) {
-        for _ in 0..AsyncDisposableFinalizerPlanIr::IMPLICIT_STATE_COUNT {
-            self.reserve();
-        }
-    }
-
-    fn finish(self) -> ResumablePlanIr {
-        ResumablePlanIr {
-            entry_state: 0,
-            state_count: self.current_state + 1,
-            suspension_points: self.suspension_points,
-        }
-    }
-}
-
-#[derive(Default)]
-struct AsyncGeneratorSuspensionCollector {
-    states: ResumableStateAllocator,
-}
-
-impl<'ast> Visitor<'ast> for AsyncGeneratorSuspensionCollector {
-    type BreakTy = ();
-
-    fn visit_statement_list(
-        &mut self,
-        statement_list: &'ast StatementList,
-    ) -> ControlFlow<Self::BreakTy> {
-        let async_disposable_scope_count = statement_list
-            .statements()
-            .iter()
-            .filter(|item| async_generator_await_using_is_admitted(item))
-            .count();
-        for item in statement_list.statements() {
-            self.visit_statement_list_item(item)?;
-        }
-        for _ in 0..async_disposable_scope_count {
-            self.states.reserve_async_disposable_finalizer();
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn visit_return(&mut self, return_statement: &'ast AstReturn) -> ControlFlow<Self::BreakTy> {
-        let Some(target) = return_statement.target() else {
-            return ControlFlow::Continue(());
-        };
-        let _ = target.visit_with(self);
-        self.states.suspend(ResumableSuspensionKindIr::Await);
-        ControlFlow::Continue(())
-    }
-
-    fn visit_await(
-        &mut self,
-        await_expression: &'ast boa_ast::expression::Await,
-    ) -> ControlFlow<Self::BreakTy> {
-        let _ = await_expression.visit_with(self);
-        self.states.suspend(ResumableSuspensionKindIr::Await);
-        ControlFlow::Continue(())
-    }
-
-    fn visit_yield(
-        &mut self,
-        yield_expression: &'ast boa_ast::expression::Yield,
-    ) -> ControlFlow<Self::BreakTy> {
-        let _ = yield_expression.visit_with(self);
-        self.states.suspend(ResumableSuspensionKindIr::Yield);
-        ControlFlow::Continue(())
-    }
-
-    fn visit_for_of_loop(&mut self, for_of: &'ast ForOfLoop) -> ControlFlow<Self::BreakTy> {
-        let _ = for_of.initializer().visit_with(self);
-        let _ = for_of.iterable().visit_with(self);
-        if for_of.r#await() {
-            self.states.suspend(ResumableSuspensionKindIr::ForAwaitNext);
-        }
-        let _ = for_of.body().visit_with(self);
-        if for_of.r#await() {
-            // The iterator-close await must suspend in a state of its own. The
-            // allocator otherwise chains, so `ForAwaitClose.suspend_state` would
-            // land on whatever the previous point resumed into — for a body with
-            // no suspension that is `ForAwaitNext.resume_state`, i.e. the state
-            // the loop resumes in after awaiting `next()`. The backend derives
-            // `value_resume_state` and `close_resume_state` from exactly those
-            // two fields, so the collision made a `next()` resume replay the
-            // close path instead. Reserving one state keeps the four states of a
-            // for-await loop distinct, matching the plain-async layout
-            // (`entry`, `entry+1`, `entry+2`, `entry+3`).
-            self.states.reserve();
-            self.states
-                .suspend(ResumableSuspensionKindIr::ForAwaitClose);
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn visit_function_declaration(
-        &mut self,
-        _function: &'ast FunctionDeclaration,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_generator_declaration(
-        &mut self,
-        _function: &'ast GeneratorDeclaration,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_async_function_declaration(
-        &mut self,
-        _function: &'ast AsyncFunctionDeclaration,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_async_generator_declaration(
-        &mut self,
-        _function: &'ast AsyncGeneratorDeclaration,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_function_expression(
-        &mut self,
-        _function: &'ast FunctionExpression,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_generator_expression(
-        &mut self,
-        _function: &'ast GeneratorExpression,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_async_function_expression(
-        &mut self,
-        _function: &'ast AsyncFunctionExpression,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_async_generator_expression(
-        &mut self,
-        _function: &'ast AsyncGeneratorExpression,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_arrow_function(
-        &mut self,
-        _function: &'ast ArrowFunction,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_async_arrow_function(
-        &mut self,
-        _function: &'ast AsyncArrowFunction,
-    ) -> ControlFlow<Self::BreakTy> {
-        ControlFlow::Continue(())
-    }
-
-    fn visit_class_declaration(
-        &mut self,
-        class: &'ast ClassDeclaration,
-    ) -> ControlFlow<Self::BreakTy> {
-        if let Some(heritage) = class.super_ref() {
-            let _ = heritage.visit_with(self);
-        }
-        for element in class.elements() {
-            let _ = self.visit_class_element(element);
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn visit_class_expression(
-        &mut self,
-        class: &'ast ClassExpression,
-    ) -> ControlFlow<Self::BreakTy> {
-        if let Some(heritage) = class.super_ref() {
-            let _ = heritage.visit_with(self);
-        }
-        for element in class.elements() {
-            let _ = self.visit_class_element(element);
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn visit_class_element(&mut self, element: &'ast ClassElement) -> ControlFlow<Self::BreakTy> {
-        if let ClassElement::MethodDefinition(method) = element {
-            if let ClassElementName::PropertyName(name) = method.name() {
-                let _ = name.visit_with(self);
-            }
-            return ControlFlow::Continue(());
-        }
-        let _ = element.visit_with(self);
-        ControlFlow::Continue(())
-    }
-
-    fn visit_object_method_definition(
-        &mut self,
-        method: &'ast ObjectMethodDefinition,
-    ) -> ControlFlow<Self::BreakTy> {
-        let _ = method.name().visit_with(self);
-        ControlFlow::Continue(())
-    }
-}
-
-fn async_generator_await_using_is_admitted(item: &StatementListItem) -> bool {
-    let StatementListItem::Declaration(declaration) = item else {
-        return false;
-    };
-    let Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) = declaration.as_ref() else {
-        return false;
-    };
-    list.as_ref().iter().all(|variable| {
-        matches!(variable.binding(), Binding::Identifier(_))
-            && variable.init().is_some_and(|initializer| {
-                !contains(initializer, ContainsSymbol::AwaitExpression)
-                    && !contains(initializer, ContainsSymbol::YieldExpression)
-            })
-    })
-}
-
-pub(crate) fn async_generator_resumable_plan(body: &FunctionBody) -> ResumablePlanIr {
-    let mut collector = AsyncGeneratorSuspensionCollector::default();
-    let _ = collector.visit_statement_list(body.statement_list());
-    collector.states.finish()
+pub(crate) fn async_generator_resumable_plan(
+    body: &FunctionBody,
+) -> Result<ResumablePlanIr, AsyncGeneratorSourceError> {
+    AsyncGeneratorFunctionSource::new(body).map(AsyncGeneratorFunctionSource::into_resumable_plan)
 }
 
 /// A source suspension shape that the generator state plan cannot represent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeneratorPlanRejection {
+    /// A resume, join or final exclusive state count exceeds the state word.
+    StateOverflow,
     /// A nested declaration (a function, class or lexical declaration at the top
     /// level of the body) contains a yield.
     YieldInDeclaration,
@@ -692,22 +491,21 @@ pub(crate) enum GeneratorPlanRejection {
     /// `return <expression containing a yield>` whose expression cannot be
     /// staged into a sequence of suspensions.
     ReturnOperandNotStageable,
+    /// `throw <expression containing a yield>` whose complete value has no
+    /// source-owned continuation in the current region.
+    ThrowOperandNotStageable,
     /// An expression statement whose value is discarded but whose yields cannot
     /// be flattened into a sequence.
     DiscardedYieldExpression,
     /// A bare block whose yields cannot be flattened into a sequence.
     DiscardedYieldBlock,
-    /// `with (<expression containing a yield>)`.
-    YieldInWithHead,
-    /// A `with` body that is neither a block nor an expression statement and
-    /// contains a yield.
-    YieldInWithBody,
-    /// A `for`/`while` body that is not one direct yield or a conditional
-    /// containing one direct yield in exactly one branch.
-    LoopBodyYieldNotDirect,
-    /// A `for`/`while` carrying `break`, `continue`, or a nested function that
-    /// would capture a per-iteration binding.
-    LoopControlFlow,
+    /// The complete ordinary With head/body requires another continuation owner.
+    WithSourceShape,
+    /// The original ForIn head/body needs a distinct continuation owner.
+    ForInSourceShape,
+    /// A classic iteration head or body needs a different suspended expression,
+    /// binding, iterator/resource or control owner than its admitted phases.
+    ClassicLoopShape,
     /// `if (<condition containing a yield>)`.
     YieldInIfCondition,
     /// An `if` branch whose yields are not a countable direct sequence.
@@ -718,6 +516,7 @@ pub(crate) enum GeneratorPlanRejection {
     /// Any other statement kind that contains a yield: `switch`, labelled
     /// statements, `do`-`while`, `for`-`in`, `for`-`of`, and so on.
     YieldInUnsupportedStatement,
+    GeneratorForOfShape,
 }
 
 impl GeneratorPlanRejection {
@@ -726,6 +525,9 @@ impl GeneratorPlanRejection {
     /// one bucket labelled "function or class declaration".
     pub(crate) fn message(self) -> &'static str {
         match self {
+            Self::StateOverflow => {
+                "generator body: suspension states exceed the representable state count"
+            }
             Self::YieldInDeclaration => {
                 "generator body: a nested declaration contains a yield, which has no linear \
                  suspension plan"
@@ -738,6 +540,9 @@ impl GeneratorPlanRejection {
                 "generator body: a `return` operand containing a yield cannot be staged into a \
                  linear suspension plan"
             }
+            Self::ThrowOperandNotStageable => {
+                "generator body: a `throw` operand containing a yield requires a complete value continuation"
+            }
             Self::DiscardedYieldExpression => {
                 "generator body: a discarded expression statement's yields cannot be flattened \
                  into a linear suspension plan"
@@ -746,19 +551,14 @@ impl GeneratorPlanRejection {
                 "generator body: a block's yields cannot be flattened into a linear suspension \
                  plan"
             }
-            Self::YieldInWithHead => {
-                "generator body: a yield in a `with` head has no linear suspension plan"
+            Self::WithSourceShape => {
+                "generator body: complete With source requires an owned staged head and environment lifetime"
             }
-            Self::YieldInWithBody => {
-                "generator body: a yield in this `with` body shape has no linear suspension plan"
+            Self::ForInSourceShape => {
+                "generator body: complete ForIn source requires an eager per-key head and retained enumeration lifetime"
             }
-            Self::LoopBodyYieldNotDirect => {
-                "generator body: a loop body requiring multiple suspension positions or an \
-                 unsupported nested yield has no linear suspension plan"
-            }
-            Self::LoopControlFlow => {
-                "generator body: a loop carrying `break`, `continue` or a capturing nested \
-                 function has no linear suspension plan"
+            Self::ClassicLoopShape => {
+                "generator body: classic loop source requires an owned staged expression, lexical binding and control region"
             }
             Self::YieldInIfCondition => {
                 "generator body: a yield in an `if` condition has no linear suspension plan"
@@ -770,6 +570,9 @@ impl GeneratorPlanRejection {
             Self::YieldInTryStatement => {
                 "generator body: a `try`/`catch`/`finally` block whose yields are not a direct \
                  sequence has no linear suspension plan"
+            }
+            Self::GeneratorForOfShape => {
+                "generator body: yielding for-of requires an eager var/let/const identifier head and structured Yield body without nested resumable loops or foreign branch owners"
             }
             Self::YieldInUnsupportedStatement => {
                 "generator body: a yield inside a statement kind with no resumable lowering \
@@ -789,18 +592,30 @@ pub(crate) fn linear_generator_plan_with_reason(
 ) -> Result<GeneratorPlanIr, GeneratorPlanRejection> {
     let mut suspension_points = Vec::new();
     let mut current_state = 0u32;
+    if crate::async_generator_source::AsyncGeneratorResourceScopeSource::for_protocol(
+        body.statements(),
+        ResumableRegionProtocolIr::Generator,
+    )
+    .is_some()
+    {
+        append_structured_generator_suspensions(
+            body.statements(),
+            &mut current_state,
+            &mut suspension_points,
+        )
+        .ok_or(GeneratorPlanRejection::YieldInDeclaration)?;
+        return finish_generator_plan(current_state, suspension_points);
+    }
     for item in body.statements() {
         let StatementListItem::Statement(statement) = item else {
             if contains(item, ContainsSymbol::YieldExpression) {
-                let count = staged_generator_declaration_yield_count(item)
-                    .ok_or(GeneratorPlanRejection::YieldInDeclaration)?;
-                for _ in 0..count {
-                    suspension_points.push(GeneratorSuspensionPointIr {
-                        suspend_state: current_state,
-                        resume_state: current_state + 1,
-                    });
-                    current_state += 1;
-                }
+                GeneratorExpressionSourcePlan::declaration(
+                    item,
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+                )
+                .ok_or(GeneratorPlanRejection::YieldInDeclaration)?
+                .append(&mut current_state, &mut suspension_points)
+                .ok_or(GeneratorPlanRejection::StateOverflow)?;
             }
             continue;
         };
@@ -826,17 +641,21 @@ pub(crate) fn linear_generator_plan_with_reason(
             _ => None,
         };
         if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
-            let yield_count =
-                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)
-                    .ok_or(GeneratorPlanRejection::YieldOperandNotDirect)?;
-            for _ in 0..yield_count {
-                let suspend_state = current_state;
-                current_state += 1;
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state,
-                    resume_state: current_state,
-                });
+            if !nested_yield_allowed
+                && yield_expression
+                    .target()
+                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression))
+            {
+                return Err(GeneratorPlanRejection::YieldOperandNotDirect);
             }
+            let expression = Expression::Yield(yield_expression.clone());
+            GeneratorExpressionSourcePlan::new(
+                &expression,
+                GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+            )
+            .ok_or(GeneratorPlanRejection::YieldOperandNotDirect)?
+            .append(&mut current_state, &mut suspension_points)
+            .ok_or(GeneratorPlanRejection::StateOverflow)?;
             continue;
         }
         if let Statement::Return(statement) = statement.as_ref() {
@@ -844,18 +663,36 @@ pub(crate) fn linear_generator_plan_with_reason(
                 .target()
                 .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
             {
-                let yield_count = staged_generator_expression_yield_count(target)
-                    .ok_or(GeneratorPlanRejection::ReturnOperandNotStageable)?;
-                for _ in 0..yield_count {
-                    let suspend_state = current_state;
-                    current_state += 1;
-                    suspension_points.push(GeneratorSuspensionPointIr {
-                        suspend_state,
-                        resume_state: current_state,
-                    });
-                }
+                GeneratorExpressionSourcePlan::new(
+                    target,
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+                )
+                .ok_or(GeneratorPlanRejection::ReturnOperandNotStageable)?
+                .append(&mut current_state, &mut suspension_points)
+                .ok_or(GeneratorPlanRejection::StateOverflow)?;
                 continue;
             }
+        }
+        if let Statement::Throw(source) = statement.as_ref() {
+            if contains(source.target(), ContainsSymbol::YieldExpression) {
+                GeneratorExpressionSourcePlan::new(
+                    source.target(),
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+                )
+                .ok_or(GeneratorPlanRejection::ThrowOperandNotStageable)?
+                .append(&mut current_state, &mut suspension_points)
+                .ok_or(GeneratorPlanRejection::StateOverflow)?;
+            }
+            continue;
+        }
+        if let Statement::Var(source) = statement.as_ref() {
+            if contains(source, ContainsSymbol::YieldExpression) {
+                GeneratorExpressionSourcePlan::var_declaration(source)
+                    .ok_or(GeneratorPlanRejection::YieldInDeclaration)?
+                    .append(&mut current_state, &mut suspension_points)
+                    .ok_or(GeneratorPlanRejection::StateOverflow)?;
+            }
+            continue;
         }
         if let Statement::Expression(expression) = statement.as_ref() {
             if contains(expression, ContainsSymbol::YieldExpression) {
@@ -863,13 +700,16 @@ pub(crate) fn linear_generator_plan_with_reason(
                     expression,
                     &mut current_state,
                     &mut suspension_points,
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
                 )
                 .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 continue;
             }
         }
         if let Statement::Block(block) = statement.as_ref() {
-            if contains(block, ContainsSymbol::YieldExpression) {
+            if contains(block, ContainsSymbol::YieldExpression)
+                || contains_ordinary_generator_phase_owner(block)
+            {
                 append_discarded_generator_block_suspensions(
                     block.statement_list().statements(),
                     &mut current_state,
@@ -880,78 +720,84 @@ pub(crate) fn linear_generator_plan_with_reason(
             }
         }
         if let Statement::With(with) = statement.as_ref() {
-            if contains(with.expression(), ContainsSymbol::YieldExpression) {
-                return Err(GeneratorPlanRejection::YieldInWithHead);
-            }
-            match with.statement() {
-                Statement::Block(block) => append_discarded_generator_block_suspensions(
-                    block.statement_list().statements(),
+            GeneratorWithSource::new(with)
+                .and_then(|source| source.append(&mut current_state, &mut suspension_points))
+                .ok_or(GeneratorPlanRejection::WithSourceShape)?;
+            continue;
+        }
+        if let Statement::ForInLoop(source) = statement.as_ref() {
+            append_generator_for_in_suspensions(source, &mut current_state, &mut suspension_points)
+                .ok_or(GeneratorPlanRejection::ForInSourceShape)?;
+            continue;
+        }
+        if let Statement::ForOfLoop(for_of) = statement.as_ref() {
+            append_generator_for_of_suspensions(for_of, &mut current_state, &mut suspension_points)
+                .ok_or(GeneratorPlanRejection::GeneratorForOfShape)?;
+            continue;
+        }
+        if let Statement::Switch(source) = statement.as_ref() {
+            if contains(source, ContainsSymbol::YieldExpression)
+                || contains_ordinary_generator_phase_owner(source)
+            {
+                append_generator_switch_suspensions(
+                    source,
                     &mut current_state,
                     &mut suspension_points,
                 )
-                .ok_or(GeneratorPlanRejection::DiscardedYieldBlock)?,
-                Statement::Expression(expression) => {
-                    append_discarded_generator_expression_suspensions(
-                        expression,
-                        &mut current_state,
-                        &mut suspension_points,
-                    )
-                    .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
-                }
-                statement if contains(statement, ContainsSymbol::YieldExpression) => {
-                    return Err(GeneratorPlanRejection::YieldInWithBody);
-                }
-                _ => {}
+                .ok_or(GeneratorPlanRejection::YieldInUnsupportedStatement)?;
+                continue;
             }
-            continue;
         }
-        let loop_shape = match statement.as_ref() {
-            Statement::ForLoop(loop_statement) => Some((
-                loop_statement.body(),
-                matches!(loop_statement.init(), Some(ForLoopInitializer::Lexical(_))),
-                loop_statement,
-            )),
+        let classic_loop = match statement.as_ref() {
+            Statement::ForLoop(source) => {
+                Some(crate::generator_loop_source::ClassicGeneratorLoopSource::For(source))
+            }
+            Statement::WhileLoop(source) => {
+                Some(crate::generator_loop_source::ClassicGeneratorLoopSource::While(source))
+            }
+            Statement::DoWhileLoop(source) => {
+                Some(crate::generator_loop_source::ClassicGeneratorLoopSource::DoWhile(source))
+            }
             _ => None,
         };
-        if let Some((loop_body, reject_nested_functions, loop_statement)) = loop_shape {
-            if !simple_generator_loop_body_is_supported(loop_body) {
-                return Err(GeneratorPlanRejection::LoopBodyYieldNotDirect);
-            }
-            if generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions) {
-                return Err(GeneratorPlanRejection::LoopControlFlow);
-            }
-            let resume_state = current_state + 1;
-            suspension_points.push(GeneratorSuspensionPointIr {
-                suspend_state: current_state,
-                resume_state,
-            });
-            suspension_points.push(GeneratorSuspensionPointIr {
-                suspend_state: resume_state,
-                resume_state,
-            });
-            current_state += 2;
+        if let Some(source) = classic_loop {
+            source
+                .append(&mut current_state, &mut suspension_points)
+                .ok_or(GeneratorPlanRejection::ClassicLoopShape)?;
             continue;
         }
-        if let Statement::WhileLoop(loop_statement) = statement.as_ref() {
-            if !simple_generator_loop_body_is_supported(loop_statement.body()) {
-                return Err(GeneratorPlanRejection::LoopBodyYieldNotDirect);
+        if let Statement::Labelled(source) = statement.as_ref() {
+            if matches!(
+                source.item(),
+                LabelledItem::Statement(
+                    Statement::ForLoop(_)
+                        | Statement::WhileLoop(_)
+                        | Statement::DoWhileLoop(_)
+                        | Statement::Switch(_)
+                        | Statement::Labelled(_)
+                        | Statement::With(_)
+                )
+            ) || contains_ordinary_generator_phase_owner(source)
+            {
+                crate::generator_loop_source::append_classic_generator_statement(
+                    statement,
+                    &mut current_state,
+                    &mut suspension_points,
+                )
+                .ok_or(GeneratorPlanRejection::ClassicLoopShape)?;
+                continue;
             }
-            if generator_loop_has_unsupported_construct(loop_statement, false) {
-                return Err(GeneratorPlanRejection::LoopControlFlow);
-            }
-            let resume_state = current_state + 1;
-            suspension_points.push(GeneratorSuspensionPointIr {
-                suspend_state: current_state,
-                resume_state,
-            });
-            suspension_points.push(GeneratorSuspensionPointIr {
-                suspend_state: resume_state,
-                resume_state,
-            });
-            current_state += 2;
-            continue;
         }
         if let Statement::If(if_statement) = statement.as_ref() {
+            if ordinary_generator_if_requires_complete_owner(if_statement) {
+                crate::generator_loop_source::append_classic_generator_statement(
+                    statement,
+                    &mut current_state,
+                    &mut suspension_points,
+                )
+                .ok_or(GeneratorPlanRejection::IfBranchYieldNotDirect)?;
+                continue;
+            }
             if contains(if_statement.cond(), ContainsSymbol::YieldExpression) {
                 return Err(GeneratorPlanRejection::YieldInIfCondition);
             }
@@ -962,17 +808,25 @@ pub(crate) fn linear_generator_plan_with_reason(
                     .ok_or(GeneratorPlanRejection::IfBranchYieldNotDirect)?,
                 None => 0,
             };
-            let yield_count = then_yields + else_yields;
+            let yield_count = then_yields
+                .checked_add(else_yields)
+                .and_then(|count| u32::try_from(count).ok())
+                .ok_or(GeneratorPlanRejection::StateOverflow)?;
             if yield_count == 0 {
                 continue;
             }
             for resume_offset in 1..=yield_count {
                 suspension_points.push(GeneratorSuspensionPointIr {
                     suspend_state: current_state,
-                    resume_state: current_state + resume_offset as u32,
+                    resume_state: current_state
+                        .checked_add(resume_offset)
+                        .ok_or(GeneratorPlanRejection::StateOverflow)?,
                 });
             }
-            current_state += yield_count as u32 + 1;
+            current_state = current_state
+                .checked_add(yield_count)
+                .and_then(|state| state.checked_add(1))
+                .ok_or(GeneratorPlanRejection::StateOverflow)?;
             continue;
         }
         if let Statement::Try(try_statement) = statement.as_ref() {
@@ -982,15 +836,25 @@ pub(crate) fn linear_generator_plan_with_reason(
                 &mut suspension_points,
             )
             .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
-            current_state += 1;
+            current_state = current_state
+                .checked_add(1)
+                .ok_or(GeneratorPlanRejection::StateOverflow)?;
             if let Some(catch) = try_statement.catch() {
+                crate::generator_loop_source::append_generator_catch_parameter(
+                    catch.parameter(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )
+                .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
                 append_structured_generator_suspensions(
                     catch.block().statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
                 )
                 .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
-                current_state += 1;
+                current_state = current_state
+                    .checked_add(1)
+                    .ok_or(GeneratorPlanRejection::StateOverflow)?;
             }
             if let Some(finally) = try_statement.finally() {
                 append_structured_generator_suspensions(
@@ -999,7 +863,9 @@ pub(crate) fn linear_generator_plan_with_reason(
                     &mut suspension_points,
                 )
                 .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
-                current_state += 1;
+                current_state = current_state
+                    .checked_add(1)
+                    .ok_or(GeneratorPlanRejection::StateOverflow)?;
             }
             continue;
         }
@@ -1007,9 +873,19 @@ pub(crate) fn linear_generator_plan_with_reason(
             return Err(GeneratorPlanRejection::YieldInUnsupportedStatement);
         }
     }
+    finish_generator_plan(current_state, suspension_points)
+}
+
+pub(crate) fn finish_generator_plan(
+    final_state: u32,
+    suspension_points: Vec<GeneratorSuspensionPointIr>,
+) -> Result<GeneratorPlanIr, GeneratorPlanRejection> {
+    let state_count = final_state
+        .checked_add(1)
+        .ok_or(GeneratorPlanRejection::StateOverflow)?;
     Ok(GeneratorPlanIr {
         entry_state: 0,
-        state_count: current_state + 1,
+        state_count,
         suspension_points,
     })
 }
@@ -1019,123 +895,12 @@ fn append_structured_generator_suspensions(
     current_state: &mut u32,
     suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
 ) -> Option<()> {
-    for item in statements {
-        let StatementListItem::Statement(statement) = item else {
-            let count = if contains(item, ContainsSymbol::YieldExpression) {
-                staged_generator_declaration_yield_count(item)?
-            } else {
-                0
-            };
-            for _ in 0..count {
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state: *current_state,
-                    resume_state: *current_state + 1,
-                });
-                *current_state += 1;
-            }
-            continue;
-        };
-        let yield_expression = match statement.as_ref() {
-            Statement::Expression(Expression::Yield(expression)) => Some((expression, true)),
-            Statement::Expression(Expression::Assign(assignment))
-                if assignment.op() == AssignOp::Assign
-                    && matches!(
-                        assignment.lhs(),
-                        AssignTarget::Identifier(_) | AssignTarget::Access(_)
-                    )
-                    && !contains(assignment.lhs(), ContainsSymbol::YieldExpression) =>
-            {
-                match assignment.rhs() {
-                    Expression::Yield(expression) => Some((expression, false)),
-                    _ => None,
-                }
-            }
-            Statement::Return(statement) => match statement.target() {
-                Some(Expression::Yield(expression)) => Some((expression, true)),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
-            let yield_count =
-                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)?;
-            for _ in 0..yield_count {
-                let suspend_state = *current_state;
-                *current_state += 1;
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state,
-                    resume_state: *current_state,
-                });
-            }
-            continue;
-        }
-        if let Statement::Return(statement) = statement.as_ref() {
-            if let Some(target) = statement
-                .target()
-                .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
-            {
-                let yield_count = staged_generator_expression_yield_count(target)?;
-                for _ in 0..yield_count {
-                    let suspend_state = *current_state;
-                    *current_state += 1;
-                    suspension_points.push(GeneratorSuspensionPointIr {
-                        suspend_state,
-                        resume_state: *current_state,
-                    });
-                }
-                continue;
-            }
-        }
-        if let Statement::Expression(expression) = statement.as_ref() {
-            if contains(expression, ContainsSymbol::YieldExpression) {
-                append_discarded_generator_expression_suspensions(
-                    expression,
-                    current_state,
-                    suspension_points,
-                )?;
-                continue;
-            }
-        }
-        if let Statement::Block(block) = statement.as_ref() {
-            if contains(block, ContainsSymbol::YieldExpression) {
-                append_discarded_generator_block_suspensions(
-                    block.statement_list().statements(),
-                    current_state,
-                    suspension_points,
-                )?;
-                continue;
-            }
-        }
-        if let Statement::Try(try_statement) = statement.as_ref() {
-            append_structured_generator_suspensions(
-                try_statement.block().statement_list().statements(),
-                current_state,
-                suspension_points,
-            )?;
-            *current_state += 1;
-            if let Some(catch) = try_statement.catch() {
-                append_structured_generator_suspensions(
-                    catch.block().statement_list().statements(),
-                    current_state,
-                    suspension_points,
-                )?;
-                *current_state += 1;
-            }
-            if let Some(finally) = try_statement.finally() {
-                append_structured_generator_suspensions(
-                    finally.block().statement_list().statements(),
-                    current_state,
-                    suspension_points,
-                )?;
-                *current_state += 1;
-            }
-            continue;
-        }
-        if contains(statement.as_ref(), ContainsSymbol::YieldExpression) {
-            return None;
-        }
-    }
-    Some(())
+    append_generator_region_suspensions(
+        statements,
+        current_state,
+        suspension_points,
+        GeneratorSuspensionRegion::FunctionBody,
+    )
 }
 
 fn direct_generator_yield_count(
@@ -1154,38 +919,7 @@ fn direct_generator_yield_count(
     staged_generator_expression_yield_count(target)?.checked_add(1)
 }
 
-fn staged_generator_declaration_yield_count(item: &StatementListItem) -> Option<u32> {
-    let StatementListItem::Declaration(declaration) = item else {
-        return None;
-    };
-    match declaration.as_ref() {
-        Declaration::ClassDeclaration(class) => class_evaluation_expressions(
-            class.super_ref(),
-            class.elements(),
-        )
-        .try_fold(0u32, |count, expression| {
-            count.checked_add(staged_generator_expression_yield_count(expression)?)
-        }),
-        Declaration::Lexical(
-            lexical @ (LexicalDeclaration::Let(_) | LexicalDeclaration::Const(_)),
-        ) => lexical
-            .variable_list()
-            .as_ref()
-            .iter()
-            .try_fold(0u32, |count, variable| {
-                if !matches!(variable.binding(), Binding::Identifier(_)) {
-                    return None;
-                }
-                count.checked_add(match variable.init() {
-                    Some(init) => staged_generator_expression_yield_count(init)?,
-                    None => 0,
-                })
-            }),
-        _ => None,
-    }
-}
-
-fn class_evaluation_expressions<'a>(
+pub(crate) fn class_evaluation_expressions<'a>(
     heritage: Option<&'a Expression>,
     elements: &'a [ClassElement],
 ) -> impl Iterator<Item = &'a Expression> {
@@ -1212,13 +946,93 @@ fn class_evaluation_expressions<'a>(
         }))
 }
 
-fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u32> {
+/// Current property's evaluation operands, before its actual definition. Method
+/// bodies belong to their own invocation; only a computed name evaluates here.
+pub(crate) fn generator_object_property_operands(
+    property: &PropertyDefinition,
+) -> Option<(Option<&Expression>, Option<&Expression>)> {
+    Some(match property {
+        PropertyDefinition::Property(PropertyName::Computed(key), value) => {
+            (Some(key), Some(value))
+        }
+        PropertyDefinition::Property(PropertyName::Literal(_), value)
+        | PropertyDefinition::SpreadObject(value) => (None, Some(value)),
+        PropertyDefinition::MethodDefinition(method) => {
+            let key = match method.name() {
+                PropertyName::Computed(key) => Some(key),
+                PropertyName::Literal(_) => None,
+            };
+            (key, None)
+        }
+        PropertyDefinition::IdentifierReference(_) => (None, None),
+        PropertyDefinition::CoverInitializedName(_, _) => return None,
+    })
+}
+
+fn staged_generator_property_reference_yield_count(access: &PropertyAccess) -> Option<u32> {
+    let (count, key) = match access {
+        PropertyAccess::Simple(access) => (
+            staged_generator_expression_yield_count(access.target())?,
+            access.field(),
+        ),
+        PropertyAccess::Private(access) => {
+            return staged_generator_expression_yield_count(access.target())
+        }
+        PropertyAccess::Super(access) => (0, access.field()),
+    };
+    match key {
+        PropertyAccessField::Expr(key) => {
+            count.checked_add(staged_generator_expression_yield_count(key)?)
+        }
+        PropertyAccessField::Const(_) => Some(count),
+    }
+}
+
+pub(crate) fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u32> {
     if !contains(expression, ContainsSymbol::YieldExpression) {
         return Some(0);
     }
     match expression {
         Expression::Parenthesized(parenthesized) => {
             staged_generator_expression_yield_count(parenthesized.expression())
+        }
+        Expression::Binary(binary) if !matches!(binary.op(), BinaryOp::Logical(_)) => {
+            staged_generator_expression_yield_count(binary.lhs())?
+                .checked_add(staged_generator_expression_yield_count(binary.rhs())?)
+        }
+        Expression::Unary(unary) if unary.op() == UnaryOp::Delete => {
+            match CheckedGeneratorDeleteSource::new(unary.target())?.into_operand() {
+                GeneratorDeleteOperand::Property { access, .. } => {
+                    let count = staged_generator_expression_yield_count(access.target())?;
+                    match access.field() {
+                        PropertyAccessField::Const(_) => Some(count),
+                        PropertyAccessField::Expr(key) => {
+                            count.checked_add(staged_generator_expression_yield_count(key)?)
+                        }
+                    }
+                }
+                GeneratorDeleteOperand::Optional(_)
+                | GeneratorDeleteOperand::AwaitedOptional(_) => None,
+                GeneratorDeleteOperand::Super(access) => match access.field() {
+                    PropertyAccessField::Const(_) => Some(0),
+                    PropertyAccessField::Expr(key) => staged_generator_expression_yield_count(key),
+                },
+                GeneratorDeleteOperand::Value(source) => {
+                    staged_generator_expression_yield_count(source)
+                }
+            }
+        }
+        Expression::Unary(unary) => staged_generator_expression_yield_count(unary.target()),
+        Expression::TemplateLiteral(template) => {
+            template
+                .elements()
+                .iter()
+                .try_fold(0u32, |count, element| match element {
+                    TemplateElement::String(_) => Some(count),
+                    TemplateElement::Expr(value) => {
+                        count.checked_add(staged_generator_expression_yield_count(value)?)
+                    }
+                })
         }
         Expression::Yield(yield_expression) => {
             let nested_count = match yield_expression.target() {
@@ -1228,37 +1042,104 @@ fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u3
             nested_count.checked_add(1)
         }
         Expression::Call(call) => {
-            if call
-                .args()
-                .iter()
-                .any(|arg| matches!(arg, Expression::Spread(_)))
-            {
+            if contains(expression, ContainsSymbol::AwaitExpression) {
                 return None;
             }
-            call.args().iter().try_fold(
-                staged_generator_expression_yield_count(call.function())?,
-                |count, argument| {
-                    count.checked_add(staged_generator_expression_yield_count(argument)?)
-                },
+            staged_generator_invocation_argument_yield_count(
+                staged_generator_invocation_reference_yield_count(call.function())?,
+                call.args(),
             )
         }
-        Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-            let count = staged_generator_expression_yield_count(access.target())?;
-            match access.field() {
-                PropertyAccessField::Const(_) => Some(count),
-                PropertyAccessField::Expr(key) => {
-                    count.checked_add(staged_generator_expression_yield_count(key)?)
+        Expression::New(construct) => {
+            if contains(expression, ContainsSymbol::AwaitExpression) {
+                return None;
+            }
+            staged_generator_invocation_argument_yield_count(
+                staged_generator_invocation_reference_yield_count(construct.constructor())?,
+                construct.arguments(),
+            )
+        }
+        Expression::TaggedTemplate(template) => {
+            if contains(expression, ContainsSymbol::AwaitExpression) {
+                return None;
+            }
+            staged_generator_invocation_argument_yield_count(
+                staged_generator_invocation_reference_yield_count(template.tag())?,
+                template.exprs(),
+            )
+        }
+        Expression::PropertyAccess(access) => {
+            staged_generator_property_reference_yield_count(access)
+        }
+        Expression::BinaryInPrivate(source) => {
+            staged_generator_expression_yield_count(source.rhs())
+        }
+        Expression::Update(source) => match source.target() {
+            UpdateTarget::Identifier(_) => Some(0),
+            UpdateTarget::PropertyAccess(access) => {
+                staged_generator_property_reference_yield_count(access)
+            }
+            UpdateTarget::WebCompatCall(call) => staged_generator_invocation_argument_yield_count(
+                staged_generator_invocation_reference_yield_count(call.function())?,
+                call.args(),
+            ),
+        },
+        Expression::ImportCall(source) => {
+            let count = staged_generator_expression_yield_count(source.argument())?;
+            match source.options() {
+                Some(options) => {
+                    count.checked_add(staged_generator_expression_yield_count(options)?)
                 }
+                None => Some(count),
             }
         }
+        Expression::Assign(assignment)
+            if matches!(assignment.lhs(), AssignTarget::WebCompatCall(_)) =>
+        {
+            let AssignTarget::WebCompatCall(call) = assignment.lhs() else {
+                unreachable!()
+            };
+            staged_generator_invocation_argument_yield_count(
+                staged_generator_invocation_reference_yield_count(call.function())?,
+                call.args(),
+            )
+        }
+        Expression::Assign(assignment)
+            if CheckedGeneratorCompoundAssignmentSource::new(assignment).is_some() =>
+        {
+            let source = CheckedGeneratorCompoundAssignmentSource::new(assignment)?;
+            // A selected RHS has joins that a linear suspension count cannot own.
+            if source.logical_operation().is_some() {
+                return None;
+            }
+            let count = match source.lhs() {
+                AssignTarget::Identifier(_) => 0,
+                AssignTarget::Access(access) => {
+                    staged_generator_property_reference_yield_count(access)?
+                }
+                AssignTarget::Pattern(_) | AssignTarget::WebCompatCall(_) => return None,
+            };
+            count.checked_add(staged_generator_expression_yield_count(source.rhs())?)
+        }
+        Expression::Assign(assignment) if matches!(assignment.lhs(), AssignTarget::Pattern(_)) => {
+            // A selected default owns a structured region, not a linear count.
+            if contains(assignment.lhs(), ContainsSymbol::YieldExpression) {
+                return None;
+            }
+            let source = GeneratorPatternAssignmentSource::new(
+                assignment,
+                GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+            )?;
+            staged_generator_expression_yield_count(source.rhs())
+        }
         Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
-            let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
+            if matches!(assignment.lhs(), AssignTarget::Identifier(_)) {
+                return staged_generator_expression_yield_count(assignment.rhs());
+            }
+            let AssignTarget::Access(access) = assignment.lhs() else {
                 return None;
             };
-            let mut count = staged_generator_expression_yield_count(access.target())?;
-            if let PropertyAccessField::Expr(key) = access.field() {
-                count = count.checked_add(staged_generator_expression_yield_count(key)?)?;
-            }
+            let count = staged_generator_property_reference_yield_count(access)?;
             count.checked_add(staged_generator_expression_yield_count(assignment.rhs())?)
         }
         Expression::ClassExpression(class) => class_evaluation_expressions(
@@ -1286,19 +1167,53 @@ fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u3
             object
                 .properties()
                 .iter()
-                .try_fold(0u32, |count, property| match property {
-                    PropertyDefinition::SpreadObject(source) => {
-                        count.checked_add(staged_generator_expression_yield_count(source)?)
+                .try_fold(0u32, |mut count, property| {
+                    let (key, value) = generator_object_property_operands(property)?;
+                    for source in key.into_iter().chain(value) {
+                        count =
+                            count.checked_add(staged_generator_expression_yield_count(source)?)?;
                     }
-                    PropertyDefinition::Property(PropertyName::Literal(_), value) => {
-                        count.checked_add(staged_generator_expression_yield_count(value)?)
-                    }
-                    _ => None,
+                    Some(count)
                 })
         }
         expression if contains(expression, ContainsSymbol::YieldExpression) => None,
         _ => Some(0),
     }
+}
+
+fn staged_generator_invocation_reference_yield_count(source: &Expression) -> Option<u32> {
+    match source {
+        Expression::Parenthesized(parenthesized) => {
+            staged_generator_invocation_reference_yield_count(parenthesized.expression())
+        }
+        Expression::PropertyAccess(PropertyAccess::Private(access)) => {
+            staged_generator_expression_yield_count(access.target())
+        }
+        Expression::PropertyAccess(PropertyAccess::Super(access)) => match access.field() {
+            PropertyAccessField::Const(_) => Some(0),
+            PropertyAccessField::Expr(key) => staged_generator_expression_yield_count(key),
+        },
+        // Guarded chain Yields cannot become a flat single-arm count.
+        // Grouped Property References and Call Values enter through the same
+        // complete checked source planner, never this single-arm count.
+        Expression::Optional(optional) if contains(optional, ContainsSymbol::YieldExpression) => {
+            None
+        }
+        source => staged_generator_expression_yield_count(source),
+    }
+}
+
+fn staged_generator_invocation_argument_yield_count(
+    callee_count: u32,
+    arguments: &[Expression],
+) -> Option<u32> {
+    arguments.iter().try_fold(callee_count, |count, argument| {
+        let operand = match argument {
+            Expression::Spread(spread) => spread.target(),
+            argument => argument,
+        };
+        count.checked_add(staged_generator_expression_yield_count(operand)?)
+    })
 }
 
 fn append_discarded_generator_block_suspensions(
@@ -1308,30 +1223,104 @@ fn append_discarded_generator_block_suspensions(
 ) -> Option<()> {
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
-            let count = if contains(item, ContainsSymbol::YieldExpression) {
-                staged_generator_declaration_yield_count(item)?
-            } else {
-                0
-            };
-            for _ in 0..count {
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state: *current_state,
-                    resume_state: *current_state + 1,
-                });
-                *current_state += 1;
+            if contains(item, ContainsSymbol::YieldExpression) {
+                GeneratorExpressionSourcePlan::declaration(
+                    item,
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+                )?
+                .append(current_state, suspension_points)?;
             }
             continue;
         };
         match statement.as_ref() {
+            Statement::Var(source) => {
+                if contains(source, ContainsSymbol::YieldExpression) {
+                    GeneratorExpressionSourcePlan::var_declaration(source)?
+                        .append(current_state, suspension_points)?;
+                }
+            }
             Statement::Expression(expression) => {
                 append_discarded_generator_expression_suspensions(
                     expression,
+                    current_state,
+                    suspension_points,
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+                )?;
+            }
+            Statement::Return(source) => {
+                if let Some(target) = source.target() {
+                    GeneratorExpressionSourcePlan::new(
+                        target,
+                        GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+                    )?
+                    .append(current_state, suspension_points)?;
+                }
+            }
+            Statement::Throw(source) => GeneratorExpressionSourcePlan::new(
+                source.target(),
+                GeneratorValueBranchAdmission::OrdinaryOutsideLoops,
+            )?
+            .append(current_state, suspension_points)?,
+            Statement::With(source) => {
+                GeneratorWithSource::new(source)?.append(current_state, suspension_points)?;
+            }
+            Statement::ForInLoop(source) => {
+                append_generator_for_in_suspensions(source, current_state, suspension_points)?;
+            }
+            Statement::If(source) if ordinary_generator_if_requires_complete_owner(source) => {
+                crate::generator_loop_source::append_classic_generator_statement(
+                    statement,
                     current_state,
                     suspension_points,
                 )?;
             }
             Statement::Block(block) => append_discarded_generator_block_suspensions(
                 block.statement_list().statements(),
+                current_state,
+                suspension_points,
+            )?,
+            Statement::ForOfLoop(for_of) => {
+                append_generator_for_of_suspensions(for_of, current_state, suspension_points)?;
+            }
+            Statement::Switch(source)
+                if contains(source, ContainsSymbol::YieldExpression)
+                    || contains_ordinary_generator_phase_owner(source) =>
+            {
+                append_generator_switch_suspensions(source, current_state, suspension_points)?;
+            }
+            Statement::ForLoop(source) => {
+                crate::generator_loop_source::ClassicGeneratorLoopSource::For(source)
+                    .append(current_state, suspension_points)?
+            }
+            Statement::WhileLoop(source) => {
+                crate::generator_loop_source::ClassicGeneratorLoopSource::While(source)
+                    .append(current_state, suspension_points)?
+            }
+            Statement::DoWhileLoop(source) => {
+                crate::generator_loop_source::ClassicGeneratorLoopSource::DoWhile(source)
+                    .append(current_state, suspension_points)?
+            }
+            Statement::Labelled(source)
+                if matches!(
+                    source.item(),
+                    LabelledItem::Statement(
+                        Statement::ForLoop(_)
+                            | Statement::WhileLoop(_)
+                            | Statement::DoWhileLoop(_)
+                            | Statement::Switch(_)
+                            | Statement::Labelled(_)
+                            | Statement::With(_)
+                    )
+                ) || contains_ordinary_generator_phase_owner(source) =>
+            {
+                crate::generator_loop_source::append_classic_generator_statement(
+                    statement,
+                    current_state,
+                    suspension_points,
+                )?
+            }
+            Statement::Try(_) => append_structured_generator_suspensions(
+                std::slice::from_ref(item),
                 current_state,
                 suspension_points,
             )?,
@@ -1342,31 +1331,45 @@ fn append_discarded_generator_block_suspensions(
     Some(())
 }
 
-fn append_discarded_generator_expression_suspensions(
+pub(crate) fn append_discarded_generator_expression_suspensions(
     expression: &Expression,
     current_state: &mut u32,
     suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+    admission: GeneratorValueBranchAdmission,
 ) -> Option<()> {
+    let mut ungrouped = expression;
+    while let Expression::Parenthesized(group) = ungrouped {
+        ungrouped = group.expression();
+    }
+    if contains(expression, ContainsSymbol::YieldExpression)
+        && (matches!(
+            ungrouped,
+            Expression::Unary(_) | Expression::TemplateLiteral(_)
+        ) || matches!(ungrouped, Expression::Binary(binary) if !matches!(binary.op(), BinaryOp::Logical(_))))
+    {
+        return GeneratorExpressionSourcePlan::new(expression, admission)?
+            .append(current_state, suspension_points);
+    }
+    if matches!(
+        ungrouped,
+        Expression::Conditional(_) | Expression::Optional(_)
+    ) || matches!(ungrouped, Expression::Binary(binary) if matches!(binary.op(), BinaryOp::Logical(_)))
+    {
+        if let Some(plan) = GeneratorExpressionSourcePlan::new(expression, admission) {
+            return plan.append(current_state, suspension_points);
+        }
+    }
     match expression {
         Expression::Parenthesized(parenthesized) => {
             append_discarded_generator_expression_suspensions(
                 parenthesized.expression(),
                 current_state,
                 suspension_points,
+                admission,
             )
         }
-        Expression::Yield(yield_expression) => {
-            if direct_generator_yield_count(yield_expression.target(), true)? != 1 {
-                return None;
-            }
-            let suspend_state = *current_state;
-            *current_state += 1;
-            suspension_points.push(GeneratorSuspensionPointIr {
-                suspend_state,
-                resume_state: *current_state,
-            });
-            Some(())
-        }
+        Expression::Yield(_) => GeneratorExpressionSourcePlan::new(expression, admission)?
+            .append(current_state, suspension_points),
         Expression::ArrayLiteral(array) => {
             for element in array.as_ref().iter().flatten() {
                 if matches!(element, Expression::Spread(_)) {
@@ -1376,6 +1379,7 @@ fn append_discarded_generator_expression_suspensions(
                     element,
                     current_state,
                     suspension_points,
+                    admission,
                 )?;
             }
             Some(())
@@ -1385,11 +1389,13 @@ fn append_discarded_generator_expression_suspensions(
                 binary.lhs(),
                 current_state,
                 suspension_points,
+                admission,
             )?;
             append_discarded_generator_expression_suspensions(
                 binary.rhs(),
                 current_state,
                 suspension_points,
+                admission,
             )
         }
         Expression::Binary(binary) if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) => {
@@ -1397,11 +1403,13 @@ fn append_discarded_generator_expression_suspensions(
                 binary.lhs(),
                 current_state,
                 suspension_points,
+                admission,
             )?;
             append_discarded_generator_expression_suspensions(
                 binary.rhs(),
                 current_state,
                 suspension_points,
+                admission,
             )
         }
         Expression::Conditional(conditional) => {
@@ -1416,7 +1424,7 @@ fn append_discarded_generator_expression_suspensions(
                 return None;
             }
             let condition_suspend_state = *current_state;
-            *current_state += 1;
+            *current_state = current_state.checked_add(1)?;
             suspension_points.push(GeneratorSuspensionPointIr {
                 suspend_state: condition_suspend_state,
                 resume_state: *current_state,
@@ -1439,10 +1447,12 @@ fn append_discarded_generator_expression_suspensions(
                 }
                 suspension_points.push(GeneratorSuspensionPointIr {
                     suspend_state: branch_entry_state,
-                    resume_state: branch_entry_state + resume_offset as u32 + 1,
+                    resume_state: branch_entry_state
+                        .checked_add(u32::try_from(resume_offset).ok()?)?
+                        .checked_add(1)?,
                 });
             }
-            *current_state = branch_entry_state + 3;
+            *current_state = branch_entry_state.checked_add(3)?;
             Some(())
         }
         Expression::Assign(assignment)
@@ -1471,7 +1481,7 @@ fn append_discarded_generator_expression_suspensions(
                     return None;
                 }
                 let suspend_state = *current_state;
-                *current_state += 1;
+                *current_state = current_state.checked_add(1)?;
                 suspension_points.push(GeneratorSuspensionPointIr {
                     suspend_state,
                     resume_state: *current_state,
@@ -1487,25 +1497,29 @@ fn append_discarded_generator_expression_suspensions(
                 assignment.rhs(),
                 current_state,
                 suspension_points,
+                admission,
             )
         }
         Expression::ClassExpression(_)
+        | Expression::ObjectLiteral(_)
         | Expression::Call(_)
+        | Expression::New(_)
+        | Expression::TaggedTemplate(_)
         | Expression::PropertyAccess(_)
-        | Expression::Assign(_) => {
-            let count = staged_generator_expression_yield_count(expression)?;
-            for _ in 0..count {
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state: *current_state,
-                    resume_state: *current_state + 1,
-                });
-                *current_state += 1;
-            }
-            Some(())
-        }
+        | Expression::Assign(_) => GeneratorExpressionSourcePlan::new(expression, admission)?
+            .append(current_state, suspension_points),
         expression if contains(expression, ContainsSymbol::YieldExpression) => None,
         _ => Some(()),
     }
+}
+
+pub(crate) fn ordinary_generator_if_requires_complete_owner(source: &If) -> bool {
+    contains(source.cond(), ContainsSymbol::YieldExpression)
+        || simple_generator_if_branch_yield_count(source.body()).is_none()
+        || source
+            .else_node()
+            .is_some_and(|branch| simple_generator_if_branch_yield_count(branch).is_none())
+        || contains_ordinary_generator_phase_owner(source)
 }
 
 fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
@@ -1562,62 +1576,6 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
         return None;
     }
     Some(1)
-}
-
-/// One suspension position per loop iteration, optionally guarded by an `if`.
-/// Captured body bindings still require a resumable lexical environment.
-pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool {
-    let statements = match body {
-        Statement::Block(block) => block.statement_list().statements(),
-        _ => {
-            return generator_loop_statement_yield_count(body) == Some(1);
-        }
-    };
-    let mut yield_count = 0usize;
-    let mut has_lexical_declaration = false;
-    for item in statements {
-        let StatementListItem::Statement(statement) = item else {
-            if !generator_loop_body_declaration_is_supported(item) {
-                return false;
-            }
-            has_lexical_declaration = true;
-            continue;
-        };
-        let Some(statement_yields) = generator_loop_statement_yield_count(statement) else {
-            return false;
-        };
-        yield_count += statement_yields;
-    }
-    if yield_count != 1 {
-        return false;
-    }
-    // A captured lexical binding needs an Environment Record that persists
-    // across suspension. This loop form carries uncaptured activation slots.
-    !has_lexical_declaration || !generator_loop_has_unsupported_construct(body, true)
-}
-
-fn generator_loop_statement_yield_count(statement: &Statement) -> Option<usize> {
-    match statement {
-        Statement::Expression(Expression::Yield(expression))
-            if !expression.delegate()
-                && !expression
-                    .target()
-                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression)) =>
-        {
-            Some(1)
-        }
-        Statement::If(branch) if !contains(branch.cond(), ContainsSymbol::YieldExpression) => {
-            let then_count = simple_generator_if_branch_yield_count(branch.body())?;
-            let else_count = branch
-                .else_node()
-                .map(simple_generator_if_branch_yield_count)
-                .unwrap_or(Some(0))?;
-            let count = then_count + else_count;
-            (count <= 1).then_some(count)
-        }
-        statement if contains(statement, ContainsSymbol::YieldExpression) => None,
-        _ => Some(0),
-    }
 }
 
 fn generator_loop_body_declaration_is_supported(item: &StatementListItem) -> bool {
@@ -1824,16 +1782,6 @@ pub(crate) fn generator_function_is_aot_supported(
     _parameters: &FormalParameterList,
 ) -> bool {
     linear_generator_plan(body).is_some()
-}
-
-pub(crate) fn generator_expression_callee(expression: &Expression) -> Option<&GeneratorExpression> {
-    match expression {
-        Expression::GeneratorExpression(generator) => Some(generator),
-        Expression::Parenthesized(parenthesized) => {
-            generator_expression_callee(parenthesized.expression())
-        }
-        _ => None,
-    }
 }
 
 pub(crate) fn arrow_function_key(function: &ArrowFunction) -> String {
@@ -2148,93 +2096,459 @@ pub(crate) fn contains_async_property_assignment(expression: &Expression) -> boo
 ///
 /// The right operand of `&&`/`||`/`??` (and their compound assignments), both
 /// arms of `?:`, and every link after a short-circuiting `?.` are reached only
-/// on some paths. An `await` in one of those must stay where it is, which for
-/// now means the statement refuses rather than silently awaiting on a path the
-/// program never takes.
+/// on some paths. Only the plain async branch owner admits `?:` arms, logical RHS values
+/// and checked Property/Call optional tails.
+/// Other branch positions remain refused instead of being hoisted onto a path
+/// the program never takes.
 ///
 /// Anything else evaluates its operands unconditionally, left to right, so the
 /// walk recurses through it. Forms that are not recognised are reported as
 /// conditional whenever they contain an `await` at all, so a shape this
 /// function has not been taught about refuses instead of miscompiling.
-pub(crate) fn await_is_conditionally_reached(expression: &Expression) -> bool {
+#[derive(Clone, Copy)]
+pub(crate) enum AwaitBranchOwner {
+    UnconditionalPrefix,
+    PlainAsyncBranch,
+}
+
+/// The actual property and Call links admitted to the plain async tail.
+#[must_use]
+pub(crate) struct AwaitedOptionalChainSource<'ast> {
+    target: &'ast Expression,
+    links: Vec<AwaitedOptionalChainLink<'ast>>,
+}
+
+pub(crate) enum AwaitedOptionalChainLink<'ast> {
+    Property(AwaitedOptionalPropertyLink<'ast>),
+    Private { field: PrivateName, shorted: bool },
+    Call(AwaitedOptionalCallLink<'ast>),
+}
+
+pub(crate) struct AwaitedOptionalPropertyLink<'ast> {
+    field: &'ast PropertyAccessField,
+    shorted: bool,
+}
+
+pub(crate) struct AwaitedOptionalCallLink<'ast> {
+    arguments: &'ast [Expression],
+    shorted: bool,
+}
+
+pub(crate) struct AwaitedOptionalChainTail<'ast> {
+    links: std::vec::IntoIter<AwaitedOptionalChainLink<'ast>>,
+}
+
+/// The actual terminal source decides whether grouping preserves a property
+/// Reference or has already consumed it in a Call. The pair cannot be minted
+/// from an independently selected chain and result mode.
+pub(crate) struct AwaitedGroupedOptionalChainSource<'ast> {
+    chain: AwaitedOptionalChainSource<'ast>,
+    terminal: AwaitedOptionalChainTerminal,
+}
+
+pub(crate) enum AwaitedOptionalChainTerminal {
+    PropertyReference,
+    CallValue,
+}
+
+impl<'ast> AwaitedGroupedOptionalChainSource<'ast> {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        AwaitedOptionalChainSource<'ast>,
+        AwaitedOptionalChainTerminal,
+    ) {
+        (self.chain, self.terminal)
+    }
+}
+
+impl<'ast> AwaitedOptionalChainSource<'ast> {
+    pub(crate) fn from_grouped_invocation(
+        source: &'ast Expression,
+    ) -> Option<AwaitedGroupedOptionalChainSource<'ast>> {
+        let Expression::Parenthesized(group) = source else {
+            return None;
+        };
+        let mut source = group.expression();
+        while let Expression::Parenthesized(group) = source {
+            source = group.expression();
+        }
+        let Expression::Optional(optional) = source else {
+            return None;
+        };
+        if !contains(optional, ContainsSymbol::AwaitExpression) {
+            return None;
+        }
+        let terminal = match optional.chain().last()?.kind() {
+            OptionalOperationKind::SimplePropertyAccess { .. }
+            | OptionalOperationKind::PrivatePropertyAccess { .. } => {
+                AwaitedOptionalChainTerminal::PropertyReference
+            }
+            OptionalOperationKind::Call { .. } => AwaitedOptionalChainTerminal::CallValue,
+        };
+        // Grouping retains the actual terminal kind even when only the target
+        // suspends. Both roles consume the same complete tail; ordinary value
+        // admission below still requires an awaited link.
+        let chain = Self::from_links(optional)?;
+        Some(AwaitedGroupedOptionalChainSource { chain, terminal })
+    }
+
+    pub(crate) fn new(source: &'ast Optional) -> Option<Self> {
+        if !source
+            .chain()
+            .iter()
+            .any(|link| contains(link, ContainsSymbol::AwaitExpression))
+        {
+            return None;
+        }
+        Self::from_links(source)
+    }
+
+    pub(crate) fn for_delete(source: &'ast Optional) -> Option<Self> {
+        if !contains(source, ContainsSymbol::AwaitExpression)
+            || !matches!(
+                source.chain().last()?.kind(),
+                OptionalOperationKind::SimplePropertyAccess { .. }
+            )
+        {
+            return None;
+        }
+        Self::from_links(source)
+    }
+
+    fn from_links(source: &'ast Optional) -> Option<Self> {
+        if !source.chain().first().is_some_and(|link| link.shorted()) {
+            return None;
+        }
+        // A first Call consumes either a grouped property Reference or a
+        // completed Call Value. Validate that exact source recursively before
+        // any prefix entry can allocate continuation states.
+        if source
+            .chain()
+            .first()
+            .is_some_and(|link| matches!(link.kind(), OptionalOperationKind::Call { .. }))
+            && awaited_optional_reference(source.target())
+            && Self::from_grouped_invocation(source.target()).is_none()
+        {
+            return None;
+        }
+        let mut links = Vec::with_capacity(source.chain().len());
+        for operation in source.chain() {
+            links.push(match operation.kind() {
+                OptionalOperationKind::SimplePropertyAccess { field } => {
+                    AwaitedOptionalChainLink::Property(AwaitedOptionalPropertyLink {
+                        field,
+                        shorted: operation.shorted(),
+                    })
+                }
+                OptionalOperationKind::Call { args } => {
+                    AwaitedOptionalChainLink::Call(AwaitedOptionalCallLink {
+                        arguments: args,
+                        shorted: operation.shorted(),
+                    })
+                }
+                OptionalOperationKind::PrivatePropertyAccess { field } => {
+                    AwaitedOptionalChainLink::Private {
+                        field: *field,
+                        shorted: operation.shorted(),
+                    }
+                }
+            });
+        }
+        Some(Self {
+            target: source.target(),
+            links,
+        })
+    }
+
+    pub(crate) fn has_calls(&self) -> bool {
+        self.links
+            .iter()
+            .any(|link| matches!(link, AwaitedOptionalChainLink::Call(_)))
+    }
+
+    pub(crate) fn into_parts(self) -> (&'ast Expression, AwaitedOptionalChainTail<'ast>) {
+        (
+            self.target,
+            AwaitedOptionalChainTail {
+                links: self.links.into_iter(),
+            },
+        )
+    }
+}
+
+impl AwaitedOptionalChainLink<'_> {
+    pub(crate) fn shorted(&self) -> bool {
+        match self {
+            Self::Property(link) => link.shorted,
+            Self::Private { shorted, .. } => *shorted,
+            Self::Call(link) => link.shorted,
+        }
+    }
+}
+
+impl<'ast> AwaitedOptionalPropertyLink<'ast> {
+    pub(crate) fn into_parts(self) -> (&'ast PropertyAccessField, bool) {
+        (self.field, self.shorted)
+    }
+}
+
+impl<'ast> AwaitedOptionalCallLink<'ast> {
+    pub(crate) fn into_arguments(self) -> &'ast [Expression] {
+        self.arguments
+    }
+}
+
+impl<'ast> AwaitedOptionalChainTail<'ast> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.links.as_slice().is_empty()
+    }
+
+    pub(crate) fn starts_with_call(&self) -> bool {
+        matches!(
+            self.links.as_slice().first(),
+            Some(AwaitedOptionalChainLink::Call(_))
+        )
+    }
+
+    pub(crate) fn has_calls(&self) -> bool {
+        self.links
+            .as_slice()
+            .iter()
+            .any(|link| matches!(link, AwaitedOptionalChainLink::Call(_)))
+    }
+
+    pub(crate) fn suspends(&self) -> bool {
+        self.links.as_slice().iter().any(|link| match link {
+            AwaitedOptionalChainLink::Property(link) => match link.field {
+                PropertyAccessField::Const(_) => false,
+                PropertyAccessField::Expr(key) => {
+                    contains(key.as_ref(), ContainsSymbol::AwaitExpression)
+                }
+            },
+            AwaitedOptionalChainLink::Call(link) => link
+                .arguments
+                .iter()
+                .any(|argument| contains(argument, ContainsSymbol::AwaitExpression)),
+            AwaitedOptionalChainLink::Private { .. } => false,
+        })
+    }
+
+    pub(crate) fn next(mut self) -> Option<(AwaitedOptionalChainLink<'ast>, Self)> {
+        self.links.next().map(|link| (link, self))
+    }
+}
+
+/// Identify a direct suspended optional operand of Call, tag or delete.
+/// Its terminal source determines Reference versus Value ownership. An outer
+/// ordinary member has its own owner and is deliberately not matched here.
+pub(crate) fn awaited_optional_reference(source: &Expression) -> bool {
+    match source {
+        Expression::Parenthesized(group) => awaited_optional_reference(group.expression()),
+        Expression::Optional(optional) => contains(optional, ContainsSymbol::AwaitExpression),
+        _ => false,
+    }
+}
+
+fn awaited_optional_call_reference_requires_owner(
+    source: &Expression,
+    owner: AwaitBranchOwner,
+) -> bool {
+    if !awaited_optional_reference(source) {
+        return false;
+    }
+    match owner {
+        AwaitBranchOwner::UnconditionalPrefix => true,
+        AwaitBranchOwner::PlainAsyncBranch => {
+            AwaitedOptionalChainSource::from_grouped_invocation(source).is_none()
+        }
+    }
+}
+
+pub(crate) fn await_requires_branch_owner(
+    expression: &Expression,
+    owner: AwaitBranchOwner,
+) -> bool {
     if !contains(expression, ContainsSymbol::AwaitExpression) {
         return false;
     }
     match expression {
         Expression::Parenthesized(parenthesized) => {
-            await_is_conditionally_reached(parenthesized.expression())
+            await_requires_branch_owner(parenthesized.expression(), owner)
         }
         Expression::Await(await_expression) => {
-            await_is_conditionally_reached(await_expression.target())
+            await_requires_branch_owner(await_expression.target(), owner)
         }
-        Expression::Unary(unary) => await_is_conditionally_reached(unary.target()),
+        Expression::Unary(unary) => {
+            if unary.op() == UnaryOp::Delete && awaited_optional_reference(unary.target()) {
+                let mut target = unary.target();
+                while let Expression::Parenthesized(group) = target {
+                    target = group.expression();
+                }
+                let Expression::Optional(optional) = target else {
+                    unreachable!("actual optional operand");
+                };
+                if matches!(
+                    optional.chain().last().map(|link| link.kind()),
+                    Some(OptionalOperationKind::SimplePropertyAccess { .. })
+                ) {
+                    return match owner {
+                        AwaitBranchOwner::UnconditionalPrefix => true,
+                        AwaitBranchOwner::PlainAsyncBranch => {
+                            AwaitedOptionalChainSource::for_delete(optional).is_none()
+                                || await_requires_branch_owner(optional.target(), owner)
+                                || optional.chain().iter().any(|link| match link.kind() {
+                                    OptionalOperationKind::SimplePropertyAccess {
+                                        field: PropertyAccessField::Expr(key),
+                                    } => await_requires_branch_owner(key, owner),
+                                    OptionalOperationKind::SimplePropertyAccess {
+                                        field: PropertyAccessField::Const(_),
+                                    }
+                                    | OptionalOperationKind::PrivatePropertyAccess { .. } => false,
+                                    OptionalOperationKind::Call { args } => args
+                                        .iter()
+                                        .any(|value| await_requires_branch_owner(value, owner)),
+                                })
+                        }
+                    };
+                }
+            }
+            await_requires_branch_owner(unary.target(), owner)
+        }
         Expression::Update(update) => match update.target() {
             UpdateTarget::Identifier(_) => false,
             UpdateTarget::PropertyAccess(access) => {
-                property_access_await_is_conditionally_reached(access)
+                property_access_await_requires_branch_owner(access, owner)
             }
-            UpdateTarget::WebCompatCall(call) => {
-                call.args().iter().any(await_is_conditionally_reached)
-            }
+            UpdateTarget::WebCompatCall(call) => call
+                .args()
+                .iter()
+                .any(|expression| await_requires_branch_owner(expression, owner)),
         },
         Expression::Binary(binary) => match binary.op() {
             // 13.13/13.14: the right operand is evaluated only when the left
             // one does not already decide the result.
-            BinaryOp::Logical(_) => {
-                contains(binary.rhs(), ContainsSymbol::AwaitExpression)
-                    || await_is_conditionally_reached(binary.lhs())
-            }
+            BinaryOp::Logical(_) => match owner {
+                AwaitBranchOwner::UnconditionalPrefix => {
+                    contains(binary.rhs(), ContainsSymbol::AwaitExpression)
+                        || await_requires_branch_owner(binary.lhs(), owner)
+                }
+                AwaitBranchOwner::PlainAsyncBranch => {
+                    await_requires_branch_owner(binary.lhs(), owner)
+                        || await_requires_branch_owner(binary.rhs(), owner)
+                }
+            },
             _ => {
-                await_is_conditionally_reached(binary.lhs())
-                    || await_is_conditionally_reached(binary.rhs())
+                await_requires_branch_owner(binary.lhs(), owner)
+                    || await_requires_branch_owner(binary.rhs(), owner)
             }
         },
-        Expression::BinaryInPrivate(binary) => await_is_conditionally_reached(binary.rhs()),
-        Expression::Conditional(conditional) => {
-            contains(conditional.if_true(), ContainsSymbol::AwaitExpression)
-                || contains(conditional.if_false(), ContainsSymbol::AwaitExpression)
-                || await_is_conditionally_reached(conditional.condition())
-        }
-        Expression::Assign(assign) => match assign.op() {
-            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {
-                contains(assign.rhs(), ContainsSymbol::AwaitExpression)
-                    || assign_target_await_is_conditionally_reached(assign.lhs())
+        Expression::BinaryInPrivate(binary) => await_requires_branch_owner(binary.rhs(), owner),
+        Expression::Conditional(conditional) => match owner {
+            AwaitBranchOwner::UnconditionalPrefix => {
+                contains(conditional.if_true(), ContainsSymbol::AwaitExpression)
+                    || contains(conditional.if_false(), ContainsSymbol::AwaitExpression)
+                    || await_requires_branch_owner(conditional.condition(), owner)
             }
+            AwaitBranchOwner::PlainAsyncBranch => {
+                await_requires_branch_owner(conditional.condition(), owner)
+                    || await_requires_branch_owner(conditional.if_true(), owner)
+                    || await_requires_branch_owner(conditional.if_false(), owner)
+            }
+        },
+        Expression::Assign(assign) => match assign.op() {
+            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => match owner {
+                AwaitBranchOwner::UnconditionalPrefix => {
+                    contains(assign.rhs(), ContainsSymbol::AwaitExpression)
+                        || assign_target_await_requires_branch_owner(assign.lhs(), owner)
+                }
+                AwaitBranchOwner::PlainAsyncBranch => {
+                    !matches!(
+                        assign.lhs(),
+                        AssignTarget::Identifier(_) | AssignTarget::Access(_)
+                    ) || assign_target_await_requires_branch_owner(assign.lhs(), owner)
+                        || await_requires_branch_owner(assign.rhs(), owner)
+                }
+            },
             _ => {
-                assign_target_await_is_conditionally_reached(assign.lhs())
-                    || await_is_conditionally_reached(assign.rhs())
+                assign_target_await_requires_branch_owner(assign.lhs(), owner)
+                    || await_requires_branch_owner(assign.rhs(), owner)
             }
         },
         Expression::Call(call) => {
-            await_is_conditionally_reached(call.function())
-                || call.args().iter().any(await_is_conditionally_reached)
+            awaited_optional_call_reference_requires_owner(call.function(), owner)
+                || await_requires_branch_owner(call.function(), owner)
+                || call
+                    .args()
+                    .iter()
+                    .any(|expression| await_requires_branch_owner(expression, owner))
         }
         Expression::New(new_expression) => {
-            await_is_conditionally_reached(new_expression.constructor())
+            await_requires_branch_owner(new_expression.constructor(), owner)
+                || new_expression
+                    .arguments()
+                    .iter()
+                    .any(|expression| await_requires_branch_owner(expression, owner))
         }
-        Expression::SuperCall(call) => call.arguments().iter().any(await_is_conditionally_reached),
-        Expression::PropertyAccess(access) => {
-            property_access_await_is_conditionally_reached(access)
-        }
-        // Every link after the first `?.` is skipped when the target is
-        // nullish, so an `await` anywhere in the chain is path-dependent.
-        Expression::Optional(optional) => {
-            optional
-                .chain()
+        Expression::SuperCall(call) => match owner {
+            AwaitBranchOwner::UnconditionalPrefix => true,
+            AwaitBranchOwner::PlainAsyncBranch => call
+                .arguments()
                 .iter()
-                .any(|operation| contains(operation, ContainsSymbol::AwaitExpression))
-                || await_is_conditionally_reached(optional.target())
+                .any(|argument| await_requires_branch_owner(argument, owner)),
+        },
+        Expression::PropertyAccess(access) => {
+            property_access_await_requires_branch_owner(access, owner)
         }
+        // Every shorted link guards the entire remaining suffix. Only the
+        // checked source can enter the existing async branch owner.
+        Expression::Optional(optional) => match owner {
+            AwaitBranchOwner::UnconditionalPrefix => {
+                optional
+                    .chain()
+                    .iter()
+                    .any(|operation| contains(operation, ContainsSymbol::AwaitExpression))
+                    || await_requires_branch_owner(optional.target(), owner)
+            }
+            AwaitBranchOwner::PlainAsyncBranch => {
+                let chain_suspends = optional
+                    .chain()
+                    .iter()
+                    .any(|operation| contains(operation, ContainsSymbol::AwaitExpression));
+                if !chain_suspends {
+                    // Target-only Await precedes the synchronous chain. Its
+                    // existing emitter retains optional Call/private semantics.
+                    return await_requires_branch_owner(optional.target(), owner);
+                }
+                AwaitedOptionalChainSource::new(optional).is_none()
+                    || await_requires_branch_owner(optional.target(), owner)
+                    || optional
+                        .chain()
+                        .iter()
+                        .any(|operation| match operation.kind() {
+                            OptionalOperationKind::SimplePropertyAccess { field } => match field {
+                                PropertyAccessField::Const(_) => false,
+                                PropertyAccessField::Expr(key) => {
+                                    await_requires_branch_owner(key, owner)
+                                }
+                            },
+                            OptionalOperationKind::Call { args } => args
+                                .iter()
+                                .any(|argument| await_requires_branch_owner(argument, owner)),
+                            OptionalOperationKind::PrivatePropertyAccess { .. } => false,
+                        })
+            }
+        },
         Expression::ArrayLiteral(array) => array
             .as_ref()
             .iter()
             .flatten()
-            .any(await_is_conditionally_reached),
+            .any(|expression| await_requires_branch_owner(expression, owner)),
         Expression::ObjectLiteral(object) => object
             .properties()
             .iter()
-            .any(object_property_await_is_conditionally_reached),
-        Expression::Spread(spread) => await_is_conditionally_reached(spread.target()),
+            .any(|property| object_property_await_requires_branch_owner(property, owner)),
+        Expression::Spread(spread) => await_requires_branch_owner(spread.target(), owner),
         Expression::TemplateLiteral(template) => template
             .elements()
             .iter()
@@ -2242,15 +2556,24 @@ pub(crate) fn await_is_conditionally_reached(expression: &Expression) -> bool {
                 TemplateElement::Expr(expression) => Some(expression),
                 TemplateElement::String(_) => None,
             })
-            .any(await_is_conditionally_reached),
+            .any(|expression| await_requires_branch_owner(expression, owner)),
         Expression::TaggedTemplate(template) => {
-            await_is_conditionally_reached(template.tag())
-                || template.exprs().iter().any(await_is_conditionally_reached)
+            awaited_optional_call_reference_requires_owner(template.tag(), owner)
+                || await_requires_branch_owner(template.tag(), owner)
+                || template
+                    .exprs()
+                    .iter()
+                    .any(|expression| await_requires_branch_owner(expression, owner))
         }
-        Expression::ImportCall(call) => await_is_conditionally_reached(call.argument()),
+        Expression::ImportCall(call) => {
+            await_requires_branch_owner(call.argument(), owner)
+                || call
+                    .options()
+                    .is_some_and(|expression| await_requires_branch_owner(expression, owner))
+        }
         Expression::ClassExpression(class) => {
             class_evaluation_expressions(class.super_ref(), class.elements())
-                .any(await_is_conditionally_reached)
+                .any(|expression| await_requires_branch_owner(expression, owner))
         }
         // `contains` proved an `await` is in there, and this walk cannot show
         // it is always reached.
@@ -2258,50 +2581,101 @@ pub(crate) fn await_is_conditionally_reached(expression: &Expression) -> bool {
     }
 }
 
-fn property_access_await_is_conditionally_reached(access: &PropertyAccess) -> bool {
+fn property_access_await_requires_branch_owner(
+    access: &PropertyAccess,
+    owner: AwaitBranchOwner,
+) -> bool {
     match access {
         PropertyAccess::Simple(access) => {
-            await_is_conditionally_reached(access.target())
+            await_requires_branch_owner(access.target(), owner)
                 || match access.field() {
                     PropertyAccessField::Const(_) => false,
-                    PropertyAccessField::Expr(key) => await_is_conditionally_reached(key),
+                    PropertyAccessField::Expr(key) => await_requires_branch_owner(key, owner),
                 }
         }
-        PropertyAccess::Private(access) => await_is_conditionally_reached(access.target()),
+        PropertyAccess::Private(access) => await_requires_branch_owner(access.target(), owner),
         PropertyAccess::Super(access) => match access.field() {
             PropertyAccessField::Const(_) => false,
-            PropertyAccessField::Expr(key) => await_is_conditionally_reached(key),
+            PropertyAccessField::Expr(key) => await_requires_branch_owner(key, owner),
         },
     }
 }
 
-fn assign_target_await_is_conditionally_reached(target: &AssignTarget) -> bool {
+fn assign_target_await_requires_branch_owner(
+    target: &AssignTarget,
+    owner: AwaitBranchOwner,
+) -> bool {
     match target {
         AssignTarget::Identifier(_) => false,
-        AssignTarget::Access(access) => property_access_await_is_conditionally_reached(access),
-        AssignTarget::Pattern(pattern) => contains(pattern, ContainsSymbol::AwaitExpression),
-        AssignTarget::WebCompatCall(call) => call.args().iter().any(await_is_conditionally_reached),
+        AssignTarget::Access(access) => property_access_await_requires_branch_owner(access, owner),
+        AssignTarget::Pattern(pattern) => {
+            contains(pattern, ContainsSymbol::AwaitExpression)
+                && !(matches!(owner, AwaitBranchOwner::PlainAsyncBranch)
+                    && AsyncPatternSource::new(pattern).is_some())
+        }
+        AssignTarget::WebCompatCall(call) => call
+            .args()
+            .iter()
+            .any(|expression| await_requires_branch_owner(expression, owner)),
     }
 }
 
-fn object_property_await_is_conditionally_reached(property: &PropertyDefinition) -> bool {
+fn object_property_await_requires_branch_owner(
+    property: &PropertyDefinition,
+    owner: AwaitBranchOwner,
+) -> bool {
     match property {
         PropertyDefinition::IdentifierReference(_) => false,
         PropertyDefinition::Property(name, value) => {
-            property_name_await_is_conditionally_reached(name)
-                || await_is_conditionally_reached(value)
+            property_name_await_requires_branch_owner(name, owner)
+                || await_requires_branch_owner(value, owner)
         }
-        PropertyDefinition::SpreadObject(source) => await_is_conditionally_reached(source),
+        PropertyDefinition::SpreadObject(source) => await_requires_branch_owner(source, owner),
         PropertyDefinition::MethodDefinition(method) => {
-            property_name_await_is_conditionally_reached(method.name())
+            property_name_await_requires_branch_owner(method.name(), owner)
         }
         PropertyDefinition::CoverInitializedName(_, _) => true,
     }
 }
 
-fn property_name_await_is_conditionally_reached(name: &PropertyName) -> bool {
+fn property_name_await_requires_branch_owner(name: &PropertyName, owner: AwaitBranchOwner) -> bool {
     match name {
         PropertyName::Literal(_) => false,
-        PropertyName::Computed(key) => await_is_conditionally_reached(key),
+        PropertyName::Computed(key) => await_requires_branch_owner(key, owner),
     }
+}
+
+/// Annex B's invalid Reference head throws eagerly and never enters its body.
+/// Its actual operands must still complete without an unowned suspension.
+pub(crate) fn append_generator_for_in_suspensions(
+    source: &boa_ast::statement::iteration::ForInLoop,
+    cursor: &mut u32,
+    points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Option<()> {
+    if matches!(
+        source.initializer(),
+        IterableLoopInitializer::WebCompatCall(_)
+    ) {
+        return (!contains(source.initializer(), ContainsSymbol::YieldExpression)
+            && !contains(source.initializer(), ContainsSymbol::AwaitExpression)
+            && !contains(source.target(), ContainsSymbol::YieldExpression)
+            && !contains(source.target(), ContainsSymbol::AwaitExpression))
+        .then_some(());
+    }
+    crate::async_generator_source::AsyncGeneratorForInSource::for_execution(
+        source,
+        ResumableRegionProtocolIr::Generator,
+    )?;
+    let mut actual = Vec::new();
+    crate::async_generator_source::append_complete_for_in_source(
+        source,
+        ResumableRegionProtocolIr::Generator,
+        cursor,
+        &mut actual,
+    )?;
+    points.extend(actual.into_iter().map(|point| GeneratorSuspensionPointIr {
+        suspend_state: point.suspend_state,
+        resume_state: point.resume_state,
+    }));
+    Some(())
 }

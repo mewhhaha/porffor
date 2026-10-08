@@ -41,7 +41,7 @@ fn graph_build_has_one_private_owner_and_narrow_crate_reexport() {
 fn graph_build_keeps_parse_once_unit_minting_and_the_closed_parse_dispatch() {
     assert!(OWNER_SOURCE.contains("let mut graph = ModuleGraphIr::default();"));
     assert_eq!(OWNER_SOURCE.matches("ModuleParse::Module(").count(), 1);
-    assert_eq!(OWNER_SOURCE.matches("ModuleParse::ScriptEntry(").count(), 1);
+    assert_eq!(OWNER_SOURCE.matches("ModuleParse::ScriptEntry(").count(), 3);
     assert_eq!(OWNER_SOURCE.matches("ModuleParse::Rejected {").count(), 1);
     assert!(OWNER_SOURCE.contains("parse_module_record(unit_source, id, source.key().clone())"));
     assert!(OWNER_SOURCE.contains("super::record::script_entry_record("));
@@ -60,7 +60,14 @@ fn graph_build_keeps_parse_once_unit_minting_and_the_closed_parse_dispatch() {
 }
 
 #[test]
-fn graph_build_keeps_duplicate_identity_and_inconsistent_resolution_without_a_winner() {
+fn graph_build_keeps_module_identity_separate_from_script_and_rejects_host_contradictions() {
+    let owner = OWNER_SOURCE.split_whitespace().collect::<String>();
+    assert!(owner.contains("ifis_script&&source_index!=sources.entryasusize{"));
+    assert!(owner.contains("if!is_script{ifletSome(&existing)=graph.keys.get(source.key()){"));
+    assert!(owner.contains(
+        "if!is_script{graph.keys.insert(source.key().clone(),id);}graph.units.push(ModuleUnitIr{"
+    ));
+    assert!(owner.contains(".get(*targetasusize).is_some_and(|source|matches!(&source.parse,ModuleParse::ScriptEntry(_)))"));
     assert!(OWNER_SOURCE.contains("if let Some(&existing) = graph.keys.get(source.key())"));
     assert!(OWNER_SOURCE.contains("ModuleLinkErrorIr::InconsistentLoad { key }"));
     assert!(OWNER_SOURCE.contains("graph.resolutions.remove(&identity);"));
@@ -84,15 +91,20 @@ fn build_graph_callers_keep_the_existing_crate_boundary() {
     );
     assert_eq!(ADMISSION_SOURCE.matches("build_graph(sources)").count(), 1);
     assert!(ADMISSION_SOURCE.contains("pub(crate) fn link_loaded_graph("));
+    let (dynamic_production, dynamic_tests) = DYNAMIC_SOURCE
+        .split_once("\n#[cfg(test)]\nmod tests {")
+        .expect("dynamic import tests stay outside product graph admission");
+    assert!(!dynamic_production.contains("crate::modules::build_graph("));
     assert_eq!(
-        DYNAMIC_SOURCE
+        dynamic_tests
             .matches("crate::modules::build_graph(")
             .count(),
-        1
+        2,
+        "the fixture helper and reserved-identifier constructor regression own test admission"
     );
     assert_eq!(
         LINK_SOURCE.matches("crate::modules::build_graph(").count(),
-        1
+        2
     );
     assert_eq!(
         NAMESPACE_SOURCE

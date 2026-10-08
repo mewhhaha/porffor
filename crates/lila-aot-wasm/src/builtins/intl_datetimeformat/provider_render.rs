@@ -1,424 +1,313 @@
-use super::provider_wire::{DtfResponseReader, DtfWireField, DtfWireWord};
 use super::*;
-use lila_intl::{DateTimePartKind, DateTimeRangeSource, IntlHostOp};
-
-pub(super) enum DtfInputRecords {
-    Single(u32),
-    Range { start: u32, end: u32 },
+#[derive(Clone, Copy)]
+pub(super) enum DtfFormatMode {
+    String,
+    Parts,
 }
-
 impl FunctionBuilder<'_> {
-    pub(super) fn emit_dtf_result_object(
+    pub(super) fn emit_dtf_provider_format(
         &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let prototype = self.reserve_temp_local();
-        let realm = self.reserve_temp_local();
-        let intrinsics = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(prototype));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm,
-            function,
-        );
-        for (source, offset, destination) in [
-            (realm, HEAP_REALM_INTRINSICS_OFFSET, intrinsics),
-            (
-                intrinsics,
-                HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-                prototype,
-            ),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-            self.load_i64_to_local_from_offset(source, offset, destination, function);
-        }
-        function.instruction(&Instruction::LocalGet(prototype));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.emit_alloc_plain_object_with_prototype(Some(prototype), None, function)?;
-        for local in [intrinsics, realm, prototype] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    fn emit_dtf_output_array_entry(
-        &mut self,
-        array: u32,
-        index: u32,
-        payload: u32,
-        kind: ValueKind,
-        function: &mut Function,
-    ) {
-        let entry = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(array, HEAP_PTR_OFFSET, entry, function);
-        function.instruction(&Instruction::LocalGet(entry));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry));
-        self.store_i64_const_at_offset(entry, HEAP_ARRAY_TAG_OFFSET, kind.tag() as u64, function);
-        self.store_i64_local_at_offset(entry, HEAP_ARRAY_PAYLOAD_OFFSET, payload, function);
-        self.store_i64_const_at_offset(
-            entry,
-            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-            ARRAY_DESCRIPTOR_NORMAL_DATA,
-            function,
-        );
-        self.release_temp_local(entry);
-    }
-
-    fn emit_dtf_provider_format(
-        &mut self,
-        record: u32,
-        inputs: DtfInputRecords,
+        record: &GcLocal<IntlDateTimeFormatObject>,
+        start: &CompletedDtfInput,
+        end: Option<&CompletedDtfInput>,
         mode: DtfFormatMode,
-        destination: u32,
-        function: &mut Function,
+        out: &ValueLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let plan = self.reserve_temp_local();
-        let request = self.reserve_temp_local();
-        let response = self.reserve_temp_local();
-        let count = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let kind = self.reserve_temp_local();
-        let part_type = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        let source = self.reserve_temp_local();
-        let object = self.reserve_temp_local();
-        let key = self.reserve_temp_local();
-        let string_tag = self.reserve_temp_local();
-        let (operation, mut fields, range) = match inputs {
-            DtfInputRecords::Single(input) => (
-                IntlHostOp::FormatDateTimeParts,
-                vec![DtfWireField::InputRecord(input)],
-                false,
-            ),
-            DtfInputRecords::Range { start, end } => (
-                IntlHostOp::FormatDateTimeRangeParts,
-                vec![
-                    DtfWireField::InputRecord(start),
-                    DtfWireField::InputRecord(end),
-                ],
-                true,
-            ),
+        let schema = self.runtime_schema();
+        let operation = if end.is_some() {
+            IntlHostOp::FormatDateTimeRangeParts
+        } else {
+            IntlHostOp::FormatDateTimeParts
         };
-        self.load_i64_to_local_from_offset(record, HEAP_INTL_DTF_PLAN_OFFSET, plan, function);
-        fields.push(DtfWireField::Bytes(plan));
-        self.emit_dtf_provider_request(operation, &fields, request, function)?;
-        self.emit_dtf_provider_call(operation, request, response, function)?;
-        let reader = DtfResponseReader::new(self, response, function);
-        reader.word(self, count, function);
-        reader.require_records(count, if range { 24 } else { 16 }, function);
-        match mode {
-            DtfFormatMode::String => self.emit_dtf_set_string(destination, "", function),
-            DtfFormatMode::Parts => self
-                .emit_alloc_array_payload_with_length_in_current_function_realm(
-                    count,
-                    destination,
-                    function,
-                )?,
+        let message = self.emit_dtf_request(operation, f);
+        start.append(&message, schema, f);
+        if let Some(end) = end {
+            end.append(&message, schema, f);
         }
-        self.emit_dtf_set_const(string_tag, ValueKind::String.tag() as i64, function);
-        self.emit_dtf_set_const(index, 0, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        reader.word(self, kind, function);
-        self.emit_dtf_set_const(part_type, 0, function);
-        for part in DateTimePartKind::ALL {
-            self.emit_dtf_if_code_eq(kind, part.wire_code() as i64, function);
-            self.emit_dtf_set_string(part_type, part.as_str(), function);
-            function.instruction(&Instruction::End);
+        let plan = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<IntlDateTimeFormatObject>()
+                .field(IntlDateTimeFormatObjectSchema::PLAN)
+                .read(record, schema, f)
+                .reference(),
+            f,
+        );
+        message.append_immutable_bytes(&plan, schema, f);
+        plan.clear(f);
+        let response = self.emit_dtf_provider_call(operation, message, f)?;
+        let reader = response.reader(schema, f);
+        let count = schema.reserve_i64_local(f);
+        let index = schema.reserve_i64_local(f);
+        reader.read_u64(count, schema, f);
+        reader.require_records(count, if end.is_some() { 24 } else { 16 }, f);
+        let string = match mode {
+            DtfFormatMode::String => Some(
+                schema
+                    .reserve_gc_local(f)
+                    .initialize(self.emit_interned_string_reference("", f)?, f),
+            ),
+            DtfFormatMode::Parts => None,
+        };
+        let list = match mode {
+            DtfFormatMode::String => None,
+            DtfFormatMode::Parts => Some(ArgumentListConstruction::new(schema, f)),
+        };
+        let value = schema.reserve_value_local(f);
+        let kind = GcI32DomainLocal::new(schema, DateTimePartKind::Literal, f);
+        let source = GcI32DomainLocal::new(schema, DateTimeRangeSource::Shared, f);
+        f.instruction(&Instruction::I64Const(0));
+        index.store(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        count.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(done, f);
+        self.emit_dtf_read_domain(
+            &reader,
+            &kind,
+            DateTimePartKind::ALL.iter().map(|v| (*v, v.wire_code())),
+            f,
+        );
+        if end.is_some() {
+            self.emit_dtf_read_domain(
+                &reader,
+                &source,
+                DateTimeRangeSource::ALL.iter().map(|v| (*v, v.wire_code())),
+                f,
+            );
         }
-        function.instruction(&Instruction::LocalGet(part_type));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        if range {
-            reader.word(self, kind, function);
-            self.emit_dtf_set_const(source, 0, function);
-            for attribution in DateTimeRangeSource::ALL {
-                self.emit_dtf_if_code_eq(kind, attribution.wire_code() as i64, function);
-                self.emit_dtf_set_string(source, attribution.as_str(), function);
-                function.instruction(&Instruction::End);
-            }
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-        }
-        reader.bytes(self, value, function);
+        let text = reader.read_utf8(schema, f);
         match mode {
             DtfFormatMode::String => {
-                self.emit_concat_string_payloads_local(destination, value, function)?;
-                function.instruction(&Instruction::LocalSet(destination));
+                let string = string
+                    .as_ref()
+                    .expect("String output owns concatenation root");
+                string.replace(self.emit_concat_gc_strings(string, &text, f), f);
             }
             DtfFormatMode::Parts => {
-                self.emit_dtf_result_object(function)?;
-                function.instruction(&Instruction::LocalSet(object));
-                for (name, payload) in [("type", part_type), ("value", value)]
-                    .into_iter()
-                    .chain(range.then_some(("source", source)))
-                {
-                    self.emit_dtf_set_string(key, name, function);
-                    self.emit_object_append_data_property_with_flags(
-                        object, key, payload, string_tag, true, true, true, function,
-                    )?;
+                let object = self.emit_intl_number_result_object(f)?;
+                for part in DateTimePartKind::ALL {
+                    emit_domain_is(&kind, *part, f);
+                    self.open_frame(ControlFrameKind::If, f);
+                    let name = schema
+                        .reserve_gc_local(f)
+                        .initialize(self.emit_interned_string_reference(part.as_str(), f)?, f);
+                    value.set_reference(&name, schema, f);
+                    name.clear(f);
+                    self.pop_control(ControlFrameKind::If);
+                    f.instruction(&Instruction::End);
                 }
-                self.emit_dtf_output_array_entry(
-                    destination,
-                    index,
-                    object,
-                    ValueKind::Object,
-                    function,
-                );
+                self.emit_intl_number_append_result_property(&object, "type", &value, f)?;
+                value.set_reference(&text, schema, f);
+                self.emit_intl_number_append_result_property(&object, "value", &value, f)?;
+                if end.is_some() {
+                    for selected in DateTimeRangeSource::ALL {
+                        emit_domain_is(&source, *selected, f);
+                        self.open_frame(ControlFrameKind::If, f);
+                        let name = schema.reserve_gc_local(f).initialize(
+                            self.emit_interned_string_reference(selected.as_str(), f)?,
+                            f,
+                        );
+                        value.set_reference(&name, schema, f);
+                        name.clear(f);
+                        self.pop_control(ControlFrameKind::If);
+                        f.instruction(&Instruction::End);
+                    }
+                    self.emit_intl_number_append_result_property(&object, "source", &value, f)?;
+                }
+                value.set_reference(&object, schema, f);
+                list.as_ref()
+                    .expect("Parts output owns private list")
+                    .append(&value, schema, f);
+                object.clear(f);
             }
         }
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        reader.finish(self, function);
-        for local in [
-            string_tag, key, object, source, value, part_type, kind, index, count, response,
-            request, plan,
-        ] {
-            self.release_temp_local(local);
+        text.clear(f);
+        index.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        index.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        reader.finish(schema, f);
+        if let Some(list) = list {
+            let values = list.finish(self, f);
+            let array = self.emit_array_from_argument_list(&values, f)?;
+            out.set_reference(&array, schema, f);
+            array.clear(f);
+            values.clear(f);
         }
+        if let Some(string) = string {
+            out.set_reference(&string, schema, f);
+            string.clear(f);
+        }
+        source.clear(schema, f);
+        kind.clear(schema, f);
+        value.clear(f);
+        schema.release_i64_local(index, f);
+        schema.release_i64_local(count, f);
+        response.clear(f);
         Ok(())
     }
-
     pub(crate) fn emit_intl_date_time_format_bound_format(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let object = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let input = self.reserve_temp_local();
-        let output = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-            object,
-            function,
+        let schema = self.runtime_schema();
+        let context = self
+            .body_entry_locals()
+            .and_then(|e| e.function_context())
+            .ok_or_else(|| EmitError::unsupported("DateTimeFormat bound closure lacks context"))?;
+        let capture = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<FunctionContext>()
+                .field(FunctionContextSchema::BUILTIN_CAPTURE)
+                .read(context, schema, f)
+                .reference()
+                .require_non_null(f),
+            f,
         );
-        self.load_i64_to_local_from_offset(
-            object,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record,
-            function,
+        let record = schema.reserve_gc_local(f).initialize(
+            schema
+                .struct_type::<BuiltinClosureCapture>()
+                .field(BuiltinClosureCaptureSchema::DATE_TIME_FORMAT)
+                .read(&capture, schema, f)
+                .reference()
+                .require_non_null(f),
+            f,
         );
-        self.emit_dtf_single_input(record, input, function)?;
-        self.emit_dtf_provider_format(
-            record,
-            DtfInputRecords::Single(input),
-            DtfFormatMode::String,
-            output,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(output));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.emit_dtf_set_const(
-            self.result_tag_local,
-            ValueKind::String.tag() as i64,
-            function,
-        );
-        for local in [output, input, record, object] {
-            self.release_temp_local(local);
-        }
+        let input = self.emit_dtf_single_input(&record, f)?;
+        let out = schema.reserve_value_local(f);
+        self.emit_dtf_provider_format(&record, &input, None, DtfFormatMode::String, &out, f)?;
+        self.completion().initialize(f);
+        self.completion().value().copy_from(&out, f);
+        out.clear(f);
+        input.clear(schema, f);
+        record.clear(f);
+        capture.clear(f);
         Ok(())
     }
-
     pub(crate) fn emit_intl_date_time_format_format_to_parts(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let input = self.reserve_temp_local();
-        let output = self.reserve_temp_local();
-        self.emit_intl_dtf_record_from_receiver(
-            record,
-            &IntlDateTimeFormatReceiverOperation::FormatToParts,
-            function,
-        )?;
-        self.emit_dtf_single_input(record, input, function)?;
-        self.emit_dtf_provider_format(
-            record,
-            DtfInputRecords::Single(input),
-            DtfFormatMode::Parts,
-            output,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(output));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.emit_dtf_set_const(
-            self.result_tag_local,
-            ValueKind::Array.tag() as i64,
-            function,
-        );
-        for local in [output, input, record] {
-            self.release_temp_local(local);
-        }
+        let record = self.emit_dtf_record_from_receiver(DtfReceiverOperation::FormatToParts, f)?;
+        let schema = self.runtime_schema();
+        let input = self.emit_dtf_single_input(&record, f)?;
+        let out = schema.reserve_value_local(f);
+        self.emit_dtf_provider_format(&record, &input, None, DtfFormatMode::Parts, &out, f)?;
+        self.completion().initialize(f);
+        self.completion().value().copy_from(&out, f);
+        out.clear(f);
+        input.clear(schema, f);
+        record.clear(f);
         Ok(())
     }
-
-    fn emit_intl_dtf_format_range(
+    fn emit_dtf_format_range(
         &mut self,
         mode: DtfFormatMode,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let start = self.reserve_temp_local();
-        let end = self.reserve_temp_local();
-        let output = self.reserve_temp_local();
-        let (receiver_operation, result_kind) = match mode {
-            DtfFormatMode::String => (
-                IntlDateTimeFormatReceiverOperation::FormatRange,
-                ValueKind::String,
-            ),
-            DtfFormatMode::Parts => (
-                IntlDateTimeFormatReceiverOperation::FormatRangeToParts,
-                ValueKind::Array,
-            ),
+        let operation = match mode {
+            DtfFormatMode::String => DtfReceiverOperation::FormatRange,
+            DtfFormatMode::Parts => DtfReceiverOperation::FormatRangeToParts,
         };
-        self.emit_intl_dtf_record_from_receiver(record, &receiver_operation, function)?;
-        self.emit_dtf_range_inputs(record, start, end, function)?;
-        self.emit_dtf_provider_format(
-            record,
-            DtfInputRecords::Range { start, end },
-            mode,
-            output,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(output));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.emit_dtf_set_const(self.result_tag_local, result_kind.tag() as i64, function);
-        for local in [output, end, start, record] {
-            self.release_temp_local(local);
-        }
+        let record = self.emit_dtf_record_from_receiver(operation, f)?;
+        let schema = self.runtime_schema();
+        let (start, end) = self.emit_dtf_range_inputs(&record, f)?;
+        let out = schema.reserve_value_local(f);
+        self.emit_dtf_provider_format(&record, &start, Some(&end), mode, &out, f)?;
+        self.completion().initialize(f);
+        self.completion().value().copy_from(&out, f);
+        out.clear(f);
+        end.clear(schema, f);
+        start.clear(schema, f);
+        record.clear(f);
         Ok(())
     }
-
     pub(crate) fn emit_intl_date_time_format_format_range(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_dtf_format_range(DtfFormatMode::String, function)
+        self.emit_dtf_format_range(DtfFormatMode::String, f)
     }
     pub(crate) fn emit_intl_date_time_format_format_range_to_parts(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_dtf_format_range(DtfFormatMode::Parts, function)
+        self.emit_dtf_format_range(DtfFormatMode::Parts, f)
     }
-
     pub(crate) fn emit_intl_date_time_format_supported_locales_of(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let payload = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        let locales = self.reserve_temp_local();
-        let matcher = self.reserve_temp_local();
-        let request = self.reserve_temp_local();
-        let response = self.reserve_temp_local();
-        let count = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let output = self.reserve_temp_local();
-        self.emit_builtin_arg_to_locals(0, payload, tag, function);
-        self.emit_dtf_requested_locales(payload, tag, locales, function)?;
-        self.emit_builtin_arg_to_locals(1, payload, tag, function);
-        self.emit_dtf_set_const(matcher, 2, function);
-        function.instruction(&Instruction::LocalGet(tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_current_function_realm_object_locals(
-            payload, tag, payload, tag, function,
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(f);
+        self.emit_builtin_arg_to_value(0, &value, f);
+        let locales = self.emit_intl_canonical_locale_list(&value, f)?;
+        self.emit_builtin_arg_to_value(1, &value, f);
+        self.emit_intl_number_options_object(&value, f)?;
+        let matcher = GcI32DomainLocal::new(schema, DateTimeLocaleMatcher::BestFit, f);
+        self.emit_intl_number_choice_option(
+            &value,
+            IntlErrorOption::LocaleMatcher,
+            DateTimeLocaleMatcher::ALL
+                .iter()
+                .map(|v| (v.option_name(), *v)),
+            DateTimeLocaleMatcher::BestFit,
+            &matcher,
+            f,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_dtf_matcher_option(
-            payload,
-            tag,
-            "localeMatcher",
-            lila_intl::DateTimeLocaleMatcher::OPTIONS,
-            matcher,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_dtf_provider_request(
-            IntlHostOp::SupportedDateTimeLocales,
-            &[
-                DtfWireField::Word(DtfWireWord::Local(matcher)),
-                DtfWireField::CanonicalLocales(locales),
-            ],
-            request,
-            function,
-        )?;
-        self.emit_dtf_provider_call(
-            IntlHostOp::SupportedDateTimeLocales,
-            request,
-            response,
-            function,
-        )?;
-        let reader = DtfResponseReader::new(self, response, function);
-        reader.word(self, count, function);
-        reader.require_records(count, 8, function);
-        self.emit_alloc_array_payload_with_length_in_current_function_realm(
-            count, output, function,
-        )?;
-        self.emit_dtf_set_const(index, 0, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        reader.bytes(self, payload, function);
-        self.emit_dtf_output_array_entry(output, index, payload, ValueKind::String, function);
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        reader.finish(self, function);
-        function.instruction(&Instruction::LocalGet(output));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        self.emit_dtf_set_const(
-            self.result_tag_local,
-            ValueKind::Array.tag() as i64,
-            function,
-        );
-        for local in [
-            output, index, count, response, request, matcher, locales, tag, payload,
-        ] {
-            self.release_temp_local(local);
-        }
+        let message = self.emit_dtf_request(IntlHostOp::SupportedDateTimeLocales, f);
+        dtf_append_domain(&message, &matcher, schema, f);
+        self.emit_intl_wire_canonical_locales(&message, &locales, f)?;
+        let response =
+            self.emit_dtf_provider_call(IntlHostOp::SupportedDateTimeLocales, message, f)?;
+        let reader = response.reader(schema, f);
+        let count = schema.reserve_i64_local(f);
+        let index = schema.reserve_i64_local(f);
+        reader.read_u64(count, schema, f);
+        reader.require_records(count, 8, f);
+        let list = ArgumentListConstruction::new(schema, f);
+        f.instruction(&Instruction::I64Const(0));
+        index.store(f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        count.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(done, f);
+        let text = reader.read_utf8(schema, f);
+        value.set_reference(&text, schema, f);
+        list.append(&value, schema, f);
+        text.clear(f);
+        index.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        index.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        reader.finish(schema, f);
+        let values = list.finish(self, f);
+        let array = self.emit_array_from_argument_list(&values, f)?;
+        self.completion().initialize(f);
+        self.completion().value().set_reference(&array, schema, f);
+        array.clear(f);
+        values.clear(f);
+        schema.release_i64_local(index, f);
+        schema.release_i64_local(count, f);
+        response.clear(f);
+        matcher.clear(schema, f);
+        locales.clear(f);
+        value.clear(f);
         Ok(())
     }
 }

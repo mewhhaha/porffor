@@ -7,6 +7,24 @@ enum DisplaySign {
     Plus,
 }
 
+/// A localized message can move or omit its number placeholder. Keep that
+/// position with the pieces so signs and range approximation stay attached to
+/// the numeric value through nested measurement patterns.
+struct MessageParts {
+    pieces: Pieces,
+    number_at: Option<usize>,
+}
+
+impl MessageParts {
+    fn with_nested_number(mut self, inner: Option<usize>) -> Self {
+        self.number_at = self
+            .number_at
+            .zip(inner)
+            .map(|(outer, inner)| outer + inner);
+        self
+    }
+}
+
 fn display_sign(
     input: Input<'_>,
     rounded: Option<&RoundedDecimal>,
@@ -314,11 +332,15 @@ impl FormatContext<'_> {
         pattern: PatternId,
         number: &Pieces,
         argument: &Pieces,
-    ) -> Result<Pieces, NumberFormatKernelError> {
+    ) -> Result<MessageParts, NumberFormatKernelError> {
         let mut result = Pieces::new();
+        let mut number_at = None;
         for token in &self.profiles.pattern(pattern).0 {
             match token {
-                Token::Number => result.append(number, self.limits)?,
+                Token::Number => {
+                    number_at = Some(result.rows.len());
+                    result.append(number, self.limits)?;
+                }
                 Token::Argument1 => result.append(argument, self.limits)?,
                 Token::Literal(text) => result.push(
                     NumberPartKind::Literal,
@@ -339,7 +361,10 @@ impl FormatContext<'_> {
                 | Token::Compact(_) => unreachable!("validated message pattern role"),
             }
         }
-        Ok(result)
+        Ok(MessageParts {
+            pieces: result,
+            number_at,
+        })
     }
 
     fn unit_message(
@@ -349,7 +374,7 @@ impl FormatContext<'_> {
         rounded: Option<&RoundedDecimal>,
         category: CardinalCategory,
         number: &Pieces,
-    ) -> Result<Pieces, NumberFormatKernelError> {
+    ) -> Result<MessageParts, NumberFormatKernelError> {
         let width = match display {
             UnitDisplay::Short => 0,
             UnitDisplay::Narrow => 1,
@@ -385,14 +410,18 @@ impl FormatContext<'_> {
                     &Pieces::new(),
                 )?;
                 if let Some(per) = set.simple[denominator].per_unit {
-                    return self.message(per, &numerator, &Pieces::new());
+                    return Ok(self
+                        .message(per, &numerator.pieces, &Pieces::new())?
+                        .with_nested_number(numerator.number_at));
                 }
                 let denominator = self.message(
                     set.simple[denominator].denominator,
                     &Pieces::new(),
                     &Pieces::new(),
                 )?;
-                self.message(set.per_pattern, &numerator, &denominator)
+                Ok(self
+                    .message(set.per_pattern, &numerator.pieces, &denominator.pieces)?
+                    .with_nested_number(numerator.number_at))
             }
         }
     }
@@ -643,40 +672,6 @@ impl FormatContext<'_> {
                     .0;
             }
         }
-        match &self.options.style {
-            NumberStyle::Unit {
-                identifier,
-                display,
-            } => {
-                number = self.unit_message(
-                    *identifier,
-                    *display,
-                    name_quantity,
-                    selected_category,
-                    &number,
-                )?
-            }
-            NumberStyle::Currency {
-                display: CurrencyDisplay::Name,
-                ..
-            } => {
-                let operands =
-                    name_quantity.map(|value| PluralSelectionPurpose::Measurement.operands(value));
-                let message = self
-                    .profiles
-                    .pattern_choices(self.numbering.currency_unit_pattern)
-                    .select(selected_category, operands);
-                let mut label = Pieces::new();
-                label.symbol(
-                    NumberPartKind::Currency,
-                    &currency,
-                    Owner::Measurement,
-                    self.limits,
-                )?;
-                number = self.message(message, &number, &label)?;
-            }
-            NumberStyle::Decimal | NumberStyle::Percent | NumberStyle::Currency { .. } => {}
-        }
         if matches!(
             self.options.style,
             NumberStyle::Currency {
@@ -696,7 +691,56 @@ impl FormatContext<'_> {
                 &currency,
             );
         }
-        let (pieces, approximate_at) = self.number_pattern(pattern, sign, &number, &currency)?;
+        // Measurement messages own their affixes; the signed decimal value
+        // belongs at their actual number placeholder, including when it is
+        // between two localized unit labels.
+        let (number, approximate_at) = self.number_pattern(pattern, sign, &number, &currency)?;
+        let message = match &self.options.style {
+            NumberStyle::Unit {
+                identifier,
+                display,
+            } => Some(self.unit_message(
+                *identifier,
+                *display,
+                name_quantity,
+                selected_category,
+                &number,
+            )?),
+            NumberStyle::Currency {
+                display: CurrencyDisplay::Name,
+                ..
+            } => {
+                let operands =
+                    name_quantity.map(|value| PluralSelectionPurpose::Measurement.operands(value));
+                let message = self
+                    .profiles
+                    .pattern_choices(self.numbering.currency_unit_pattern)
+                    .select(selected_category, operands);
+                let mut label = Pieces::new();
+                label.symbol(
+                    NumberPartKind::Currency,
+                    &currency,
+                    Owner::Measurement,
+                    self.limits,
+                )?;
+                Some(self.message(message, &number, &label)?)
+            }
+            NumberStyle::Decimal | NumberStyle::Percent | NumberStyle::Currency { .. } => None,
+        };
+        let (pieces, approximate_at) = match message {
+            None => (number, approximate_at),
+            Some(MessageParts {
+                pieces,
+                number_at: Some(number_at),
+            }) => (pieces, number_at + approximate_at),
+            // CLDR has literal-only one/two forms. They omit the magnitude,
+            // not its sign, so retain the ordinary sign/approximation pattern
+            // around that complete measurement rather than losing it.
+            Some(MessageParts {
+                pieces,
+                number_at: None,
+            }) => self.number_pattern(pattern, sign, &pieces, &currency)?,
+        };
         Ok(Formatted {
             pieces,
             category,

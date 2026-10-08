@@ -1,12 +1,13 @@
-//! Shared boundaries for Uint8Array text codecs.
-
+//! Shared typed admission, options and completed byte lists for text codecs.
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
-use crate::functions::RealmFunctionMaterializationContext;
+use crate::functions::NonArrayRealmIntrinsicSlot;
+use crate::gc_types::*;
+use crate::module::TypedArrayElementKind;
+use crate::objects::PropertyKeyLocals;
 
-pub(super) struct Uint8ArrayCodecOptions {
-    payload_local: u32,
-    tag_local: u32,
+pub(super) enum Uint8ArrayCodecAccess {
+    Read,
+    Write,
 }
 
 pub(super) enum Uint8ArrayCodecOption {
@@ -14,9 +15,8 @@ pub(super) enum Uint8ArrayCodecOption {
     LastChunkHandling,
     OmitPadding,
 }
-
 impl Uint8ArrayCodecOption {
-    const fn name(&self) -> &'static str {
+    fn name(self) -> &'static str {
         match self {
             Self::Alphabet => "alphabet",
             Self::LastChunkHandling => "lastChunkHandling",
@@ -30,9 +30,8 @@ pub(super) enum Uint8ArrayBase64Alphabet {
     Base64,
     Base64Url,
 }
-
 impl Uint8ArrayBase64Alphabet {
-    pub(super) const fn code(self) -> i64 {
+    pub(super) const fn code(self) -> i32 {
         match self {
             Self::Base64 => 0,
             Self::Base64Url => 1,
@@ -40,556 +39,711 @@ impl Uint8ArrayBase64Alphabet {
     }
 }
 
-pub(super) enum Uint8ArrayCodecAccess {
-    Read,
-    Write,
+#[derive(Clone, Copy)]
+pub(super) enum Uint8ArrayLastChunk {
+    Loose,
+    Strict,
+    StopBeforePartial,
+}
+impl Uint8ArrayLastChunk {
+    pub(super) const fn code(self) -> i32 {
+        match self {
+            Self::Loose => 0,
+            Self::Strict => 1,
+            Self::StopBeforePartial => 2,
+        }
+    }
 }
 
-enum Uint8ArrayCodecPrototype {
-    Uint8Array,
-    ArrayBuffer,
+#[must_use]
+pub(super) struct Base64AlphabetLocal(I32Local);
+impl Base64AlphabetLocal {
+    pub(super) fn load(&self, f: &mut Function) {
+        self.0.load(f);
+    }
+    pub(super) fn clear(self, s: &RuntimeSchema, f: &mut Function) {
+        s.release_i32_local(self.0, f);
+    }
+}
+#[must_use]
+pub(super) struct Base64LastChunkLocal(I32Local);
+impl Base64LastChunkLocal {
+    pub(super) fn load(&self, f: &mut Function) {
+        self.0.load(f);
+    }
+    pub(super) fn clear(self, s: &RuntimeSchema, f: &mut Function) {
+        s.release_i32_local(self.0, f);
+    }
 }
 
-impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_uint8_array_codec_receiver(
+#[must_use]
+pub(super) struct Uint8ArrayCodecOptions(ValueLocals);
+impl Uint8ArrayCodecOptions {
+    pub(super) fn clear(self, f: &mut Function) {
+        self.0.clear(f);
+    }
+}
+
+#[must_use]
+pub(super) struct Uint8ArrayCodecReceiver {
+    pub(super) object: GcLocal<TypedArrayObject>,
+}
+impl Uint8ArrayCodecReceiver {
+    pub(super) fn clear(self, f: &mut Function) {
+        self.object.clear(f);
+    }
+}
+
+#[must_use]
+pub(super) struct Uint8ArrayCodecString {
+    pub(super) units: GcLocal<CodeUnitArray>,
+    pub(super) length: I64Local,
+}
+impl Uint8ArrayCodecString {
+    pub(super) fn clear(self, s: &RuntimeSchema, f: &mut Function) {
+        self.units.clear(f);
+        s.release_i64_local(self.length, f);
+    }
+}
+
+/// Error retains the completed prefix; in-place entries write that prefix
+/// before publishing SyntaxError, while static entries throw before allocation.
+#[must_use]
+pub(super) struct Uint8ArrayDecodedBytes {
+    pub(super) bytes: GcLocal<ByteArray>,
+    pub(super) read: I64Local,
+    pub(super) written: I64Local,
+    pub(super) error: CompletionLocals,
+}
+impl Uint8ArrayDecodedBytes {
+    pub(super) fn clear(self, s: &RuntimeSchema, f: &mut Function) {
+        self.error.clear(f);
+        self.bytes.clear(f);
+        s.release_i64_local(self.written, f);
+        s.release_i64_local(self.read, f);
+    }
+}
+
+impl FunctionBuilder<'_> {
+    pub(super) fn emit_uint8_codec_abrupt_exit(
         &mut self,
-        receiver_local: u32,
-        access: Uint8ArrayCodecAccess,
-        function: &mut Function,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) {
+        pending.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        output.copy_from(pending, f);
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+    }
+    pub(super) fn emit_uint8_codec_type_error_if(
+        &mut self,
+        message: RuntimeErrorMessage,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported("Uint8Array codec requires a receiver payload")
-        })?;
-        let receiver_tag = self
-            .this_tag_local
-            .ok_or_else(|| EmitError::unsupported("Uint8Array codec requires a receiver tag"))?;
-        function.instruction(&Instruction::LocalGet(receiver_payload));
-        function.instruction(&Instruction::LocalSet(receiver_local));
-        self.emit_is_typed_array_i32(receiver_local, receiver_tag, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.load_i64_from_offset(
-            receiver_local,
-            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(typed_array_element_kind(
-            StandardBuiltinId::Uint8ArrayConstructor,
-        ) as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Uint8Array codec requires a Uint8Array receiver",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_throw_current_function_realm_type_error(message, output, f)?;
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        Ok(())
+    }
+    pub(super) fn emit_uint8_codec_syntax_error_if(
+        &mut self,
+        message: RuntimeErrorMessage,
+        result: &Uint8ArrayDecodedBytes,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_throw_current_function_realm_error(
+            lila_ir::NativeErrorKind::SyntaxError,
+            message,
+            &result.error,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        Ok(())
+    }
+    pub(super) fn emit_uint8_codec_receiver(
+        &mut self,
+        access: Uint8ArrayCodecAccess,
+        value: &ValueLocals,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<Uint8ArrayCodecReceiver, EmitError> {
+        let s = self.runtime_schema();
+        value.reference().load(f);
+        f.instruction(&Instruction::RefTestNonNull(
+            s.reference_type::<TypedArrayObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        f.instruction(&Instruction::I32Eqz);
+        self.emit_uint8_codec_type_error_if(
+            RuntimeErrorMessage::UINT8ARRAY_CODEC_REQUIRES_A_UINT8ARRAY_RECEIVER,
+            output,
+            exit,
+            f,
+        )?;
+        let object = s
+            .reserve_gc_local(f)
+            .initialize(value.cast_reference::<TypedArrayObject>(s, f), f);
+        let kind = s.reserve_i32_local(f);
+        s.field(TypedArrayObjectSchema::ELEMENT_KIND)
+            .read(&object, s, f)
+            .store(kind, f);
+        kind.load(f);
+        f.instruction(&Instruction::I32Const(
+            TypedArrayElementKind::Uint8.encode(),
+        ));
+        f.instruction(&Instruction::I32Ne);
+        self.emit_uint8_codec_type_error_if(
+            RuntimeErrorMessage::UINT8ARRAY_CODEC_REQUIRES_A_UINT8ARRAY_RECEIVER,
+            output,
+            exit,
+            f,
+        )?;
+        s.release_i32_local(kind, f);
         match access {
             Uint8ArrayCodecAccess::Read => {}
             Uint8ArrayCodecAccess::Write => {
-                let buffer_local = self.reserve_temp_local();
-                let flags_local = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
-                    receiver_local,
-                    HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
-                    buffer_local,
-                    function,
-                );
-                self.emit_load_array_buffer_flags(buffer_local, flags_local, function);
-                function.instruction(&Instruction::LocalGet(flags_local));
-                function.instruction(&Instruction::I64Const(
-                    ArrayBufferFlag::Immutable.word() as i64
-                ));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "Uint8Array codec backing buffer is immutable",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                self.release_temp_local(flags_local);
-                self.release_temp_local(buffer_local);
+                // Bounds belong after input/options. This admission checks
+                // immutable backing only, before any observable option Get.
+                self.emit_validate_typed_array_writable_buffer(&object, pending, f)?;
+                self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
             }
         }
-        Ok(())
+        Ok(Uint8ArrayCodecReceiver { object })
     }
-
-    pub(super) fn emit_uint8_array_codec_string(
+    pub(super) fn emit_uint8_codec_string(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        pointer_local: u32,
-        byte_length_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Uint8Array codec input must be a string",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        value: &ValueLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<Uint8ArrayCodecString, EmitError> {
+        let s = self.runtime_schema();
+        value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        f.instruction(&Instruction::I32Ne);
+        self.emit_uint8_codec_type_error_if(
+            RuntimeErrorMessage::UINT8ARRAY_CODEC_INPUT_MUST_BE_A_STRING,
+            output,
+            exit,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(pointer_local));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(u32::MAX as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(byte_length_local));
-        Ok(())
+        let text = s
+            .reserve_gc_local(f)
+            .initialize(value.cast_reference::<StringValue>(s, f), f);
+        let units = s.reserve_gc_local(f).initialize(
+            s.field(StringValueSchema::CODE_UNITS)
+                .read(&text, s, f)
+                .reference(),
+            f,
+        );
+        let length = s.reserve_i64_local(f);
+        s.array_type::<CodeUnitArray>().length(&units, s, f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        length.store(f);
+        text.clear(f);
+        Ok(Uint8ArrayCodecString { units, length })
     }
-
-    pub(super) fn emit_uint8_array_codec_options(
+    pub(super) fn emit_uint8_codec_options(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
+        value: &ValueLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<Uint8ArrayCodecOptions, EmitError> {
-        self.emit_is_heap_object_like_tag_i32(tag_local, function);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Uint8Array codec options must be an object or undefined",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        let s = self.runtime_schema();
+        self.emit_is_heap_object_like_tag_i32(value.tag(), f);
+        value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        f.instruction(&Instruction::I32Or);
+        f.instruction(&Instruction::I32Eqz);
+        self.emit_uint8_codec_type_error_if(
+            RuntimeErrorMessage::UINT8ARRAY_CODEC_OPTIONS_MUST_BE_AN_OBJECT_OR_UNDEFINED,
+            output,
+            exit,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        Ok(Uint8ArrayCodecOptions {
-            payload_local,
-            tag_local,
-        })
+        let owned = s.reserve_value_local(f);
+        owned.copy_from(value, f);
+        Ok(Uint8ArrayCodecOptions(owned))
     }
-
-    pub(super) fn emit_uint8_array_codec_option(
+    pub(super) fn emit_uint8_codec_option(
         &mut self,
         options: &Uint8ArrayCodecOptions,
         property: Uint8ArrayCodecOption,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
+        pending: &CompletionLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(options.tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(property.name()),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            options.payload_local,
-            options.tag_local,
-            options.payload_local,
-            options.tag_local,
-            key_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(key_local);
+        let s = self.runtime_schema();
+        options.0.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let undefined = s.reserve_value_local(f);
+        undefined.set_undefined(f);
+        pending.set_normal(&undefined, f);
+        undefined.clear(f);
+        f.instruction(&Instruction::Else);
+        let text = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_interned_string_reference(property.name(), f)?, f);
+        let key = PropertyKeyLocals::from_string(s, &text, f);
+        self.emit_object_read(&options.0, &options.0, &key, pending, f)?;
+        key.clear(f);
+        text.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         Ok(())
     }
-
-    pub(super) fn emit_uint8_array_base64_alphabet(
+    pub(super) fn emit_uint8_codec_alphabet(
         &mut self,
         options: &Uint8ArrayCodecOptions,
-        alphabet_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let expected_local = self.reserve_temp_local();
-        self.emit_uint8_array_codec_option(
-            options,
-            Uint8ArrayCodecOption::Alphabet,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(alphabet_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<Base64AlphabetLocal, EmitError> {
+        let s = self.runtime_schema();
+        let result = s.reserve_i32_local(f);
+        let equal = s.reserve_i32_local(f);
+        let folding = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I32Const(0));
+        folding.store(f);
+        self.emit_uint8_codec_option(options, Uint8ArrayCodecOption::Alphabet, pending, f)?;
+        self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
+        f.instruction(&Instruction::I32Const(-1));
+        result.store(f);
+        pending.value().tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I32Const(
             Uint8ArrayBase64Alphabet::Base64.code(),
         ));
-        function.instruction(&Instruction::LocalSet(alphabet_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        result.store(f);
+        f.instruction(&Instruction::Else);
+        pending.value().tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let actual = s
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
         for (name, alphabet) in [
             ("base64", Uint8ArrayBase64Alphabet::Base64),
             ("base64url", Uint8ArrayBase64Alphabet::Base64Url),
         ] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(expected_local));
-            self.emit_string_payload_equality_i32(payload_local, expected_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(alphabet.code()));
-            function.instruction(&Instruction::LocalSet(alphabet_local));
-            function.instruction(&Instruction::End);
+            let expected = s
+                .reserve_gc_local(f)
+                .initialize(self.emit_interned_string_reference(name, f)?, f);
+            self.emit_gc_string_equality(&actual, &expected, folding, equal, f);
+            expected.clear(f);
+            equal.load(f);
+            self.open_frame(ControlFrameKind::If, f);
+            f.instruction(&Instruction::I32Const(alphabet.code()));
+            result.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(alphabet_local));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Uint8Array base64 alphabet must be base64 or base64url",
-            self.result_local,
-            self.result_tag_local,
-            function,
+        actual.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        result.load(f);
+        f.instruction(&Instruction::I32Const(-1));
+        f.instruction(&Instruction::I32Eq);
+        self.emit_uint8_codec_type_error_if(
+            RuntimeErrorMessage::UINT8ARRAY_BASE64_ALPHABET_MUST_BE_BASE64_OR_BASE64URL,
+            output,
+            exit,
+            f,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(expected_local);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        Ok(())
+        s.release_i32_local(folding, f);
+        s.release_i32_local(equal, f);
+        Ok(Base64AlphabetLocal(result))
     }
-
-    pub(super) fn emit_uint8_array_codec_bytes(
+    pub(super) fn emit_uint8_codec_last_chunk(
         &mut self,
-        receiver_local: u32,
-        pointer_local: u32,
-        length_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let buffer_local = self.reserve_temp_local();
-        let offset_local = self.reserve_temp_local();
-        let stored_length_local = self.reserve_temp_local();
-        let element_size_local = self.reserve_temp_local();
-        self.emit_load_typed_array_private_state(
-            receiver_local,
-            buffer_local,
-            offset_local,
-            stored_length_local,
-            element_size_local,
-            function,
-        );
-        let view = TypedArrayViewLocals::new(
-            receiver_local,
-            buffer_local,
-            offset_local,
-            stored_length_local,
-            element_size_local,
-        );
-        self.emit_typed_array_witness(
-            &view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
-            function,
+        options: &Uint8ArrayCodecOptions,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<Base64LastChunkLocal, EmitError> {
+        let s = self.runtime_schema();
+        let result = s.reserve_i32_local(f);
+        let equal = s.reserve_i32_local(f);
+        let folding = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I32Const(0));
+        folding.store(f);
+        self.emit_uint8_codec_option(
+            options,
+            Uint8ArrayCodecOption::LastChunkHandling,
+            pending,
+            f,
         )?;
-        self.emit_load_array_buffer_data(buffer_local, pointer_local, function);
-        function.instruction(&Instruction::LocalGet(pointer_local));
-        function.instruction(&Instruction::LocalGet(offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(pointer_local));
-        self.release_temp_local(element_size_local);
-        self.release_temp_local(stored_length_local);
-        self.release_temp_local(offset_local);
-        self.release_temp_local(buffer_local);
-        Ok(())
+        self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
+        f.instruction(&Instruction::I32Const(-1));
+        result.store(f);
+        pending.value().tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I32Const(Uint8ArrayLastChunk::Loose.code()));
+        result.store(f);
+        f.instruction(&Instruction::Else);
+        pending.value().tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let actual = s
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
+        for (name, mode) in [
+            ("loose", Uint8ArrayLastChunk::Loose),
+            ("strict", Uint8ArrayLastChunk::Strict),
+            (
+                "stop-before-partial",
+                Uint8ArrayLastChunk::StopBeforePartial,
+            ),
+        ] {
+            let expected = s
+                .reserve_gc_local(f)
+                .initialize(self.emit_interned_string_reference(name, f)?, f);
+            self.emit_gc_string_equality(&actual, &expected, folding, equal, f);
+            expected.clear(f);
+            equal.load(f);
+            self.open_frame(ControlFrameKind::If, f);
+            f.instruction(&Instruction::I32Const(mode.code()));
+            result.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        actual.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        result.load(f);
+        f.instruction(&Instruction::I32Const(-1));
+        f.instruction(&Instruction::I32Eq);
+        self.emit_uint8_codec_type_error_if(RuntimeErrorMessage::UINT8ARRAY_BASE64_LASTCHUNKHANDLING_MUST_BE_LOOSE_STRICT_OR_STOP_BEFORE_PARTIAL,output,exit,f)?;
+        s.release_i32_local(folding, f);
+        s.release_i32_local(equal, f);
+        Ok(Base64LastChunkLocal(result))
     }
-
-    fn emit_uint8_array_codec_prototype(
-        &mut self,
-        prototype: Uint8ArrayCodecPrototype,
-        result_local: u32,
-        function: &mut Function,
+    pub(super) fn emit_uint8_codec_decoded_list(
+        &self,
+        source_bound: I64Local,
+        max_length: I64Local,
+        f: &mut Function,
+    ) -> Uint8ArrayDecodedBytes {
+        let s = self.runtime_schema();
+        let capacity = s.reserve_i32_local(f);
+        source_bound.load(f);
+        max_length.load(f);
+        source_bound.load(f);
+        max_length.load(f);
+        f.instruction(&Instruction::I64LtU);
+        f.instruction(&Instruction::Select);
+        f.instruction(&Instruction::I32WrapI64);
+        capacity.store(f);
+        let bytes = s.reserve_gc_local(f).initialize(
+            s.array_type::<ByteArray>()
+                .filled(GcOperand::i32(0), capacity, f),
+            f,
+        );
+        s.release_i32_local(capacity, f);
+        let read = s.reserve_i64_local(f);
+        let written = s.reserve_i64_local(f);
+        let error = s.reserve_completion(f);
+        f.instruction(&Instruction::I64Const(0));
+        read.store(f);
+        f.instruction(&Instruction::I64Const(0));
+        written.store(f);
+        error.initialize(f);
+        Uint8ArrayDecodedBytes {
+            bytes,
+            read,
+            written,
+            error,
+        }
+    }
+    pub(super) fn emit_uint8_codec_push_byte(
+        &self,
+        result: &Uint8ArrayDecodedBytes,
+        byte: I32Local,
+        f: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        match prototype {
-            Uint8ArrayCodecPrototype::Uint8Array => {
-                function.instruction(&Instruction::GlobalGet(
-                    UINT8_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
-                ));
-                function.instruction(&Instruction::LocalSet(result_local));
-                self.load_i64_to_local_from_offset(
-                    result_local,
-                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                    result_local,
-                    function,
-                );
-            }
-            Uint8ArrayCodecPrototype::ArrayBuffer => {
-                function.instruction(&Instruction::GlobalGet(ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(result_local));
-            }
-        }
-        function.instruction(&Instruction::Else);
-        let offset = match prototype {
-            Uint8ArrayCodecPrototype::Uint8Array => {
-                HEAP_FUNCTION_REALM_UINT8_ARRAY_PROTOTYPE_OFFSET
-            }
-            Uint8ArrayCodecPrototype::ArrayBuffer => {
-                HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET
-            }
-        };
-        self.load_i64_to_local_from_offset(self.current_env_local, offset, result_local, function);
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        let s = self.runtime_schema();
+        let index = s.reserve_i32_local(f);
+        result.written.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        index.store(f);
+        s.array_type::<ByteArray>()
+            .write(&result.bytes, index, GcOperand::i32_local(byte), s, f);
+        self.emit_increment_local(result.written, 1, f);
+        s.release_i32_local(index, f);
     }
-
-    pub(super) fn emit_uint8_array_codec_allocation(
+    pub(super) fn emit_uint8_codec_string_unit(
+        &self,
+        text: &Uint8ArrayCodecString,
+        index: I64Local,
+        unit: I32Local,
+        f: &mut Function,
+    ) {
+        let s = self.runtime_schema();
+        let at = s.reserve_i32_local(f);
+        index.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        at.store(f);
+        s.array_type::<CodeUnitArray>()
+            .read(&text.units, at, s, f)
+            .store(unit, f);
+        s.release_i32_local(at, f);
+    }
+    pub(super) fn emit_uint8_codec_copy_bytes(
         &mut self,
-        source_pointer_local: u32,
-        byte_length_local: u32,
-        function: &mut Function,
+        receiver: &GcLocal<TypedArrayObject>,
+        bytes: &GcLocal<ByteArray>,
+        length: I64Local,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let pointer_local = self.reserve_temp_local();
-        let buffer_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-        self.emit_array_buffer_backing_store_alloc(byte_length_local, pointer_local, function)?;
-        function.instruction(&Instruction::LocalGet(pointer_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(source_pointer_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(byte_length_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::MemoryCopy {
-            src_mem: 0,
-            dst_mem: self.buffer_memory_index(),
-        });
-        self.emit_uint8_array_codec_prototype(
-            Uint8ArrayCodecPrototype::ArrayBuffer,
-            prototype_local,
-            function,
-        );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(buffer_local));
-        self.store_i64_const_at_offset(
-            buffer_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ARRAY_BUFFER,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        self.emit_initialize_array_buffer_private_state(
-            buffer_local,
-            pointer_local,
-            byte_length_local,
-            byte_length_local,
-            zero_local,
-            function,
-        );
-        self.emit_uint8_array_codec_prototype(
-            Uint8ArrayCodecPrototype::Uint8Array,
-            prototype_local,
-            function,
-        );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        for (offset, value) in [
-            (
-                HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                OBJECT_INTERNAL_BRAND_TYPED_ARRAY,
-            ),
-            (HEAP_TYPED_ARRAY_BYTE_OFFSET, 0),
-            (HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET, 1),
-            (
-                HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-                typed_array_element_kind(StandardBuiltinId::Uint8ArrayConstructor),
-            ),
-            (
-                HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
-                TypedArrayLengthMode::Fixed.word(),
-            ),
-        ] {
-            self.store_i64_const_at_offset(self.result_local, offset, value, function);
-        }
-        self.store_i64_local_at_offset(
-            self.result_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
-            buffer_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            self.result_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-            byte_length_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(zero_local);
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(buffer_local);
-        self.release_temp_local(pointer_local);
+        let s = self.runtime_schema();
+        let i = s.reserve_i64_local(f);
+        let at = s.reserve_i32_local(f);
+        let byte = s.reserve_i32_local(f);
+        let bits = s.reserve_i64_local(f);
+        f.instruction(&Instruction::I64Const(0));
+        i.store(f);
+        let end = self.open_frame(ControlFrameKind::Block, f);
+        let again = self.open_frame(ControlFrameKind::Loop, f);
+        i.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(end, f);
+        i.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        at.store(f);
+        s.array_type::<ByteArray>()
+            .read(bytes, at, s, f)
+            .store(byte, f);
+        byte.load(f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        bits.store(f);
+        self.emit_typed_array_element_bits_write(receiver, i, bits, pending, f)?;
+        self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
+        self.emit_increment_local(i, 1, f);
+        self.emit_branch_to_target(again, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        s.release_i64_local(bits, f);
+        s.release_i32_local(byte, f);
+        s.release_i32_local(at, f);
+        s.release_i64_local(i, f);
         Ok(())
     }
-
-    pub(super) fn emit_uint8_array_codec_result(
+    pub(super) fn emit_uint8_codec_static_result(
         &mut self,
-        read_local: u32,
-        written_local: u32,
-        function: &mut Function,
+        result: &Uint8ArrayDecodedBytes,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let number_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::Else);
-        self.emit_load_function_defining_realm_object_prototype(
-            self.current_env_local,
-            prototype_local,
-            function,
+        let s = self.runtime_schema();
+        self.emit_uint8_codec_abrupt_exit(&result.error, output, exit, f);
+        let realm = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_current_function_realm(f), f);
+        let constructor = s.reserve_value_local(f);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::Uint8ArrayConstructor,
+            &constructor,
+            f,
         );
-        function.instruction(&Instruction::End);
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        for (name, value) in [("read", read_local), ("written", written_local)] {
-            function.instruction(&Instruction::LocalGet(value));
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(number_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                name,
-                number_local,
-                tag_local,
-                true,
-                true,
-                true,
-                function,
-            )?;
-        }
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(tag_local);
-        self.release_temp_local(number_local);
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(object_local);
+        let length = s.reserve_value_local(f);
+        let number = s.reserve_i64_local(f);
+        result.written.load(f);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        number.store(f);
+        length.set_number(number, f);
+        let argv = self.emit_pre_evaluated_arg_vector(&[&length], f);
+        self.emit_function_or_proxy_construct_with_argv(
+            &constructor,
+            &constructor,
+            &argv,
+            pending,
+            f,
+        )?;
+        argv.clear(f);
+        length.clear(f);
+        s.release_i64_local(number, f);
+        constructor.clear(f);
+        realm.clear(f);
+        self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
+        let value = s.reserve_value_local(f);
+        value.copy_from(pending.value(), f);
+        let object = s
+            .reserve_gc_local(f)
+            .initialize(value.cast_reference::<TypedArrayObject>(s, f), f);
+        self.emit_uint8_codec_copy_bytes(
+            &object,
+            &result.bytes,
+            result.written,
+            pending,
+            output,
+            exit,
+            f,
+        )?;
+        output.set_normal(&value, f);
+        object.clear(f);
+        value.clear(f);
         Ok(())
     }
-    pub(super) fn emit_initialize_uint8_array_codec_methods(
+    pub(super) fn emit_uint8_codec_count_result(
         &mut self,
-        constructor_local: u32,
-        prototype_local: u32,
-        buffer_prototype_local: u32,
-        realm_functions: Option<&RealmFunctionMaterializationContext>,
-        function: &mut Function,
+        result: &Uint8ArrayDecodedBytes,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let method_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        for (members, target_local) in [
-            (
-                lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS.as_slice(),
-                constructor_local,
-            ),
-            (
-                lila_ir::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS.as_slice(),
-                prototype_local,
-            ),
-        ] {
-            for &(name, builtin) in members {
-                let meta = self
-                    .functions
-                    .get(&builtin.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "Uint8Array codec builtin is not rooted: {}",
-                            builtin.debug_name()
-                        ))
-                    })?;
-                match realm_functions {
-                    Some(context) => self.emit_function_value_payload_in_realm(
-                        &meta,
-                        context,
-                        method_local,
-                        function,
-                    )?,
-                    None => {
-                        self.emit_function_value_payload(&meta, function)?;
-                        function.instruction(&Instruction::LocalSet(method_local));
-                    }
-                }
-                self.store_i64_local_at_offset(
-                    method_local,
-                    HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                    method_local,
-                    function,
-                );
-                self.store_i64_local_at_offset(
-                    method_local,
-                    HEAP_FUNCTION_REALM_UINT8_ARRAY_PROTOTYPE_OFFSET,
-                    prototype_local,
-                    function,
-                );
-                self.store_i64_local_at_offset(
-                    method_local,
-                    HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
-                    buffer_prototype_local,
-                    function,
-                );
-                self.emit_object_append_local_data_property_with_flags(
-                    target_local,
-                    name,
-                    method_local,
-                    tag_local,
-                    true,
-                    false,
-                    true,
-                    function,
-                )?;
-            }
+        let s = self.runtime_schema();
+        self.emit_uint8_codec_abrupt_exit(&result.error, output, exit, f);
+        let realm = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_current_function_realm(f), f);
+        let prototype = s.reserve_value_local(f);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
+            f,
+        );
+        let object = s.reserve_gc_local(f).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&prototype), f)?,
+            f,
+        );
+        realm.clear(f);
+        prototype.clear(f);
+        let target = s.reserve_value_local(f);
+        target.set_reference(&object, s, f);
+        let value = s.reserve_value_local(f);
+        let number = s.reserve_i64_local(f);
+        for (name, count) in [("read", result.read), ("written", result.written)] {
+            count.load(f);
+            f.instruction(&Instruction::F64ConvertI64U);
+            f.instruction(&Instruction::I64ReinterpretF64);
+            number.store(f);
+            value.set_number(number, f);
+            let text = s
+                .reserve_gc_local(f)
+                .initialize(self.emit_interned_string_reference(name, f)?, f);
+            let key = PropertyKeyLocals::from_string(s, &text, f);
+            self.emit_create_data_property_or_throw(&target, &key, &value, pending, f)?;
+            key.clear(f);
+            text.clear(f);
+            self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
         }
-        self.release_temp_local(tag_local);
-        self.release_temp_local(method_local);
+        output.set_normal(&target, f);
+        s.release_i64_local(number, f);
+        value.clear(f);
+        target.clear(f);
+        object.clear(f);
         Ok(())
+    }
+    pub(super) fn emit_uint8_codec_snapshot(
+        &mut self,
+        receiver: &Uint8ArrayCodecReceiver,
+        length: I64Local,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<GcLocal<ByteArray>, EmitError> {
+        let s = self.runtime_schema();
+        self.emit_validate_typed_array_view(&receiver.object, length, pending, f)?;
+        self.emit_uint8_codec_abrupt_exit(pending, output, exit, f);
+        // A byte list has a physical GC extent. Do not wrap a u64 host-backed
+        // shared length into a smaller array index.
+        length.load(f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        f.instruction(&Instruction::I64GtU);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let at = s.reserve_i32_local(f);
+        length.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        at.store(f);
+        let bytes = s.reserve_gc_local(f).initialize(
+            s.array_type::<ByteArray>().filled(GcOperand::i32(0), at, f),
+            f,
+        );
+        let i = s.reserve_i64_local(f);
+        let bits = s.reserve_i64_local(f);
+        let valid = s.reserve_i32_local(f);
+        let byte = s.reserve_i32_local(f);
+        f.instruction(&Instruction::I64Const(0));
+        i.store(f);
+        let end = self.open_frame(ControlFrameKind::Block, f);
+        let again = self.open_frame(ControlFrameKind::Loop, f);
+        i.load(f);
+        length.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(end, f);
+        self.emit_typed_array_element_bits_read(&receiver.object, i, bits, valid, f);
+        valid.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        bits.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        byte.store(f);
+        i.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        at.store(f);
+        s.array_type::<ByteArray>()
+            .write(&bytes, at, GcOperand::i32_local(byte), s, f);
+        self.emit_increment_local(i, 1, f);
+        self.emit_branch_to_target(again, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        s.release_i32_local(byte, f);
+        s.release_i32_local(valid, f);
+        s.release_i64_local(bits, f);
+        s.release_i64_local(i, f);
+        s.release_i32_local(at, f);
+        Ok(bytes)
     }
 }

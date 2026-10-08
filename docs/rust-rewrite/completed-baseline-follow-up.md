@@ -801,11 +801,14 @@ within-day nanosecond remainder; half-even includes the day contribution to
 global quotient parity. Difference options retain observable getter order,
 time-unit admission, signed rounding and since's rounding-mode inversion.
 
-Instant and Duration member installation is shared between entry and created
-Realms. Only these two Temporal families are added to created-Realm publication
-in this change; the wider pre-existing omission of other Temporal families
-and Temporal.Now there remains separate work. Result prototypes come from
-immutable Realm slots, and foreign constructor fallback follows NewTarget.
+The original Instant arithmetic receipt shared only Instant and Duration
+installation across entry and created Realms. The subsequent
+[created-Realm completion](contracts/temporal-created-realm-completion.md)
+now shares all eight implemented families and publishes Temporal.Now. Every
+constructor default follows NewTarget's Realm, and actual result allocation
+loads the executing built-in's immutable intrinsic prototype. The completion
+is authored with compilation and paired runtime controls still pending; the
+older Instant receipt does not establish those new runtime observations.
 
 The batch must be integrated together with the canonical wide Duration field
 foundation. Pinned add/subtract minimum-maximum cases require valid Number

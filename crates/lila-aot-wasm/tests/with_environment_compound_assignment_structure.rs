@@ -1,7 +1,34 @@
+use lila_front::{parse, ParseOptions};
+use lila_ir::{
+    lower, EnvironmentCompoundOperationIr, EnvironmentIdentifierOperationIr,
+    EnvironmentIdentifierResolutionStart, ExprIr, StatementIr, TypedExpr,
+};
+
+fn lower_control(source: &str) -> lila_ir::ProgramIr {
+    let parsed = parse(source, ParseOptions::script()).expect("Reference control parses");
+    let program = lower(&parsed);
+    assert!(
+        program.is_wasm_supported(),
+        "{source}: {:?}",
+        program.diagnostics
+    );
+    program
+}
+
+fn with_selection(statements: &[StatementIr]) -> Option<&TypedExpr> {
+    statements.iter().find_map(|statement| match statement {
+        StatementIr::Expression(expression)
+            if matches!(&expression.expr, ExprIr::Conditional { .. }) =>
+        {
+            Some(expression)
+        }
+        StatementIr::Block(block) => with_selection(&block.statements),
+        StatementIr::LexicalBlock(statements) => with_selection(statements),
+        _ => None,
+    })
+}
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
-const COMPOUND_SOURCE: &str =
-    include_str!("../../lila-ir/src/lowering/with_environment_compound.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_with_environment_compound_assignment.js");
 const CONTRACT: &str = include_str!(
@@ -105,15 +132,17 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 #[test]
 fn one_nonempty_noncopy_plan_owns_the_complete_compound_assignment() {
     assert!(REFERENCE_SOURCE.contains(
-        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
+        "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
     let plan_type = bounded(
         REFERENCE_SOURCE,
         "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]",
-        "/// One identifier Reference selected by the Global Environment Record's",
+        "\n}\n",
     );
     assert!(!plan_type.contains("Clone"));
     assert!(!plan_type.contains("Copy"));
+    assert!(!REFERENCE_SOURCE.contains("impl Clone for WithEnvironmentReferencePlan"));
+    assert!(!REFERENCE_SOURCE.contains("impl Copy for WithEnvironmentReferencePlan"));
     let plan_consumer = bounded(
         REFERENCE_SOURCE,
         "impl WithEnvironmentReferencePlan {",
@@ -240,7 +269,7 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     assert!(!logical.contains("EagerCompoundAssignmentOp"));
     assert!(!logical.contains("lower_with_scoped_identifier_eager_compound_assignment"));
 
-    let assignment_end = "\n        }\n    }";
+    let assignment_end = "\n        }\n    }\n}";
     assert_eq!(
         ASSIGNMENT_SOURCE.matches(assignment_end).count(),
         1,
@@ -302,40 +331,53 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
 }
 
 #[test]
-fn fallback_is_dynamic_and_runtime_guarded_after_observable_selection() {
-    let helper = bounded(
-        COMPOUND_SOURCE,
-        "    pub(super) fn lower_with_scoped_identifier_eager_compound_assignment(",
-        "\n}\n\n#[cfg(test)]",
-    );
-    for marker in [
-        "let plan = self.with_environment_reference_plan(",
-        "rhs.clone()",
-        "EagerCompoundAssignmentBindings::allocate(",
-        "let old_value = bindings.old_value();",
-        "let applied = op.apply(",
-        "plan.compound_assignment(bindings.seal(applied), fallback)",
-        "self.widen_binding_for_possible_replacement(&name);",
-        "lower_global_object_environment_eager_compound_assignment(",
-        "info.value_info.widen_for_possible_replacement();",
-        "info.proven_present = false;",
-        "GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)",
-        ".compound_assignment(bindings.seal(applied))",
-    ] {
+fn with_selection_keeps_its_object_and_distinguishes_global_from_local_fallback() {
+    for (parameters, global_fallback) in [("scope", true), ("scope, value", false)] {
+        let program = lower_control(&format!(
+            "function mutate({parameters}) {{ with (scope) {{ value += 2; }} }}"
+        ));
+        let function = program
+            .script
+            .as_ref()
+            .expect("script IR")
+            .functions
+            .iter()
+            .find(|function| function.name == "mutate")
+            .expect("With owner");
+        let ExprIr::Conditional {
+            then_expr,
+            else_expr,
+            ..
+        } = &with_selection(&function.body.statements)
+            .expect("With HasBinding remains the outer selection")
+            .expr
+        else {
+            unreachable!()
+        };
         assert!(
-            helper.contains(marker),
-            "missing fallback boundary: {marker}"
+            matches!(&then_expr.expr, ExprIr::MaterializeBinding { .. }),
+            "selected object keeps its Get/Put lifecycle"
         );
+        if global_fallback {
+            let ExprIr::EnvironmentIdentifier(reference) = &else_expr.expr else {
+                panic!("global fallback must retain the Global Record: {else_expr:?}");
+            };
+            assert_eq!(reference.name, "value");
+            assert_eq!(
+                reference.resolution_start(),
+                EnvironmentIdentifierResolutionStart::GlobalEnvironment
+            );
+            assert!(
+                matches!(&reference.operation, EnvironmentIdentifierOperationIr::EagerCompound {
+                operation: EnvironmentCompoundOperationIr::Add, rhs
+            } if matches!(&rhs.expr, ExprIr::Number(value) if *value == 2.0f64.to_bits()))
+            );
+        } else {
+            assert!(
+                matches!(&else_expr.expr, ExprIr::AssignIdentifier { name, .. } if name == "value")
+            );
+        }
     }
-    assert_before(helper, "let plan =", "let fallback =");
-    assert_before(helper, "let fallback =", "let bindings =");
-    assert_before(helper, "let bindings =", "let old_value =");
-    assert_before(helper, "let old_value =", "let applied =");
-    assert_before(
-        helper,
-        "info.value_info.widen_for_possible_replacement();",
-        "info.proven_present = false;",
-    );
 }
 
 #[test]

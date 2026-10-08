@@ -214,13 +214,7 @@ impl FunctionCache {
     }
 
     pub(crate) fn read(&self, key: &[u8]) -> Option<Vec<u8>> {
-        let bytes = <Self as CacheStore>::get(self, key).map(Cow::into_owned)?;
-        // The program cache can live on a noatime mount, so a read alone
-        // cannot make a frequently reused artifact survive LRU pruning.
-        if let Ok(file) = fs::File::options().write(true).open(self.entry_path(key)) {
-            let _ = file.set_modified(SystemTime::now());
-        }
-        Some(bytes)
+        <Self as CacheStore>::get(self, key).map(Cow::into_owned)
     }
 
     pub(crate) fn write(&self, key: &[u8], value: Vec<u8>) -> bool {
@@ -241,8 +235,14 @@ impl FunctionCache {
 impl CacheStore for FunctionCache {
     fn get(&self, key: &[u8]) -> Option<Cow<'_, [u8]>> {
         let path = self.entry_path(key);
-        match fs::read(path) {
+        match fs::read(&path) {
             Ok(bytes) => {
+                // Cranelift calls this trait method directly. Refresh both
+                // function and program cache hits even on noatime mounts;
+                // metadata failure must not discard the bytes already read.
+                if let Ok(file) = fs::File::options().write(true).open(&path) {
+                    let _ = file.set_modified(SystemTime::now());
+                }
                 self.hits.fetch_add(1, Ordering::Relaxed);
                 Some(Cow::Owned(bytes))
             }
@@ -553,39 +553,59 @@ mod tests {
     }
 
     #[test]
-    fn program_cache_reads_refresh_recency_when_access_times_do_not_change() {
-        let root = temp_cache("read-recency");
-        let _ = fs::remove_dir_all(&root);
-        let cache = FunctionCache::new(root.clone(), 100).expect("cache should initialize");
-        assert!(cache.insert(b"reused", vec![1; 30]));
-        assert!(cache.insert(b"unused", vec![2; 40]));
-        let old = fs::FileTimes::new()
-            .set_accessed(SystemTime::UNIX_EPOCH)
-            .set_modified(SystemTime::UNIX_EPOCH);
-        fs::File::options()
-            .write(true)
-            .open(cache.entry_path(b"reused"))
-            .unwrap()
-            .set_times(old)
-            .unwrap();
-        fs::File::options()
-            .write(true)
-            .open(cache.entry_path(b"unused"))
-            .unwrap()
-            .set_times(
-                fs::FileTimes::new()
-                    .set_accessed(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1))
-                    .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1)),
-            )
-            .unwrap();
+    fn cache_reads_refresh_recency_when_access_times_do_not_change() {
+        for direct_function_read in [true, false] {
+            let root = temp_cache(if direct_function_read {
+                "function-read-recency"
+            } else {
+                "program-read-recency"
+            });
+            let _ = fs::remove_dir_all(&root);
+            let cache = FunctionCache::new(root.clone(), 100).expect("cache should initialize");
+            assert!(cache.insert(b"reused", vec![1; 30]));
+            assert!(cache.insert(b"unused", vec![2; 40]));
+            let old = fs::FileTimes::new()
+                .set_accessed(SystemTime::UNIX_EPOCH)
+                .set_modified(SystemTime::UNIX_EPOCH);
+            fs::File::options()
+                .write(true)
+                .open(cache.entry_path(b"reused"))
+                .unwrap()
+                .set_times(old)
+                .unwrap();
+            fs::File::options()
+                .write(true)
+                .open(cache.entry_path(b"unused"))
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new()
+                        .set_accessed(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1))
+                        .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1)),
+                )
+                .unwrap();
 
-        assert_eq!(cache.read(b"reused").as_deref(), Some(&[1; 30][..]));
-        assert!(cache.insert(b"new", vec![3; 31]));
+            let bytes = if direct_function_read {
+                <FunctionCache as CacheStore>::get(&cache, b"reused").map(Cow::into_owned)
+            } else {
+                cache.read(b"reused")
+            };
+            assert_eq!(bytes.as_deref(), Some(&[1; 30][..]));
+            // Model noatime even when this fixture runs on a filesystem that
+            // updated atime during the read. Keep the refreshed mtime intact.
+            fs::File::options()
+                .write(true)
+                .open(cache.entry_path(b"reused"))
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_accessed(SystemTime::UNIX_EPOCH))
+                .unwrap();
+            assert!(cache.insert(b"new", vec![3; 31]));
 
-        assert!(cache.contains(b"reused"));
-        assert!(!cache.contains(b"unused"));
-        assert!(cache.contains(b"new"));
-        let _ = fs::remove_dir_all(root);
+            assert!(cache.contains(b"reused"));
+            assert!(!cache.contains(b"unused"));
+            assert!(cache.contains(b"new"));
+            assert_eq!(cache.counters(), (1, 0));
+            let _ = fs::remove_dir_all(root);
+        }
     }
 
     #[test]

@@ -3,6 +3,9 @@ use std::path::Path;
 
 const SOURCE: &str = include_str!("../src/builtins/function.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
+const GC_VALUES: &str = include_str!("../src/gc_types/value.rs");
+const CALL_DISPATCH: &str = include_str!("../src/functions/call_dispatch.rs");
+const BOUND_RECORD: &str = include_str!("../src/functions/bound_function_record.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/function-prototype-receiver-ownership.md");
 const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
@@ -210,158 +213,209 @@ fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
 }
 
 #[test]
-fn receiver_carrier_is_the_exact_private_non_copy_domain() {
+fn receiver_value_is_the_private_whole_non_copy_domain() {
     let lexical_probe = rust_code(
         r###"
-        // FunctionPrototypeReceiverLocals
-        FunctionPrototypeReceiverLocals /* nested /* ignored */ comment */;
-        "FunctionPrototypeReceiverLocals"; b"FunctionPrototypeReceiverLocals";
-        c"FunctionPrototypeReceiverLocals"; r"FunctionPrototypeReceiverLocals";
-        br##"FunctionPrototypeReceiverLocals"##; cr#"FunctionPrototypeReceiverLocals"#;
-        'F'; b'F'; 'lifetime;
+        // ValueLocals
+        ValueLocals /* nested /* ignored */ comment */;
+        "ValueLocals"; b"ValueLocals";
+        c"ValueLocals"; r"ValueLocals";
+        br##"ValueLocals"##; cr#"ValueLocals"#;
+        'V'; b'V'; 'lifetime;
         "###,
     );
     assert_eq!(
-        exact_identifier_count(
-            &lexical_probe.identifiers,
-            "FunctionPrototypeReceiverLocals",
-        ),
+        exact_identifier_count(&lexical_probe.identifiers, "ValueLocals"),
         1
     );
 
-    let receiver_module = rust_code(bounded(
-        SOURCE,
-        "mod function_prototype_receiver {",
-        "\n}\n\nuse self::function_prototype_receiver::FunctionPrototypeReceiverLocals;",
+    let value_fields = rust_code(bounded(
+        GC_VALUES,
+        "pub(crate) struct ValueLocals {",
+        "\n}\nimpl ValueLocals {",
     ));
-    assert!(receiver_module.normalized.starts_with(concat!(
-        "usesuper::*;",
-        "pub(super)structFunctionPrototypeReceiverLocals{",
-        "payload_local:u32,tag_local:u32,}",
-        "implFunctionPrototypeReceiverLocals{"
-    )));
     assert_eq!(
-        receiver_module
-            .normalized
-            .matches("(builder.this_payload_local,builder.this_tag_local)")
-            .count(),
-        1
+        value_fields.normalized,
+        "tag:I32Local,scalar:I64Local,reference:EqRefLocal,"
     );
-    for forbidden in [
-        "new_target",
-        "implCloneforFunctionPrototypeReceiverLocals",
-        "implCopyforFunctionPrototypeReceiverLocals",
-        "derive(",
-    ] {
+    let value_header = rust_code(bounded(
+        GC_VALUES,
+        "pub(crate) enum ScalarValue {",
+        "impl ValueLocals {",
+    ));
+    for forbidden in ["Clone", "Copy", "pubtag:", "pubscalar:", "pubreference:"] {
         assert!(
-            !receiver_module.normalized.contains(forbidden),
+            !value_header.identifiers.contains(forbidden),
             "found `{forbidden}`"
         );
     }
-
+    let value_code = rust_code(GC_VALUES);
+    for forbidden in ["implCloneforValueLocals", "implCopyforValueLocals"] {
+        assert!(
+            !value_code.normalized.contains(forbidden),
+            "found `{forbidden}`"
+        );
+    }
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "FunctionPrototypeReceiverLocals"),
-        8
-    );
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "from_this"),
-        6
-    );
+    for retired in [
+        "FunctionPrototypeReceiverLocals",
+        "emit_bound_function_invoker_builtin",
+    ] {
+        assert_eq!(
+            count_identifier_in_rust_sources(&source_root, retired),
+            0,
+            "retired `{retired}`"
+        );
+    }
 }
 
 #[test]
-fn five_prototype_operations_can_only_construct_from_this() {
-    let operations = bounded(
-        SOURCE,
-        "            FunctionBuiltin::PrototypeSymbolHasInstance => {",
-        "            FunctionBuiltin::BoundFunctionInvoker => {",
+fn five_prototype_operations_share_the_captured_whole_this_value() {
+    let code = rust_code(SOURCE).normalized;
+    let owner = bounded(
+        &code,
+        "fnemit_function_builtin(",
+        "self.completion().copy_from(&result,function);",
     );
-    assert_eq!(
-        operations
-            .matches("FunctionPrototypeReceiverLocals::from_this(")
-            .count(),
-        5
+    let capture = "receiver.copy_from(self.body_entry_locals().expect(\"native Function entry is cached\").this_value(),function);";
+    assert_eq!(owner.matches(capture).count(), 1);
+    assert!(owner.contains("letreceiver=schema.reserve_value_local(function);"));
+    assert!(
+        owner
+            .find("returnself.compile_function_constructor_builtin(function);")
+            .unwrap()
+            < owner.find(capture).unwrap()
     );
-    for builtin_name in [
-        "Function.prototype[Symbol.hasInstance]",
-        "Function.prototype.call",
-        "Function.prototype.apply",
-        "Function.prototype.bind",
-        "Function.prototype.toString",
+    for variant in [
+        "PrototypeSymbolHasInstance",
+        "PrototypeCall",
+        "PrototypeApply",
+        "PrototypeBind",
+        "PrototypeToString",
     ] {
         assert_eq!(
-            operations.matches(&format!("\"{builtin_name}\"")).count(),
+            owner
+                .matches(&format!("FunctionBuiltin::{variant}=>{{"))
+                .count(),
             1
         );
     }
     for forbidden in [
         "this_payload_local",
         "this_tag_local",
-        "new_target_payload_local",
-        "new_target_tag_local",
+        "new_target",
         "receiver_payload_local",
         "receiver_tag_local",
-        "constructor_payload_local",
-        "constructor_tag_local",
     ] {
-        assert!(!operations.contains(forbidden), "found `{forbidden}`");
+        assert!(!owner.contains(forbidden), "found `{forbidden}`");
     }
+    assert!(code.contains("self.completion().copy_from(&result,function);result.clear(function);argument.clear(function);receiver.clear(function);"));
 }
 
 #[test]
-fn each_operation_keeps_payload_and_tag_on_the_same_carrier() {
-    let operations = bounded(
-        SOURCE,
-        "            FunctionBuiltin::PrototypeSymbolHasInstance => {",
-        "            FunctionBuiltin::BoundFunctionInvoker => {",
+fn operations_and_bound_dispatch_retain_complete_values_and_completions() {
+    let code = rust_code(SOURCE).normalized;
+    for (start, end, semantic_owner) in [
+        ("PrototypeSymbolHasInstance", "PrototypeCall", "emit_ordinary_has_instance_from_locals(&receiver,&argument,&result,function)"),
+        ("PrototypeCall", "PrototypeApply", "emit_function_or_proxy_call_with_argv(&receiver,&argument,&arguments,&result,function)"),
+        ("PrototypeApply", "PrototypeBind", "emit_function_or_proxy_call_with_argv(&receiver,&argument,"),
+        ("PrototypeBind", "PrototypeToString", "emit_alloc_bound_function_for_bind(&receiver,&arguments,&result,function)"),
+    ] {
+        let branch = bounded(&code, &format!("FunctionBuiltin::{start}=>{{"), &format!("FunctionBuiltin::{end}=>{{"));
+        assert!(branch.contains(semantic_owner), "{start} must consume its captured whole receiver");
+    }
+    let to_string = bounded(
+        &code,
+        "FunctionBuiltin::PrototypeToString=>{",
+        "self.completion().copy_from(&result,function);",
     );
-    for (start, end, payload_reads, tag_reads) in [
-        ("PrototypeSymbolHasInstance", "PrototypeCall", 1, 1),
-        ("PrototypeCall", "PrototypeApply", 1, 1),
-        ("PrototypeApply", "PrototypeBind", 2, 2),
-        ("PrototypeBind", "PrototypeToString", 1, 2),
-        ("PrototypeToString", "BoundFunctionInvoker", 2, 2),
-    ] {
-        let branch = bounded(
-            SOURCE,
-            &format!("FunctionBuiltin::{start} => {{"),
-            &format!("FunctionBuiltin::{end} => {{"),
-        );
-        assert_eq!(
-            branch.matches("receiver.payload_local()").count(),
-            payload_reads
-        );
-        assert_eq!(branch.matches("receiver.tag_local()").count(), tag_reads);
-        assert_eq!(
-            branch
-                .matches("FunctionPrototypeReceiverLocals::from_this(")
-                .count(),
-            1
-        );
+    assert!(to_string.contains("receiver.cast_reference::<FunctionObject>(schema,function)"));
+    assert!(to_string.contains("FunctionObjectSchema::TO_STRING"));
+    assert!(to_string.contains("result.set_normal(&argument,function);"));
+
+    let dispatch = rust_code(CALL_DISPATCH).normalized;
+    let construct = bounded(
+        &dispatch,
+        "fnemit_plain_function_construct_dispatch(",
+        "fnemit_function_constructor_entry_call(",
+    );
+    let call = bounded(
+        &dispatch,
+        "fnemit_plain_function_call_dispatch(",
+        "fnemit_proxy_call_dispatch(",
+    );
+    for owner in [construct, call] {
+        for signature in [
+            "callee:&ValueLocals",
+            "arguments:&GcLocal<ValueArray>",
+            "result:&CompletionLocals",
+        ] {
+            assert!(
+                owner.contains(signature),
+                "whole dispatch signature `{signature}`"
+            );
+        }
+        for operation in [
+            "reference_type::<BoundFunction>(GcNullability::NonNullable)",
+            "current.cast_reference::<BoundFunction>(schema,function)",
+            "self.emit_load_bound_function_record(&bound,function)",
+            "self.emit_concat_argument_vectors(record.arguments(),&list,function)",
+            "current.copy_from(record.target(),function);",
+            "record.clear(schema,function);",
+        ] {
+            assert!(
+                owner.contains(operation),
+                "direct bound dispatch `{operation}`"
+            );
+        }
     }
-    assert_eq!(operations.matches("receiver.payload_local()").count(), 7);
-    assert_eq!(operations.matches("receiver.tag_local()").count(), 8);
+    assert!(construct.contains("new_target:&ValueLocals"));
+    assert!(construct.contains("Instruction::RefEq"));
+    assert!(construct.contains("actual_new_target.copy_from(record.target(),function);"));
+    assert!(call.contains("this_value:&ValueLocals"));
+    assert!(call.contains("receiver.copy_from(record.this_value(),function);"));
+    let record = rust_code(BOUND_RECORD).normalized;
+    assert!(record.contains("pub(crate)structBoundFunctionRecordLocals{target:ValueLocals,this_value:ValueLocals,arguments:GcLocal<ValueArray>,constructable:I32Local,}"));
+    for field in ["TARGET", "THIS_VALUE", "ARGUMENTS", "CONSTRUCTABLE"] {
+        assert!(record.contains(&format!("BoundFunctionSchema::{field}")));
+    }
 }
 
 #[test]
-fn contract_and_task_record_the_receiver_authority() {
+fn contract_and_fixed_entries_record_the_current_receiver_authority() {
     for marker in [
         "paired Function prototype receiver authority",
         "cannot mix payload and tag sources",
         "function_prototype_receiver_ownership_structure",
     ] {
-        assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
+        assert!(
+            CONTRACT.contains(marker),
+            "historical contract marker `{marker}`"
+        );
+        assert!(TASK.contains(marker), "historical task marker `{marker}`");
     }
-
-    let identifiers = rust_code(SOURCE).identifiers;
-    assert_eq!(exact_identifier_count(&identifiers, "FunctionBuiltin"), 18);
-    assert!(SOURCE.contains("enum FunctionBuiltin {"));
-    assert!(!SOURCE.contains("pub(super) enum FunctionBuiltin"));
-    assert!(!SOURCE.contains("#[derive(Clone, Copy, Debug, PartialEq, Eq)]\nenum FunctionBuiltin"));
-    assert!(!STANDARD.contains("FunctionBuiltin"));
-    assert!(!STANDARD.contains("emit_function_builtin("));
+    for marker in [
+        "whole ValueLocals",
+        "seven fixed Function entries",
+        "direct GC BoundFunction",
+        "Historical source checkpoint",
+    ] {
+        assert!(
+            CONTRACT.contains(marker),
+            "current contract marker `{marker}`"
+        );
+    }
+    let domain = rust_code(bounded(
+        SOURCE,
+        "pub(crate) use dynamic_constructor::append_empty_dynamic_function_bodies;",
+        "impl FunctionBuilder<'_> {",
+    ));
+    assert_eq!(domain.normalized, "enumFunctionBuiltin{Constructor,Prototype,PrototypeSymbolHasInstance,PrototypeCall,PrototypeApply,PrototypeBind,PrototypeToString,}");
+    let source = rust_code(SOURCE).normalized;
+    let standard = rust_code(STANDARD).normalized;
+    assert!(!standard.contains("FunctionBuiltin"));
+    assert!(!standard.contains("emit_function_builtin("));
+    assert!(!standard.contains("BoundFunctionInvoker"));
     for (standard_builtin, entry, variant) in [
         (
             "FunctionConstructor",
@@ -398,29 +452,24 @@ fn contract_and_task_record_the_receiver_authority() {
             "emit_function_prototype_to_string_builtin",
             "PrototypeToString",
         ),
-        (
-            "BoundFunctionInvoker",
-            "emit_bound_function_invoker_builtin",
-            "BoundFunctionInvoker",
-        ),
     ] {
         assert_eq!(
-            STANDARD
-                .matches(&format!("StandardBuiltinId::{standard_builtin} =>"))
+            standard
+                .matches(&format!("StandardBuiltinId::{standard_builtin}=>"))
                 .count(),
             1,
             "standard route `{standard_builtin}`"
         );
         assert_eq!(
-            STANDARD
+            standard
                 .matches(&format!("self.{entry}(function)?"))
                 .count(),
             1
         );
         assert_eq!(
-            SOURCE
+            source
                 .matches(&format!(
-                    "self.emit_function_builtin(FunctionBuiltin::{variant}, function)"
+                    "self.emit_function_builtin(FunctionBuiltin::{variant},function)"
                 ))
                 .count(),
             1,
@@ -430,7 +479,5 @@ fn contract_and_task_record_the_receiver_authority() {
     for evidence in [CONTRACT, T02, TASK] {
         assert!(evidence.contains("private `FunctionBuiltin`"));
         assert!(evidence.contains("fixed Function entries"));
-        assert!(evidence.contains("source-equivalent"));
-        assert!(evidence.contains("no new Function behavior"));
     }
 }

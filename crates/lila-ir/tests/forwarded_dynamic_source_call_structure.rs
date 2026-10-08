@@ -134,8 +134,14 @@ fn forwarding_requires_current_intrinsic_call_property_authority() {
         "    pub(super) fn live_intrinsic_prototype(",
         "    fn intrinsic_prototype_still_holds(",
     ));
-    assert!(live_prototype.contains(".get(constructor.global_name()?)"));
-    assert!(live_prototype.contains(".filter(|property|property.proven_present)?"));
+    assert!(live_prototype.contains("ifletSome(name)=constructor.global_name()"));
+    assert!(live_prototype.contains(".global_properties.get(name)"));
+    assert!(live_prototype.contains(
+        ".filter(|property|{property.proven_present&&property.source==GlobalPropertySource::Builtin})?"
+    ));
+    assert!(live_prototype.contains("(INTL_NAME,INTL_NAMESPACE_CONSTRUCTORS)"));
+    assert!(live_prototype.contains("(TEMPORAL_NAME,TEMPORAL_NAMESPACE_CONSTRUCTORS)"));
+    assert!(live_prototype.contains("own_shape_property(namespace.heap_shape.as_deref()?,member)?"));
     assert!(live_prototype.contains("!=Some(&constructor.function_id())"));
     assert!(live_prototype.contains("constructor_shape.properties.get(\"prototype\")?"));
     assert!(live_prototype.contains("ObjectShapeProperty::Accessor{..}=>None"));
@@ -160,19 +166,21 @@ fn forwarding_requires_current_intrinsic_call_property_authority() {
         1
     );
 
-    // Property lowering claims `call` only for a receiver whose own properties
-    // are known, and call lowering has no name-based route of its own left.
+    // Proven own/inherited descriptors are consumed before this fallback. An
+    // incomplete function shape retains a possible native call target without
+    // claiming the current prototype chain, and call lowering has no name shortcut.
     let resolution = normalized(bounded(
         LOWERING_SOURCE,
         "            let target_is_function_prototype =",
         "            if name == \"of\" && self.is_builtin_reference_expr(&target, ARRAY_NAME) {",
     ));
-    assert!(resolution.contains("self.intrinsic_method(IntrinsicPrototype::Function,name)"));
-    assert!(resolution.contains(".filter(|_|target.heap_shape.is_some())"));
-    assert!(resolution.contains("lookup.unclaimed()"));
+    assert!(
+        resolution.contains("self.intrinsic_method(IntrinsicPrototype::Function,name).unclaimed()")
+    );
+    assert!(!resolution.contains(".filter(|_|target.heap_shape.is_some())"));
     assert_eq!(
-        LOWERING_SOURCE
-            .matches("self.intrinsic_method(IntrinsicPrototype::Function, name)")
+        normalized(LOWERING_SOURCE)
+            .matches("self.intrinsic_method(IntrinsicPrototype::Function,name)")
             .count(),
         1
     );

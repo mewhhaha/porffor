@@ -1,5 +1,17 @@
 # TypedArray witness-use ownership
 
+## Source replacement — 2026-10-05
+
+The GC backend reads concrete TypedArray and buffer records through typed witnesses. The five integer-address view roles and raw witness-use recipes below describe the retired object layout. The obsolete source recipe checks have been retired. Exact historical receipts and any public fixture inventory remain recorded.
+
+The pre-retirement source is identified exactly:
+
+- `typed_array_witness_use_ownership_structure.rs`: SHA-256 `e3894be6d65658634f605a8931dbde3702456851f4602d1f126656a652bc017e`.
+
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
+
+## Historical contract and checkpoints
+
 Status: normative for the AOT TypedArray buffer-witness use boundary.
 Current owner inventory refreshed on 2026-09-14. See the
 [codec checkpoint](../uint8array-codec-baseline-follow-up.md#verification) for current verification.

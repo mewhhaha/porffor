@@ -1,17 +1,17 @@
 use super::*;
 
 impl FunctionBuilder<'_> {
-    /// Keeps a finite saturated value distinct from the unbounded sentinel.
-    /// The caller compares the original decimal spans before using this value.
-    pub(in super::super) fn emit_regexp_parser_decimal(
+    /// Decimal backreference probing only: an overflow remains outside the
+    /// source-sized capture domain. Quantifier counts never use this value.
+    pub(in super::super) fn emit_regexp_parser_backreference_decimal(
         &mut self,
         compiler: &CompilerLocals,
-        cursor: u32,
-        value: u32,
-        oversized: u32,
+        cursor: I64Local,
+        value: I64Local,
+        oversized: I64Local,
         function: &mut Function,
     ) {
-        let digit = self.reserve_temp_local();
+        let digit = self.runtime_schema().reserve_i64_local(function);
         set(function, value, 0);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
@@ -19,15 +19,15 @@ impl FunctionBuilder<'_> {
         between(function, digit, b'0' as u64, b'9' as u64);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(digit));
+        digit.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(digit));
-        function.instruction(&Instruction::LocalGet(value));
+        digit.store(function);
+        value.load(function);
         function.instruction(&Instruction::I64Const(((u64::MAX - 1) / 10) as i64));
         function.instruction(&Instruction::I64GtU);
         eq(function, value, (u64::MAX - 1) / 10);
-        function.instruction(&Instruction::LocalGet(digit));
+        digit.load(function);
         function.instruction(&Instruction::I64Const(((u64::MAX - 1) % 10) as i64));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32And);
@@ -36,35 +36,93 @@ impl FunctionBuilder<'_> {
         set(function, value, u64::MAX - 1);
         set(function, oversized, 1);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(value));
+        value.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(digit));
+        digit.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(value));
+        value.store(function);
         function.instruction(&Instruction::End);
-        self.emit_increment_local(cursor, 1, function);
+        self.emit_regexp_scratch_increment(cursor, 1, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(digit);
+        self.runtime_schema().release_i64_local(digit, function);
+    }
+
+    /// Retain canonical source spans and classify only zero/one/many. The
+    /// classification chooses a physical layout; it never becomes a counter.
+    pub(super) fn emit_regexp_parser_bound_digits(
+        &mut self,
+        compiler: &CompilerLocals,
+        cursor: I64Local,
+        class: I64Local,
+        start: I64Local,
+        end: I64Local,
+        function: &mut Function,
+    ) {
+        let digit = self.runtime_schema().reserve_i64_local(function);
+        copy(function, start, cursor);
+        set(function, class, BoundClass::Zero as u64);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        peek(compiler, function, cursor, 0, digit);
+        between(function, digit, b'0' as u64, b'9' as u64);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        class.load(function);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Mul);
+        digit.load(function);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(b'0' as i64));
+        function.instruction(&Instruction::I64Sub);
+        class.store(function);
+        class.load(function);
+        function.instruction(&Instruction::I64Const(BoundClass::Many as i64));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        set(function, class, BoundClass::Many as u64);
+        function.instruction(&Instruction::End);
+        self.emit_regexp_scratch_increment(cursor, 1, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        copy(function, end, cursor);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        start.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        end.load(function);
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        peek(compiler, function, start, 0, digit);
+        eq(function, digit, b'0' as u64);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_regexp_scratch_increment(start, 1, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.runtime_schema().release_i64_local(digit, function);
     }
 
     pub(super) fn emit_regexp_parser_ordered_decimals(
         &mut self,
         compiler: &CompilerLocals,
-        min_start: u32,
-        min_end: u32,
-        max_start: u32,
-        max_end: u32,
+        min_start: I64Local,
+        min_end: I64Local,
+        max_start: I64Local,
+        max_end: I64Local,
         function: &mut Function,
     ) {
-        let left = self.reserve_temp_local();
-        let right = self.reserve_temp_local();
-        let left_digit = self.reserve_temp_local();
-        let right_digit = self.reserve_temp_local();
-        let left_len = self.reserve_temp_local();
-        let right_len = self.reserve_temp_local();
+        let left = self.runtime_schema().reserve_i64_local(function);
+        let right = self.runtime_schema().reserve_i64_local(function);
+        let left_digit = self.runtime_schema().reserve_i64_local(function);
+        let right_digit = self.runtime_schema().reserve_i64_local(function);
+        let left_len = self.runtime_schema().reserve_i64_local(function);
+        let right_len = self.runtime_schema().reserve_i64_local(function);
         for (start, end, cursor, length) in [
             (min_start, min_end, left, left_len),
             (max_start, max_end, right, right_len),
@@ -72,25 +130,25 @@ impl FunctionBuilder<'_> {
             copy(function, cursor, start);
             function.instruction(&Instruction::Block(BlockType::Empty));
             function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(cursor));
-            function.instruction(&Instruction::LocalGet(end));
+            cursor.load(function);
+            end.load(function);
             function.instruction(&Instruction::I64GeU);
             function.instruction(&Instruction::BrIf(1));
             peek(compiler, function, cursor, 0, left_digit);
             eq(function, left_digit, b'0' as u64);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::BrIf(1));
-            self.emit_increment_local(cursor, 1, function);
+            self.emit_regexp_scratch_increment(cursor, 1, function);
             function.instruction(&Instruction::Br(0));
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(end));
-            function.instruction(&Instruction::LocalGet(cursor));
+            end.load(function);
+            cursor.load(function);
             function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(length));
+            length.store(function);
         }
-        function.instruction(&Instruction::LocalGet(left_len));
-        function.instruction(&Instruction::LocalGet(right_len));
+        left_len.load(function);
+        right_len.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_compile_failure(
@@ -99,24 +157,24 @@ impl FunctionBuilder<'_> {
             function,
         );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(left_len));
-        function.instruction(&Instruction::LocalGet(right_len));
+        left_len.load(function);
+        right_len.load(function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(left));
-        function.instruction(&Instruction::LocalGet(min_end));
+        left.load(function);
+        min_end.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
         peek(compiler, function, left, 0, left_digit);
         peek(compiler, function, right, 0, right_digit);
-        function.instruction(&Instruction::LocalGet(left_digit));
-        function.instruction(&Instruction::LocalGet(right_digit));
+        left_digit.load(function);
+        right_digit.load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(left_digit));
-        function.instruction(&Instruction::LocalGet(right_digit));
+        left_digit.load(function);
+        right_digit.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_compile_failure(
@@ -125,14 +183,14 @@ impl FunctionBuilder<'_> {
             function,
         );
         function.instruction(&Instruction::End);
-        self.emit_increment_local(left, 1, function);
-        self.emit_increment_local(right, 1, function);
+        self.emit_regexp_scratch_increment(left, 1, function);
+        self.emit_regexp_scratch_increment(right, 1, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         for local in [right_len, left_len, right_digit, left_digit, right, left] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
     }
 }

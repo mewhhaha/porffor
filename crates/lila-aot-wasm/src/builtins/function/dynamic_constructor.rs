@@ -1,5 +1,4 @@
 use super::*;
-use crate::functions::FunctionRealmRevokedRoute;
 use lila_ir::{DynamicSourceRuntimeOperation, GeneratorPlanIr, ResumablePlanIr};
 
 #[derive(Clone, Copy)]
@@ -36,32 +35,17 @@ impl EmptyDerivedFunction {
         }
     }
 
-    const fn constructor_global(self) -> u32 {
+    const fn kind(self) -> DynamicFunctionKind {
         match self {
-            Self::Generator => GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
-            Self::Async => ASYNC_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
-            Self::AsyncGenerator => ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
-        }
-    }
-
-    const fn function_prototype_offset(self) -> u64 {
-        match self {
-            Self::Generator => HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
-            Self::Async => HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_PROTOTYPE_OFFSET,
-            Self::AsyncGenerator => HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
-        }
-    }
-
-    const fn instance_prototype_offset(self) -> Option<u64> {
-        match self {
-            Self::Generator => Some(HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET),
-            Self::Async => None,
-            Self::AsyncGenerator => Some(HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET),
+            Self::Generator => DynamicFunctionKind::Generator,
+            Self::Async => DynamicFunctionKind::Async,
+            Self::AsyncGenerator => DynamicFunctionKind::AsyncGenerator,
         }
     }
 
     fn body(self) -> FunctionIr {
         FunctionIr {
+            template_source: None,
             eval_environment: None,
             id: self.id().to_string(),
             name: "anonymous".to_string(),
@@ -74,11 +58,7 @@ impl EmptyDerivedFunction {
                 state_count: 1,
                 suspension_points: Vec::new(),
             }),
-            resumable_plan: matches!(self, Self::AsyncGenerator).then(|| ResumablePlanIr {
-                entry_state: 0,
-                state_count: 1,
-                suspension_points: Vec::new(),
-            }),
+            resumable_plan: matches!(self, Self::AsyncGenerator).then(ResumablePlanIr::empty),
             strict: false,
             class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: ClassHeritageKind::None,
@@ -126,6 +106,16 @@ impl EmptyDerivedFunction {
     }
 }
 
+/// Whether `function` is one of the compiler-owned bodies that
+/// `append_empty_dynamic_function_bodies` adds.
+pub(crate) fn is_empty_dynamic_function_body(function: &FunctionIr) -> bool {
+    is_empty_dynamic_function_id(&function.id)
+}
+
+pub(crate) fn is_empty_dynamic_function_id(id: &str) -> bool {
+    EmptyDerivedFunction::ALL.iter().any(|kind| kind.id() == id)
+}
+
 pub(crate) fn append_empty_dynamic_function_bodies(script: &mut ScriptIr) {
     for kind in EmptyDerivedFunction::ALL {
         assert!(
@@ -142,167 +132,302 @@ pub(crate) fn append_empty_dynamic_function_bodies(script: &mut ScriptIr) {
     }
 }
 
-impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_prepared_dynamic_function_dispatch(
+/// The wire word naming a constructor kind to the program hook.
+fn dynamic_function_kind_code(kind: DynamicFunctionKind) -> i32 {
+    match kind {
+        DynamicFunctionKind::Ordinary => 0,
+        DynamicFunctionKind::Generator => 1,
+        DynamicFunctionKind::Async => 2,
+        DynamicFunctionKind::AsyncGenerator => 3,
+    }
+}
+
+impl FunctionBuilder<'_> {
+    /// Every argument is converted to a String in order, abrupt completions
+    /// propagating, before anything is matched. The program (when it prepared
+    /// any literal `new Function(...)`) then answers through its hook; a miss
+    /// reaches the constructor's own unprepared paths.
+    pub(super) fn emit_dynamic_constructor_body(
         &mut self,
         kind: DynamicFunctionKind,
+        empty: &WasmFunctionMeta,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let entries = self
-            .functions
-            .prepared_dynamic_functions()
-            .iter()
-            .filter(|entry| entry.kind == kind)
-            .cloned()
-            .collect::<Vec<_>>();
-        let argument_counts = entries
-            .iter()
-            .map(|entry| entry.arguments.len())
-            .collect::<BTreeSet<_>>();
-        for count in argument_counts {
-            function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-            function.instruction(&Instruction::I64Const(count as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            let argument_payload_local = self.reserve_temp_local();
-            let argument_tag_local = self.reserve_temp_local();
-            let expected_string_local = self.reserve_temp_local();
-            let argument_strings = (0..count)
-                .map(|_| self.reserve_temp_local())
-                .collect::<Vec<_>>();
-            for (index, string_local) in argument_strings.iter().copied().enumerate() {
-                self.emit_builtin_arg_to_locals(
-                    index,
-                    argument_payload_local,
-                    argument_tag_local,
-                    function,
-                );
-                let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
-                    ToPrimitiveHint::String,
-                    argument_payload_local,
-                    argument_tag_local,
-                    function,
-                )?;
-                self.emit_current_function_realm_primitive_to_string_local(
-                    primitive,
-                    string_local,
-                    function,
-                )?;
-            }
-            for entry in entries
-                .iter()
-                .filter(|entry| entry.arguments.len() == count)
-            {
-                function.instruction(&Instruction::I32Const(1));
-                for (argument, string_local) in entry.arguments.iter().zip(&argument_strings) {
-                    function.instruction(&Instruction::I64Const(self.strings.payload(argument)));
-                    function.instruction(&Instruction::LocalSet(expected_string_local));
-                    self.emit_string_payload_equality_i32(
-                        *string_local,
-                        expected_string_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::I32And);
-                }
-                function.instruction(&Instruction::If(BlockType::Empty));
-                match &entry.outcome {
-                    lila_ir::PreparedDynamicFunctionOutcome::SyntaxError { message } => {
-                        self.emit_throw_current_function_realm_error(
-                            SYNTAX_ERROR_NAME,
-                            message,
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                    }
-                    lila_ir::PreparedDynamicFunctionOutcome::Compiled { function_id } => {
-                        let body_meta = self
-                            .functions
-                            .get(function_id)
-                            .cloned()
-                            .expect("prepared source owns compiled function metadata");
-                        match kind {
-                            DynamicFunctionKind::Ordinary => self
-                                .emit_ordinary_dynamic_function_allocation(&body_meta, function)?,
-                            DynamicFunctionKind::Generator => self
-                                .emit_derived_dynamic_function_allocation(
-                                    EmptyDerivedFunction::Generator,
-                                    &body_meta,
-                                    function,
-                                )?,
-                            DynamicFunctionKind::Async => self
-                                .emit_derived_dynamic_function_allocation(
-                                    EmptyDerivedFunction::Async,
-                                    &body_meta,
-                                    function,
-                                )?,
-                            DynamicFunctionKind::AsyncGenerator => self
-                                .emit_derived_dynamic_function_allocation(
-                                    EmptyDerivedFunction::AsyncGenerator,
-                                    &body_meta,
-                                    function,
-                                )?,
-                        }
-                    }
-                }
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-            }
-            for string_local in argument_strings.into_iter().rev() {
-                self.release_temp_local(string_local);
-            }
-            self.release_temp_local(expected_string_local);
-            self.release_temp_local(argument_tag_local);
-            self.release_temp_local(argument_payload_local);
-            self.emit_reject_dynamic_source(
-                DynamicSourceRuntimeOperation::Function(kind),
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
-        // Counts absent from the registry must still execute every ToString.
-        let index_local = self.reserve_temp_local();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let string_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            self.argv_param_local(),
-            index_local,
-            payload_local,
-            tag_local,
+        use crate::gc_types::{StoredValue, ValueArray};
+        use crate::runtime_helpers::{PreparedDynamicFunctionArguments, ProgramHook};
+        let schema = self.runtime_schema();
+        let new_target = schema.reserve_value_local(function);
+        self.emit_dynamic_constructor_new_target(&new_target, function)?;
+        let count = schema.reserve_i32_local(function);
+        self.body_entry_locals()
+            .expect("dynamic constructor owns arguments")
+            .argument_count()
+            .load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        count.store(function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let initial = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&undefined, function),
             function,
         );
-        let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
-            ToPrimitiveHint::String,
-            payload_local,
-            tag_local,
+        undefined.clear(function);
+        let sources = schema.reserve_gc_local(function).initialize(
+            schema.array_type::<ValueArray>().filled(
+                crate::gc_types::GcOperand::reference(&initial, schema),
+                count,
+                function,
+            ),
+            function,
+        );
+        initial.clear(function);
+        let argument = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        let index = schema.reserve_i32_local(function);
+        index.set_constant(0, function);
+        let done = self.open_frame(ControlFrameKind::Block, function);
+        let converted = self.open_frame(ControlFrameKind::Block, function);
+        let next = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I32GeU);
+        self.emit_branch_if_to_target(converted, function);
+        self.emit_argument_vector_entry_to_value(
+            self.body_entry_locals()
+                .expect("dynamic constructor owns arguments")
+                .arguments(),
+            index,
+            &argument,
+            function,
+        );
+        self.emit_value_to_string_payload(&argument, &pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().copy_from(&pending, function);
+        self.emit_branch_to_target(done, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(pending.value(), function),
+            function,
+        );
+        schema.array_type::<ValueArray>().write(
+            &sources,
+            index,
+            crate::gc_types::GcOperand::reference(&stored, schema),
+            schema,
+            function,
+        );
+        stored.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        self.emit_branch_to_target(next, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        let outcome = schema.reserve_completion(function);
+        outcome.initialize(function);
+        let matched = schema.reserve_i32_local(function);
+        matched.set_constant(0, function);
+        let kind_word = schema.reserve_i32_local(function);
+        kind_word.set_constant(dynamic_function_kind_code(kind), function);
+        self.emit_program_hook_dispatch(
+            ProgramHook::PreparedDynamicFunction,
+            |builder, hook, function| {
+                let context = builder
+                    .current_function_context()
+                    .expect("dynamic constructor owns its callable context");
+                schema
+                    .call_hook(
+                        hook,
+                        PreparedDynamicFunctionArguments::new(
+                            kind_word,
+                            &new_target,
+                            &sources,
+                            context,
+                            builder.current_environment(),
+                        ),
+                        function,
+                    )
+                    .store(&outcome, matched, function);
+                Ok(())
+            },
+            |_, _| Ok(()),
             function,
         )?;
-        self.emit_current_function_realm_primitive_to_string_local(
-            primitive,
-            string_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
+        matched.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().copy_from(&outcome, function);
+        self.emit_branch_to_target(done, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(kind_word, function);
+        schema.release_i32_local(matched, function);
+        outcome.clear(function);
+
+        self.body_entry_locals()
+            .expect("dynamic constructor owns its count")
+            .argument_count()
+            .load(function);
+        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_dynamic_function_allocation(kind, empty, &new_target, function)?;
+        function.instruction(&Instruction::Else);
+        self.emit_reject_dynamic_source(DynamicSourceRuntimeOperation::Function(kind), function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(string_local);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        self.release_temp_local(index_local);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(index, function);
+        pending.clear(function);
+        argument.clear(function);
+        sources.clear(function);
+        schema.release_i32_local(count, function);
+        new_target.clear(function);
         Ok(())
+    }
+
+    /// The program half: match the converted sources against the finite set of
+    /// literal calls prepared at compile time. Status 1 means this hook owns
+    /// the completion (a function, or the prepared SyntaxError); status 0 is a
+    /// miss and the constructor continues exactly as if nothing was prepared.
+    pub(crate) fn compile_prepared_dynamic_function_hook(&mut self) -> Result<Function, EmitError> {
+        use crate::gc_types::StringValue;
+        use crate::runtime_helpers::{HelperParameters, PreparedDynamicFunctionParameters};
+        let mut function = self.begin_helper_body(RuntimeHelperId::PreparedDynamicFunction);
+        let parameters = self.helper_parameters::<PreparedDynamicFunctionParameters>(&mut function);
+        self.push_scope();
+        let schema = self.runtime_schema();
+        self.completion().initialize(&mut function);
+        let matched = schema.reserve_i32_local(&mut function);
+        matched.set_constant(0, &mut function);
+        let length = schema.reserve_i32_local(&mut function);
+        schema.array_type::<crate::gc_types::ValueArray>().length(
+            &parameters.sources,
+            schema,
+            &mut function,
+        );
+        length.store(&mut function);
+        let case_folding = schema.reserve_i32_local(&mut function);
+        case_folding.set_constant(0, &mut function);
+        let equal = schema.reserve_i32_local(&mut function);
+        let all_equal = schema.reserve_i32_local(&mut function);
+        let index = schema.reserve_i32_local(&mut function);
+        let argument = schema.reserve_value_local(&mut function);
+        let pending = schema.reserve_completion(&mut function);
+        pending.initialize(&mut function);
+        let entries = self.functions.prepared_dynamic_functions().to_vec();
+        let done = self.open_frame(ControlFrameKind::Block, &mut function);
+        for entry in &entries {
+            parameters.kind.load(&mut function);
+            function.instruction(&Instruction::I32Const(dynamic_function_kind_code(
+                entry.kind,
+            )));
+            function.instruction(&Instruction::I32Eq);
+            length.load(&mut function);
+            function.instruction(&Instruction::I32Const(entry.arguments.len() as i32));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, &mut function);
+            function.instruction(&Instruction::I32Const(1));
+            all_equal.store(&mut function);
+            for (position, expected_source) in entry.arguments.iter().enumerate() {
+                index.set_constant(position as i32, &mut function);
+                self.emit_argument_vector_entry_to_value(
+                    &parameters.sources,
+                    index,
+                    &argument,
+                    &mut function,
+                );
+                let actual = schema
+                    .reserve_gc_local::<StringValue, crate::gc_types::NonNullable>(&mut function)
+                    .initialize(
+                        argument.cast_reference::<StringValue>(schema, &mut function),
+                        &mut function,
+                    );
+                let expected = schema.reserve_gc_local(&mut function).initialize(
+                    self.emit_interned_string_reference(expected_source, &mut function)?,
+                    &mut function,
+                );
+                self.emit_gc_string_equality(
+                    &actual,
+                    &expected,
+                    case_folding,
+                    equal,
+                    &mut function,
+                );
+                all_equal.load(&mut function);
+                equal.load(&mut function);
+                function.instruction(&Instruction::I32And);
+                all_equal.store(&mut function);
+                expected.clear(&mut function);
+                actual.clear(&mut function);
+            }
+            all_equal.load(&mut function);
+            self.open_frame(ControlFrameKind::If, &mut function);
+            match &entry.outcome {
+                lila_ir::PreparedDynamicFunctionOutcome::SyntaxError { .. } => {
+                    let message = self.strings.source_runtime_error_message(
+                        SourceRuntimeErrorMessage::PreparedFunction(&entry.outcome),
+                    )?;
+                    self.emit_throw_current_function_realm_error(
+                        lila_ir::NativeErrorKind::SyntaxError,
+                        message,
+                        &pending,
+                        &mut function,
+                    )?;
+                    self.completion().copy_from(&pending, &mut function);
+                }
+                lila_ir::PreparedDynamicFunctionOutcome::Compiled { function_id } => {
+                    let body = self.functions.get(function_id).cloned().ok_or_else(|| {
+                        EmitError::unsupported(
+                            "prepared dynamic source has no planned callable body",
+                        )
+                    })?;
+                    self.emit_dynamic_function_allocation(
+                        entry.kind,
+                        &body,
+                        &parameters.new_target,
+                        &mut function,
+                    )?;
+                }
+            }
+            function.instruction(&Instruction::I32Const(1));
+            matched.store(&mut function);
+            // Each converted source vector selects at most one prepared entry.
+            self.emit_branch_to_target(done, &mut function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        pending.clear(&mut function);
+        argument.clear(&mut function);
+        schema.release_i32_local(index, &mut function);
+        schema.release_i32_local(all_equal, &mut function);
+        schema.release_i32_local(equal, &mut function);
+        schema.release_i32_local(case_folding, &mut function);
+        schema.release_i32_local(length, &mut function);
+        self.pop_scope();
+        parameters.release(&mut function);
+        self.completion().emit(&mut function);
+        matched.load(&mut function);
+        schema.release_i32_local(matched, &mut function);
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
     }
 
     pub(crate) fn compile_dynamic_function_constructor_builtin(
@@ -312,190 +437,16 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let empty = match kind {
             DynamicFunctionKind::Ordinary => {
-                return self.compile_function_constructor_builtin(function);
+                return self.compile_function_constructor_builtin(function)
             }
             DynamicFunctionKind::Generator => EmptyDerivedFunction::Generator,
             DynamicFunctionKind::Async => EmptyDerivedFunction::Async,
             DynamicFunctionKind::AsyncGenerator => EmptyDerivedFunction::AsyncGenerator,
         };
-        let body_meta =
-            self.functions.get(empty.id()).cloned().unwrap_or_else(|| {
-                panic!("missing compiler-generated empty body `{}`", empty.id())
-            });
-        self.emit_prepared_dynamic_function_dispatch(kind, function)?;
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_derived_dynamic_function_allocation(empty, &body_meta, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_reject_dynamic_source(DynamicSourceRuntimeOperation::Function(kind), function);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    fn emit_derived_dynamic_function_allocation(
-        &mut self,
-        empty: EmptyDerivedFunction,
-        body_meta: &WasmFunctionMeta,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let active_constructor_local = self.reserve_temp_local();
-        let active_realm_local = self.reserve_temp_local();
-        let active_intrinsics_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-        let prototype_key_local = self.reserve_temp_local();
-        let function_prototype_local = self.reserve_temp_local();
-        let function_prototype_tag_local = self.reserve_temp_local();
-        let new_target_intrinsics_local = self.reserve_temp_local();
-        let function_object_local = self.reserve_temp_local();
-        let instance_prototype_local = self.reserve_temp_local();
-        let instance_parent_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::GlobalGet(empty.constructor_global()));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(active_constructor_local));
-        self.load_i64_to_local_from_offset(
-            active_constructor_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            active_realm_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            active_realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            active_intrinsics_local,
-            function,
-        );
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(active_constructor_local));
-        function.instruction(&Instruction::LocalSet(new_target_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(new_target_tag_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-        function.instruction(&Instruction::LocalSet(prototype_key_local));
-        self.emit_object_read(
-            new_target_payload_local,
-            new_target_tag_local,
-            new_target_payload_local,
-            new_target_tag_local,
-            prototype_key_local,
-            function_prototype_local,
-            function_prototype_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            function_prototype_local,
-            function_prototype_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(function_prototype_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        let realm_result =
-            self.emit_get_function_realm(new_target_payload_local, new_target_tag_local, function);
-        let prototype_realm = self.emit_route_function_realm_result(
-            realm_result,
-            FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn {
-                payload_local: self.result_local,
-                tag_local: self.result_tag_local,
-            },
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            prototype_realm.index(),
-            HEAP_REALM_INTRINSICS_OFFSET,
-            new_target_intrinsics_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            new_target_intrinsics_local,
-            empty.function_prototype_offset(),
-            function_prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(function_prototype_tag_local));
-        self.release_resolved_function_realm_local(prototype_realm);
-        function.instruction(&Instruction::End);
-
-        self.emit_function_value_payload(body_meta, function)?;
-        function.instruction(&Instruction::LocalSet(function_object_local));
-        self.emit_install_dynamic_function_global_environment(
-            body_meta,
-            function_object_local,
-            active_realm_local,
-            function,
-        );
-        self.emit_store_function_defining_realm(
-            function_object_local,
-            active_realm_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            function_prototype_tag_local,
-            function,
-        );
-        if let Some(parent_offset) = empty.instance_prototype_offset() {
-            self.load_i64_to_local_from_offset(
-                function_object_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                instance_prototype_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                active_intrinsics_local,
-                parent_offset,
-                instance_parent_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                instance_prototype_local,
-                HEAP_PROTOTYPE_OFFSET,
-                instance_parent_local,
-                function,
-            );
-        }
-        function.instruction(&Instruction::LocalGet(function_object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(instance_parent_local);
-        self.release_temp_local(instance_prototype_local);
-        self.release_temp_local(function_object_local);
-        self.release_temp_local(new_target_intrinsics_local);
-        self.release_temp_local(function_prototype_tag_local);
-        self.release_temp_local(function_prototype_local);
-        self.release_temp_local(prototype_key_local);
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
-        self.release_temp_local(active_intrinsics_local);
-        self.release_temp_local(active_realm_local);
-        self.release_temp_local(active_constructor_local);
-        Ok(())
+        let body = self.functions.get(empty.id()).cloned().ok_or_else(|| {
+            EmitError::unsupported("missing compiler-generated empty dynamic function body")
+        })?;
+        self.emit_dynamic_constructor_body(empty.kind(), &body, function)
     }
 }
 

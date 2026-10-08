@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use wasm_encoder::{BlockType, CodeSection, FunctionSection, Module, RefType, TypeSection};
 
 fn empty_body() -> Function {
-    Function::new_with_locals_types(std::iter::empty())
+    Function::new(LocalDeclarations::from_types(std::iter::empty()))
 }
 
 #[test]
@@ -260,29 +260,40 @@ fn raw_branches_and_every_table_entry_are_range_checked() {
 }
 
 #[test]
-fn rewriting_the_local_declaration_keeps_live_frame_identity() {
-    let mut function = Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, 4));
+fn typed_local_allocation_keeps_mixed_types_and_live_frame_identity() {
+    let mut function = empty_body();
+    let types = [
+        ValType::I32,
+        ValType::Ref(RefType::ANYREF),
+        ValType::Ref(RefType::EQREF),
+        ValType::I64,
+    ];
+    for (index, ty) in types.into_iter().enumerate() {
+        assert_eq!(function.reserve_typed_local(ty), index as u32);
+    }
     function.instruction(&Instruction::Block(BlockType::Empty));
     let inner = function.label_depth();
-    let rewritten = function.rewrite_local_declaration(4, 2);
-    assert_eq!(rewritten.label_depth(), inner);
-    assert_eq!(rewritten.branch_depth_to(inner), BranchDepth(0));
-}
-
-#[test]
-#[should_panic(expected = "after the function body's final end")]
-fn rewriting_locals_cannot_reopen_a_finished_body() {
-    let mut function = Function::new_with_locals_types([ValType::I64; 4]);
+    function.release_typed_local(0);
+    // A free I32 slot cannot be reused for a live I64 value.
+    assert_eq!(function.reserve_typed_local(ValType::I64), 4);
+    function.release_typed_local(4);
+    assert_eq!(function.reserve_typed_local(ValType::I32), 0);
+    assert_eq!(function.allocated_local_count(), 5);
+    assert_eq!(function.label_depth(), inner);
+    assert_eq!(function.branch_depth_to(inner), BranchDepth(0));
     function.instruction(&Instruction::End);
-    let mut rewritten = function.rewrite_local_declaration(4, 2);
-    rewritten.instruction(&Instruction::Nop);
-}
+    function.instruction(&Instruction::End);
 
-#[test]
-#[should_panic(expected = "does not match planned local count")]
-fn rewriting_locals_rejects_an_incorrect_plan() {
-    let function = Function::new_with_locals_types([ValType::I64; 4]);
-    let _ = function.rewrite_local_declaration(3, 2);
+    let mut expected = wasm_encoder::Function::new([
+        (1, ValType::I32),
+        (1, ValType::Ref(RefType::ANYREF)),
+        (1, ValType::Ref(RefType::EQREF)),
+        (2, ValType::I64),
+    ]);
+    expected.instruction(&Instruction::Block(BlockType::Empty));
+    expected.instruction(&Instruction::End);
+    expected.instruction(&Instruction::End);
+    assert_eq!(function.into_body(), expected);
 }
 
 #[test]

@@ -2,6 +2,13 @@ use core::fmt;
 
 use crate::{CanonicalLocaleId, TimeZoneId};
 
+mod exact;
+mod named_query;
+pub use exact::{
+    LocalTimeCoordinate, NamedTimeZoneOffsetSeconds, RawTimeZoneEpoch, TimeZoneInstant,
+};
+pub use named_query::*;
+
 /// The two identifiers in an AvailableNamedTimeZoneIdentifiers record.
 /// A link retains its normalized Identifier even when it has another primary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,7 +419,9 @@ impl ResolvedTimeZoneSnapshot {
 
 #[derive(Debug)]
 pub enum TimeZoneResolveError {
+    UnavailableService(crate::IntlService),
     InvalidNamedIdentifier(TimeZoneId),
+    UnavailableNamedIdentifier(TimeZoneId),
     UnsupportedNameLocale(CanonicalLocaleId),
     InvalidProviderData(InvalidTimeZoneData),
 }
@@ -420,6 +429,7 @@ pub enum TimeZoneResolveError {
 impl fmt::Display for TimeZoneResolveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnavailableService(service) => crate::UnavailableIntlService(*service).fmt(f),
             Self::InvalidNamedIdentifier(identifier) => write!(
                 f,
                 "unknown previously resolved named time zone {:?}",
@@ -429,6 +439,11 @@ impl fmt::Display for TimeZoneResolveError {
                 write!(f, "unsupported time-zone name locale {:?}", locale.as_str())
             }
             Self::InvalidProviderData(error) => write!(f, "invalid pinned time-zone data: {error}"),
+            Self::UnavailableNamedIdentifier(identifier) => write!(
+                f,
+                "named time zone {:?} is unavailable in the selected Custom data",
+                identifier.as_str()
+            ),
         }
     }
 }
@@ -436,6 +451,20 @@ impl std::error::Error for TimeZoneResolveError {}
 impl From<InvalidTimeZoneData> for TimeZoneResolveError {
     fn from(error: InvalidTimeZoneData) -> Self {
         Self::InvalidProviderData(error)
+    }
+}
+impl From<NamedTimeZoneDataError> for TimeZoneResolveError {
+    fn from(error: NamedTimeZoneDataError) -> Self {
+        match error {
+            NamedTimeZoneDataError::UnavailableService(service) => {
+                Self::UnavailableService(service)
+            }
+            NamedTimeZoneDataError::UnknownIdentifier(name) => Self::InvalidNamedIdentifier(name),
+            NamedTimeZoneDataError::UnavailableIdentifier(name) => {
+                Self::UnavailableNamedIdentifier(name)
+            }
+            NamedTimeZoneDataError::InvalidProviderData(error) => Self::InvalidProviderData(error),
+        }
     }
 }
 

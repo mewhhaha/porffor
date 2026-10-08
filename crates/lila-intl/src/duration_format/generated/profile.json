@@ -1,0 +1,6427 @@
+{
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "default_locale": "en-US",
+  "locales": [
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} و{1}",
+            "{0} و{1}",
+            "{0} و{1}",
+            "{0} و{1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "ar",
+      "units": [
+        {
+          "patterns": [
+            "{0} سنة",
+            "سنة",
+            "سنتان",
+            "{0} سنوات",
+            "{0} سنة",
+            "{0} سنة"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} سنة",
+            "سنة واحدة",
+            "سنتان",
+            "{0} سنوات",
+            "{0} سنة",
+            "{0} سنة"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} شهر",
+            "شهر",
+            "شهران",
+            "{0} أشهر",
+            "{0} شهرًا",
+            "{0} شهر"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} شهر",
+            "شهر",
+            "شهران",
+            "{0} أشهر",
+            "{0} شهرًا",
+            "{0} شهر"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} شهر",
+            "شهر",
+            "شهران",
+            "{0} أشهر",
+            "{0} شهرًا",
+            "{0} شهر"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} أسبوع",
+            "أسبوع",
+            "أسبوعان",
+            "{0} أسابيع",
+            "{0} أسبوعًا",
+            "{0} أسبوع"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} أسبوع",
+            "أسبوع",
+            "أسبوعان",
+            "{0} أسابيع",
+            "{0} أسبوعًا",
+            "{0} أسبوع"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} أ",
+            "{0} أ",
+            "{0} أ",
+            "{0} أ",
+            "{0} أ",
+            "{0} أ"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} يوم",
+            "يوم",
+            "يومان",
+            "{0} أيام",
+            "{0} يومًا",
+            "{0} يوم"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} يوم",
+            "يوم",
+            "يومان",
+            "{0} أيام",
+            "{0} يومًا",
+            "{0} يوم"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} ي",
+            "{0} ي",
+            "{0} ي",
+            "{0} ي",
+            "{0} ي",
+            "{0} ي"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} ساعة",
+            "ساعة",
+            "ساعتان",
+            "{0} ساعات",
+            "{0} ساعة",
+            "{0} ساعة"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} دقيقة",
+            "دقيقة",
+            "دقيقتان",
+            "{0} دقائق",
+            "{0} دقيقة",
+            "{0} دقيقة"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} ثانية",
+            "ثانية",
+            "ثانيتان",
+            "{0} ثوان",
+            "{0} ثانية",
+            "{0} ثانية"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث."
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث."
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث."
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث."
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}",
+            "{0}، و{1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} و{1}",
+            "{0} و{1}",
+            "{0} و{1}",
+            "{0} و{1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "ar-EG",
+      "units": [
+        {
+          "patterns": [
+            "{0} سنة",
+            "سنة",
+            "سنتان",
+            "{0} سنوات",
+            "{0} سنة",
+            "{0} سنة"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} سنة",
+            "سنة واحدة",
+            "سنتان",
+            "{0} سنوات",
+            "{0} سنة",
+            "{0} سنة"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة",
+            "{0} سنة"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} شهر",
+            "شهر",
+            "شهران",
+            "{0} أشهر",
+            "{0} شهرًا",
+            "{0} شهر"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} شهر",
+            "شهر",
+            "شهران",
+            "{0} أشهر",
+            "{0} شهرًا",
+            "{0} شهر"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} شهر",
+            "شهر",
+            "شهران",
+            "{0} أشهر",
+            "{0} شهرًا",
+            "{0} شهر"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} أسبوع",
+            "أسبوع",
+            "أسبوعان",
+            "{0} أسابيع",
+            "{0} أسبوعًا",
+            "{0} أسبوع"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} أسبوع",
+            "أسبوع",
+            "أسبوعان",
+            "{0} أسابيع",
+            "{0} أسبوعًا",
+            "{0} أسبوع"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} أ",
+            "{0} أ",
+            "{0} أ",
+            "{0} أ",
+            "{0} أ",
+            "{0} أ"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} يوم",
+            "يوم",
+            "يومان",
+            "{0} أيام",
+            "{0} يومًا",
+            "{0} يوم"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} يوم",
+            "يوم",
+            "يومان",
+            "{0} أيام",
+            "{0} يومًا",
+            "{0} يوم"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} ي",
+            "{0} ي",
+            "{0} ي",
+            "{0} ي",
+            "{0} ي",
+            "{0} ي"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} ساعة",
+            "ساعة",
+            "ساعتان",
+            "{0} ساعات",
+            "{0} ساعة",
+            "{0} ساعة"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س",
+            "{0} س"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} دقيقة",
+            "دقيقة",
+            "دقيقتان",
+            "{0} دقائق",
+            "{0} دقيقة",
+            "{0} دقيقة"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د",
+            "{0} د"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} ثانية",
+            "ثانية",
+            "ثانيتان",
+            "{0} ثوان",
+            "{0} ثانية",
+            "{0} ثانية"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث",
+            "{0} ث"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية",
+            "{0} ملي ثانية"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث",
+            "{0} ملي ث"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية",
+            "{0} ميكروثانية"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث."
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث.",
+            "{0} م.ث."
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية",
+            "{0} نانو ثانية"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث."
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث.",
+            "{0} ن.ث."
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} und {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} und {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} und {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "de",
+      "units": [
+        {
+          "patterns": [
+            "{0} Jahre",
+            "{0} Jahr",
+            "{0} Jahre",
+            "{0} Jahre",
+            "{0} Jahre",
+            "{0} Jahre"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} J",
+            "{0} J",
+            "{0} J",
+            "{0} J",
+            "{0} J",
+            "{0} J"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} J",
+            "{0} J",
+            "{0} J",
+            "{0} J",
+            "{0} J",
+            "{0} J"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} Monate",
+            "{0} Monat",
+            "{0} Monate",
+            "{0} Monate",
+            "{0} Monate",
+            "{0} Monate"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} Mon.",
+            "{0} Mon.",
+            "{0} Mon.",
+            "{0} Mon.",
+            "{0} Mon.",
+            "{0} Mon."
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} M",
+            "{0} M",
+            "{0} M",
+            "{0} M",
+            "{0} M",
+            "{0} M"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} Wochen",
+            "{0} Woche",
+            "{0} Wochen",
+            "{0} Wochen",
+            "{0} Wochen",
+            "{0} Wochen"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} Wo.",
+            "{0} Wo.",
+            "{0} Wo.",
+            "{0} Wo.",
+            "{0} Wo.",
+            "{0} Wo."
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} W",
+            "{0} W",
+            "{0} W",
+            "{0} W",
+            "{0} W",
+            "{0} W"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} Tage",
+            "{0} Tag",
+            "{0} Tage",
+            "{0} Tage",
+            "{0} Tage",
+            "{0} Tage"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} Tg.",
+            "{0} Tg.",
+            "{0} Tg.",
+            "{0} Tg.",
+            "{0} Tg.",
+            "{0} Tg."
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} T",
+            "{0} T",
+            "{0} T",
+            "{0} T",
+            "{0} T",
+            "{0} T"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} Stunden",
+            "{0} Stunde",
+            "{0} Stunden",
+            "{0} Stunden",
+            "{0} Stunden",
+            "{0} Stunden"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std."
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std.",
+            "{0} Std."
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} Minuten",
+            "{0} Minute",
+            "{0} Minuten",
+            "{0} Minuten",
+            "{0} Minuten",
+            "{0} Minuten"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min."
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min.",
+            "{0} Min."
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} Sekunden",
+            "{0} Sekunde",
+            "{0} Sekunden",
+            "{0} Sekunden",
+            "{0} Sekunden",
+            "{0} Sekunden"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek."
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek.",
+            "{0} Sek."
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} Millisekunden",
+            "{0} Millisekunde",
+            "{0} Millisekunden",
+            "{0} Millisekunden",
+            "{0} Millisekunden",
+            "{0} Millisekunden"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} Mikrosekunden",
+            "{0} Mikrosekunde",
+            "{0} Mikrosekunden",
+            "{0} Mikrosekunden",
+            "{0} Mikrosekunden",
+            "{0} Mikrosekunden"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} Nanosekunden",
+            "{0} Nanosekunde",
+            "{0} Nanosekunden",
+            "{0} Nanosekunden",
+            "{0} Nanosekunden",
+            "{0} Nanosekunden"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "en",
+      "units": [
+        {
+          "patterns": [
+            "{0} years",
+            "{0} year",
+            "{0} years",
+            "{0} years",
+            "{0} years",
+            "{0} years"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} yrs",
+            "{0} yr",
+            "{0} yrs",
+            "{0} yrs",
+            "{0} yrs",
+            "{0} yrs"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} months",
+            "{0} month",
+            "{0} months",
+            "{0} months",
+            "{0} months",
+            "{0} months"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} mths",
+            "{0} mth",
+            "{0} mths",
+            "{0} mths",
+            "{0} mths",
+            "{0} mths"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} weeks",
+            "{0} week",
+            "{0} weeks",
+            "{0} weeks",
+            "{0} weeks",
+            "{0} weeks"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} wks",
+            "{0} wk",
+            "{0} wks",
+            "{0} wks",
+            "{0} wks",
+            "{0} wks"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} days",
+            "{0} day",
+            "{0} days",
+            "{0} days",
+            "{0} days",
+            "{0} days"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} days",
+            "{0} day",
+            "{0} days",
+            "{0} days",
+            "{0} days",
+            "{0} days"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} hours",
+            "{0} hour",
+            "{0} hours",
+            "{0} hours",
+            "{0} hours",
+            "{0} hours"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} hr",
+            "{0} hr",
+            "{0} hr",
+            "{0} hr",
+            "{0} hr",
+            "{0} hr"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} minutes",
+            "{0} minute",
+            "{0} minutes",
+            "{0} minutes",
+            "{0} minutes",
+            "{0} minutes"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} seconds",
+            "{0} second",
+            "{0} seconds",
+            "{0} seconds",
+            "{0} seconds",
+            "{0} seconds"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} sec",
+            "{0} sec",
+            "{0} sec",
+            "{0} sec",
+            "{0} sec",
+            "{0} sec"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} milliseconds",
+            "{0} millisecond",
+            "{0} milliseconds",
+            "{0} milliseconds",
+            "{0} milliseconds",
+            "{0} milliseconds"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} microseconds",
+            "{0} microsecond",
+            "{0} microseconds",
+            "{0} microseconds",
+            "{0} microseconds",
+            "{0} microseconds"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} nanoseconds",
+            "{0} nanosecond",
+            "{0} nanoseconds",
+            "{0} nanoseconds",
+            "{0} nanoseconds",
+            "{0} nanoseconds"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "en-US",
+      "units": [
+        {
+          "patterns": [
+            "{0} years",
+            "{0} year",
+            "{0} years",
+            "{0} years",
+            "{0} years",
+            "{0} years"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} yrs",
+            "{0} yr",
+            "{0} yrs",
+            "{0} yrs",
+            "{0} yrs",
+            "{0} yrs"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} months",
+            "{0} month",
+            "{0} months",
+            "{0} months",
+            "{0} months",
+            "{0} months"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} mths",
+            "{0} mth",
+            "{0} mths",
+            "{0} mths",
+            "{0} mths",
+            "{0} mths"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} weeks",
+            "{0} week",
+            "{0} weeks",
+            "{0} weeks",
+            "{0} weeks",
+            "{0} weeks"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} wks",
+            "{0} wk",
+            "{0} wks",
+            "{0} wks",
+            "{0} wks",
+            "{0} wks"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} days",
+            "{0} day",
+            "{0} days",
+            "{0} days",
+            "{0} days",
+            "{0} days"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} days",
+            "{0} day",
+            "{0} days",
+            "{0} days",
+            "{0} days",
+            "{0} days"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} hours",
+            "{0} hour",
+            "{0} hours",
+            "{0} hours",
+            "{0} hours",
+            "{0} hours"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} hr",
+            "{0} hr",
+            "{0} hr",
+            "{0} hr",
+            "{0} hr",
+            "{0} hr"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} minutes",
+            "{0} minute",
+            "{0} minutes",
+            "{0} minutes",
+            "{0} minutes",
+            "{0} minutes"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} seconds",
+            "{0} second",
+            "{0} seconds",
+            "{0} seconds",
+            "{0} seconds",
+            "{0} seconds"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} sec",
+            "{0} sec",
+            "{0} sec",
+            "{0} sec",
+            "{0} sec",
+            "{0} sec"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} milliseconds",
+            "{0} millisecond",
+            "{0} milliseconds",
+            "{0} milliseconds",
+            "{0} milliseconds",
+            "{0} milliseconds"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} microseconds",
+            "{0} microsecond",
+            "{0} microseconds",
+            "{0} microseconds",
+            "{0} microseconds",
+            "{0} microseconds"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} nanoseconds",
+            "{0} nanosecond",
+            "{0} nanoseconds",
+            "{0} nanoseconds",
+            "{0} nanoseconds",
+            "{0} nanoseconds"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} y {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} y {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} y {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "es",
+      "units": [
+        {
+          "patterns": [
+            "{0} años",
+            "{0} año",
+            "{0} años",
+            "{0} años",
+            "{0} años",
+            "{0} años"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} a",
+            "{0} a",
+            "{0} a",
+            "{0} a",
+            "{0} a",
+            "{0} a"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}a",
+            "{0}a",
+            "{0}a",
+            "{0}a",
+            "{0}a",
+            "{0}a"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} meses",
+            "{0} mes",
+            "{0} meses",
+            "{0} meses",
+            "{0} meses",
+            "{0} meses"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} m.",
+            "{0} m.",
+            "{0} m.",
+            "{0} m.",
+            "{0} m.",
+            "{0} m."
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} semanas",
+            "{0} semana",
+            "{0} semanas",
+            "{0} semanas",
+            "{0} semanas",
+            "{0} semanas"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem."
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}sem",
+            "{0}sem",
+            "{0}sem",
+            "{0}sem",
+            "{0}sem",
+            "{0}sem"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} días",
+            "{0} día",
+            "{0} días",
+            "{0} días",
+            "{0} días",
+            "{0} días"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} d",
+            "{0} d",
+            "{0} d",
+            "{0} d",
+            "{0} d",
+            "{0} d"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} horas",
+            "{0} hora",
+            "{0} horas",
+            "{0} horas",
+            "{0} horas",
+            "{0} horas"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} minutos",
+            "{0} minuto",
+            "{0} minutos",
+            "{0} minutos",
+            "{0} minutos",
+            "{0} minutos"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} segundos",
+            "{0} segundo",
+            "{0} segundos",
+            "{0} segundos",
+            "{0} segundos",
+            "{0} segundos"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} milisegundos",
+            "{0} milisegundo",
+            "{0} milisegundos",
+            "{0} milisegundos",
+            "{0} milisegundos",
+            "{0} milisegundos"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} microsegundos",
+            "{0} microsegundo",
+            "{0} microsegundos",
+            "{0} microsegundos",
+            "{0} microsegundos",
+            "{0} microsegundos"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} nanosegundos",
+            "{0} nanosegundo",
+            "{0} nanosegundos",
+            "{0} nanosegundos",
+            "{0} nanosegundos",
+            "{0} nanosegundos"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} et {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} et {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} et {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} et {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "fr",
+      "units": [
+        {
+          "patterns": [
+            "{0} ans",
+            "{0} ans",
+            "{0} ans",
+            "{0} ans",
+            "{0} ans",
+            "{0} ans"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} ans",
+            "{0} an",
+            "{0} ans",
+            "{0} ans",
+            "{0} ans",
+            "{0} ans"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}a",
+            "{0}a",
+            "{0}a",
+            "{0}a",
+            "{0}a",
+            "{0}a"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} mois",
+            "{0} mois",
+            "{0} mois",
+            "{0} mois",
+            "{0} mois",
+            "{0} mois"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} m.",
+            "{0} m.",
+            "{0} m.",
+            "{0} m.",
+            "{0} m.",
+            "{0} m."
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}m.",
+            "{0}m.",
+            "{0}m.",
+            "{0}m.",
+            "{0}m.",
+            "{0}m."
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} semaines",
+            "{0} semaine",
+            "{0} semaines",
+            "{0} semaines",
+            "{0} semaines",
+            "{0} semaines"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem.",
+            "{0} sem."
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}sem.",
+            "{0}sem.",
+            "{0}sem.",
+            "{0}sem.",
+            "{0}sem.",
+            "{0}sem."
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} jours",
+            "{0} jour",
+            "{0} jours",
+            "{0} jours",
+            "{0} jours",
+            "{0} jours"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} j",
+            "{0} j",
+            "{0} j",
+            "{0} j",
+            "{0} j",
+            "{0} j"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}j",
+            "{0}j",
+            "{0}j",
+            "{0}j",
+            "{0}j",
+            "{0}j"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} heures",
+            "{0} heure",
+            "{0} heures",
+            "{0} heures",
+            "{0} heures",
+            "{0} heures"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} minutes",
+            "{0} minute",
+            "{0} minutes",
+            "{0} minutes",
+            "{0} minutes",
+            "{0} minutes"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} secondes",
+            "{0} seconde",
+            "{0} secondes",
+            "{0} secondes",
+            "{0} secondes",
+            "{0} secondes"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} millisecondes",
+            "{0} milliseconde",
+            "{0} millisecondes",
+            "{0} millisecondes",
+            "{0} millisecondes",
+            "{0} millisecondes"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} microsecondes",
+            "{0} microseconde",
+            "{0} microsecondes",
+            "{0} microsecondes",
+            "{0} microsecondes",
+            "{0} microsecondes"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} nanosecondes",
+            "{0} nanoseconde",
+            "{0} nanosecondes",
+            "{0} nanosecondes",
+            "{0} nanosecondes",
+            "{0} nanosecondes"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} और {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, और {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0}, {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "hi",
+      "units": [
+        {
+          "patterns": [
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष",
+            "{0} वर्ष"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} व",
+            "{0} व",
+            "{0} व",
+            "{0} व",
+            "{0} व",
+            "{0} व"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} महीने",
+            "{0} महीना",
+            "{0} महीने",
+            "{0} महीने",
+            "{0} महीने",
+            "{0} महीने"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} माह",
+            "{0} माह",
+            "{0} माह",
+            "{0} माह",
+            "{0} माह",
+            "{0} माह"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} माह",
+            "{0} माह",
+            "{0} माह",
+            "{0} माह",
+            "{0} माह",
+            "{0} माह"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह",
+            "{0} सप्ताह"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन",
+            "{0} दिन"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} दि",
+            "{0} दि",
+            "{0} दि",
+            "{0} दि",
+            "{0} दि",
+            "{0} दि"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} घंटे",
+            "{0} घंटा",
+            "{0} घंटे",
+            "{0} घंटे",
+            "{0} घंटे",
+            "{0} घंटे"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} घं॰",
+            "{0} घं॰",
+            "{0} घं॰",
+            "{0} घं॰",
+            "{0} घं॰",
+            "{0} घं॰"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} घं",
+            "{0} घं",
+            "{0} घं",
+            "{0} घं",
+            "{0} घं",
+            "{0} घं"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} मिनट",
+            "{0} मिनट",
+            "{0} मिनट",
+            "{0} मिनट",
+            "{0} मिनट",
+            "{0} मिनट"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} मि॰",
+            "{0} मि॰",
+            "{0} मि॰",
+            "{0} मि॰",
+            "{0} मि॰",
+            "{0} मि॰"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} मि",
+            "{0} मि",
+            "{0} मि",
+            "{0} मि",
+            "{0} मि",
+            "{0} मि"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} सेकंड",
+            "{0} सेकंड",
+            "{0} सेकंड",
+            "{0} सेकंड",
+            "{0} सेकंड",
+            "{0} सेकंड"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} से॰",
+            "{0} से॰",
+            "{0} से॰",
+            "{0} से॰",
+            "{0} से॰",
+            "{0} से॰"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} से",
+            "{0} से",
+            "{0} से",
+            "{0} से",
+            "{0} से",
+            "{0} से"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} मिलीसेकंड",
+            "{0} मिलीसेकंड",
+            "{0} मिलीसेकंड",
+            "{0} मिलीसेकंड",
+            "{0} मिलीसेकंड",
+            "{0} मिलीसेकंड"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰",
+            "{0} मि॰से॰"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} माइक्रोसेकंड",
+            "{0} माइक्रोसेकंड",
+            "{0} माइक्रोसेकंड",
+            "{0} माइक्रोसेकंड",
+            "{0} माइक्रोसेकंड",
+            "{0} माइक्रोसेकंड"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} नैनो सेकंड",
+            "{0} नैनो सेकंड",
+            "{0} नैनो सेकंड",
+            "{0} नैनो सेकंड",
+            "{0} नैनो सेकंड",
+            "{0} नैनो सेकंड"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} नैनो से॰",
+            "{0} नैनो से॰",
+            "{0} नैनो से॰",
+            "{0} नैनो से॰",
+            "{0} नैनो से॰",
+            "{0} नैनो से॰"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} नैनो से",
+            "{0} नैनो से",
+            "{0} नैनो से",
+            "{0} नैनो से",
+            "{0} नैनो से",
+            "{0} नैनो से"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} e {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} e {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} e {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} e {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "it",
+      "units": [
+        {
+          "patterns": [
+            "{0} anni",
+            "{0} anno",
+            "{0} anni",
+            "{0} anni",
+            "{0} anni",
+            "{0} anni"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} anni",
+            "{0} anno",
+            "{0} anni",
+            "{0} anni",
+            "{0} anni",
+            "{0} anni"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}anni",
+            "{0}anno",
+            "{0}anni",
+            "{0}anni",
+            "{0}anni",
+            "{0}anni"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} mesi",
+            "{0} mese",
+            "{0} mesi",
+            "{0} mesi",
+            "{0} mesi",
+            "{0} mesi"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} mesi",
+            "{0} mese",
+            "{0} mesi",
+            "{0} mesi",
+            "{0} mesi",
+            "{0} mesi"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} mesi",
+            "{0} mese",
+            "{0} mesi",
+            "{0} mesi",
+            "{0} mesi",
+            "{0} mesi"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} settimane",
+            "{0} settimana",
+            "{0} settimane",
+            "{0} settimane",
+            "{0} settimane",
+            "{0} settimane"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} sett.",
+            "{0} sett.",
+            "{0} sett.",
+            "{0} sett.",
+            "{0} sett.",
+            "{0} sett."
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}sett.",
+            "{0}sett.",
+            "{0}sett.",
+            "{0}sett.",
+            "{0}sett.",
+            "{0}sett."
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} giorni",
+            "{0} giorno",
+            "{0} giorni",
+            "{0} giorni",
+            "{0} giorni",
+            "{0} giorni"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} giorni",
+            "{0} giorno",
+            "{0} giorni",
+            "{0} giorni",
+            "{0} giorni",
+            "{0} giorni"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}gg",
+            "{0}g",
+            "{0}gg",
+            "{0}gg",
+            "{0}gg",
+            "{0}gg"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} ore",
+            "{0} ora",
+            "{0} ore",
+            "{0} ore",
+            "{0} ore",
+            "{0} ore"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h",
+            "{0} h"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} minuti",
+            "{0} minuto",
+            "{0} minuti",
+            "{0} minuti",
+            "{0} minuti",
+            "{0} minuti"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min",
+            "{0} min"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min",
+            "{0}min"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} secondi",
+            "{0} secondo",
+            "{0} secondi",
+            "{0} secondi",
+            "{0} secondi",
+            "{0} secondi"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s",
+            "{0} s"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} millisecondi",
+            "{0} millisecondo",
+            "{0} millisecondi",
+            "{0} millisecondi",
+            "{0} millisecondi",
+            "{0} millisecondi"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} microsecondi",
+            "{0} microsecondo",
+            "{0} microsecondi",
+            "{0} microsecondi",
+            "{0} microsecondi",
+            "{0} microsecondi"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} nanosecondi",
+            "{0} nanosecondo",
+            "{0} nanosecondi",
+            "{0} nanosecondi",
+            "{0} nanosecondi",
+            "{0} nanosecondi"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "ja",
+      "units": [
+        {
+          "patterns": [
+            "{0} 年",
+            "{0} 年",
+            "{0} 年",
+            "{0} 年",
+            "{0} 年",
+            "{0} 年"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} 年",
+            "{0} 年",
+            "{0} 年",
+            "{0} 年",
+            "{0} 年",
+            "{0} 年"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y",
+            "{0}y"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} か月",
+            "{0} か月",
+            "{0} か月",
+            "{0} か月",
+            "{0} か月",
+            "{0} か月"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} か月",
+            "{0} か月",
+            "{0} か月",
+            "{0} か月",
+            "{0} か月",
+            "{0} か月"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間",
+            "{0} 週間"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w",
+            "{0}w"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} 日",
+            "{0} 日",
+            "{0} 日",
+            "{0} 日",
+            "{0} 日",
+            "{0} 日"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} 日",
+            "{0} 日",
+            "{0} 日",
+            "{0} 日",
+            "{0} 日",
+            "{0} 日"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d",
+            "{0}d"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間",
+            "{0} 時間"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h",
+            "{0}h"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} 分",
+            "{0} 分",
+            "{0} 分",
+            "{0} 分",
+            "{0} 分",
+            "{0} 分"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} 分",
+            "{0} 分",
+            "{0} 分",
+            "{0} 分",
+            "{0} 分",
+            "{0} 分"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m",
+            "{0}m"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒",
+            "{0} 秒"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s",
+            "{0}s"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} ミリ秒",
+            "{0} ミリ秒",
+            "{0} ミリ秒",
+            "{0} ミリ秒",
+            "{0} ミリ秒",
+            "{0} ミリ秒"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} マイクロ秒",
+            "{0} マイクロ秒",
+            "{0} マイクロ秒",
+            "{0} マイクロ秒",
+            "{0} マイクロ秒",
+            "{0} マイクロ秒"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} ナノ秒",
+            "{0} ナノ秒",
+            "{0} ナノ秒",
+            "{0} ナノ秒",
+            "{0} ナノ秒",
+            "{0} ナノ秒"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}",
+            "{0} {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "ko",
+      "units": [
+        {
+          "patterns": [
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년",
+            "{0}년"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월",
+            "{0}개월"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주",
+            "{0}주"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일",
+            "{0}일"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간",
+            "{0}시간"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분",
+            "{0}분"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초",
+            "{0}초"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}밀리초",
+            "{0}밀리초",
+            "{0}밀리초",
+            "{0}밀리초",
+            "{0}밀리초",
+            "{0}밀리초"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}마이크로초",
+            "{0}마이크로초",
+            "{0}마이크로초",
+            "{0}마이크로초",
+            "{0}마이크로초",
+            "{0}마이크로초"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}나노초",
+            "{0}나노초",
+            "{0}나노초",
+            "{0}나노초",
+            "{0}나노초",
+            "{0}나노초"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h.mm",
+          "separators": [
+            "."
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h.mm.ss",
+          "separators": [
+            ".",
+            "."
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m.ss",
+          "separators": [
+            "."
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0} и {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} и {1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0} и {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} и {1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0} и {1}",
+            "{0}, {1}",
+            "{0}, {1}",
+            "{0} и {1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "sr",
+      "units": [
+        {
+          "patterns": [
+            "{0} година",
+            "{0} година",
+            "{0} година",
+            "{0} године",
+            "{0} година",
+            "{0} година"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} год.",
+            "{0} год",
+            "{0} год.",
+            "{0} год.",
+            "{0} год.",
+            "{0} год."
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} г",
+            "{0} г",
+            "{0} г",
+            "{0} г",
+            "{0} г",
+            "{0} г"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0} месеци",
+            "{0} месец",
+            "{0} месеци",
+            "{0} месеца",
+            "{0} месеци",
+            "{0} месеци"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} мес.",
+            "{0} мес.",
+            "{0} мес.",
+            "{0} мес.",
+            "{0} мес.",
+            "{0} мес."
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} м",
+            "{0} м",
+            "{0} м",
+            "{0} м",
+            "{0} м",
+            "{0} м"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0} недеља",
+            "{0} недеља",
+            "{0} недеља",
+            "{0} недеље",
+            "{0} недеља",
+            "{0} недеља"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} нед.",
+            "{0} нед.",
+            "{0} нед.",
+            "{0} нед.",
+            "{0} нед.",
+            "{0} нед."
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} н",
+            "{0} н",
+            "{0} н",
+            "{0} н",
+            "{0} н",
+            "{0} н"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0} дана",
+            "{0} дан",
+            "{0} дана",
+            "{0} дана",
+            "{0} дана",
+            "{0} дана"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} дана",
+            "{0} дан",
+            "{0} дана",
+            "{0} дана",
+            "{0} дана",
+            "{0} дана"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} д",
+            "{0} д",
+            "{0} д",
+            "{0} д",
+            "{0} д",
+            "{0} д"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0} сати",
+            "{0} сат",
+            "{0} сати",
+            "{0} сата",
+            "{0} сати",
+            "{0} сати"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} сати",
+            "{0} сат",
+            "{0} сати",
+            "{0} сата",
+            "{0} сати",
+            "{0} сати"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} ч",
+            "{0} ч",
+            "{0} ч",
+            "{0} ч",
+            "{0} ч",
+            "{0} ч"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0} минута",
+            "{0} минут",
+            "{0} минута",
+            "{0} минута",
+            "{0} минута",
+            "{0} минута"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} мин",
+            "{0} мин",
+            "{0} мин",
+            "{0} мин",
+            "{0} мин",
+            "{0} мин"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} м",
+            "{0} м",
+            "{0} м",
+            "{0} м",
+            "{0} м",
+            "{0} м"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0} секунди",
+            "{0} секунда",
+            "{0} секунди",
+            "{0} секунде",
+            "{0} секунди",
+            "{0} секунди"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} сек",
+            "{0} сек",
+            "{0} сек",
+            "{0} сек",
+            "{0} сек",
+            "{0} сек"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} с",
+            "{0} с",
+            "{0} с",
+            "{0} с",
+            "{0} с",
+            "{0} с"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0} милисекунди",
+            "{0} милисекунда",
+            "{0} милисекунди",
+            "{0} милисекунде",
+            "{0} милисекунди",
+            "{0} милисекунди"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms",
+            "{0} ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0} микросекунди",
+            "{0} микросекунда",
+            "{0} микросекунди",
+            "{0} микросекунде",
+            "{0} микросекунди",
+            "{0} микросекунди"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs",
+            "{0} μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0} наносекунди",
+            "{0} наносекунда",
+            "{0} наносекунди",
+            "{0} наносекунде",
+            "{0} наносекунди",
+            "{0} наносекунди"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns",
+            "{0} ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "zh",
+      "units": [
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "zh-Hans",
+      "units": [
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    },
+    {
+      "digital": {
+        "hm": {
+          "pattern": "h:mm",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        },
+        "hms": {
+          "pattern": "h:mm:ss",
+          "separators": [
+            ":",
+            ":"
+          ],
+          "widths": [
+            1,
+            2,
+            2
+          ]
+        },
+        "ms": {
+          "pattern": "m:ss",
+          "separators": [
+            ":"
+          ],
+          "widths": [
+            1,
+            2
+          ]
+        }
+      },
+      "lists": [
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "long"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "short"
+        },
+        {
+          "patterns": [
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}",
+            "{0}{1}"
+          ],
+          "style": "narrow"
+        }
+      ],
+      "locale": "zh-Hans-CN",
+      "units": [
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "long",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "short",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年",
+            "{0}年"
+          ],
+          "style": "narrow",
+          "unit": "year"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "long",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "short",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月",
+            "{0}个月"
+          ],
+          "style": "narrow",
+          "unit": "month"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "long",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "short",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周",
+            "{0}周"
+          ],
+          "style": "narrow",
+          "unit": "week"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "long",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "short",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天",
+            "{0}天"
+          ],
+          "style": "narrow",
+          "unit": "day"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "long",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "short",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时",
+            "{0}小时"
+          ],
+          "style": "narrow",
+          "unit": "hour"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "long",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "short",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟",
+            "{0}分钟"
+          ],
+          "style": "narrow",
+          "unit": "minute"
+        },
+        {
+          "patterns": [
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟",
+            "{0}秒钟"
+          ],
+          "style": "long",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒"
+          ],
+          "style": "short",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒",
+            "{0}秒"
+          ],
+          "style": "narrow",
+          "unit": "second"
+        },
+        {
+          "patterns": [
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒"
+          ],
+          "style": "long",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒",
+            "{0}毫秒"
+          ],
+          "style": "short",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms",
+            "{0}ms"
+          ],
+          "style": "narrow",
+          "unit": "millisecond"
+        },
+        {
+          "patterns": [
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒"
+          ],
+          "style": "long",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒",
+            "{0}微秒"
+          ],
+          "style": "short",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs",
+            "{0}μs"
+          ],
+          "style": "narrow",
+          "unit": "microsecond"
+        },
+        {
+          "patterns": [
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒"
+          ],
+          "style": "long",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒",
+            "{0}纳秒"
+          ],
+          "style": "short",
+          "unit": "nanosecond"
+        },
+        {
+          "patterns": [
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns",
+            "{0}ns"
+          ],
+          "style": "narrow",
+          "unit": "nanosecond"
+        }
+      ]
+    }
+  ],
+  "schema": 1
+}

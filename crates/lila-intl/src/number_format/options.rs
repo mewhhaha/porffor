@@ -59,13 +59,32 @@ pub enum InvalidNumberConfiguration {
     NonUnitIncrementRequiresFixedFraction,
 }
 
+impl core::fmt::Display for InvalidNumberConfiguration {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::IntegerDigits => "integer digit count must be between 1 and 21",
+            Self::FractionDigits => "fraction digit count must be between 0 and 100",
+            Self::SignificantDigits => "significant digit count must be between 1 and 21",
+            Self::ReversedDigitRange => "minimum digit count exceeds maximum digit count",
+            Self::CurrencyCode => "currency code must contain three ASCII letters",
+            Self::UnsupportedUnit => "unsupported NumberFormat unit",
+            Self::NonUnitIncrementRequiresFixedFraction => {
+                "non-unit rounding increment requires fixed fraction digits"
+            }
+        })
+    }
+}
+impl std::error::Error for InvalidNumberConfiguration {}
+
 macro_rules! digit_count {
     ($name:ident, $min:literal, $max:literal, $error:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name(u8);
         impl $name {
+            pub const MIN: u8 = $min;
+            pub const MAX: u8 = $max;
             pub fn new(value: u8) -> Result<Self, InvalidNumberConfiguration> {
-                if ($min..=$max).contains(&value) {
+                if (Self::MIN..=Self::MAX).contains(&value) {
                     Ok(Self(value))
                 } else {
                     Err(InvalidNumberConfiguration::$error)

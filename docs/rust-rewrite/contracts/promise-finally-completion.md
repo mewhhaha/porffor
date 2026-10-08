@@ -1,3 +1,17 @@
+> **Current atomic GC draft — 2026-10-05.** The suspended/Promise source-only
+> candidate retires obsolete raw ABI literal test recipes. Current consumers use
+> whole values and completions, typed GC records, and closed producer domains.
+> The lifecycle and IR ownership requirements, durable fixtures, pinned inventories,
+> and nonclaims below remain retained evidence.
+>
+> Raw offsets, payload/tag signatures, scalar temporary budgets, emitter-body
+> fingerprints, structure-target counts, and dated verification results below
+> describe their earlier source checkpoints. They do not verify this uncompiled,
+> unrun GC draft; no runtime, acceptance, or conformance-count update is claimed.
+>
+> The complete captured predecessor body below is preserved byte-for-byte at SHA-256
+> `b817a6d5780b2ef5a4a6d0799c3453e22b9ee38593860de3c77e6161512c5e90`.
+
 # Promise `finally` completion preservation as a closed domain
 
 ## Specification boundary

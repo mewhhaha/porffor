@@ -7,37 +7,117 @@
 //! and value while rejecting Symbol, Object and output as outside its bounded
 //! contract. Schema v3 compares that same primitive completion together with
 //! the captured ordered `PrintLine` transcript. No protocol promotes its
-//! declared match to whole-program semantic equivalence. All three schemas
-//! admit only dependency-sealed Scripts until a future protocol embeds a
-//! module graph: outer requests are rejected and runtime-created requests meet
-//! a reject-all loader.
+//! declared match to whole-program semantic equivalence. Schemas v1-v3 keep
+//! dependency-sealed Scripts with reject-all loading. Schema v4 additively
+//! carries one immutable graph with exact declared host-resolution rows, and
+//! uses the same primitive completion and ordered print contract as v3.
+//! Schema v5 compiles selected FunctionBody probes with a fingerprint-bound
+//! reflection harness and compares their validated identity graphs and print
+//! transcripts. Arbitrary post-execution object observation remains a gap.
+//! Schema v6 explicitly admits the existing Test262 host surface for real Realm
+//! creation while retaining v3's primitive completion and print observation.
+//! Schema v7 observes the genuine rooted completion after jobs, without source
+//! rewriting, under explicit Test262 host authority and fingerprinted budgets.
 
 use std::fmt;
 use std::fs;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "spec-exec-oracle")]
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use lila_engine::{EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleReferrer};
+pub use lila_runtime::rooted_snapshot::{
+    RootedSnapshotGraph, SnapshotCompletion, SnapshotCompletionKind, SnapshotLimits,
+    SnapshotOutcome, SnapshotRejection,
+};
 
 #[cfg(any(test, feature = "spec-exec-oracle"))]
 use lila_engine::{CompileOptions, ModuleLoadingPolicy, ObservedCompletion, ObservedJsValue};
 #[cfg(feature = "spec-exec-oracle")]
-use lila_engine::{
-    Engine, EngineError, ExecutionBackend, HostOutputEvent, RealmBuilder, RunOptions,
-};
+use lila_engine::{EngineError, ExecutionBackend};
 #[cfg(feature = "spec-exec-oracle")]
 use lila_ir::IrDiagnosticPhase;
 use lila_ir::{classify_outer_script_module_dependency, OuterScriptModuleDependency};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 
+mod corpus;
+mod embedded_graph;
+mod rooted_snapshot;
+pub use corpus::{
+    replay_corpus, CorpusReplayError, CorpusRunReport, CorpusVerdict, DifferentialCorpus,
+    MAX_CORPUS_ENTRIES,
+};
+mod object_probe;
+pub use object_probe::SelectedObjectProbeGraph;
+#[cfg(feature = "spec-exec-oracle")]
+mod worker;
+mod worker_process;
+
+#[cfg(feature = "spec-exec-oracle")]
+pub use worker::run_differential_worker;
+pub use worker_process::DifferentialWorkerRunner;
+#[cfg(test)]
+mod embedded_graph_tests;
 mod generated_arithmetic;
+mod generated_campaign;
+mod generated_control_flow;
+mod generated_modules;
+mod generated_negative;
+mod generated_objects;
+mod generated_scenarios;
+#[cfg(test)]
+mod realm_protocol_tests;
+mod robustness;
+mod test262_seeds;
+pub use generated_campaign::{
+    run_generated_campaign, GeneratedCampaignCancellation, GeneratedCampaignPlan,
+    GeneratedCampaignReport, GeneratedCampaignVerdict, MAX_GENERATED_CAMPAIGN_CASES,
+};
+pub use generated_control_flow::{
+    generate_control_flow_case, ControlFlowGenerationPlan, ControlFlowReductionSummary,
+    CONTROL_FLOW_GRAMMAR, MAX_CONTROL_FLOW_STEPS,
+};
+pub use generated_modules::{
+    generate_module_graph_case, ModuleGenerationPlan, ModuleGrammar, ModuleReductionSummary,
+    ASYNC_MODULE_GRAPH_GRAMMAR, MAX_GENERATED_MODULES, MAX_GENERATED_MODULE_EDGES,
+    MODULE_GRAPH_GRAMMAR,
+};
+pub use generated_negative::{
+    generate_negative_case, GeneratedNegativeCase, NegativeGenerationPlan,
+    NegativeMismatchSignature, NegativeReductionSummary, NegativeSourceFamily,
+    NegativeSourceObservation, NegativeSourcePhase, NEGATIVE_SOURCE_GRAMMAR,
+};
+pub use generated_objects::{
+    generate_object_probe_case, ObjectGenerationPlan, ObjectGrammar, ObjectReductionSummary,
+    MAX_GENERATED_OBJECT_NODES, MAX_GENERATED_OBJECT_PROPERTIES, MAX_GENERATED_OBJECT_STEPS,
+    OBJECT_MUTATION_GRAMMAR, OBJECT_PROBE_GRAMMAR,
+};
+pub use generated_scenarios::{
+    generate_scenario_cases, replay_scenario_pair, GeneratedScenarioCases,
+    MetamorphicTransformation, MetamorphicVerdict, ScenarioDifference, ScenarioFamily,
+    ScenarioGenerationPlan, ScenarioGrammar, ScenarioObservation, ScenarioObservations,
+    ScenarioReductionSummary, ScenarioReplayPair, BUILTIN_STATEFUL_GRAMMAR,
+    BUILTIN_STATEFUL_GRAMMAR_V2, METAMORPHIC_STATEFUL_GRAMMAR, METAMORPHIC_STATEFUL_GRAMMAR_V2,
+    SCENARIO_PAIR_SCHEMA_VERSION,
+};
+pub use robustness::{
+    minimize_robustness, replay_robustness, run_robustness_campaign, BuiltinParserTarget,
+    RobustnessCampaignPlan, RobustnessCampaignReport, RobustnessCampaignState,
+    RobustnessCompletionKind, RobustnessInput, RobustnessMutation, RobustnessObservation,
+    RobustnessReductionReport, RobustnessReductionState, RobustnessRejectionPhase,
+    RobustnessResult, RobustnessStage, RobustnessTarget,
+};
+pub use test262_seeds::{
+    replay_test262_seed, Test262BackendReplay, Test262ReplayReport, Test262ReplayResult,
+    Test262ReplaySeed, Test262SeedPlan, Test262SeedSelection, MAX_TEST262_REPLAY_SEEDS,
+};
 
 pub use generated_arithmetic::{
     run_generated_arithmetic_campaign, ArithmeticCheckCount, ArithmeticExpressionDepth,
-    ArithmeticGenerationPlan, ArithmeticGenerationSeed, ArithmeticReductionLimit,
-    ArithmeticReductionStop, ArithmeticReductionSummary, GeneratedArithmeticCampaignOutcome,
-    MAX_ARITHMETIC_CHECKS, MAX_ARITHMETIC_REDUCTION_REPLAYS,
+    ArithmeticGenerationPlan, ArithmeticGenerationSeed, ArithmeticGrammar,
+    ArithmeticReductionLimit, ArithmeticReductionStop, ArithmeticReductionSummary,
+    GeneratedArithmeticCampaignOutcome, MAX_ARITHMETIC_CHECKS, MAX_ARITHMETIC_REDUCTION_REPLAYS,
 };
 
 pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION: u32 = 1;
@@ -46,6 +126,14 @@ pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V2: u32 = 2;
 pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V2: u32 = 2;
 pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V3: u32 = 3;
 pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V3: u32 = 3;
+pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V4: u32 = 4;
+pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V4: u32 = 4;
+pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V5: u32 = 5;
+pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V5: u32 = 5;
+pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V6: u32 = 6;
+pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V6: u32 = 6;
+pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V7: u32 = 7;
+pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V7: u32 = 7;
 
 /// A corpus key with a stable, path-like machine spelling.
 ///
@@ -86,7 +174,6 @@ pub enum DifferentialGoal {
     Module,
 }
 
-#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl DifferentialGoal {
     const fn as_str(self) -> &'static str {
         match self {
@@ -105,6 +192,8 @@ pub enum ObservationContract {
     SelfCheckingNoOutput,
     PrimitiveCompletionNoOutput,
     PrimitiveCompletionPrintTranscript,
+    SelectedObjectProbePrintTranscript,
+    RootedCompletionGraphPrintTranscript,
 }
 
 impl ObservationContract {
@@ -113,6 +202,10 @@ impl ObservationContract {
             Self::SelfCheckingNoOutput => "self_checking_no_output",
             Self::PrimitiveCompletionNoOutput => "primitive_completion_no_output",
             Self::PrimitiveCompletionPrintTranscript => "primitive_completion_print_transcript",
+            Self::SelectedObjectProbePrintTranscript => "selected_object_probe_print_transcript",
+            Self::RootedCompletionGraphPrintTranscript => {
+                "rooted_completion_graph_print_transcript"
+            }
         }
     }
 }
@@ -127,6 +220,10 @@ pub enum DifferentialProtocol {
     V1SelfCheckingNoOutput,
     V2PrimitiveCompletionNoOutput,
     V3PrimitiveCompletionPrintTranscript,
+    V4EmbeddedGraphPrimitivePrintTranscript,
+    V5SelectedObjectProbePrintTranscript,
+    V6Test262HostPrimitivePrintTranscript,
+    V7Test262HostRootedCompletionGraphPrintTranscript,
 }
 
 impl DifferentialProtocol {
@@ -135,6 +232,12 @@ impl DifferentialProtocol {
             Self::V1SelfCheckingNoOutput => DIFFERENTIAL_CORPUS_SCHEMA_VERSION,
             Self::V2PrimitiveCompletionNoOutput => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V2,
             Self::V3PrimitiveCompletionPrintTranscript => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V3,
+            Self::V4EmbeddedGraphPrimitivePrintTranscript => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V4,
+            Self::V5SelectedObjectProbePrintTranscript => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V5,
+            Self::V6Test262HostPrimitivePrintTranscript => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V6,
+            Self::V7Test262HostRootedCompletionGraphPrintTranscript => {
+                DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V7
+            }
         }
     }
 
@@ -143,6 +246,12 @@ impl DifferentialProtocol {
             Self::V1SelfCheckingNoOutput => DIFFERENTIAL_REPORT_SCHEMA_VERSION,
             Self::V2PrimitiveCompletionNoOutput => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V2,
             Self::V3PrimitiveCompletionPrintTranscript => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V3,
+            Self::V4EmbeddedGraphPrimitivePrintTranscript => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V4,
+            Self::V5SelectedObjectProbePrintTranscript => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V5,
+            Self::V6Test262HostPrimitivePrintTranscript => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V6,
+            Self::V7Test262HostRootedCompletionGraphPrintTranscript => {
+                DIFFERENTIAL_REPORT_SCHEMA_VERSION_V7
+            }
         }
     }
 
@@ -150,8 +259,16 @@ impl DifferentialProtocol {
         match self {
             Self::V1SelfCheckingNoOutput => ObservationContract::SelfCheckingNoOutput,
             Self::V2PrimitiveCompletionNoOutput => ObservationContract::PrimitiveCompletionNoOutput,
-            Self::V3PrimitiveCompletionPrintTranscript => {
+            Self::V3PrimitiveCompletionPrintTranscript
+            | Self::V4EmbeddedGraphPrimitivePrintTranscript
+            | Self::V6Test262HostPrimitivePrintTranscript => {
                 ObservationContract::PrimitiveCompletionPrintTranscript
+            }
+            Self::V5SelectedObjectProbePrintTranscript => {
+                ObservationContract::SelectedObjectProbePrintTranscript
+            }
+            Self::V7Test262HostRootedCompletionGraphPrintTranscript => {
+                ObservationContract::RootedCompletionGraphPrintTranscript
             }
         }
     }
@@ -172,6 +289,22 @@ impl DifferentialProtocol {
                 DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V3,
                 ObservationContract::PrimitiveCompletionPrintTranscript,
             ) => Ok(Self::V3PrimitiveCompletionPrintTranscript),
+            (
+                DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V4,
+                ObservationContract::PrimitiveCompletionPrintTranscript,
+            ) => Ok(Self::V4EmbeddedGraphPrimitivePrintTranscript),
+            (
+                DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V5,
+                ObservationContract::SelectedObjectProbePrintTranscript,
+            ) => Ok(Self::V5SelectedObjectProbePrintTranscript),
+            (
+                DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V6,
+                ObservationContract::PrimitiveCompletionPrintTranscript,
+            ) => Ok(Self::V6Test262HostPrimitivePrintTranscript),
+            (
+                DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V7,
+                ObservationContract::RootedCompletionGraphPrintTranscript,
+            ) => Ok(Self::V7Test262HostRootedCompletionGraphPrintTranscript),
             _ => Err(DifferentialError::InvalidCorpus(format!(
                 "unsupported differential protocol pair: schema_version {schema_version} with observation_contract {}",
                 observation_contract.as_str()
@@ -188,6 +321,12 @@ impl From<ObservationContract> for DifferentialProtocol {
             ObservationContract::PrimitiveCompletionPrintTranscript => {
                 Self::V3PrimitiveCompletionPrintTranscript
             }
+            ObservationContract::SelectedObjectProbePrintTranscript => {
+                Self::V5SelectedObjectProbePrintTranscript
+            }
+            ObservationContract::RootedCompletionGraphPrintTranscript => {
+                Self::V7Test262HostRootedCompletionGraphPrintTranscript
+            }
         }
     }
 }
@@ -202,14 +341,16 @@ enum OutputComparisonPolicy {
     CompareCapturedPrintTranscript,
 }
 
-/// The complete program admitted by the current corpus protocols.
+/// A program whose loading authority was admitted with its source.
 ///
-/// Goal and source are coupled so an in-memory case cannot acquire a module
-/// loader dependency after the constructor has established outer-source
-/// closure and replay has fixed reject-all loading.
+/// Legacy Scripts retain outer-source closure and reject-all loading. V4
+/// projects goal and source from its complete graph and reuses that same owner
+/// at replay, so no separately mutable source can change the loading policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DifferentialProgram {
     DependencySealedScript(String),
+    EmbeddedGraph(Arc<EmbeddedModuleGraph>),
+    RootedSnapshot(rooted_snapshot::Program),
 }
 
 impl DifferentialProgram {
@@ -235,15 +376,22 @@ impl DifferentialProgram {
         }
     }
 
-    const fn goal(&self) -> DifferentialGoal {
+    fn goal(&self) -> DifferentialGoal {
         match self {
             Self::DependencySealedScript(_) => DifferentialGoal::Script,
+            Self::RootedSnapshot(program) => program.goal(),
+            Self::EmbeddedGraph(graph) => match graph.entry().goal() {
+                EmbeddedModuleGoal::Script => DifferentialGoal::Script,
+                EmbeddedModuleGoal::Module => DifferentialGoal::Module,
+            },
         }
     }
 
     fn source(&self) -> &str {
         match self {
             Self::DependencySealedScript(source) => source,
+            Self::RootedSnapshot(program) => program.source(),
+            Self::EmbeddedGraph(graph) => graph.entry().source(),
         }
     }
 }
@@ -309,8 +457,29 @@ impl DifferentialCase {
             ));
         }
         let protocol = protocol.into();
+        if protocol == DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript {
+            return Err(rooted_snapshot::missing_limits());
+        }
+        if protocol == DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript {
+            return Err(DifferentialError::InvalidCorpus(
+                "differential schema v4 requires a validated embedded module graph".into(),
+            ));
+        }
         let id = DifferentialCaseId::new(id)?;
-        let program = DifferentialProgram::new(goal, source)?;
+        let program = if protocol == DifferentialProtocol::V5SelectedObjectProbePrintTranscript {
+            if goal != DifferentialGoal::Script {
+                return Err(DifferentialError::InvalidCorpus(
+                    "differential schema v5 admits only selected probe FunctionBodies under Script goal".into(),
+                ));
+            }
+            object_probe::validate_body(&source)?;
+            DifferentialProgram::new(goal, object_probe::execution_source(&source))?;
+            // The wire retains its FunctionBody; only this admitted protocol
+            // selects the fingerprint-bound capture invocation in the worker.
+            DifferentialProgram::DependencySealedScript(source)
+        } else {
+            DifferentialProgram::new(goal, source)?
+        };
         Ok(Self {
             protocol,
             id,
@@ -321,6 +490,20 @@ impl DifferentialCase {
     }
 
     pub fn from_json(json: &str) -> Result<Self, DifferentialError> {
+        #[derive(Deserialize)]
+        struct SchemaVersion {
+            schema_version: u32,
+        }
+        let version: SchemaVersion = serde_json::from_str(json)
+            .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
+        if version.schema_version == DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V7 {
+            return rooted_snapshot::from_json(json)?.admit_snapshot();
+        }
+        if version.schema_version == DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V4 {
+            let wire: embedded_graph::EmbeddedCaseWire = serde_json::from_str(json)
+                .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
+            return wire.into_case();
+        }
         let wire: DifferentialCaseWire = serde_json::from_str(json)
             .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
         let protocol =
@@ -333,6 +516,39 @@ impl DifferentialCase {
             wire.timeout_ms,
             wire.source,
         )
+    }
+
+    /// This is the only v4 constructor. Goal, source and locator are projections
+    /// of the validated graph entry and cannot be changed independently.
+    pub fn new_embedded(
+        id: impl Into<String>,
+        timeout_ms: u64,
+        graph: Arc<EmbeddedModuleGraph>,
+    ) -> Result<Self, DifferentialError> {
+        let id = DifferentialCaseId::new(id)?;
+        let timeout_ms = NonZeroU64::new(timeout_ms).ok_or_else(|| {
+            DifferentialError::InvalidCorpus("timeout_ms must be non-zero".into())
+        })?;
+        if graph.entry().source().is_empty() {
+            return Err(DifferentialError::InvalidCorpus(
+                "source must not be empty".into(),
+            ));
+        }
+        Ok(Self {
+            protocol: DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript,
+            id,
+            filename: graph.entry().identity().into(),
+            program: DifferentialProgram::EmbeddedGraph(graph),
+            timeout_ms,
+        })
+    }
+
+    pub fn module_graph(&self) -> Option<&Arc<EmbeddedModuleGraph>> {
+        match &self.program {
+            DifferentialProgram::DependencySealedScript(_) => None,
+            DifferentialProgram::EmbeddedGraph(graph) => Some(graph),
+            DifferentialProgram::RootedSnapshot(program) => program.module_graph(),
+        }
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, DifferentialError> {
@@ -351,7 +567,7 @@ impl DifferentialCase {
         &self.id
     }
 
-    pub const fn goal(&self) -> DifferentialGoal {
+    pub fn goal(&self) -> DifferentialGoal {
         self.program.goal()
     }
 
@@ -388,6 +604,27 @@ impl Serialize for DifferentialCase {
     where
         S: Serializer,
     {
+        if let DifferentialProgram::RootedSnapshot(program) = &self.program {
+            return rooted_snapshot::serialize(
+                &self.id,
+                self.timeout_ms,
+                &self.filename,
+                program,
+                serializer,
+            );
+        }
+        if let DifferentialProgram::EmbeddedGraph(graph) = &self.program {
+            let mut case = serializer.serialize_struct("DifferentialCase", 5)?;
+            case.serialize_field("schema_version", &self.protocol.schema_version())?;
+            case.serialize_field("id", &self.id)?;
+            case.serialize_field(
+                "observation_contract",
+                &self.protocol.observation_contract(),
+            )?;
+            case.serialize_field("timeout_ms", &self.timeout_ms)?;
+            case.serialize_field("module_graph", &embedded_graph::GraphProjection(graph))?;
+            return case.end();
+        }
         let mut case = serializer.serialize_struct("DifferentialCase", 7)?;
         case.serialize_field("schema_version", &self.protocol.schema_version())?;
         case.serialize_field("id", &self.id)?;
@@ -400,6 +637,301 @@ impl Serialize for DifferentialCase {
         case.serialize_field("timeout_ms", &self.timeout_ms)?;
         case.serialize_field("source", self.source())?;
         case.end()
+    }
+}
+
+/// Native corpus wire awaiting the worker's source-closure admission.
+///
+/// This owner cannot execute a backend. Its constructors never parse JavaScript;
+/// the worker converts it to the existing admitted `DifferentialCase` once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DifferentialReplayInput {
+    protocol: DifferentialProtocol,
+    id: DifferentialCaseId,
+    program: ReplayProgramInput,
+    filename: String,
+    timeout_ms: NonZeroU64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReplayProgramInput {
+    Script(String),
+    EmbeddedGraph(Arc<EmbeddedModuleGraph>),
+    RootedSnapshot(rooted_snapshot::Program),
+}
+
+impl DifferentialReplayInput {
+    pub fn new_script(
+        id: impl Into<String>,
+        protocol: impl Into<DifferentialProtocol>,
+        filename: impl Into<String>,
+        timeout_ms: u64,
+        source: impl Into<String>,
+    ) -> Result<Self, DifferentialError> {
+        let filename = filename.into();
+        if filename.is_empty()
+            || filename.starts_with('/')
+            || filename.contains('\\')
+            || !filename.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_/.".contains(&byte)
+            })
+            || filename
+                .split('/')
+                .any(|part| matches!(part, "" | "." | ".."))
+        {
+            return Err(DifferentialError::InvalidCorpus(
+                "filename must be a normalized relative '/' path of lowercase ASCII letters, digits, '-', '_', and '.'".into(),
+            ));
+        }
+        let source = source.into();
+        if source.is_empty() {
+            return Err(DifferentialError::InvalidCorpus(
+                "source must not be empty".into(),
+            ));
+        }
+        if source.len() > worker_process::MAX_REQUEST_BYTES {
+            return Err(DifferentialError::WorkerConfiguration(
+                "differential source exceeds the worker request budget".into(),
+            ));
+        }
+        let timeout_ms = NonZeroU64::new(timeout_ms).ok_or_else(|| {
+            DifferentialError::InvalidCorpus("timeout_ms must be non-zero".into())
+        })?;
+        let protocol = protocol.into();
+        if protocol == DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript {
+            return Err(rooted_snapshot::missing_limits());
+        }
+        if protocol == DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript {
+            return Err(DifferentialError::InvalidCorpus(
+                "differential schema v4 requires a validated embedded module graph".into(),
+            ));
+        }
+        Ok(Self {
+            protocol,
+            id: DifferentialCaseId::new(id)?,
+            program: ReplayProgramInput::Script(source),
+            filename,
+            timeout_ms,
+        })
+    }
+
+    pub fn new_embedded(
+        id: impl Into<String>,
+        timeout_ms: u64,
+        graph: Arc<EmbeddedModuleGraph>,
+    ) -> Result<Self, DifferentialError> {
+        DifferentialCase::new_embedded(id, timeout_ms, graph).map(Self::from)
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, DifferentialError> {
+        if json.len() > worker_process::MAX_REQUEST_BYTES {
+            return Err(DifferentialError::WorkerConfiguration(
+                "differential corpus exceeds the worker request budget".into(),
+            ));
+        }
+        #[derive(Deserialize)]
+        struct Version {
+            schema_version: u32,
+        }
+        let version: Version = serde_json::from_str(json)
+            .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
+        if version.schema_version == DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V7 {
+            return rooted_snapshot::from_json(json);
+        }
+        if version.schema_version == DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V4 {
+            let wire: embedded_graph::EmbeddedCaseWire = serde_json::from_str(json)
+                .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
+            return wire.into_input();
+        }
+        let wire: DifferentialCaseWire = serde_json::from_str(json)
+            .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
+        if wire.goal != DifferentialGoal::Script {
+            return Err(DifferentialError::InvalidCorpus(
+                if wire.schema_version == DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V5 {
+                    "differential schema v5 admits only selected probe FunctionBodies under Script goal"
+                } else {
+                    "differential corpus schemas v1-v3 admit only dependency-sealed Scripts; Module replay requires an embedded module graph"
+                }.into(),
+            ));
+        }
+        Self::new_script(
+            wire.id,
+            DifferentialProtocol::from_wire(wire.schema_version, wire.observation_contract)?,
+            wire.filename,
+            wire.timeout_ms,
+            wire.source,
+        )
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, DifferentialError> {
+        use std::io::Read;
+        let path = path.as_ref();
+        let file = fs::File::open(path).map_err(|error| DifferentialError::ReadCorpus {
+            path: path.into(),
+            message: error.to_string(),
+        })?;
+        let mut bytes = Vec::new();
+        file.take(worker_process::MAX_REQUEST_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| DifferentialError::ReadCorpus {
+                path: path.into(),
+                message: error.to_string(),
+            })?;
+        if bytes.len() > worker_process::MAX_REQUEST_BYTES {
+            return Err(DifferentialError::WorkerConfiguration(
+                "differential corpus exceeds the worker request budget".into(),
+            ));
+        }
+        let json = std::str::from_utf8(&bytes)
+            .map_err(|error| DifferentialError::DecodeCorpus(error.to_string()))?;
+        Self::from_json(json).map_err(|error| DifferentialError::CorpusAtPath {
+            path: path.into(),
+            source: Box::new(error),
+        })
+    }
+
+    pub fn id(&self) -> &DifferentialCaseId {
+        &self.id
+    }
+    pub const fn protocol(&self) -> DifferentialProtocol {
+        self.protocol
+    }
+    pub const fn observation_contract(&self) -> ObservationContract {
+        self.protocol.observation_contract()
+    }
+    pub fn goal(&self) -> DifferentialGoal {
+        match &self.program {
+            ReplayProgramInput::Script(_) => DifferentialGoal::Script,
+            ReplayProgramInput::RootedSnapshot(program) => program.goal(),
+            ReplayProgramInput::EmbeddedGraph(graph) => match graph.entry().goal() {
+                EmbeddedModuleGoal::Script => DifferentialGoal::Script,
+                EmbeddedModuleGoal::Module => DifferentialGoal::Module,
+            },
+        }
+    }
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
+    pub const fn timeout_ms(&self) -> NonZeroU64 {
+        self.timeout_ms
+    }
+    pub fn source(&self) -> &str {
+        match &self.program {
+            ReplayProgramInput::Script(source) => source,
+            ReplayProgramInput::RootedSnapshot(program) => program.source(),
+            ReplayProgramInput::EmbeddedGraph(graph) => graph.entry().source(),
+        }
+    }
+    pub fn module_graph(&self) -> Option<&Arc<EmbeddedModuleGraph>> {
+        match &self.program {
+            ReplayProgramInput::Script(_) => None,
+            ReplayProgramInput::EmbeddedGraph(graph) => Some(graph),
+            ReplayProgramInput::RootedSnapshot(program) => program.module_graph(),
+        }
+    }
+    pub fn to_pretty_json(&self) -> Result<String, DifferentialError> {
+        let mut bytes = Vec::new();
+        worker_process::write_bounded_json(self, &mut bytes)
+            .map_err(|error| DifferentialError::EncodeCorpus(error.to_string()))?;
+        let mut json = String::from_utf8(bytes)
+            .map_err(|error| DifferentialError::EncodeCorpus(error.to_string()))?;
+        json.push('\n');
+        Ok(json)
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    fn admit(self) -> Result<DifferentialCase, DifferentialError> {
+        if matches!(&self.program, ReplayProgramInput::RootedSnapshot(_)) {
+            return self.admit_snapshot();
+        }
+        match self.program {
+            ReplayProgramInput::Script(source) => DifferentialCase::new(
+                self.id.0,
+                DifferentialGoal::Script,
+                self.protocol,
+                self.filename,
+                self.timeout_ms.get(),
+                source,
+            ),
+            ReplayProgramInput::EmbeddedGraph(graph) => {
+                DifferentialCase::new_embedded(self.id.0, self.timeout_ms.get(), graph)
+            }
+            ReplayProgramInput::RootedSnapshot(_) => unreachable!("handled above"),
+        }
+    }
+}
+
+impl From<&DifferentialCase> for DifferentialReplayInput {
+    fn from(case: &DifferentialCase) -> Self {
+        Self {
+            protocol: case.protocol,
+            id: case.id.clone(),
+            program: match &case.program {
+                DifferentialProgram::DependencySealedScript(source) => {
+                    ReplayProgramInput::Script(source.clone())
+                }
+                DifferentialProgram::EmbeddedGraph(graph) => {
+                    ReplayProgramInput::EmbeddedGraph(Arc::clone(graph))
+                }
+                DifferentialProgram::RootedSnapshot(program) => {
+                    ReplayProgramInput::RootedSnapshot(program.clone())
+                }
+            },
+            filename: case.filename.clone(),
+            timeout_ms: case.timeout_ms,
+        }
+    }
+}
+impl From<DifferentialCase> for DifferentialReplayInput {
+    fn from(case: DifferentialCase) -> Self {
+        Self {
+            protocol: case.protocol,
+            id: case.id,
+            filename: case.filename,
+            timeout_ms: case.timeout_ms,
+            program: match case.program {
+                DifferentialProgram::DependencySealedScript(source) => {
+                    ReplayProgramInput::Script(source)
+                }
+                DifferentialProgram::EmbeddedGraph(graph) => {
+                    ReplayProgramInput::EmbeddedGraph(graph)
+                }
+                DifferentialProgram::RootedSnapshot(program) => {
+                    ReplayProgramInput::RootedSnapshot(program)
+                }
+            },
+        }
+    }
+}
+impl Serialize for DifferentialReplayInput {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let ReplayProgramInput::RootedSnapshot(program) = &self.program {
+            return rooted_snapshot::serialize(
+                &self.id,
+                self.timeout_ms,
+                &self.filename,
+                program,
+                serializer,
+            );
+        }
+        if let ReplayProgramInput::EmbeddedGraph(graph) = &self.program {
+            let mut wire = serializer.serialize_struct("DifferentialCase", 5)?;
+            wire.serialize_field("schema_version", &self.protocol.schema_version())?;
+            wire.serialize_field("id", &self.id)?;
+            wire.serialize_field("observation_contract", &self.observation_contract())?;
+            wire.serialize_field("timeout_ms", &self.timeout_ms)?;
+            wire.serialize_field("module_graph", &embedded_graph::GraphProjection(graph))?;
+            return wire.end();
+        }
+        let mut wire = serializer.serialize_struct("DifferentialCase", 7)?;
+        wire.serialize_field("schema_version", &self.protocol.schema_version())?;
+        wire.serialize_field("id", &self.id)?;
+        wire.serialize_field("goal", &self.goal())?;
+        wire.serialize_field("observation_contract", &self.observation_contract())?;
+        wire.serialize_field("filename", &self.filename)?;
+        wire.serialize_field("timeout_ms", &self.timeout_ms)?;
+        wire.serialize_field("source", self.source())?;
+        wire.end()
     }
 }
 
@@ -417,7 +949,7 @@ impl SpecExecOracle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DifferentialBackend {
     WasmAot,
@@ -442,7 +974,7 @@ impl DifferentialBackend {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionDisposition {
     Normal,
@@ -459,7 +991,7 @@ impl ExecutionDisposition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionKindObservation {
     Normal,
@@ -476,8 +1008,8 @@ impl CompletionKindObservation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PrimitiveValueObservation {
     Undefined,
     Null,
@@ -529,8 +1061,8 @@ impl PrimitiveValueObservation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PrimitiveCompletionObservation {
     Normal { value: PrimitiveValueObservation },
     Throw { value: PrimitiveValueObservation },
@@ -552,7 +1084,7 @@ impl PrimitiveCompletionObservation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnsupportedObservedValueType {
     Symbol,
@@ -569,16 +1101,18 @@ impl UnsupportedObservedValueType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailurePhase {
     Parse,
     EarlyError,
+    FrontendCapability,
     ModuleResolution,
     Lowering,
     WasmRuntimeCapability,
     WasmRuntimeOrBackend,
     SpecExecExecution,
+    SpecExecEntrySyntax,
     RunnerInvariant,
 }
 
@@ -588,18 +1122,20 @@ impl FailurePhase {
         match self {
             Self::Parse => "parse",
             Self::EarlyError => "early_error",
+            Self::FrontendCapability => "frontend_capability",
             Self::ModuleResolution => "module_resolution",
             Self::Lowering => "lowering",
             Self::WasmRuntimeCapability => "wasm_runtime_capability",
             Self::WasmRuntimeOrBackend => "wasm_runtime_or_backend",
             Self::SpecExecExecution => "spec_exec_execution",
+            Self::SpecExecEntrySyntax => "spec_exec_entry_syntax",
             Self::RunnerInvariant => "runner_invariant",
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "disposition", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "disposition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ExecutionObservation {
     Normal {
         /// Backend diagnostic text, not a structured ECMAScript result.
@@ -615,6 +1151,17 @@ pub enum ExecutionObservation {
         completion: PrimitiveCompletionObservation,
         backend_note: String,
     },
+    SelectedObjectProbe {
+        graph: SelectedObjectProbeGraph,
+        backend_note: String,
+    },
+    RootedCompletionGraph {
+        completion: SnapshotCompletion,
+        backend_note: String,
+    },
+    ObservationRejected {
+        reason: String,
+    },
     UnsupportedCompletion {
         completion_kind: CompletionKindObservation,
         value_type: UnsupportedObservedValueType,
@@ -625,16 +1172,27 @@ pub enum ExecutionObservation {
         phase: FailurePhase,
         message: String,
     },
+    WorkerFailure {
+        failure: DifferentialWorkerFailure,
+        cleanup_error: Option<String>,
+    },
 }
 
 impl ExecutionObservation {
     pub const fn disposition(&self) -> ExecutionDisposition {
         match self {
-            Self::Normal { .. } => ExecutionDisposition::Normal,
-            Self::Error { .. } | Self::EngineFailure { .. } => ExecutionDisposition::Error,
+            Self::Normal { .. } | Self::SelectedObjectProbe { .. } => ExecutionDisposition::Normal,
+            Self::Error { .. }
+            | Self::EngineFailure { .. }
+            | Self::WorkerFailure { .. }
+            | Self::ObservationRejected { .. } => ExecutionDisposition::Error,
             Self::PrimitiveCompletion { completion, .. } => match completion.kind() {
                 CompletionKindObservation::Normal => ExecutionDisposition::Normal,
                 CompletionKindObservation::Throw => ExecutionDisposition::Error,
+            },
+            Self::RootedCompletionGraph { completion, .. } => match completion.kind {
+                SnapshotCompletionKind::Normal => ExecutionDisposition::Normal,
+                SnapshotCompletionKind::Throw => ExecutionDisposition::Error,
             },
             Self::UnsupportedCompletion {
                 completion_kind, ..
@@ -648,14 +1206,41 @@ impl ExecutionObservation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BackendObservation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_identity: Option<super::CompilerProvenance>,
     pub backend: DifferentialBackend,
     pub output_events: OutputEventsObservation,
     pub execution: ExecutionObservation,
 }
 
+/// Process/protocol failure, never an ECMAScript completion or semantic reducer
+/// witness. The separate robustness reducer admits only a bound interrupted
+/// target stage with an explicit crash/timeout disposition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DifferentialWorkerFailure {
+    Timeout {
+        timeout_ms: u64,
+    },
+    Exit {
+        code: Option<i32>,
+        signal: Option<i32>,
+    },
+    ObservationLimit {
+        limit_bytes: u64,
+    },
+    Protocol {
+        message: String,
+    },
+    Process {
+        message: String,
+    },
+    UnsupportedPlatform,
+}
+
 /// Report-v1 reason vocabulary. The existing reason remains part of the public
 /// schema even though current replay can capture spec-exec output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputUnavailableReason {
     SpecExecBypassesEngineHostHooks,
@@ -670,10 +1255,11 @@ impl OutputUnavailableReason {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "availability", rename_all = "snake_case")]
 pub enum OutputEventsObservation {
     Captured { events: Vec<String> },
+    Incomplete { events: Vec<String> },
     Unavailable { reason: OutputUnavailableReason },
 }
 
@@ -684,6 +1270,9 @@ pub enum ComparedDimension {
     CompletionKind,
     PrimitiveValue,
     PrintTranscript,
+    SelectedObjectGraph,
+    RootedCompletionGraph,
+    ObservableIdentityAnchors,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -702,10 +1291,14 @@ pub enum ObservationGap {
     SpecExecTimeoutNotEnforced,
     UncapturedSymbolIdentity,
     UncapturedObjectIdentity,
+    ArbitraryPostExecutionObjectObservation,
+    UnselectedRealmIdentities,
+    UncapturedObjectInternalSlots,
+    UncapturedFunctionBehavior,
 }
 
 pub const COMPARED_DIMENSIONS: [ComparedDimension; 1] = [ComparedDimension::SelfCheckDisposition];
-pub const OBSERVATION_GAPS: [ObservationGap; 10] = [
+pub const OBSERVATION_GAPS: [ObservationGap; 8] = [
     ObservationGap::UnstructuredNormalValue,
     ObservationGap::UnstructuredCompletionKind,
     ObservationGap::UnstructuredThrownValue,
@@ -714,15 +1307,13 @@ pub const OBSERVATION_GAPS: [ObservationGap; 10] = [
     ObservationGap::UncapturedOwnKeyOrder,
     ObservationGap::UncapturedPrototypeIdentity,
     ObservationGap::UncapturedSideEffectLog,
-    ObservationGap::UnisolatedPanicAndHostCrash,
-    ObservationGap::SpecExecTimeoutNotEnforced,
 ];
 
 pub const COMPARED_DIMENSIONS_V2: [ComparedDimension; 2] = [
     ComparedDimension::CompletionKind,
     ComparedDimension::PrimitiveValue,
 ];
-pub const OBSERVATION_GAPS_V2: [ObservationGap; 9] = [
+pub const OBSERVATION_GAPS_V2: [ObservationGap; 7] = [
     ObservationGap::UncapturedSymbolIdentity,
     ObservationGap::UncapturedObjectIdentity,
     ObservationGap::UncapturedErrorRealm,
@@ -730,8 +1321,6 @@ pub const OBSERVATION_GAPS_V2: [ObservationGap; 9] = [
     ObservationGap::UncapturedOwnKeyOrder,
     ObservationGap::UncapturedPrototypeIdentity,
     ObservationGap::UncapturedSideEffectLog,
-    ObservationGap::UnisolatedPanicAndHostCrash,
-    ObservationGap::SpecExecTimeoutNotEnforced,
 ];
 
 pub const COMPARED_DIMENSIONS_V3: [ComparedDimension; 3] = [
@@ -739,14 +1328,43 @@ pub const COMPARED_DIMENSIONS_V3: [ComparedDimension; 3] = [
     ComparedDimension::PrimitiveValue,
     ComparedDimension::PrintTranscript,
 ];
-pub const OBSERVATION_GAPS_V3: [ObservationGap; 9] = OBSERVATION_GAPS_V2;
+pub const OBSERVATION_GAPS_V3: [ObservationGap; 7] = OBSERVATION_GAPS_V2;
+
+pub const COMPARED_DIMENSIONS_V5: [ComparedDimension; 3] = [
+    ComparedDimension::SelectedObjectGraph,
+    ComparedDimension::ObservableIdentityAnchors,
+    ComparedDimension::PrintTranscript,
+];
+pub const OBSERVATION_GAPS_V5: [ObservationGap; 4] = [
+    ObservationGap::ArbitraryPostExecutionObjectObservation,
+    ObservationGap::UnselectedRealmIdentities,
+    ObservationGap::UncapturedObjectInternalSlots,
+    ObservationGap::UncapturedSideEffectLog,
+];
+
+pub const COMPARED_DIMENSIONS_V7: [ComparedDimension; 4] = [
+    ComparedDimension::CompletionKind,
+    ComparedDimension::RootedCompletionGraph,
+    ComparedDimension::ObservableIdentityAnchors,
+    ComparedDimension::PrintTranscript,
+];
+pub const OBSERVATION_GAPS_V7: [ObservationGap; 4] = [
+    ObservationGap::UncapturedFunctionBehavior,
+    ObservationGap::UnselectedRealmIdentities,
+    ObservationGap::UncapturedObjectInternalSlots,
+    ObservationGap::UncapturedSideEffectLog,
+];
 
 impl DifferentialProtocol {
     const fn compared_dimensions(self) -> &'static [ComparedDimension] {
         match self {
             Self::V1SelfCheckingNoOutput => &COMPARED_DIMENSIONS,
             Self::V2PrimitiveCompletionNoOutput => &COMPARED_DIMENSIONS_V2,
-            Self::V3PrimitiveCompletionPrintTranscript => &COMPARED_DIMENSIONS_V3,
+            Self::V3PrimitiveCompletionPrintTranscript
+            | Self::V4EmbeddedGraphPrimitivePrintTranscript
+            | Self::V6Test262HostPrimitivePrintTranscript => &COMPARED_DIMENSIONS_V3,
+            Self::V5SelectedObjectProbePrintTranscript => &COMPARED_DIMENSIONS_V5,
+            Self::V7Test262HostRootedCompletionGraphPrintTranscript => &COMPARED_DIMENSIONS_V7,
         }
     }
 
@@ -754,7 +1372,11 @@ impl DifferentialProtocol {
         match self {
             Self::V1SelfCheckingNoOutput => &OBSERVATION_GAPS,
             Self::V2PrimitiveCompletionNoOutput => &OBSERVATION_GAPS_V2,
-            Self::V3PrimitiveCompletionPrintTranscript => &OBSERVATION_GAPS_V3,
+            Self::V3PrimitiveCompletionPrintTranscript
+            | Self::V4EmbeddedGraphPrimitivePrintTranscript
+            | Self::V6Test262HostPrimitivePrintTranscript => &OBSERVATION_GAPS_V3,
+            Self::V5SelectedObjectProbePrintTranscript => &OBSERVATION_GAPS_V5,
+            Self::V7Test262HostRootedCompletionGraphPrintTranscript => &OBSERVATION_GAPS_V7,
         }
     }
 
@@ -764,7 +1386,11 @@ impl DifferentialProtocol {
             Self::V1SelfCheckingNoOutput | Self::V2PrimitiveCompletionNoOutput => {
                 OutputComparisonPolicy::RequireCapturedEmpty
             }
-            Self::V3PrimitiveCompletionPrintTranscript => {
+            Self::V3PrimitiveCompletionPrintTranscript
+            | Self::V4EmbeddedGraphPrimitivePrintTranscript
+            | Self::V6Test262HostPrimitivePrintTranscript
+            | Self::V7Test262HostRootedCompletionGraphPrintTranscript
+            | Self::V5SelectedObjectProbePrintTranscript => {
                 OutputComparisonPolicy::CompareCapturedPrintTranscript
             }
         }
@@ -777,9 +1403,12 @@ pub enum DifferentialVerdict {
     BothCompleted,
     PrimitiveCompletionsMatch,
     PrimitiveCompletionAndPrintTranscriptMatch,
+    SelectedObjectProbeAndPrintTranscriptMatch,
+    RootedCompletionGraphAndPrintTranscriptMatch,
     BothFailed,
     Mismatch,
     ObservationContractViolated,
+    WorkerFailure,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -788,7 +1417,8 @@ pub enum SemanticEquivalence {
     NotEstablished,
 }
 
-/// Non-cryptographic, versioned drift fingerprint for one exact corpus case.
+/// Versioned case drift identity: legacy FNV framing plus, for v4, the complete
+/// cryptographic graph digest retained independently of the FNV result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct CaseFingerprint(String);
@@ -812,6 +1442,7 @@ impl MismatchSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DifferentialReport {
     protocol: DifferentialProtocol,
+    snapshot_limits: Option<SnapshotLimits>,
     case_id: DifferentialCaseId,
     case_fingerprint: CaseFingerprint,
     verdict: DifferentialVerdict,
@@ -824,6 +1455,10 @@ pub struct DifferentialReport {
 }
 
 impl DifferentialReport {
+    pub fn case_id(&self) -> &DifferentialCaseId {
+        &self.case_id
+    }
+
     pub const fn protocol(&self) -> DifferentialProtocol {
         self.protocol
     }
@@ -838,6 +1473,8 @@ impl DifferentialReport {
             DifferentialVerdict::BothCompleted
                 | DifferentialVerdict::PrimitiveCompletionsMatch
                 | DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+                | DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch
+                | DifferentialVerdict::RootedCompletionGraphAndPrintTranscriptMatch
         )
     }
 
@@ -879,7 +1516,14 @@ impl Serialize for DifferentialReport {
         // Keep this explicit projection in the original v1 field order. The
         // protocol chooses the versioned vocabulary; callers cannot combine a
         // v1 version with v2 dimensions or gaps.
-        let mut report = serializer.serialize_struct("DifferentialReport", 11)?;
+        let mut report = serializer.serialize_struct(
+            "DifferentialReport",
+            if self.snapshot_limits.is_some() {
+                13
+            } else {
+                11
+            },
+        )?;
         report.serialize_field("schema_version", &self.protocol.report_schema_version())?;
         report.serialize_field("case_id", &self.case_id)?;
         report.serialize_field("case_fingerprint", &self.case_fingerprint)?;
@@ -894,12 +1538,17 @@ impl Serialize for DifferentialReport {
         report.serialize_field("wasm_aot", &self.wasm_aot)?;
         report.serialize_field("spec_exec", &self.spec_exec)?;
         report.serialize_field("mismatch_signature", &self.mismatch_signature)?;
+        if let Some(limits) = self.snapshot_limits {
+            report.serialize_field("host_profile", "test262")?;
+            report.serialize_field("snapshot_limits", &limits)?;
+        }
         report.end()
     }
 }
 
 #[derive(Debug)]
 pub enum DifferentialError {
+    WorkerConfiguration(String),
     ReadCorpus {
         path: PathBuf,
         message: String,
@@ -912,6 +1561,11 @@ pub enum DifferentialError {
     },
     InvalidGeneration(String),
     GeneratorInvariant(String),
+    CampaignCancelled,
+    CampaignOutput {
+        path: PathBuf,
+        message: String,
+    },
     OracleNotLinked,
     EncodeCorpus(String),
     EncodeReport(String),
@@ -920,6 +1574,9 @@ pub enum DifferentialError {
 impl fmt::Display for DifferentialError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::WorkerConfiguration(message) => {
+                write!(formatter, "differential worker setup: {message}")
+            }
             Self::ReadCorpus { path, message } => {
                 write!(formatter, "failed to read {}: {message}", path.display())
             }
@@ -939,6 +1596,16 @@ impl fmt::Display for DifferentialError {
                 write!(
                     formatter,
                     "differential generator invariant failed: {message}"
+                )
+            }
+            Self::CampaignCancelled => {
+                formatter.write_str("generated campaign cancelled before replay")
+            }
+            Self::CampaignOutput { path, message } => {
+                write!(
+                    formatter,
+                    "generated campaign output {}: {message}",
+                    path.display()
                 )
             }
             Self::OracleNotLinked => formatter.write_str(
@@ -961,43 +1628,28 @@ impl fmt::Display for DifferentialError {
 
 impl std::error::Error for DifferentialError {}
 
-/// Replays one validated case through Wasm-AOT and the explicitly requested
-/// spec-exec oracle, in that order and in fresh realms.
-///
-/// In builds without `spec-exec-oracle`, no backend is executed and a typed
-/// `OracleNotLinked` error is returned.
+/// Replay both backends in fresh, bounded worker processes, Wasm-AOT first.
 #[cfg(feature = "spec-exec-oracle")]
 pub fn replay_case(
-    case: &DifferentialCase,
-    _oracle: SpecExecOracle,
+    input: &DifferentialReplayInput,
+    oracle: SpecExecOracle,
+    runner: &DifferentialWorkerRunner,
 ) -> Result<DifferentialReport, DifferentialError> {
-    let wasm_aot = execute_case(case, DifferentialBackend::WasmAot);
-    let spec_exec = execute_case(case, DifferentialBackend::SpecExec);
-    Ok(compare_executions(case, wasm_aot, spec_exec))
+    let wasm = runner.run(input, DifferentialBackend::WasmAot, oracle)?;
+    let spec = runner.run(input, DifferentialBackend::SpecExec, oracle)?;
+    Ok(compare_observations(
+        input,
+        wasm.into_observation(),
+        spec.into_observation(),
+    ))
 }
-
 #[cfg(not(feature = "spec-exec-oracle"))]
 pub fn replay_case(
-    _case: &DifferentialCase,
+    _input: &DifferentialReplayInput,
     _oracle: SpecExecOracle,
+    _runner: &DifferentialWorkerRunner,
 ) -> Result<DifferentialReport, DifferentialError> {
     Err(DifferentialError::OracleNotLinked)
-}
-
-#[cfg(feature = "spec-exec-oracle")]
-#[derive(Debug)]
-struct CapturingOutput {
-    events: Arc<Mutex<Vec<String>>>,
-}
-
-#[cfg(feature = "spec-exec-oracle")]
-impl lila_engine::HostHooks for CapturingOutput {
-    fn print_line(&self, text: &str) {
-        self.events
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(text.to_string());
-    }
 }
 
 #[cfg(any(test, feature = "spec-exec-oracle"))]
@@ -1015,113 +1667,14 @@ enum BackendExecutionResult {
         completion: ObservedCompletion,
         backend_note: String,
     },
+    RootedCompletionGraph {
+        completion: SnapshotCompletion,
+        backend_note: String,
+    },
     EngineFailure {
         phase: FailurePhase,
         message: String,
     },
-}
-
-#[cfg(any(test, feature = "spec-exec-oracle"))]
-impl BackendExecutionResult {
-    const fn disposition(&self) -> ExecutionDisposition {
-        match self {
-            Self::Completion {
-                completion: ObservedCompletion::Normal(_),
-                ..
-            } => ExecutionDisposition::Normal,
-            Self::Completion {
-                completion: ObservedCompletion::Throw(_),
-                ..
-            }
-            | Self::EngineFailure { .. } => ExecutionDisposition::Error,
-        }
-    }
-}
-
-#[cfg(feature = "spec-exec-oracle")]
-fn execute_case(case: &DifferentialCase, backend: DifferentialBackend) -> BackendExecution {
-    let captured_output = Arc::new(Mutex::new(Vec::new()));
-    let engine = Engine::new(
-        RealmBuilder::new()
-            .with_host_hooks(Box::new(CapturingOutput {
-                events: Arc::clone(&captured_output),
-            }))
-            .build(),
-    );
-    let compile = compile_options_for_case(case);
-    let run = RunOptions {
-        backend: backend.execution_backend(),
-        test_path: Some(case.filename.clone()),
-        can_block: false,
-        timeout_ms: match backend {
-            DifferentialBackend::WasmAot => Some(case.timeout_ms.get()),
-            DifferentialBackend::SpecExec => None,
-        },
-        ..RunOptions::default()
-    };
-    let outcome = match &case.program {
-        DifferentialProgram::DependencySealedScript(source) => {
-            engine.observe_script(source, compile, run)
-        }
-    };
-    let (result, output_events) = match outcome {
-        Ok(outcome) if outcome.backend_used == backend.execution_backend() => {
-            let result = BackendExecutionResult::Completion {
-                completion: outcome.completion,
-                backend_note: outcome.note,
-            };
-            (result, captured_output_events(outcome.output_events))
-        }
-        Ok(outcome) => {
-            let output_events = captured_output_events(outcome.output_events);
-            (
-                BackendExecutionResult::EngineFailure {
-                    phase: FailurePhase::RunnerInvariant,
-                    message: format!(
-                        "requested backend {} reported backend {}",
-                        backend.execution_backend().as_str(),
-                        outcome.backend_used.as_str()
-                    ),
-                },
-                output_events,
-            )
-        }
-        Err(error) => (
-            observe_engine_error(backend, &error),
-            // The observation envelope deliberately keeps EngineError separate
-            // from ECMAScript completion and therefore cannot own partial
-            // events. The realm hook shadows the same print channel so this
-            // branch can still report every event emitted before the failure.
-            OutputEventsObservation::Captured {
-                events: take_captured_output(&captured_output),
-            },
-        ),
-    };
-    BackendExecution {
-        backend,
-        output_events,
-        result,
-    }
-}
-
-#[cfg(feature = "spec-exec-oracle")]
-fn captured_output_events(events: Vec<HostOutputEvent>) -> OutputEventsObservation {
-    OutputEventsObservation::Captured {
-        events: events
-            .into_iter()
-            .map(|event| match event {
-                HostOutputEvent::PrintLine(text) => text,
-            })
-            .collect(),
-    }
-}
-
-#[cfg(feature = "spec-exec-oracle")]
-fn take_captured_output(output: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
-    let mut events = output
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::mem::take(&mut *events)
 }
 
 #[cfg(any(test, feature = "spec-exec-oracle"))]
@@ -1132,14 +1685,29 @@ const fn execution_failure_phase(backend: DifferentialBackend) -> FailurePhase {
     }
 }
 
-/// Differential corpus programs are product probes, not Test262 harness
-/// programs. Keep the authority choice at this boundary so replay cannot gain
-/// conformance-only globals as an incidental engine-test convenience.
+/// Only the explicit v6/v7 wires grant the existing Test262 host surface. All
+/// other protocols remain product probes regardless of source or case name.
 #[cfg(any(test, feature = "spec-exec-oracle"))]
 fn compile_options_for_case(case: &DifferentialCase) -> CompileOptions {
     CompileOptions {
         filename: Some(case.filename.clone()),
-        module_loading_policy: ModuleLoadingPolicy::RejectAll,
+        host_surface_policy: match case.protocol {
+            DifferentialProtocol::V6Test262HostPrimitivePrintTranscript
+            | DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript => {
+                lila_ir::HostSurfacePolicy::Test262
+            }
+            DifferentialProtocol::V1SelfCheckingNoOutput
+            | DifferentialProtocol::V2PrimitiveCompletionNoOutput
+            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript
+            | DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript
+            | DifferentialProtocol::V5SelectedObjectProbePrintTranscript => {
+                lila_ir::HostSurfacePolicy::Product
+            }
+        },
+        module_loading_policy: match case.module_graph() {
+            None => ModuleLoadingPolicy::RejectAll,
+            Some(graph) => ModuleLoadingPolicy::Embedded(Arc::clone(graph)),
+        },
         ..CompileOptions::default()
     }
 }
@@ -1149,8 +1717,17 @@ fn observe_engine_error(
     backend: DifferentialBackend,
     error: &EngineError,
 ) -> BackendExecutionResult {
-    let phase = if error.parse_diagnostic().is_some() {
-        FailurePhase::Parse
+    let phase = if let Some(diagnostic) = error.parse_diagnostic() {
+        if diagnostic.error_type() != Some("SyntaxError") {
+            FailurePhase::FrontendCapability
+        } else {
+            match diagnostic.phase() {
+                lila_front::ParseDiagnosticPhase::Parse => FailurePhase::Parse,
+                lila_front::ParseDiagnosticPhase::Early => FailurePhase::EarlyError,
+            }
+        }
+    } else if error.is_oracle_entry_syntax_rejection() {
+        FailurePhase::SpecExecEntrySyntax
     } else if let Some(diagnostic) = error.ir_diagnostic() {
         match diagnostic.phase() {
             IrDiagnosticPhase::Early => FailurePhase::EarlyError,
@@ -1169,23 +1746,29 @@ fn observe_engine_error(
 }
 
 #[cfg(any(test, feature = "spec-exec-oracle"))]
-fn compare_executions(
-    case: &DifferentialCase,
-    wasm_execution: BackendExecution,
-    spec_execution: BackendExecution,
+fn compare_observations(
+    case: &DifferentialReplayInput,
+    wasm_aot: BackendObservation,
+    spec_exec: BackendObservation,
 ) -> DifferentialReport {
     let protocol = case.protocol();
     let output_policy_satisfied = obeys_output_policy(
         protocol.output_policy(),
-        &wasm_execution.output_events,
-        &spec_execution.output_events,
+        &wasm_aot.output_events,
+        &spec_exec.output_events,
     );
-    let wasm_disposition = wasm_execution.result.disposition();
-    let spec_disposition = spec_execution.result.disposition();
-    let wasm_aot = project_backend_execution(protocol, wasm_execution);
-    let spec_exec = project_backend_execution(protocol, spec_execution);
+    let wasm_disposition = wasm_aot.execution.disposition();
+    let spec_disposition = spec_exec.execution.disposition();
 
-    let verdict = if !output_policy_satisfied {
+    let verdict = if matches!(
+        &wasm_aot.execution,
+        ExecutionObservation::WorkerFailure { .. }
+    ) || matches!(
+        &spec_exec.execution,
+        ExecutionObservation::WorkerFailure { .. }
+    ) {
+        DifferentialVerdict::WorkerFailure
+    } else if !output_policy_satisfied {
         DifferentialVerdict::ObservationContractViolated
     } else {
         match protocol {
@@ -1195,12 +1778,20 @@ fn compare_executions(
             DifferentialProtocol::V2PrimitiveCompletionNoOutput => {
                 compare_v2_observations(&wasm_aot.execution, &spec_exec.execution)
             }
-            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => {
+            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript
+            | DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript
+            | DifferentialProtocol::V6Test262HostPrimitivePrintTranscript => {
                 compare_v3_observations(&wasm_aot, &spec_exec)
+            }
+            DifferentialProtocol::V5SelectedObjectProbePrintTranscript => {
+                object_probe::compare(&wasm_aot, &spec_exec)
+            }
+            DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript => {
+                rooted_snapshot::compare(case, &wasm_aot, &spec_exec)
             }
         }
     };
-    let case_fingerprint = case_fingerprint(case);
+    let case_fingerprint = input_fingerprint(case);
     let mismatch_signature =
         matches!(verdict, DifferentialVerdict::Mismatch).then(|| match protocol {
             DifferentialProtocol::V1SelfCheckingNoOutput => MismatchSignature(format!(
@@ -1222,9 +1813,32 @@ fn compare_executions(
             DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => {
                 v3_mismatch_signature(case, &case_fingerprint, &wasm_aot, &spec_exec)
             }
+            DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript => {
+                v4_mismatch_signature(case, &case_fingerprint, &wasm_aot, &spec_exec)
+            }
+            DifferentialProtocol::V5SelectedObjectProbePrintTranscript => {
+                v5_mismatch_signature(case, &case_fingerprint, &wasm_aot, &spec_exec)
+            }
+            DifferentialProtocol::V6Test262HostPrimitivePrintTranscript => {
+                MismatchSignature(format!(
+                    "lila-diff-v6:test262-host-primitive-print:{}:{}:wasm-aot={}:spec-exec={}",
+                    case.id.as_str(),
+                    case_fingerprint.as_str(),
+                    v3_backend_observation_signature(&wasm_aot),
+                    v3_backend_observation_signature(&spec_exec),
+                ))
+            }
+            DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript => {
+                MismatchSignature(format!(
+                    "lila-diff-v7:test262-host-rooted-completion-print:{}:{}:wasm-aot={}:spec-exec={}",
+                    case.id.as_str(), case_fingerprint.as_str(),
+                    rooted_snapshot::signature(&wasm_aot), rooted_snapshot::signature(&spec_exec),
+                ))
+            }
         });
     DifferentialReport {
         protocol,
+        snapshot_limits: case.snapshot_limits(),
         case_id: case.id.clone(),
         case_fingerprint,
         verdict,
@@ -1287,19 +1901,61 @@ fn project_backend_execution(
         ) => ExecutionObservation::Error { phase, message },
         (
             DifferentialProtocol::V2PrimitiveCompletionNoOutput
-            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript,
+            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript
+            | DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript
+            | DifferentialProtocol::V6Test262HostPrimitivePrintTranscript,
             BackendExecutionResult::Completion {
                 completion,
                 backend_note,
             },
         ) => project_primitive_completion(completion, backend_note),
         (
+            DifferentialProtocol::V5SelectedObjectProbePrintTranscript,
+            BackendExecutionResult::Completion {
+                completion,
+                backend_note,
+            },
+        ) => object_probe::project(completion, backend_note),
+        (
+            DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript,
+            BackendExecutionResult::RootedCompletionGraph {
+                completion,
+                backend_note,
+            },
+        ) => ExecutionObservation::RootedCompletionGraph {
+            completion,
+            backend_note,
+        },
+        (
+            DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript,
+            BackendExecutionResult::Completion { .. },
+        ) => ExecutionObservation::EngineFailure {
+            phase: FailurePhase::RunnerInvariant,
+            message: "v7 requires a rooted completion snapshot, not a projected type label".into(),
+        },
+        (
+            DifferentialProtocol::V1SelfCheckingNoOutput
+            | DifferentialProtocol::V2PrimitiveCompletionNoOutput
+            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript
+            | DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript
+            | DifferentialProtocol::V5SelectedObjectProbePrintTranscript
+            | DifferentialProtocol::V6Test262HostPrimitivePrintTranscript,
+            BackendExecutionResult::RootedCompletionGraph { .. },
+        ) => ExecutionObservation::ObservationRejected {
+            reason: "rooted snapshot outside v7".into(),
+        },
+        (
             DifferentialProtocol::V2PrimitiveCompletionNoOutput
-            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript,
+            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript
+            | DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript
+            | DifferentialProtocol::V6Test262HostPrimitivePrintTranscript
+            | DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript
+            | DifferentialProtocol::V5SelectedObjectProbePrintTranscript,
             BackendExecutionResult::EngineFailure { phase, message },
         ) => ExecutionObservation::EngineFailure { phase, message },
     };
     BackendObservation {
+        worker_identity: None,
         backend,
         output_events,
         execution,
@@ -1395,14 +2051,22 @@ fn compare_v2_observations(
         (
             ExecutionObservation::Normal { .. }
             | ExecutionObservation::Error { .. }
-            | ExecutionObservation::UnsupportedCompletion { .. },
+            | ExecutionObservation::UnsupportedCompletion { .. }
+            | ExecutionObservation::WorkerFailure { .. }
+            | ExecutionObservation::SelectedObjectProbe { .. }
+            | ExecutionObservation::RootedCompletionGraph { .. }
+            | ExecutionObservation::ObservationRejected { .. },
             _,
         )
         | (
             _,
             ExecutionObservation::Normal { .. }
             | ExecutionObservation::Error { .. }
-            | ExecutionObservation::UnsupportedCompletion { .. },
+            | ExecutionObservation::UnsupportedCompletion { .. }
+            | ExecutionObservation::WorkerFailure { .. }
+            | ExecutionObservation::SelectedObjectProbe { .. }
+            | ExecutionObservation::RootedCompletionGraph { .. }
+            | ExecutionObservation::ObservationRejected { .. },
         ) => DifferentialVerdict::ObservationContractViolated,
     }
 }
@@ -1462,14 +2126,22 @@ fn compare_v3_observations(
         (
             ExecutionObservation::Normal { .. }
             | ExecutionObservation::Error { .. }
-            | ExecutionObservation::UnsupportedCompletion { .. },
+            | ExecutionObservation::UnsupportedCompletion { .. }
+            | ExecutionObservation::WorkerFailure { .. }
+            | ExecutionObservation::SelectedObjectProbe { .. }
+            | ExecutionObservation::RootedCompletionGraph { .. }
+            | ExecutionObservation::ObservationRejected { .. },
             _,
         )
         | (
             _,
             ExecutionObservation::Normal { .. }
             | ExecutionObservation::Error { .. }
-            | ExecutionObservation::UnsupportedCompletion { .. },
+            | ExecutionObservation::UnsupportedCompletion { .. }
+            | ExecutionObservation::WorkerFailure { .. }
+            | ExecutionObservation::SelectedObjectProbe { .. }
+            | ExecutionObservation::RootedCompletionGraph { .. }
+            | ExecutionObservation::ObservationRejected { .. },
         ) => DifferentialVerdict::ObservationContractViolated,
     }
 }
@@ -1495,6 +2167,12 @@ fn v2_execution_signature(execution: &ExecutionObservation) -> String {
         ExecutionObservation::EngineFailure { phase, .. } => {
             format!("engine-error-{}", phase.as_str())
         }
+        ExecutionObservation::WorkerFailure { .. } => "invalid-worker-failure".to_string(),
+        ExecutionObservation::SelectedObjectProbe { .. } => "invalid-selected-object-probe".into(),
+        ExecutionObservation::ObservationRejected { .. } => "invalid-observation-rejected".into(),
+        ExecutionObservation::RootedCompletionGraph { .. } => {
+            "invalid-rooted-completion-graph".into()
+        }
         ExecutionObservation::Normal { .. } => "invalid-v1-normal".to_string(),
         ExecutionObservation::Error { phase, .. } => {
             format!("invalid-v1-error-{}", phase.as_str())
@@ -1504,7 +2182,7 @@ fn v2_execution_signature(execution: &ExecutionObservation) -> String {
 
 #[cfg(any(test, feature = "spec-exec-oracle"))]
 fn v3_mismatch_signature(
-    case: &DifferentialCase,
+    case: &DifferentialReplayInput,
     case_fingerprint: &CaseFingerprint,
     wasm: &BackendObservation,
     spec_exec: &BackendObservation,
@@ -1528,6 +2206,36 @@ fn v3_mismatch_signature(
     }
     MismatchSignature(format!(
         "lila-diff-v3:primitive-completion-print-transcript:fnv1a64-{hash:016x}"
+    ))
+}
+
+#[cfg(any(test, feature = "spec-exec-oracle"))]
+fn v4_mismatch_signature(
+    case: &DifferentialReplayInput,
+    case_fingerprint: &CaseFingerprint,
+    wasm: &BackendObservation,
+    spec_exec: &BackendObservation,
+) -> MismatchSignature {
+    let wasm_signature = v3_backend_observation_signature(wasm);
+    let spec_exec_signature = v3_backend_observation_signature(spec_exec);
+    let mut hash = fnv_update(
+        FNV_OFFSET_BASIS,
+        b"lila-diff-v4-embedded-graph-primitive-completion-print-transcript",
+    );
+    for field in [
+        case.id.as_str(),
+        case_fingerprint.as_str(),
+        case.goal().as_str(),
+        wasm_signature.as_str(),
+        spec_exec_signature.as_str(),
+    ] {
+        hash = fnv_field(hash, field.as_bytes());
+    }
+    // Retain the complete graph digest in the identity, independently of the
+    // legacy non-cryptographic observation hash.
+    MismatchSignature(format!(
+        "lila-diff-v4:primitive-completion-print-transcript:fnv1a64-{hash:016x}:case={}",
+        case_fingerprint.as_str()
     ))
 }
 
@@ -1557,6 +2265,18 @@ fn v3_backend_observation_signature(observation: &BackendObservation) -> String 
             hash = fnv_field(hash, b"engine_failure");
             hash = fnv_field(hash, phase.as_str().as_bytes());
         }
+        ExecutionObservation::WorkerFailure { .. } => {
+            hash = fnv_field(hash, b"invalid_worker_failure");
+        }
+        ExecutionObservation::SelectedObjectProbe { .. } => {
+            hash = fnv_field(hash, b"invalid_selected_object_probe");
+        }
+        ExecutionObservation::ObservationRejected { .. } => {
+            hash = fnv_field(hash, b"invalid_observation_rejected");
+        }
+        ExecutionObservation::RootedCompletionGraph { .. } => {
+            hash = fnv_field(hash, b"invalid_rooted_completion_graph");
+        }
         ExecutionObservation::Normal { .. } => {
             hash = fnv_field(hash, b"invalid_v1_normal");
         }
@@ -1574,6 +2294,9 @@ fn v3_backend_observation_signature(observation: &BackendObservation) -> String 
                 hash = fnv_field(hash, event.as_bytes());
             }
         }
+        OutputEventsObservation::Incomplete { .. } => {
+            hash = fnv_field(hash, b"invalid_incomplete_output");
+        }
         OutputEventsObservation::Unavailable { reason } => {
             hash = fnv_field(hash, b"unavailable");
             hash = fnv_field(hash, reason.as_str().as_bytes());
@@ -1581,6 +2304,54 @@ fn v3_backend_observation_signature(observation: &BackendObservation) -> String 
     }
 
     format!("fnv1a64-{hash:016x}")
+}
+
+#[cfg(any(test, feature = "spec-exec-oracle"))]
+fn v5_mismatch_signature(
+    case: &DifferentialReplayInput,
+    fingerprint: &CaseFingerprint,
+    wasm: &BackendObservation,
+    spec: &BackendObservation,
+) -> MismatchSignature {
+    let mut hash = fnv_update(
+        FNV_OFFSET_BASIS,
+        b"lila-diff-v5-selected-object-probe-print-transcript",
+    );
+    for field in [case.id.as_str(), fingerprint.as_str(), case.goal().as_str()] {
+        hash = fnv_field(hash, field.as_bytes());
+    }
+    for observation in [wasm, spec] {
+        hash = fnv_field(hash, observation.backend.as_str().as_bytes());
+        match &observation.execution {
+            ExecutionObservation::SelectedObjectProbe { graph, .. } => {
+                hash = fnv_field(hash, b"selected_object_probe");
+                hash = fnv_field(hash, graph.signature().as_bytes());
+            }
+            ExecutionObservation::EngineFailure { phase, .. } => {
+                hash = fnv_field(hash, b"engine_failure");
+                hash = fnv_field(hash, phase.as_str().as_bytes());
+            }
+            ExecutionObservation::Normal { .. }
+            | ExecutionObservation::Error { .. }
+            | ExecutionObservation::PrimitiveCompletion { .. }
+            | ExecutionObservation::UnsupportedCompletion { .. }
+            | ExecutionObservation::RootedCompletionGraph { .. }
+            | ExecutionObservation::ObservationRejected { .. }
+            | ExecutionObservation::WorkerFailure { .. } => unreachable!(
+                "schema5 mismatch requires complete selected observations or engine failures"
+            ),
+        }
+        let OutputEventsObservation::Captured { events } = &observation.output_events else {
+            unreachable!("schema5 mismatch requires captured output")
+        };
+        hash = fnv_field(hash, &(events.len() as u64).to_le_bytes());
+        for event in events {
+            hash = fnv_field(hash, event.as_bytes());
+        }
+    }
+    MismatchSignature(format!(
+        "lila-diff-v5:selected-object-probe-print-transcript:fnv1a64-{hash:016x}"
+    ))
 }
 
 #[cfg(any(test, feature = "spec-exec-oracle"))]
@@ -1608,10 +2379,8 @@ fn primitive_value_signature(value: &PrimitiveValueObservation) -> String {
     }
 }
 
-#[cfg(any(test, feature = "spec-exec-oracle"))]
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 
-#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn fnv_update(mut hash: u64, bytes: &[u8]) -> u64 {
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
     for byte in bytes {
@@ -1621,18 +2390,26 @@ fn fnv_update(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
-#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn fnv_field(hash: u64, value: &[u8]) -> u64 {
     let hash = fnv_update(hash, &(value.len() as u64).to_le_bytes());
     fnv_update(hash, value)
 }
 
-#[cfg(any(test, feature = "spec-exec-oracle"))]
-fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
+fn input_fingerprint(case: &DifferentialReplayInput) -> CaseFingerprint {
     let domain: &[u8] = match case.protocol {
         DifferentialProtocol::V1SelfCheckingNoOutput => b"lila-differential-case-v1",
         DifferentialProtocol::V2PrimitiveCompletionNoOutput => b"lila-differential-case-v2",
         DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => b"lila-differential-case-v3",
+        DifferentialProtocol::V4EmbeddedGraphPrimitivePrintTranscript => {
+            b"lila-differential-case-v4"
+        }
+        DifferentialProtocol::V5SelectedObjectProbePrintTranscript => b"lila-differential-case-v5",
+        DifferentialProtocol::V6Test262HostPrimitivePrintTranscript => {
+            b"lila-differential-case-v6-test262-host"
+        }
+        DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript => {
+            b"lila-differential-case-v7-test262-host-rooted-snapshot"
+        }
     };
     let mut hash = fnv_update(FNV_OFFSET_BASIS, domain);
     hash = fnv_field(hash, case.goal().as_str().as_bytes());
@@ -1640,7 +2417,43 @@ fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
     hash = fnv_field(hash, case.filename.as_bytes());
     hash = fnv_field(hash, &case.timeout_ms.get().to_le_bytes());
     hash = fnv_field(hash, case.source().as_bytes());
+    if case.protocol == DifferentialProtocol::V5SelectedObjectProbePrintTranscript {
+        hash = fnv_field(hash, object_probe::capture_source_bytes());
+    }
+    if let Some(limits) = case.snapshot_limits() {
+        hash = fnv_field(hash, b"test262");
+        hash = fnv_field(
+            hash,
+            &serde_json::to_vec(&limits).expect("checked snapshot limits serialize"),
+        );
+    }
+    if let Some(graph) = case.module_graph() {
+        hash = fnv_field(hash, graph.fingerprint());
+        let graph_sha256: String = graph
+            .fingerprint()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        return CaseFingerprint(format!("fnv1a64:{hash:016x}:graph-sha256:{graph_sha256}"));
+    }
     CaseFingerprint(format!("fnv1a64:{hash:016x}"))
+}
+
+#[cfg(test)]
+fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
+    input_fingerprint(&DifferentialReplayInput::from(case))
+}
+#[cfg(test)]
+fn compare_executions(
+    case: &DifferentialCase,
+    wasm: BackendExecution,
+    spec: BackendExecution,
+) -> DifferentialReport {
+    compare_observations(
+        &DifferentialReplayInput::from(case),
+        project_backend_execution(case.protocol(), wasm),
+        project_backend_execution(case.protocol(), spec),
+    )
 }
 
 #[cfg(test)]
@@ -1708,72 +2521,6 @@ mod tests {
             ),
             ("agent", format!("$262.agent.start({agent_import});")),
         ]
-    }
-
-    #[cfg(feature = "spec-exec-oracle")]
-    fn module_loader_context_sources(specifier: &str) -> Vec<(&'static str, String)> {
-        let mut runtime_sources = runtime_created_import_sources(specifier);
-        let encoded_specifier =
-            serde_json::to_string(specifier).expect("module specifier should encode as JSON");
-        let mut sources = vec![(
-            "root",
-            format!(
-                "import({encoded_specifier}).then(() => print('ambient-loaded'), () => print('module-rejected'));"
-            ),
-        )];
-        sources.append(&mut runtime_sources);
-        sources
-    }
-
-    #[cfg(feature = "spec-exec-oracle")]
-    fn observe_spec_exec_script_with_module_policy(
-        source: &str,
-        filename: &str,
-        module_loading_policy: ModuleLoadingPolicy,
-    ) -> BackendExecution {
-        let engine = Engine::new(RealmBuilder::new().build());
-        let outcome = engine.observe_script(
-            source,
-            CompileOptions {
-                filename: Some(filename.to_string()),
-                module_loading_policy,
-                ..CompileOptions::default()
-            },
-            RunOptions {
-                backend: ExecutionBackend::SpecExec,
-                test_path: Some(filename.to_string()),
-                can_block: false,
-                ..RunOptions::default()
-            },
-        );
-        let (result, output_events) = match outcome {
-            Ok(outcome) if outcome.backend_used == ExecutionBackend::SpecExec => (
-                BackendExecutionResult::Completion {
-                    completion: outcome.completion,
-                    backend_note: outcome.note,
-                },
-                captured_output_events(outcome.output_events),
-            ),
-            Ok(outcome) => (
-                BackendExecutionResult::EngineFailure {
-                    phase: FailurePhase::RunnerInvariant,
-                    message: format!(
-                        "requested backend spec-exec reported backend {}",
-                        outcome.backend_used.as_str()
-                    ),
-                },
-                captured_output_events(outcome.output_events),
-            ),
-            Err(error) => (
-                observe_engine_error(DifferentialBackend::SpecExec, &error),
-                OutputEventsObservation::Captured { events: Vec::new() },
-            ),
-        };
-        BackendExecution {
-            backend: DifferentialBackend::SpecExec,
-            output_events,
-            result,
-        }
     }
 
     fn execution(backend: DifferentialBackend, result: BackendExecutionResult) -> BackendExecution {
@@ -2690,179 +3437,13 @@ mod tests {
     #[cfg(not(feature = "spec-exec-oracle"))]
     #[test]
     fn replay_requires_the_compile_time_oracle_gate() {
-        let error = replay_case(&case_v1(), SpecExecOracle::explicitly_enabled())
-            .expect_err("default build must not link spec-exec");
-        assert!(matches!(error, DifferentialError::OracleNotLinked));
-    }
-
-    #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn filesystem_control_and_reject_all_cover_every_spec_exec_host_context() {
-        let directory = std::env::current_dir()
-            .expect("workspace directory should exist")
-            .join("target")
-            .join(format!(
-                "lila-differential-module-policy-{}",
-                std::process::id()
-            ));
-        let ambient_path = directory.join("ambient.mjs");
-        let entry_path = directory.join("entry.js");
-        let _ = std::fs::remove_dir_all(&directory);
-        std::fs::create_dir_all(&directory).expect("ambient witness directory should exist");
-        std::fs::write(
-            &ambient_path,
-            "print('ambient-module-body'); export const value = 1;\n",
+        let runner = DifferentialWorkerRunner::new("unused-oracle-off-worker").unwrap();
+        let error = replay_case(
+            &DifferentialReplayInput::from(&case_v1()),
+            SpecExecOracle::explicitly_enabled(),
+            &runner,
         )
-        .expect("ambient witness module should exist");
-        let ambient_path = ambient_path.to_string_lossy().into_owned();
-        let entry_path = entry_path.to_string_lossy().into_owned();
-        let contexts = module_loader_context_sources(&ambient_path);
-        assert_eq!(
-            CompileOptions::default().module_loading_policy,
-            ModuleLoadingPolicy::Filesystem,
-            "ordinary engine callers must retain filesystem loading by default"
-        );
-
-        for (kind, source) in &contexts {
-            let execution = observe_spec_exec_script_with_module_policy(
-                source,
-                &entry_path,
-                ModuleLoadingPolicy::Filesystem,
-            );
-            assert!(
-                matches!(&execution.result, BackendExecutionResult::Completion { .. }),
-                "Filesystem {kind} control should complete: {execution:?}"
-            );
-            assert_eq!(
-                &execution.output_events,
-                &OutputEventsObservation::Captured {
-                    events: vec![
-                        "ambient-module-body".to_string(),
-                        "ambient-loaded".to_string(),
-                    ]
-                },
-                "Filesystem {kind} control did not execute the exact on-disk module: {execution:?}"
-            );
-        }
-
-        let (root, runtime_contexts) = contexts
-            .split_first()
-            .expect("the root module-loader context should exist");
-        let (root_kind, root_source) = root;
-        let root_rejection = observe_spec_exec_script_with_module_policy(
-            root_source,
-            &entry_path,
-            ModuleLoadingPolicy::RejectAll,
-        );
-        assert!(
-            matches!(
-                &root_rejection.result,
-                BackendExecutionResult::Completion { .. }
-            ),
-            "RejectAll {root_kind} import should settle through rejection: {root_rejection:?}"
-        );
-        assert_eq!(
-            &root_rejection.output_events,
-            &OutputEventsObservation::Captured {
-                events: vec!["module-rejected".to_string()]
-            },
-            "RejectAll {root_kind} import consulted the ambient module: {root_rejection:?}"
-        );
-
-        for protocol in [
-            DifferentialProtocol::V1SelfCheckingNoOutput,
-            DifferentialProtocol::V2PrimitiveCompletionNoOutput,
-            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript,
-        ] {
-            for (kind, source) in runtime_contexts {
-                let case = DifferentialCase::new(
-                    "t25/source-closure/runtime-created-import",
-                    DifferentialGoal::Script,
-                    protocol,
-                    entry_path.clone(),
-                    5_000,
-                    source.clone(),
-                )
-                .unwrap_or_else(|error| panic!("{kind} case should be admitted: {error}"));
-                let execution = execute_case(&case, DifferentialBackend::SpecExec);
-                assert!(
-                    matches!(&execution.result, BackendExecutionResult::Completion { .. }),
-                    "{protocol:?} {kind} should handle the rejected import promise: {execution:?}"
-                );
-                assert_eq!(
-                    &execution.output_events,
-                    &OutputEventsObservation::Captured {
-                        events: vec!["module-rejected".to_string()]
-                    },
-                    "{protocol:?} {kind} consulted the ambient module instead of rejecting it: {execution:?}"
-                );
-            }
-        }
-
-        std::fs::remove_dir_all(&directory).expect("ambient witness directory should be removed");
-    }
-
-    #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn committed_v1_foundation_case_replays_through_both_backends() {
-        let report = replay_case(&case_v1(), SpecExecOracle::explicitly_enabled())
-            .expect("both explicitly enabled backends should run");
-
-        assert_eq!(report.verdict(), DifferentialVerdict::BothCompleted);
-        assert!(report.is_green());
-    }
-
-    #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn committed_v2_primitive_case_replays_through_both_backends() {
-        let report = replay_case(&case_v2(), SpecExecOracle::explicitly_enabled())
-            .expect("both explicitly enabled backends should run");
-
-        assert_eq!(
-            report.verdict(),
-            DifferentialVerdict::PrimitiveCompletionsMatch
-        );
-        assert!(report.is_green());
-        for observation in [report.wasm_aot(), report.spec_exec()] {
-            assert!(matches!(
-                &observation.execution,
-                ExecutionObservation::PrimitiveCompletion {
-                    completion: PrimitiveCompletionObservation::Normal {
-                        value: PrimitiveValueObservation::Number { bits }
-                    },
-                    ..
-                } if bits == "4008000000000000"
-            ));
-        }
-    }
-
-    #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn committed_v3_primitive_and_print_case_replays_through_both_backends() {
-        let report = replay_case(&case_v3(), SpecExecOracle::explicitly_enabled())
-            .expect("both explicitly enabled backends should run");
-
-        assert_eq!(
-            report.verdict(),
-            DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
-        );
-        assert!(report.is_green());
-        for observation in [report.wasm_aot(), report.spec_exec()] {
-            assert!(matches!(
-                &observation.execution,
-                ExecutionObservation::PrimitiveCompletion {
-                    completion: PrimitiveCompletionObservation::Normal {
-                        value: PrimitiveValueObservation::Number { bits }
-                    },
-                    ..
-                } if bits == "4008000000000000"
-            ));
-            assert_eq!(
-                &observation.output_events,
-                &OutputEventsObservation::Captured {
-                    events: vec!["first".to_string(), "second".to_string()]
-                }
-            );
-        }
+        .expect_err("default build must not link spec-exec");
+        assert!(matches!(error, DifferentialError::OracleNotLinked));
     }
 }

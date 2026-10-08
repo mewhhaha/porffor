@@ -46,7 +46,7 @@ still needs its separately designed Rust snapshot-schema migration.
 ## Regression validation
 
 ```sh
-cargo test --locked -p lila-test262 --test snapshot_comparison_identity
+cargo test --locked -p lila-test262 --lib snapshot_comparison_identity_tests::
 cargo test --locked -p lila-test262 \
   --test snapshot_use_structure \
   --test aggregate_evidence_requirement_structure \
@@ -56,7 +56,7 @@ cargo fmt --all -- --check
 ./scripts/check-module-boundaries.sh
 ```
 
-The eight-test integration target covers missing base/candidate/both names,
+The ten retained library controls cover missing base/candidate/both names,
 explicit self-comparison, actual pass/regression detection, preserved discovery
 fallback, and incomplete/corrupt named candidates. Fixtures are isolated temporary
 matrices of parse-negative JavaScript; they use the Wasm-AOT front end without
@@ -64,9 +64,14 @@ turning on the spec-exec oracle. Passing and failing totals are asserted before
 testing the comparison result. These are harness contracts, not real Test262
 conformance counts.
 
-The read-only `Snapshot comparison contracts` workflow uses the retained
-complete-inventory executor to require every compiled test to execute exactly
-once without failures, ignores or timeouts. It records the source identity,
+The controls now live in a private library test child. Their finite fixture
+execution role is available only under `cfg(test)`; normal conformance requests
+must select the supervised compiler executable. This preserves their actual
+front-end and snapshot assertions without weakening executable provenance.
+
+The read-only `Snapshot comparison contracts` workflow discovers the entire
+comparison family from the compiled library inventory and requires all ten
+controls to execute exactly once without failures, ignores or timeouts. It records the source identity,
 input hashes, inventory and per-test results.
 
 Next: complete the fixed-compiler current-pin Wasm-AOT matrix, publish verified

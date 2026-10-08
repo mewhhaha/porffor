@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use lila_front::{parse, ParseOptions};
-use lila_ir::{lower, ForOfIteratorHeadIr, FunctionIr, LexicalEnvironmentIr, StatementIr};
+use lila_ir::{lower, AsyncGeneratorForOfIr, FunctionIr, LexicalEnvironmentIr, StatementIr};
 
 fn lower_stream(source: &str) -> FunctionIr {
     let unit = parse(source, ParseOptions::script()).expect("regression source must parse");
@@ -16,30 +16,29 @@ fn lower_stream(source: &str) -> FunctionIr {
         .expect("stream must be lowered")
 }
 
+fn loop_plan(items: &[StatementIr]) -> Option<&AsyncGeneratorForOfIr> {
+    items.iter().find_map(|statement| match statement {
+        StatementIr::AsyncGeneratorForOf(plan) => Some(plan.as_ref()),
+        StatementIr::Block(block) => loop_plan(&block.statements),
+        StatementIr::LexicalBlock(items) => loop_plan(items),
+        _ => None,
+    })
+}
+
 fn loop_binding(function: &FunctionIr) -> (&str, Option<&LexicalEnvironmentIr>) {
-    function
-        .body
-        .statements
-        .iter()
-        .find_map(|statement| match statement {
-            StatementIr::ForOfIterator {
-                head:
-                    ForOfIteratorHeadIr::Assignment {
-                        binding,
-                        async_plan: Some(_),
-                        ..
-                    },
-                lexical_environment,
-                ..
-            } => Some((
-                binding.name.as_str(),
-                lexical_environment
-                    .as_ref()
-                    .and_then(|environment| environment.iteration_environment.as_ref()),
-            )),
-            _ => None,
-        })
-        .expect("a planned for-await loop must exist")
+    let plan = loop_plan(&function.body.statements).expect("a planned for-await loop must exist");
+    let name = match plan.initialization().block().statements.as_slice() {
+        [StatementIr::Lexical { name, .. }] => name.as_str(),
+        [StatementIr::Var(declarations)] if declarations.len() == 1 => {
+            declarations[0].name.as_str()
+        }
+        _ => panic!("the original head declaration remains explicit"),
+    };
+    (
+        name,
+        plan.lexical_environment()
+            .and_then(|environment| environment.iteration_environment.as_ref()),
+    )
 }
 
 #[test]
@@ -49,15 +48,41 @@ fn uncaptured_for_await_heads_have_unique_activation_slots() {
             "async function* stream(source) {{ for await ({mode} value of source) {{ yield value * 2; yield value + 1; }} }}"
         ));
         let (name, iteration_environment) = loop_binding(&function);
-        assert!(iteration_environment.is_none());
-        assert_eq!(
-            function
+        let plan = loop_plan(&function.body.statements).unwrap();
+        if mode == "var" {
+            assert!(iteration_environment.is_none());
+            assert_eq!(
+                function
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == name)
+                    .count(),
+                1
+            );
+        } else {
+            let environment = iteration_environment
+                .expect("the complete lexical head retains its original iteration record");
+            assert_eq!(
+                environment
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.name == name)
+                    .count(),
+                1
+            );
+            assert!(!function
                 .owned_env_bindings
                 .iter()
-                .filter(|binding| binding.name == name)
-                .count(),
-            1
-        );
+                .any(|binding| binding.name == name));
+        }
+        for binding in [
+            plan.head_binding(),
+            plan.incoming_binding(),
+            plan.value_binding(),
+        ] {
+            assert!(function.owned_env_bindings.contains(binding));
+            assert_ne!(binding.name, name);
+        }
         let slots = function
             .owned_env_bindings
             .iter()
@@ -72,9 +97,10 @@ fn a_shadowing_head_does_not_share_the_outer_activation_slot() {
     let function = lower_stream(
         "async function* stream(source) { let value = 99; for await (const value of source) { yield value; yield value + 1; } yield value; }",
     );
-    let (name, _) = loop_binding(&function);
-    let head = function
-        .owned_env_bindings
+    let (name, environment) = loop_binding(&function);
+    let head = environment
+        .expect("the lexical head has its original iteration record")
+        .bindings
         .iter()
         .find(|binding| binding.name == name)
         .expect("head must survive suspension");
@@ -89,7 +115,20 @@ fn a_shadowing_head_does_not_share_the_outer_activation_slot() {
         .iter()
         .find(|binding| &binding.name == outer_name)
         .expect("outer must survive suspension");
-    assert_ne!(head.slot, outer.slot);
+    assert_ne!(head.name, outer.name);
+    assert!(!function
+        .owned_env_bindings
+        .iter()
+        .any(|binding| binding.name == head.name));
+    let plan = loop_plan(&function.body.statements).unwrap();
+    for binding in [
+        plan.head_binding(),
+        plan.incoming_binding(),
+        plan.value_binding(),
+    ] {
+        assert!(function.owned_env_bindings.contains(binding));
+        assert_ne!(binding.slot, outer.slot);
+    }
 }
 
 #[test]

@@ -201,7 +201,7 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
     let lifecycle = bounded(
         CONTROL_FLOW_SOURCE,
         "    pub(crate) fn compile_for_of_iterator(",
-        "    pub(crate) fn compile_object_destructure_to_locals(",
+        "    pub(crate) fn emit_copy_data_properties_into(",
     );
     for boundary in [
         "let lifecycle = match head",

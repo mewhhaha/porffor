@@ -9,3 +9,5 @@
 node_modules/
 pnpm-lock.yaml
 target/
+# Local source-recovery snapshots and verification logs are not product inputs.
+/.lila-task-work/

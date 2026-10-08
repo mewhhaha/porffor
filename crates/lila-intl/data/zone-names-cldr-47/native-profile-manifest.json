@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "marker": "lila/time-zone/names/cldr47/v1",
+  "payload_bytes": 160640,
+  "payload_sha256": "52508dfd4f0bca47b39443589c97e959361f1f57d7324876f0b681b0509012f4",
+  "source_manifest_sha256": "51a23e38b7a70a0fd831c4c9779d72d9fc75bf85f4ac86ad23d4f82da7abafbd",
+  "generator_sha256": "d416f1bef337fcba68470a4025083b2dc1a565ad7256483c12cf5e5212790fbc",
+  "normalized_rows_sha256": "1bfd5a0bd3b367f42f68aa616e8946bd73536351130d24162dad840e89134cec",
+  "source_bytes": 1235981,
+  "zones": 446,
+  "aliases": 600,
+  "metazones": 190,
+  "periods": 669,
+  "supported_locales": [
+    "en",
+    "en-US"
+  ],
+  "historical_rust_output": "retained unchanged; not a runtime consumer"
+}

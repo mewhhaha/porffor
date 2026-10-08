@@ -62,39 +62,43 @@ fn provider_exports_one_closed_unicode_string_property_domain() {
     }
     assert!(!REGRESS_ROOT_SOURCE.contains("pub mod unicodetables;"));
 
-    let provider = bounded(
+    let declaration = bounded(
         REGRESS_UNICODE_TABLES_SOURCE,
-        "pub enum UnicodeStringProperty {",
-        "\npub fn unicode_string_property_from_str",
+        "macro_rules! unicode_string_property_rows {",
+        "\nunicode_string_property_rows! {",
     );
-    for (_, variant, sequence_table) in STRING_PROPERTIES {
-        assert_eq!(
-            provider.matches(&format!("    {variant},\n")).count(),
-            1,
-            "provider must declare {variant} exactly once"
-        );
-        assert_eq!(
-            provider
-                .matches(&format!("        {variant} => {sequence_table}(),"))
-                .count(),
-            1,
-            "provider must project {variant} exactly once"
-        );
-    }
-    assert_eq!(provider.matches("=>").count(), 7);
-    assert!(!provider.contains("_ =>"));
-
-    let parser = bounded(
+    assert!(declaration.contains("pub enum UnicodeStringProperty { $($variant),+ }"));
+    assert!(declaration.contains("pub const ALL: &'static [Self] = &[$(Self::$variant),+];"));
+    assert!(declaration
+        .contains("match s { $($name => Some(UnicodeStringProperty::$variant),)+ _ => None }"));
+    let rows = bounded(
         REGRESS_UNICODE_TABLES_SOURCE,
-        "pub fn unicode_string_property_from_str",
+        "unicode_string_property_rows! {",
         "\n}",
     );
-    for (property_name, variant, _) in STRING_PROPERTIES {
-        let arm = format!("        \"{property_name}\" => Some({variant}),");
-        assert_eq!(parser.matches(&arm).count(), 1, "missing strict arm: {arm}");
+    let sequences = bounded(
+        REGRESS_UNICODE_TABLES_SOURCE,
+        "pub fn unicode_string_property_sequences(",
+        "\n}",
+    );
+    for (property_name, variant, sequence_table) in STRING_PROPERTIES {
+        assert_eq!(
+            rows.matches(&format!("{variant} => \"{property_name}\""))
+                .count(),
+            1,
+            "the provider row owns {property_name} exactly once"
+        );
+        assert_eq!(
+            sequences
+                .matches(&format!("{variant} => {sequence_table}(),"))
+                .count(),
+            1,
+            "the provider projects {variant} exactly once"
+        );
     }
-    assert_eq!(parser.matches("=>").count(), 8);
-    assert_eq!(parser.matches("_ => None").count(), 1);
+    assert_eq!(rows.matches("=>").count(), 7);
+    assert_eq!(sequences.matches("=>").count(), 7);
+    assert!(!sequences.contains("_ =>"));
 }
 
 #[test]
@@ -105,32 +109,20 @@ fn lila_projects_all_seven_properties_without_raw_name_matching() {
         "\n/// Validates one `ClassStringDisjunction`",
     );
     assert!(projection.contains("unicode_string_property_from_str(value)"));
-    for (property_name, variant, _) in STRING_PROPERTIES {
-        assert_eq!(
-            projection
-                .matches(&format!("UnicodeStringProperty::{variant} =>"))
-                .count(),
-            1,
-            "Lila must own {variant} exactly once"
-        );
+    for (property_name, _, _) in STRING_PROPERTIES {
         assert!(
             !projection.contains(property_name),
             "Lila must not duplicate the provider's raw match: {property_name}"
         );
     }
-    assert_eq!(projection.matches("UnicodeStringProperty::").count(), 7);
-    assert_eq!(projection.matches("=>").count(), 7);
-    assert!(!projection.contains("_ =>"));
-    assert_eq!(
-        projection
-            .matches("unsupported_property_of_strings")
-            .count(),
-        6
-    );
+    assert!(projection.contains("regexp_unicode_property_catalog()"));
+    assert!(projection.contains("RegExpUnicodePropertyCatalogValue::Strings(sequences)"));
+    assert!(projection.contains("sequences.iter().cloned().collect()"));
+    assert!(projection.contains("ClassSetValue::finite_property_of_strings(strings, folding)"));
 }
 
 #[test]
-fn only_keycap_consumes_the_provider_sequence_table() {
+fn all_properties_consume_the_provider_sequence_table() {
     let keycap_rows = bounded(
         REGRESS_UNICODE_TABLES_SOURCE,
         "static EMOJI_KEYCAP_SEQUENCE: &[&[u32]; 12] = &[\n",
@@ -154,19 +146,29 @@ fn only_keycap_consumes_the_provider_sequence_table() {
         "fn parse_unicode_property_of_strings(",
         "\n/// Validates one `ClassStringDisjunction`",
     );
+    let catalog = bounded(
+        IR_SOURCE,
+        "pub fn regexp_unicode_property_catalog()",
+        "\n/// Resolves the validated property",
+    );
+    assert!(catalog.contains("for &property in UnicodeStringProperty::ALL"));
+    assert!(catalog.contains(
+        "UnicodePropertyCatalogValue::Strings(validated_unicode_string_property_sequences("
+    ));
+    let constructor = bounded(
+        IR_SOURCE,
+        "fn validated_unicode_string_property_sequences(",
+        "\n/// Resolves the validated property",
+    );
     assert_eq!(
-        projection
+        constructor
             .matches("unicode_string_property_sequences(property)")
             .count(),
         1
     );
-    let keycap_arm = bounded(
-        projection,
-        "UnicodeStringProperty::EmojiKeycapSequence => {",
-        "\n        UnicodeStringProperty::BasicEmoji =>",
-    );
-    assert!(keycap_arm.contains("unicode_string_property_sequences(property)"));
-    assert!(keycap_arm.contains(".map(|sequence| sequence.to_vec())"));
-    assert!(keycap_arm.contains("finite_case_invariant_property_of_strings(strings)"));
+    assert!(catalog.contains("sequence.to_vec()"));
+    assert!(projection.contains("regexp_unicode_property_catalog()"));
+    assert!(projection.contains("RegExpUnicodePropertyCatalogValue::Strings(sequences)"));
+    assert!(projection.contains("ClassSetValue::finite_property_of_strings(strings, folding)"));
     assert!(!IR_SOURCE.contains("b\"#*0123456789\""));
 }

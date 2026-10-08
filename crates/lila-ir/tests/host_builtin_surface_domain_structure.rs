@@ -1,3 +1,6 @@
+use lila_ir::{HostBuiltinExposure, HostBuiltinId, HostBuiltinSurface, HostSurfacePolicy};
+use std::collections::BTreeSet;
+
 const BUILTINS_SOURCE: &str = include_str!("../src/builtins.rs");
 const CATALOG_SOURCE: &str = include_str!("../src/builtins/host_catalog.rs");
 const POLICY_SOURCE: &str = include_str!("../src/builtins/host_surface.rs");
@@ -53,37 +56,47 @@ fn host_builtin_exposure_exhaustively_owns_realm_scope() {
 
 #[test]
 fn host_builtin_catalog_has_one_exposure_choice_per_global_row() {
-    assert_eq!(
-        CATALOG_SOURCE
-            .matches("HostBuiltinSurface::global(HostBuiltinExposure::")
-            .count(),
-        18
-    );
-    assert_eq!(
-        CATALOG_SOURCE
-            .matches("HostBuiltinSurface::InternalCallable")
-            .count(),
-        5
-    );
-    assert_eq!(
-        CATALOG_SOURCE
-            .matches("HostBuiltinExposure::EcmaGlobal")
-            .count(),
-        2
-    );
-    assert_eq!(
-        CATALOG_SOURCE
-            .matches("HostBuiltinExposure::ProductExtension")
-            .count(),
-        2
-    );
-    assert_eq!(
-        CATALOG_SOURCE
-            .matches("HostBuiltinExposure::Test262Capability")
-            .count(),
-        14
-    );
+    // The actual catalog macro requires a surface for every row. New
+    // capabilities extend that registry, rather than weakening its policy.
+    assert!(BUILTINS_SOURCE.contains("surface: $surface:expr,"));
+    assert!(CATALOG_SOURCE.contains("host_builtin_catalog! {"));
     assert!(!CATALOG_SOURCE.contains("HostBuiltinRealmScope::"));
+    let mut function_ids = BTreeSet::new();
+    let mut global_names = BTreeSet::new();
+    for builtin in HostBuiltinId::ALL.iter().copied() {
+        assert!(function_ids.insert(builtin.function_id()), "{builtin:?}");
+        match builtin.surface() {
+            HostBuiltinSurface::Global(exposure) => {
+                assert_eq!(builtin.global_name(), Some(builtin.as_str()));
+                assert!(global_names.insert(builtin.as_str()), "{builtin:?}");
+                assert_eq!(
+                    HostBuiltinId::from_global_name(builtin.as_str()),
+                    Some(builtin)
+                );
+                let (product, every_realm) = match exposure {
+                    HostBuiltinExposure::EcmaGlobal => (true, true),
+                    HostBuiltinExposure::ProductExtension => (true, false),
+                    HostBuiltinExposure::Test262Capability => (false, false),
+                };
+                assert_eq!(HostSurfacePolicy::Product.allows(builtin), product);
+                assert!(HostSurfacePolicy::Test262.allows(builtin));
+                assert_eq!(
+                    HostBuiltinId::every_realm_globals().any(|entry| entry == builtin),
+                    every_realm,
+                );
+            }
+            HostBuiltinSurface::InternalCallable => {
+                assert!(builtin.global_name().is_none());
+                assert!(HostBuiltinId::from_global_name(builtin.as_str()).is_none());
+                assert!(!HostSurfacePolicy::Product.allows(builtin));
+                assert!(!HostSurfacePolicy::Test262.allows(builtin));
+            }
+        }
+    }
+    assert_eq!(
+        HostBuiltinId::GetAbstractModuleSource.surface(),
+        HostBuiltinSurface::Global(HostBuiltinExposure::Test262Capability),
+    );
 }
 
 #[test]

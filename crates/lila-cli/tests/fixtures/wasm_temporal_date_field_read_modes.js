@@ -54,7 +54,7 @@ expectRangeError(function () {
     observedOptions(dateWith),
   );
 }, "PlainDate with");
-checkCounts(dateWith, 0, 0, "PlainDate with");
+checkCounts(dateWith, 1, 0, "PlainDate with");
 
 var dateSuitability = { calendar: 0, overflow: 0 };
 expectRangeError(function () {
@@ -77,7 +77,7 @@ expectRangeError(function () {
     observedOptions(dateWithSuitability),
   );
 }, "PlainDate with suitability");
-checkCounts(dateWithSuitability, 0, 1, "PlainDate with suitability");
+checkCounts(dateWithSuitability, 1, 1, "PlainDate with suitability");
 
 var monthDayConversion = { calendar: 0, overflow: 0 };
 expectRangeError(function () {

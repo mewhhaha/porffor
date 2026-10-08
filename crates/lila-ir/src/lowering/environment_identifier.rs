@@ -1,22 +1,85 @@
 use super::*;
 
 impl ScriptLowerer<'_> {
+    /// Var bookkeeping must keep its activation/captured declarative position.
+    /// Creating a block binding here would incorrectly cut off the enclosing
+    /// with chain for the next occurrence of the same target name.
+    pub(super) fn record_destructuring_binding(
+        &mut self,
+        source_name: String,
+        info: BindingInfo,
+        target: &DestructuringTargetIr,
+    ) {
+        match info.mode {
+            BindingMode::Var => {
+                let value_info = match target {
+                    // The selected Object Environment may receive the value
+                    // while the fallback variable keeps its previous value.
+                    // Getter/default/eval effects can also change that fallback;
+                    // no precise rest Array/Object fact survives this Reference.
+                    DestructuringTargetIr::ResolvedVarBinding { .. }
+                    | DestructuringTargetIr::AssignmentIdentifier(_) => {
+                        unknown_runtime_value_info()
+                    }
+                    DestructuringTargetIr::Binding { .. }
+                    | DestructuringTargetIr::AssignmentProperty { .. }
+                    | DestructuringTargetIr::AssignmentPrivate { .. }
+                    | DestructuringTargetIr::AssignmentSuper { .. }
+                    | DestructuringTargetIr::NestedArray(_)
+                    | DestructuringTargetIr::NestedObject(_) => ValueInfo {
+                        kind: info.kind,
+                        possible_kinds: info.possible_kinds,
+                        heap_shape: info.heap_shape,
+                        function_targets: info.function_targets,
+                    },
+                };
+                self.set_binding_value_info(&source_name, value_info);
+            }
+            BindingMode::Let | BindingMode::Const => self.declare_binding(source_name, info),
+        }
+    }
+
     pub(super) fn destructuring_binding_target(
         &self,
         mode: BindingMode,
         source_name: String,
         storage_name: String,
     ) -> DestructuringTargetIr {
-        if mode == BindingMode::Var && self.borrows_direct_eval_variable_environment() {
-            DestructuringTargetIr::AssignmentIdentifier(IdentifierWriteReferenceIr::environment(
-                source_name,
-                self.reference_strictness(),
-            ))
-        } else {
-            DestructuringTargetIr::Binding {
-                mode,
-                name: storage_name,
+        if mode == BindingMode::Var {
+            if self.borrows_direct_eval_variable_environment() {
+                return DestructuringTargetIr::AssignmentIdentifier(
+                    IdentifierWriteReferenceIr::environment(
+                        source_name,
+                        self.reference_strictness(),
+                    ),
+                );
             }
+            if self.uses_runtime_identifier_environment() {
+                return DestructuringTargetIr::ResolvedVarBinding {
+                    name: storage_name,
+                    reference: IdentifierWriteReferenceIr::environment(
+                        source_name,
+                        self.reference_strictness(),
+                    ),
+                };
+            }
+            let fallback = self.locate_identifier_reference(&source_name);
+            if let Some(objects) = self
+                .with_environment_chain
+                .select_preceding(fallback.declarative_position())
+            {
+                let reference = objects
+                    .into_reference_plan(source_name, self.reference_strictness())
+                    .deferred_var_write(storage_name.clone());
+                return DestructuringTargetIr::ResolvedVarBinding {
+                    name: storage_name,
+                    reference,
+                };
+            }
+        }
+        DestructuringTargetIr::Binding {
+            mode,
+            name: storage_name,
         }
     }
 
@@ -36,11 +99,11 @@ impl ScriptLowerer<'_> {
         self.invalidate_unknown_user_code_effects();
         TypedExpr::from_info(
             unknown_runtime_value_info(),
-            ExprIr::EnvironmentIdentifier(Box::new(EnvironmentIdentifierIr {
+            ExprIr::EnvironmentIdentifier(Box::new(EnvironmentIdentifierIr::current(
                 name,
-                strictness: self.reference_strictness(),
+                self.reference_strictness(),
                 operation,
-            })),
+            ))),
         )
     }
 
@@ -56,6 +119,13 @@ impl ScriptLowerer<'_> {
             return None;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        if self
+            .analysis
+            .module_execution
+            .is_private_dispatcher_name(&name)
+        {
+            return None;
+        }
         let direct_eval = (name == "eval").then(|| self.direct_eval_context());
         if let Some(context) = &direct_eval {
             self.register_direct_eval_source(context, arguments);

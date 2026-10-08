@@ -1,5 +1,14 @@
 # Atomics builtin dispatch boundary
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+The fourteen existing fixed native entry names and exact ATOMICS_PUBLICATION_ORDER are preserved. Each Standard ID delegates to its corresponding whole-value body. The private integer operation and timeout-mode domains remain internal; there is no raw generic Atomics selector or second publication list. Async result objects and Promises use the executing method's defining Realm. Current sync/async wait and notify share one native backing registry. Historical source-equivalence and runtime receipts below apply to the prior representation only.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: implemented and verified for the current Wasm-AOT Atomics family.
 
 ## Invariant

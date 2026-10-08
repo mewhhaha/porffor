@@ -89,6 +89,20 @@ pub struct NativeFunctionObject {
     pub(crate) is_html_dda: bool,
 }
 
+impl NativeFunctionObject {
+    /// The actual retained function Realm, without consulting public properties.
+    #[must_use]
+    pub const fn realm(&self) -> Option<&Realm> {
+        self.realm.as_ref()
+    }
+
+    /// Reads the Annex B internal brand without invoking the function.
+    #[must_use]
+    pub const fn is_html_dda(&self) -> bool {
+        self.is_html_dda
+    }
+}
+
 // SAFETY: this traces all fields that need to be traced by the GC.
 unsafe impl Trace for NativeFunctionObject {
     custom_trace!(this, mark, {

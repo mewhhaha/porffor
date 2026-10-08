@@ -1,14 +1,14 @@
 # Module root `this` binding
 
-This contract preserves the source parse goal's root `this` binding when a
-linked module graph is lowered through the merged Script pipeline.
+This contract preserves each source owner's root `this` binding when a linked
+module graph is lowered through the shared Script pipeline.
 
 ## Defect closed
 
-The linker concatenates module source and reparses it with the Script goal so
-the graph can share one activation environment and one function-id/slot
-numbering domain. That implementation parse goal is not the semantic source
-goal. A Script Global Environment Record returns the global object from
+The linker assembles module source and reparses it with the Script goal for
+one function-id/slot numbering domain. Each canonical Module still has its own
+activation and binding environment. That implementation parse goal is not the
+semantic source goal. A Script Global Environment Record returns the global object from
 `GetThisBinding`, while a Module Environment Record returns `undefined`.
 
 The previous lowerer always represented root `this` as `ExprIr::This`. A
@@ -35,19 +35,20 @@ default to Script semantics.
 - `Activation(ValueInfo)` belongs to an ordinary function activation or a real
   lexical capture of one.
 
-The distinction is exhaustive. In a flat eager synchronous Module-entry graph,
-module-root `this` lowers to `ExprIr::Undefined`; Script-root `this` lowers to
+The distinction is exhaustive. In a canonical Module owner, module-root `this`
+lowers to `ExprIr::Undefined`; Script-root `this` lowers to
 `ExprIr::This`; activation `this` keeps the existing runtime operation.
 Ordinary functions and derived constructor activations are therefore unaffected
-by the merged source's goal.
+by the assembled source's goal.
 
-Three pre-existing graph shapes deliberately put source-level module code in a
-strict activation: a Script-entry graph wraps its module closure in an ordinary
-IIFE, a deferred unit uses an ordinary thunk, and a top-level-await Module-entry
-graph uses an async IIFE. In those shapes `this` remains `ExprIr::This`; the
-wrapper's bare strict call supplies the required `undefined`. This seam adds no
-new wrapper and changes only the flat eager synchronous Module-entry path that
-previously had neither an activation nor the correct root binding.
+Canonical source owners carry `ModuleActivation` or `AsyncModuleActivation`
+protocol metadata. The function lowerer derives their root binding as
+`Undefined` before lowering their bodies; lexical arrows retain that root
+binding even when the source owner is represented by an async arrow for the
+private instantiation suspension boundary. A Script entry stays outside those
+owners: its original body is appended as the Script root source after module
+instantiation. Ordinary exported functions are strict ordinary functions;
+their calls retain their receiver, and arrows nested inside them capture it.
 
 `ScriptIr::top_level_this_uses` counts only root reads that resolve to the
 Script global object. The AOT planner may use that count to request global
@@ -55,16 +56,16 @@ bootstrap; a statically undefined module-root read cannot request it.
 
 ## Invariants
 
-1. The original parse goal, not the merged Script reparse, chooses root `this`.
+1. The original parse goal and trusted Module owner protocol, not the shared
+   Script reparse, choose root `this`.
 2. A root arrow cannot turn a Module root binding into a function activation or
    a Script-global fallback.
 3. An arrow nested in an ordinary function still reads that function's lexical
    `this`.
 4. Ordinary and derived-constructor activations retain their existing dynamic
    `this` behavior.
-5. Flat eager synchronous Module-entry `this` is represented directly in IR and
-   needs no backend special case or new ordinary-function wrapper; existing
-   wrapper paths retain their activation representation.
+5. Both synchronous and async Module owners use the explicit undefined root
+   binding rather than depending on an ordinary-function wrapper's receiver.
 6. Only Script-global root reads contribute to global-object bootstrap.
 
 ## Durable regressions
@@ -77,14 +78,20 @@ Script-global constant-fold path cannot bypass the typed root binding, while
 retaining the existing Script `this === globalThis` coverage. The exact pinned
 witness is `language/module-code/eval-this.js`.
 
+The `aot_script_import_jobs` target additionally checks Module-root this and
+nested arrows from sloppy and strict Scripts, ordinary exported calls with and
+without a receiver, same-file Script/Module source ownership, and root global
+reflection before and after import jobs. Compiler-private module owners must
+not become visible as global own keys or named direct-eval bindings. A separate
+sloppy Script proves a Proxy `with` environment observes the source specifier
+without observing private dispatcher lookups.
+
 ## Nonclaims
 
-This seam does not create a distinct Module Environment Record per linked
-unit, stop module `var` declarations from reflecting on the merged Script
-global object, rename colliding unit bindings, make dynamic imports lazy,
-implement Module Namespace Exotic Object internal methods, coordinate
-top-level-await jobs or close T12/Test262. It adds no new wrapper. Existing
-Script-entry module closures, deferred units and top-level-await graphs retain
-their strict function/thunk wrappers; only the flat eager synchronous
-Module-entry path remains wrapper-free, avoiding an invented top-level
-`arguments` binding there.
+The root-binding domain alone does not implement Module Namespace Exotic
+Object internal methods or close the complete cyclic/deferred/async surface or
+T12/Test262. Separate canonical graph ownership provides per-module
+environments, lazy evaluation and lifecycle jobs; the Script import batch and
+its pending verification are recorded in
+[`script-dynamic-import-jobs.md`](script-dynamic-import-jobs.md). Source-phase
+Script imports remain an explicit unsupported compilation boundary.

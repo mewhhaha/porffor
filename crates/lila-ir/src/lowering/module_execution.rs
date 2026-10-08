@@ -101,7 +101,9 @@ impl ScriptLowerer<'_> {
                 ExprIr::FunctionValue(builtin.function_id()),
             ));
         }
-        let operation = if let Some(cell) = operations.reads.get(&pointer) {
+        let operation = if let Some(json) = operations.json_values.get(&pointer) {
+            ExprIr::JsonModuleValue(Box::new(json.clone()))
+        } else if let Some(cell) = operations.reads.get(&pointer) {
             ExprIr::ModuleBindingRead(cell.clone())
         } else if let Some(evaluation) = operations.evaluations.get(&pointer) {
             ExprIr::ModuleEvaluate(evaluation.clone())
@@ -111,6 +113,8 @@ impl ScriptLowerer<'_> {
             ExprIr::ModuleDeferredImportEvaluate(evaluation.clone())
         } else if let Some(evaluation) = operations.deferred_evaluations.get(&pointer) {
             ExprIr::DeferredModuleEvaluate(evaluation.clone())
+        } else if let Some(graph) = operations.initializers.get(&pointer) {
+            ExprIr::ModuleExecutionGraph(Box::new(graph.clone()))
         } else if let Expression::ArrayLiteral(array) = expression {
             let graph = operations
                 .graphs
@@ -121,7 +125,9 @@ impl ScriptLowerer<'_> {
         };
         self.invalidate_unknown_user_code_effects();
         let info = match &operation {
-            ExprIr::ModuleBindingRead(_) => unknown_runtime_value_info(),
+            ExprIr::ModuleBindingRead(_) | ExprIr::JsonModuleValue(_) => {
+                unknown_runtime_value_info()
+            }
             ExprIr::ModuleEvaluate(_) | ExprIr::ModuleDeferredImportEvaluate(_) => {
                 ValueInfo::new(ValueKind::Object)
             }

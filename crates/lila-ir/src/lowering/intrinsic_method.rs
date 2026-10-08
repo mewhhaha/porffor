@@ -10,7 +10,7 @@
 //! claim still holds at a program point is a flow fact.
 //!
 //! [`IntrinsicMethod`] is that fact. Its field is private to this module, so
-//! [`ScriptLowerer::intrinsic_method`] is its only constructor, and every
+//! one private live-property factory is its only constructor, and every
 //! static resolution that wants the exact builtin has to go through the same
 //! proof. A catalogued name without a proof is [`IntrinsicMethodLookup::Unproven`]:
 //! the builtin stays a possible (and therefore still emitted) callee, but the
@@ -26,7 +26,9 @@ use super::*;
 /// what was recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum IntrinsicPrototype {
+    Object,
     Function,
+    Array,
     String,
     Number,
     Boolean,
@@ -39,7 +41,9 @@ pub(super) enum IntrinsicPrototype {
 impl IntrinsicPrototype {
     const fn constructor(self) -> StandardBuiltinId {
         match self {
+            Self::Object => StandardBuiltinId::ObjectConstructor,
             Self::Function => StandardBuiltinId::FunctionConstructor,
+            Self::Array => StandardBuiltinId::ArrayConstructor,
             Self::String => StandardBuiltinId::StringConstructor,
             Self::Number => StandardBuiltinId::NumberConstructor,
             Self::Boolean => StandardBuiltinId::BooleanConstructor,
@@ -56,6 +60,12 @@ impl IntrinsicPrototype {
     pub(super) fn catalogued_method(self, name: &str) -> Option<StandardBuiltinId> {
         use StandardBuiltinId as B;
         Some(match (self, name) {
+            (Self::Object, "toString") => B::ObjectPrototypeToString,
+            (Self::Object, "toLocaleString") => B::ObjectPrototypeToLocaleString,
+            (Self::Object, "valueOf") => B::ObjectPrototypeValueOf,
+            (Self::Object, "hasOwnProperty") => B::ObjectPrototypeHasOwnProperty,
+            (Self::Object, "isPrototypeOf") => B::ObjectPrototypeIsPrototypeOf,
+            (Self::Object, "propertyIsEnumerable") => B::ObjectPrototypePropertyIsEnumerable,
             (Self::Function, "call") => B::FunctionPrototypeCall,
             (Self::Function, "apply") => B::FunctionPrototypeApply,
             (Self::Function, "bind") => B::FunctionPrototypeBind,
@@ -122,6 +132,7 @@ impl IntrinsicPrototype {
             (Self::BigInt, "valueOf") => B::BigIntPrototypeValueOf,
             (Self::Symbol, "toString") => B::SymbolPrototypeToString,
             (Self::Symbol, "valueOf") => B::SymbolPrototypeValueOf,
+            (Self::Symbol, "constructor") => B::SymbolConstructor,
             (Self::Iterator, "toArray") => B::IteratorPrototypeToArray,
             (Self::Iterator, "forEach") => B::IteratorPrototypeForEach,
             (Self::Iterator, "every") => B::IteratorPrototypeEvery,
@@ -221,7 +232,27 @@ impl ScriptLowerer<'_> {
         let Some(builtin) = prototype.catalogued_method(name) else {
             return IntrinsicMethodLookup::Uncatalogued;
         };
-        if self.intrinsic_prototype_still_holds(prototype, name, builtin) {
+        let deleted_to_string = name == "toString"
+            && match prototype {
+                IntrinsicPrototype::Number => {
+                    self.number_prototype_to_string_state != PrototypeToStringState::Intrinsic
+                }
+                IntrinsicPrototype::Boolean => {
+                    self.boolean_prototype_to_string_state != PrototypeToStringState::Intrinsic
+                }
+                _ => false,
+            };
+        self.intrinsic_property_method(prototype, name, builtin, deleted_to_string)
+    }
+
+    fn intrinsic_property_method(
+        &self,
+        prototype: IntrinsicPrototype,
+        name: &str,
+        builtin: StandardBuiltinId,
+        invalidated: bool,
+    ) -> IntrinsicMethodLookup {
+        if !invalidated && self.intrinsic_prototype_still_holds(prototype, name, builtin) {
             IntrinsicMethodLookup::Proven(IntrinsicMethod { builtin })
         } else {
             IntrinsicMethodLookup::Unproven(builtin)
@@ -250,7 +281,7 @@ impl ScriptLowerer<'_> {
         name: &str,
     ) -> Option<IntrinsicMethod> {
         let method = self.intrinsic_method(prototype, name).proven()?;
-        match read_heap_shape_property(receiver.heap_shape.as_deref()?, name)? {
+        match self.read_current_object_shape_property(receiver, name)? {
             ObjectShapeProperty::Data(info) => (info.function_targets.exact_single_target()
                 == Some(&method.builtin.function_id()))
             .then_some(method),
@@ -262,17 +293,330 @@ impl ScriptLowerer<'_> {
     /// receiver whose prototype is `prototype`, carrying only the callee fact
     /// the lookup licenses. `None` for an uncatalogued name.
     pub(super) fn intrinsic_method_read(
-        &self,
+        &mut self,
         prototype: IntrinsicPrototype,
         receiver: &TypedExpr,
         name: &str,
     ) -> Option<TypedExpr> {
-        let info = self.intrinsic_method(prototype, name).callee_info()?;
+        let lookup = self.intrinsic_method(prototype, name);
+        let key = PropertyKeyIr::StaticString(name.to_string());
+        self.read_intrinsic_method_lookup(lookup, receiver, key)
+    }
+
+    /// Symbol-keyed methods obey the same live-prototype proof as named
+    /// methods. The namespace key is used only for shape lookup; the emitted
+    /// property key retains the actual Symbol operand.
+    pub(super) fn intrinsic_symbol_method_read(
+        &mut self,
+        prototype: IntrinsicPrototype,
+        receiver: &TypedExpr,
+        symbol: WellKnownSymbol,
+        key: PropertyKeyIr,
+    ) -> Option<TypedExpr> {
+        let builtin = match (prototype, symbol) {
+            (IntrinsicPrototype::Symbol, WellKnownSymbol::ToPrimitive) => {
+                StandardBuiltinId::SymbolPrototypeToPrimitive
+            }
+            (IntrinsicPrototype::String, WellKnownSymbol::Iterator) => {
+                StandardBuiltinId::StringPrototypeIterator
+            }
+            _ => return None,
+        };
+        let lookup =
+            self.intrinsic_property_method(prototype, &shape_namespace_key(symbol), builtin, false);
+        self.read_intrinsic_method_lookup(lookup, receiver, key)
+    }
+
+    /// Object calls must acquire their actual property even when a catalogue
+    /// method remains possible. Own descriptors are authoritative; an absent
+    /// descriptor cannot prove that a prototype lookup has no getter.
+    pub(super) fn intrinsic_object_method_read(
+        &mut self,
+        prototype: IntrinsicPrototype,
+        receiver: &TypedExpr,
+        name: &str,
+        key: PropertyKeyIr,
+    ) -> Option<TypedExpr> {
+        let lookup = self.intrinsic_method(prototype, name);
+        if matches!(lookup, IntrinsicMethodLookup::Uncatalogued) {
+            return None;
+        }
+        if self
+            .read_own_object_shape_property(receiver, name)
+            .is_some()
+            && !Self::has_regexp_prototype_shape(receiver)
+        {
+            return None;
+        }
+        let property = self.read_current_object_shape_property(receiver, name);
+        self.read_intrinsic_object_property_lookup(lookup, receiver, key, property.as_ref())
+    }
+
+    pub(super) fn intrinsic_object_symbol_method_read(
+        &mut self,
+        receiver: &TypedExpr,
+        symbol: WellKnownSymbol,
+        key: PropertyKeyIr,
+    ) -> Option<TypedExpr> {
+        let name = shape_namespace_key(symbol);
+        if receiver
+            .heap_shape
+            .as_deref()
+            .and_then(|shape| own_shape_property(shape, &name))
+            .is_some()
+            && !Self::has_regexp_prototype_shape(receiver)
+            && !Self::has_array_prototype_shape(receiver)
+        {
+            return None;
+        }
+        let property = self.read_current_object_symbol_shape_property(receiver, symbol);
+        let array_iterator = StandardBuiltinId::ArrayPrototypeValues;
+        let (prototype, builtin) = match symbol {
+            WellKnownSymbol::Iterator
+                if receiver.possible_kinds.contains(ValueKind::Array)
+                    || matches!(&property, Some(ObjectShapeProperty::Data(info))
+                        if info.function_targets.exact_single_target()
+                            == Some(&array_iterator.function_id())) =>
+            {
+                (IntrinsicPrototype::Array, array_iterator)
+            }
+            WellKnownSymbol::Match => (
+                IntrinsicPrototype::RegExp,
+                StandardBuiltinId::RegExpPrototypeSymbolMatch,
+            ),
+            WellKnownSymbol::MatchAll => (
+                IntrinsicPrototype::RegExp,
+                StandardBuiltinId::RegExpPrototypeSymbolMatchAll,
+            ),
+            WellKnownSymbol::Replace => (
+                IntrinsicPrototype::RegExp,
+                StandardBuiltinId::RegExpPrototypeSymbolReplace,
+            ),
+            WellKnownSymbol::Search => (
+                IntrinsicPrototype::RegExp,
+                StandardBuiltinId::RegExpPrototypeSymbolSearch,
+            ),
+            WellKnownSymbol::Split => (
+                IntrinsicPrototype::RegExp,
+                StandardBuiltinId::RegExpPrototypeSymbolSplit,
+            ),
+            _ => return None,
+        };
+        let lookup = self.intrinsic_property_method(prototype, &name, builtin, false);
+        self.read_intrinsic_object_property_lookup(lookup, receiver, key, property.as_ref())
+    }
+
+    fn read_intrinsic_object_property_lookup(
+        &mut self,
+        lookup: IntrinsicMethodLookup,
+        receiver: &TypedExpr,
+        key: PropertyKeyIr,
+        property: Option<&ObjectShapeProperty>,
+    ) -> Option<TypedExpr> {
+        let builtin = match lookup {
+            IntrinsicMethodLookup::Proven(method) => method.builtin(),
+            IntrinsicMethodLookup::Unproven(builtin) => builtin,
+            IntrinsicMethodLookup::Uncatalogued => return None,
+        };
+        let lookup = match property {
+            Some(ObjectShapeProperty::Data(info))
+                if info.function_targets.exact_single_target() == Some(&builtin.function_id()) =>
+            {
+                lookup
+            }
+            Some(_) => return None,
+            None => lookup.unclaimed(),
+        };
+        let candidates = property
+            .is_none()
+            .then(|| {
+                let name = match &key {
+                    PropertyKeyIr::StaticString(name) => Some(name.clone()),
+                    PropertyKeyIr::StringExpr(key) => match key.expr {
+                        ExprIr::WellKnownSymbol(symbol) => Some(shape_namespace_key(symbol)),
+                        _ => None,
+                    },
+                    PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => None,
+                };
+                name.map(|name| {
+                    self.unproven_object_property_info(receiver, &name)
+                        .function_targets
+                })
+            })
+            .flatten();
+        let mut read = self.read_intrinsic_method_lookup(lookup, receiver, key)?;
+        if let Some(candidates) = candidates {
+            // An unproven fallback does not disprove the receiver's earlier
+            // descriptor. Retain both native bodies without claiming either
+            // one is the property that the runtime Get will acquire.
+            read.function_targets = read.function_targets.join(candidates);
+        }
+        Some(read)
+    }
+
+    /// Instance shapes retain prototype snapshots, not the mutable prototype's
+    /// current contents. Provenance requires every catalogue snapshot to agree
+    /// with its live intrinsic before it licenses a descriptor. Never substitute
+    /// a changed live descriptor: an alias may refer to a different Realm.
+    pub(super) fn read_current_object_shape_property(
+        &self,
+        receiver: &TypedExpr,
+        name: &str,
+    ) -> Option<ObjectShapeProperty> {
+        if shape_property_name_is_symbol_keyed(name) {
+            return None;
+        }
+        self.read_current_heap_shape_property(receiver.heap_shape.as_deref()?, name)
+    }
+
+    pub(super) fn read_current_object_symbol_shape_property(
+        &self,
+        receiver: &TypedExpr,
+        symbol: WellKnownSymbol,
+    ) -> Option<ObjectShapeProperty> {
+        self.read_current_heap_shape_property(
+            receiver.heap_shape.as_deref()?,
+            &shape_namespace_key(symbol),
+        )
+    }
+
+    pub(super) fn read_current_heap_shape_property(
+        &self,
+        mut shape: &HeapShape,
+        name: &str,
+    ) -> Option<ObjectShapeProperty> {
+        loop {
+            let provenance = match shape {
+                HeapShape::Object(object) => object.provenance,
+                HeapShape::Array(array) => array.provenance,
+            };
+            match provenance {
+                HeapShapeProvenance::Program => {}
+                HeapShapeProvenance::IntrinsicPrototype(constructor) => {
+                    if constructor == StandardBuiltinId::ArrayConstructor
+                        && self.array_prototype_mutated
+                    {
+                        return None;
+                    }
+                    let live = self.live_intrinsic_prototype(constructor)?;
+                    let live_shape = live.heap_shape.as_deref()?;
+                    let expected = own_shape_property(shape, name);
+                    if own_shape_property(live_shape, name) != expected {
+                        return None;
+                    }
+                    if let Some(expected) = expected {
+                        return Some(expected.clone());
+                    }
+                    // A descriptor reached through a parent must validate that
+                    // parent separately. Comparing an entire stale chain with
+                    // another stale chain is not a proof of current contents.
+                    if shape_prototype(live_shape) != shape_prototype(shape) {
+                        return None;
+                    }
+                }
+                HeapShapeProvenance::UntrackedIntrinsicPrototype => return None,
+            }
+            if let Some(property) = own_shape_property(shape, name) {
+                return Some(property.clone());
+            }
+            let prototype = match shape {
+                HeapShape::Object(object) => object.prototype.as_deref(),
+                HeapShape::Array(array) => {
+                    if array.prototype.is_none() {
+                        return self.read_current_heap_shape_property(
+                            &Self::array_prototype_shape(),
+                            name,
+                        );
+                    }
+                    array.prototype.as_deref()
+                }
+            };
+            shape = prototype?;
+        }
+    }
+
+    /// Stale descriptors still identify possible callees that codegen must emit,
+    /// but they prove neither the result kind nor that Get avoids user code.
+    pub(super) fn unproven_object_property_info(
+        &self,
+        receiver: &TypedExpr,
+        name: &str,
+    ) -> ValueInfo {
+        let property = receiver.heap_shape.as_deref().and_then(|shape| {
+            shape_property(shape, name).or_else(|| {
+                matches!(shape, HeapShape::Array(array) if array.prototype.is_none())
+                    .then(|| shape_property(&Self::array_prototype_shape(), name))
+                    .flatten()
+            })
+        });
+        let mut info = match property {
+            Some(ObjectShapeProperty::Data(info)) => info,
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(getter),
+                ..
+            }) => self.accessor_return_info(&getter.function_id),
+            Some(ObjectShapeProperty::Accessor { getter: None, .. }) | None => {
+                unknown_runtime_value_info()
+            }
+        };
+        info.widen_for_possible_replacement();
+        info
+    }
+
+    fn read_intrinsic_method_lookup(
+        &mut self,
+        lookup: IntrinsicMethodLookup,
+        receiver: &TypedExpr,
+        key: PropertyKeyIr,
+    ) -> Option<TypedExpr> {
+        let info = lookup.callee_info()?;
+        if matches!(lookup, IntrinsicMethodLookup::Unproven(_)) {
+            // A replacement can be an accessor. Its Get runs before the
+            // following argument, assignment, or expression is lowered.
+            self.observe_all_planned_source_as_unknown_property_hooks();
+            self.invalidate_unknown_user_code_effects();
+        }
         Some(TypedExpr::from_info(
             info,
             ExprIr::PropertyRead {
                 target: Box::new(receiver.clone()),
-                key: PropertyKeyIr::StaticString(name.to_string()),
+                key,
+            },
+        ))
+    }
+
+    pub(super) fn intrinsic_symbol_description_read(
+        &self,
+        receiver: &TypedExpr,
+    ) -> Option<TypedExpr> {
+        let prototype = self.live_intrinsic_prototype(StandardBuiltinId::SymbolConstructor)?;
+        let property = own_shape_property(prototype.heap_shape.as_deref()?, "description")?;
+        let ObjectShapeProperty::Accessor {
+            getter: Some(getter),
+            ..
+        } = property
+        else {
+            return None;
+        };
+        if getter.function_id != StandardBuiltinId::SymbolPrototypeDescriptionGetter.function_id() {
+            return None;
+        }
+        let info = if matches!(receiver.expr, ExprIr::WellKnownSymbol(_)) {
+            ValueInfo::new(ValueKind::String)
+        } else {
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            }
+        };
+        Some(TypedExpr::from_info(
+            info,
+            ExprIr::PropertyRead {
+                target: Box::new(receiver.clone()),
+                key: PropertyKeyIr::StaticString("description".to_string()),
             },
         ))
     }
@@ -291,16 +635,44 @@ impl ScriptLowerer<'_> {
         &self,
         constructor: StandardBuiltinId,
     ) -> Option<&ValueInfo> {
-        let global = self
-            .global_properties
-            .get(constructor.global_name()?)
-            .filter(|property| property.proven_present)?;
-        if global.value_info.function_targets.exact_single_target()
+        let constructor_info = if let Some(name) = constructor.global_name() {
+            &self
+                .global_properties
+                .get(name)
+                .filter(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                })?
+                .value_info
+        } else {
+            let (namespace, member) = [
+                (INTL_NAME, INTL_NAMESPACE_CONSTRUCTORS),
+                (TEMPORAL_NAME, TEMPORAL_NAMESPACE_CONSTRUCTORS),
+            ]
+            .into_iter()
+            .find_map(|(namespace, members)| {
+                members
+                    .iter()
+                    .find(|(_, builtin)| *builtin == constructor)
+                    .map(|(member, _)| (namespace, *member))
+            })?;
+            let namespace = &self
+                .global_properties
+                .get(namespace)
+                .filter(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                })?
+                .value_info;
+            match own_shape_property(namespace.heap_shape.as_deref()?, member)? {
+                ObjectShapeProperty::Data(info) => info,
+                ObjectShapeProperty::Accessor { .. } => return None,
+            }
+        };
+        if constructor_info.function_targets.exact_single_target()
             != Some(&constructor.function_id())
         {
             return None;
         }
-        let HeapShape::Object(constructor_shape) = global.value_info.heap_shape.as_deref()? else {
+        let HeapShape::Object(constructor_shape) = constructor_info.heap_shape.as_deref()? else {
             return None;
         };
         match constructor_shape.properties.get("prototype")? {
@@ -359,5 +731,18 @@ fn own_shape_property<'shape>(
     match shape {
         HeapShape::Object(object) => object.properties.get(name),
         HeapShape::Array(array) => array.properties.get(name),
+    }
+}
+
+fn shape_property(shape: &HeapShape, name: &str) -> Option<ObjectShapeProperty> {
+    own_shape_property(shape, name)
+        .cloned()
+        .or_else(|| shape_property(shape_prototype(shape)?, name))
+}
+
+fn shape_prototype(shape: &HeapShape) -> Option<&HeapShape> {
+    match shape {
+        HeapShape::Object(object) => object.prototype.as_deref(),
+        HeapShape::Array(array) => array.prototype.as_deref(),
     }
 }

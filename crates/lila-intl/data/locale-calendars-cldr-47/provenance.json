@@ -1,0 +1,2394 @@
+{
+  "algorithm": "locale-calendars-cldr47-v1",
+  "canonical_aliases": {
+    "buddhist": "buddhist",
+    "chinese": "chinese",
+    "coptic": "coptic",
+    "dangi": "dangi",
+    "ethioaa": "ethioaa",
+    "ethiopic": "ethiopic",
+    "ethiopic-amete-alem": "ethioaa",
+    "gregorian": "gregory",
+    "gregory": "gregory",
+    "hebrew": "hebrew",
+    "indian": "indian",
+    "islamic": "islamic",
+    "islamic-civil": "islamic-civil",
+    "islamic-rgsa": "islamic-rgsa",
+    "islamic-tbla": "islamic-tbla",
+    "islamic-umalqura": "islamic-umalqura",
+    "islamicc": "islamic-civil",
+    "iso8601": "iso8601",
+    "japanese": "japanese",
+    "persian": "persian",
+    "roc": "roc"
+  },
+  "canonical_calendar_domain": [
+    "buddhist",
+    "chinese",
+    "coptic",
+    "dangi",
+    "ethioaa",
+    "ethiopic",
+    "gregory",
+    "hebrew",
+    "indian",
+    "islamic",
+    "islamic-civil",
+    "islamic-rgsa",
+    "islamic-tbla",
+    "islamic-umalqura",
+    "iso8601",
+    "japanese",
+    "persian",
+    "roc"
+  ],
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "cldr_release": "47.0.0",
+  "effective_region_rows": 292,
+  "existing_primary_data_changed": false,
+  "fallback_authority": "pinned CLDR47 tr35-dates Calendar_Preference_Data region001 defaults; ECMA402 CalendarsOfLocale empty gregory fallback",
+  "generation_kind": "source-only; no product execution",
+  "inputs": [
+    {
+      "bytes": 408368,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/supplementalData.xml",
+      "sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4"
+    },
+    {
+      "bytes": 3281,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/bcp47/calendar.xml",
+      "sha256": "8a1800fcb7fddf6f106a7cf0dd1b434a5e4847297cfeabbc5d0e19b3d3034bed"
+    },
+    {
+      "bytes": 194096,
+      "path": "crates/lila-intl/data/datetime-cldr-47/docs/ldml/tr35-dates.md",
+      "sha256": "0f4a9d5a7c19d95d545c0fd2f24410d75fc1d0987bcd28a8620947e0a72e28ec"
+    },
+    {
+      "bytes": 2033,
+      "path": "crates/lila-intl/data/datetime-cldr-47/LICENSE",
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    }
+  ],
+  "kernel_excludes": [
+    "tests.rs",
+    "profile_identity.rs"
+  ],
+  "kernel_input": {
+    "domain": "lila-locale-calendars-native-kernel-v1",
+    "profile_sha256": "fcb074bd730a2c73a58a3c11a040a46efb959b35dc8e4a0457d955a7d9d722fe",
+    "sources": [
+      {
+        "bytes": 75241,
+        "path": "Cargo.lock",
+        "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+      },
+      {
+        "bytes": 3208,
+        "path": "Cargo.toml",
+        "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+      },
+      {
+        "bytes": 80091,
+        "path": "crates/lila-aot-wasm/src/emit.rs",
+        "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      },
+      {
+        "bytes": 80996,
+        "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+        "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      },
+      {
+        "bytes": 33617,
+        "path": "crates/lila-engine/src/intl_data_images.rs",
+        "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      },
+      {
+        "bytes": 7742,
+        "path": "crates/lila-engine/src/intl_datetime_host.rs",
+        "sha256": "43f5709b2feeb4775a81378359fc5a7d0103a244b385f3e5e8113a3570a6ef48"
+      },
+      {
+        "bytes": 16823,
+        "path": "crates/lila-engine/src/wasm_gc_intl_host.rs",
+        "sha256": "706e7e9284afc7c2833925bf516866eb1509ffb7b772b14d3255d0b9680e3af1"
+      },
+      {
+        "bytes": 3178,
+        "path": "crates/lila-intl/Cargo.toml",
+        "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+      },
+      {
+        "bytes": 2580,
+        "path": "crates/lila-intl/build.rs",
+        "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+      },
+      {
+        "bytes": 2033,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/LICENSE",
+        "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+      },
+      {
+        "bytes": 730729,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/ar.xml",
+        "sha256": "94b2fea65038e61fa34b9b3efd728ab55e12c77644e61d283e63464ff57e13b7"
+      },
+      {
+        "bytes": 612277,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/de.xml",
+        "sha256": "3e14f53fd40a00527f7cbaf5b3228e35985fac0e3f93a4eecc03b6716ceb6a68"
+      },
+      {
+        "bytes": 478608,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/en.xml",
+        "sha256": "416fb34c500e969a9e3e9bd1e363f8af5938df3cdda72aa7e636fa7e72123aae"
+      },
+      {
+        "bytes": 615203,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/fr.xml",
+        "sha256": "ebc67e303a56940609c892ededb3697e3b291466cf9622dd2c389ad48872e98f"
+      },
+      {
+        "bytes": 582873,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/hi.xml",
+        "sha256": "5fa900f98f3f4ca70f73af23925783f73c62856d84892be9f364e05f4f10b261"
+      },
+      {
+        "bytes": 443958,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/it.xml",
+        "sha256": "51834d1632b59a345c5beef712f5dddbe4e62530bf8abfc62ed42be4f3a43653"
+      },
+      {
+        "bytes": 526626,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/ja.xml",
+        "sha256": "24bc2347a4fc2d1d331f122f5f4c4f05ce435513f4f5280b16a428aad8753fdc"
+      },
+      {
+        "bytes": 515597,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/ko.xml",
+        "sha256": "41d80dfb7ee5a6c8227940db5f672eb5712765a3aa28ffed7bbe641a82bbeeda"
+      },
+      {
+        "bytes": 290595,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/root.xml",
+        "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17"
+      },
+      {
+        "bytes": 626269,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/zh.xml",
+        "sha256": "b1ef8bcadcf19fa8914d9ba812a7bcec124c72fecbf4acea02e4c8bd2fe51866"
+      },
+      {
+        "bytes": 4665,
+        "path": "crates/lila-intl/data/calendar-eras-cldr-48/manifest.json",
+        "sha256": "d551300d46e7a64558d60bb2732b702902aa68ae60ee62284d0a67b314c25932"
+      },
+      {
+        "bytes": 2033,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/LICENSE",
+        "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+      },
+      {
+        "bytes": 3606,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/README.md",
+        "sha256": "0c213399f332cc390789a33739c7b00bd4551bf9f676ed48d4e8fee1e26d26c9"
+      },
+      {
+        "bytes": 3281,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/calendar.xml",
+        "sha256": "8a1800fcb7fddf6f106a7cf0dd1b434a5e4847297cfeabbc5d0e19b3d3034bed"
+      },
+      {
+        "bytes": 7513,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/collation.xml",
+        "sha256": "2fa8fef733069c4651a5c60c85cb38ba09a07151d71b9b148d9372eff28a4d42"
+      },
+      {
+        "bytes": 22282,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/currency.xml",
+        "sha256": "93849191705b5e52adab6766d3bf41ae627373c34c7cb73259fdc17d22bd3bc7"
+      },
+      {
+        "bytes": 1218,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/measure.xml",
+        "sha256": "6a1445e2f6af8fad47b9d5b40e67d582e7f4b9502609443780d3e3641d23be4d"
+      },
+      {
+        "bytes": 8305,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/number.xml",
+        "sha256": "5f8cfa798bc9efbdabcf78f6a4377304856e3514e06c1ffccaa135801754abd3"
+      },
+      {
+        "bytes": 2098,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/segmentation.xml",
+        "sha256": "9a3a00df3181b51279389655ef06f12be593d3b288c44b54caf7b2d86ed8b285"
+      },
+      {
+        "bytes": 46467,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/timezone.xml",
+        "sha256": "99008ac7e936b61f4eda6c3a0f09fb4b2fb9cb87943b575657e69b2e71cc240d"
+      },
+      {
+        "bytes": 3688,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform-destination.xml",
+        "sha256": "469976ddb878572cdede31e94a6e60a4cd9d2d83df9bda3e47045c8489cf76a0"
+      },
+      {
+        "bytes": 3877,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform.xml",
+        "sha256": "d564dd996541afbcab77b3446bea5e591c3ec5c3b27ed0cd08326ae873ec7bdb"
+      },
+      {
+        "bytes": 667,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform_hybrid.xml",
+        "sha256": "cefd0cd86388941868991f50351ff61a757b0493b62bca395151aef2bcc5e46c"
+      },
+      {
+        "bytes": 1437,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform_ime.xml",
+        "sha256": "cdc020c18ef8d7c9d3b1ccc12b3ea711cde758f8c0aed828c9bc1bc3197e051c"
+      },
+      {
+        "bytes": 4694,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform_keyboard.xml",
+        "sha256": "a719796bd59b8daf4b98d6fd294e6d5405b8bf3b36a5086a70242bd5e8a12ef9"
+      },
+      {
+        "bytes": 943,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform_mt.xml",
+        "sha256": "508428eaa699cdd857d0daf7ce8ff232023abd162b5f623640b10de1348d95e7"
+      },
+      {
+        "bytes": 760,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/transform_private_use.xml",
+        "sha256": "b1157b7e690aa1f17894f0c2e1d8a16e749a1115a93f743d7032fdfb1686fbe2"
+      },
+      {
+        "bytes": 1562,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/common/bcp47/variant.xml",
+        "sha256": "e5500779baa55e838c5bf1529561c3b441fe2c331caac6ceddecffb4e425a514"
+      },
+      {
+        "bytes": 2953,
+        "path": "crates/lila-intl/data/cldr-47-bcp47/manifest.json",
+        "sha256": "71a427fdc899544cb7ff29bc84c0c0f1fb5c29cbd80a35336ace332004235ff7"
+      },
+      {
+        "bytes": 30852,
+        "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
+        "sha256": "147834564cc59a9ae0e1a127aa7fe661e250fac6151486cd3dddab3e1c943f53"
+      },
+      {
+        "bytes": 4610,
+        "path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
+        "sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5"
+      },
+      {
+        "bytes": 1223,
+        "path": "crates/lila-intl/data/datetime-cldr-47/selector.json",
+        "sha256": "bf6b6390769997731252f5209cd2e4b4ed60fcbcded07f78816c7180145db6de"
+      },
+      {
+        "bytes": 57469,
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/catalogue.tsv",
+        "sha256": "bd10c0094e5542508260bb02480f202203cc106252b692e8260070c5cec8436a"
+      },
+      {
+        "bytes": 20775,
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/manifest.json",
+        "sha256": "f3c4af40980a367a0edc3d0faf0f7287c16b1961804c1d35840d49d331774775"
+      },
+      {
+        "bytes": 51680,
+        "path": "crates/lila-intl/data/locale-hour-cycles-cldr-47/profile.json",
+        "sha256": "0f3b05c2da0fc33d4b89869a9b8e294e0250909a8119e470824865ce923372a6"
+      },
+      {
+        "bytes": 11416,
+        "path": "crates/lila-intl/data/locale-text-cldr-47/profile.json",
+        "sha256": "b85256e1db8dc6a087cd02af4e3ca27348f41f545d8ba072beda7e0f1e5a7fd3"
+      },
+      {
+        "bytes": 8141,
+        "path": "crates/lila-intl/data/locale-time-zones-iana2026a/regions.tsv",
+        "sha256": "c72778a1dfbf69cfb28b0c78e8c00054ea44c8ac13eaf398d82e887759044d43"
+      },
+      {
+        "bytes": 18822,
+        "path": "crates/lila-intl/data/locale-time-zones-iana2026a/zone.tab",
+        "sha256": "586b4207e6c76722de82adcda6bf49d761f668517f45a673f64da83b333eecc4"
+      },
+      {
+        "bytes": 24415,
+        "path": "crates/lila-intl/data/locale-week-cldr-47/profile.json",
+        "sha256": "32464118c9ed0333083a695069825245f29572038a6e80c6c56675f7065c18c8"
+      },
+      {
+        "bytes": 8381,
+        "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/bcp47/number.xml",
+        "sha256": "0c10e9578f2191527475d0f57105d56c399b2f44425ceebadf474e50157abbb6"
+      },
+      {
+        "bytes": 290595,
+        "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/main/root.xml",
+        "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17"
+      },
+      {
+        "bytes": 11834,
+        "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/supplemental/numberingSystems.xml",
+        "sha256": "c5b9b208c6fe7bd3ce4e1c6cbb8f3337480aca620c9cf703ef3b6c74d4258c16"
+      },
+      {
+        "bytes": 960,
+        "path": "crates/lila-intl/data/numbering-tols-cldr-48/source-manifest.json",
+        "sha256": "c0b70b5f5ffc5940c8f47e97ec99bd9c5596e1b81613901bffaa9a80323dc62f"
+      },
+      {
+        "bytes": 2198209,
+        "path": "crates/lila-intl/data/numbering-tols-cldr-48/ucd/UnicodeData.txt",
+        "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c"
+      },
+      {
+        "bytes": 3280,
+        "path": "crates/lila-intl/data/zone-names-cldr-47/manifest.json",
+        "sha256": "51a23e38b7a70a0fd831c4c9779d72d9fc75bf85f4ac86ad23d4f82da7abafbd"
+      },
+      {
+        "bytes": 686,
+        "path": "crates/lila-intl/data/zone-names-cldr-47/native-profile-manifest.json",
+        "sha256": "a6d46d42cc3be1bc14e87b8c7ee911e097233548e79676d650c59ecbb70644c9"
+      },
+      {
+        "bytes": 160640,
+        "path": "crates/lila-intl/data/zone-names-cldr-47/native-profile.json",
+        "sha256": "52508dfd4f0bca47b39443589c97e959361f1f57d7324876f0b681b0509012f4"
+      },
+      {
+        "bytes": 13920,
+        "path": "crates/lila-intl/src/datetime.rs",
+        "sha256": "5af6c557f72da03b49f24c449b93745e1d8fa9a1a30ba0dd24251380e8533163"
+      },
+      {
+        "bytes": 4292,
+        "path": "crates/lila-intl/src/datetime/input.rs",
+        "sha256": "36084a4e8daebb68fa8dd8783ebc7597ff5dd36f7a918f46b5159aa2dfccebfb"
+      },
+      {
+        "bytes": 13862,
+        "path": "crates/lila-intl/src/datetime_image.rs",
+        "sha256": "15c440cdeff5fcd666efd6b550c24d7aee379cf2ad6b4be37ea8de4583d4ac96"
+      },
+      {
+        "bytes": 32331,
+        "path": "crates/lila-intl/src/datetime_image/projection.rs",
+        "sha256": "2297045c5c11e3ab25a6d41c19dd2d66a8b17ffa0bf079b57efa96a7abd93e45"
+      },
+      {
+        "bytes": 26104,
+        "path": "crates/lila-intl/src/datetime_protocol.rs",
+        "sha256": "aef97895e868134efb99b1d5b425ce6c4c91ba5ebe55b3fbd029ffac2316abb4"
+      },
+      {
+        "bytes": 8388,
+        "path": "crates/lila-intl/src/identifiers.rs",
+        "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
+      },
+      {
+        "bytes": 10333,
+        "path": "crates/lila-intl/src/image.rs",
+        "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+      },
+      {
+        "bytes": 1367,
+        "path": "crates/lila-intl/src/image_build/calendar.rs",
+        "sha256": "608b356c15c168141156b16db1a5876265515420671c43d879f490be34b6afaa"
+      },
+      {
+        "bytes": 1366,
+        "path": "crates/lila-intl/src/image_build/keyword.rs",
+        "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+      },
+      {
+        "bytes": 1473,
+        "path": "crates/lila-intl/src/image_build/locale.rs",
+        "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+      },
+      {
+        "bytes": 2305,
+        "path": "crates/lila-intl/src/image_build/named_time_zones.rs",
+        "sha256": "46b01024c8edcd0d5471884c096049e48b12cba7cdf6bbc25331e097c6a3f754"
+      },
+      {
+        "bytes": 41350,
+        "path": "crates/lila-intl/src/lib.rs",
+        "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+      },
+      {
+        "bytes": 6504,
+        "path": "crates/lila-intl/src/locale_image.rs",
+        "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+      },
+      {
+        "bytes": 13601,
+        "path": "crates/lila-intl/src/locale_information_wire.rs",
+        "sha256": "a9e496c66ff718f1de05d2a42910f6bb10ca5c7a911dcd2b75a74c866d787b4c"
+      },
+      {
+        "bytes": 7372,
+        "path": "crates/lila-intl/src/named_time_zone_image.rs",
+        "sha256": "e0965ad8ece236878a6f74834e05f9c37cf41256bbeab1e8e65730e4559c5b09"
+      },
+      {
+        "bytes": 5671,
+        "path": "crates/lila-intl/src/named_time_zone_image/projection.rs",
+        "sha256": "f8ff3b45267a43ec47e000d90e516dbcb8ec1d76c51202f2f2eb620200d41422"
+      },
+      {
+        "bytes": 10243,
+        "path": "crates/lila-intl/src/native_locale_information_image.rs",
+        "sha256": "42f9ac832fd5a4a05741795304f5a32b087fd94a87b5ac1d2a0eb51eba95b2ef"
+      },
+      {
+        "bytes": 49955,
+        "path": "crates/lila-intl/src/protocol.rs",
+        "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+      },
+      {
+        "bytes": 80443,
+        "path": "crates/lila-intl/src/provider.rs",
+        "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+      },
+      {
+        "bytes": 2251,
+        "path": "crates/lila-intl/src/provider/conformance.rs",
+        "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
+      },
+      {
+        "bytes": 10940,
+        "path": "crates/lila-intl/src/provider/datetime.rs",
+        "sha256": "e7e7d3b1b299cfeda34445787b2ac9f6498c884a8cbc37cf2121ebcdd24f1eb4"
+      },
+      {
+        "bytes": 2951,
+        "path": "crates/lila-intl/src/provider/datetime/calendar.rs",
+        "sha256": "84e43df4f482dfd80a0571af3dca123225af917dde4f6f673534e46af9eee0a9"
+      },
+      {
+        "bytes": 2056,
+        "path": "crates/lila-intl/src/provider/datetime/calendar/kernels.rs",
+        "sha256": "82ec577af02d6be00dbadead5eb14d8e68cf8666e351036b3db9cc90553a7508"
+      },
+      {
+        "bytes": 6885,
+        "path": "crates/lila-intl/src/provider/datetime/calendar/kind.rs",
+        "sha256": "caaeb6a616d2c62d76d41b0051bc723bcd8b59aa9dee95f9c1ff983cf0f284c5"
+      },
+      {
+        "bytes": 4874,
+        "path": "crates/lila-intl/src/provider/datetime/calendar/month.rs",
+        "sha256": "26e2c4ca257535b5885b931ceed239b5922f2ef0577243ce89c4afd88d8552b5"
+      },
+      {
+        "bytes": 4410,
+        "path": "crates/lila-intl/src/provider/datetime/calendar/names.rs",
+        "sha256": "398a73a331d27a8acc4a4f69e4b87120210fd1d8fde81bc092a30c7108367b92"
+      },
+      {
+        "bytes": 4382,
+        "path": "crates/lila-intl/src/provider/datetime/calendar/projection.rs",
+        "sha256": "997ac3b1fa7b0f9b9b0bc0a57fc37b6b22d905167c5640a65738dc3226f33ac8"
+      },
+      {
+        "bytes": 9879674,
+        "path": "crates/lila-intl/src/provider/datetime/generated/profile.json",
+        "sha256": "d3d14013b9ba016931571bf0e3dbad33d2cbfec0a0d3040fbf6cc4c515d09eb5"
+      },
+      {
+        "bytes": 328,
+        "path": "crates/lila-intl/src/provider/datetime/identity.rs",
+        "sha256": "f9984b289ecc339b43be5e2931e7d7770300686bcba7f9ba454f1d263e43479d"
+      },
+      {
+        "bytes": 8596,
+        "path": "crates/lila-intl/src/provider/datetime/locale.rs",
+        "sha256": "757ca8510e506479e1a8d5d1540fe076aab2a3142ae3f6ab44ac2de85348ad1a"
+      },
+      {
+        "bytes": 8751,
+        "path": "crates/lila-intl/src/provider/datetime/names.rs",
+        "sha256": "01291e887370e9ded2cffe88099e32270449b26035496d5cb9cb3e4abc8f7938"
+      },
+      {
+        "bytes": 12682,
+        "path": "crates/lila-intl/src/provider/datetime/pattern.rs",
+        "sha256": "4a94eda75400e625fbf61a55fa041c7cc926eb8d6ca413483e18267d4159496c"
+      },
+      {
+        "bytes": 1302,
+        "path": "crates/lila-intl/src/provider/datetime/pattern/range_endpoint.rs",
+        "sha256": "8e34eba2c90512f80a406f074540919d8ae85d1b5ef989bb4386a57b6adc425a"
+      },
+      {
+        "bytes": 6725,
+        "path": "crates/lila-intl/src/provider/datetime/plan.rs",
+        "sha256": "d493f96d2578ec969b32b4edd8b41687c080eb49d27c136844bdcd26ae23e531"
+      },
+      {
+        "bytes": 7382,
+        "path": "crates/lila-intl/src/provider/datetime/plan/adjustment.rs",
+        "sha256": "14fe0a985cb890463a449245581cd69e02634801ea8e23176c88dc1ccd81c79a"
+      },
+      {
+        "bytes": 9073,
+        "path": "crates/lila-intl/src/provider/datetime/plan/candidates.rs",
+        "sha256": "feb20f42f19b180303feee7703ba72f57a6d5d123e9d3b2d265f94fa3c22b258"
+      },
+      {
+        "bytes": 8926,
+        "path": "crates/lila-intl/src/provider/datetime/plan/components.rs",
+        "sha256": "771881f9c6f930d3a969c57406bdb67ff5254f63c4814bf314c38a3cc2dbcd0f"
+      },
+      {
+        "bytes": 12934,
+        "path": "crates/lila-intl/src/provider/datetime/profile.rs",
+        "sha256": "5f600278c64b13821435b4e96672b07245794f2749157d1a2b619c37b50f39a5"
+      },
+      {
+        "bytes": 11708,
+        "path": "crates/lila-intl/src/provider/datetime/profile/construction.rs",
+        "sha256": "a263d41c7f06e084dd45c3f4bd835d3cd5225d0870a209b97447cd4ed9d4ae24"
+      },
+      {
+        "bytes": 5391,
+        "path": "crates/lila-intl/src/provider/datetime/profile/pools.rs",
+        "sha256": "dd7bb34bba389d416a7b0f368087490e2db715fa3541a72de883dc90b74f25d3"
+      },
+      {
+        "bytes": 5964,
+        "path": "crates/lila-intl/src/provider/datetime/profile/recipe.rs",
+        "sha256": "059bbe409c6ba60d49ac399f51dbaa19752b73012414e1421efe041787a56bd7"
+      },
+      {
+        "bytes": 6568,
+        "path": "crates/lila-intl/src/provider/datetime/ranges.rs",
+        "sha256": "425211357dbdac6cb9c53ab0f67e82833e78e5802c19d11f79bca6026c12edf6"
+      },
+      {
+        "bytes": 8078,
+        "path": "crates/lila-intl/src/provider/datetime/ranges/selection.rs",
+        "sha256": "28fab16b8664811458c290ae590d27512e424c632b6976ceacb1cd3c1755066f"
+      },
+      {
+        "bytes": 8259,
+        "path": "crates/lila-intl/src/provider/datetime/raw.rs",
+        "sha256": "e8401c19d1e0bcd08fbbdec7e4e33a7acd399207a031e98a2ba2ee440e0cf711"
+      },
+      {
+        "bytes": 5701,
+        "path": "crates/lila-intl/src/provider/datetime/render.rs",
+        "sha256": "786f79dde4e9678e96af17539512af5eef2099490816127a3cff10f60696af66"
+      },
+      {
+        "bytes": 9076,
+        "path": "crates/lila-intl/src/provider/datetime/render/fields.rs",
+        "sha256": "27b45b0f5493aae47341a7507b1ad078eee62c4d568745ce9c9257432e7af055"
+      },
+      {
+        "bytes": 5544,
+        "path": "crates/lila-intl/src/provider/datetime/validation.rs",
+        "sha256": "d21d51799233f12d8458d6da34aa20f8be681e377ef663b4a97d207f8833f5d9"
+      },
+      {
+        "bytes": 7827,
+        "path": "crates/lila-intl/src/provider/datetime/zones.rs",
+        "sha256": "7d7d61b7720ef25c057387ac973400ac98ba513f81de30d4daa5dc51a9ac4abe"
+      },
+      {
+        "bytes": 2802,
+        "path": "crates/lila-intl/src/provider/datetime/zones/records.rs",
+        "sha256": "721d3e6ac55e5282d2d30ea6a13b5199c89f2a661b90f17df939e9f6fc7d40c1"
+      },
+      {
+        "bytes": 5492,
+        "path": "crates/lila-intl/src/provider/datetime/zones/validation.rs",
+        "sha256": "5dffbd4ce565ac6464e2235d9a53d45385164547b7a461ab5a6f18972f834228"
+      },
+      {
+        "bytes": 17530,
+        "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+        "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      },
+      {
+        "bytes": 4101,
+        "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+        "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+      },
+      {
+        "bytes": 21618,
+        "path": "crates/lila-intl/src/provider/language_domain.rs",
+        "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+      },
+      {
+        "bytes": 4336,
+        "path": "crates/lila-intl/src/provider/locale_calendars.rs",
+        "sha256": "00af5f4776e5a0b6f576f58c6e9aba49d52ec7cef1c0b54da2f00c2eacc3b433"
+      },
+      {
+        "bytes": 6238,
+        "path": "crates/lila-intl/src/provider/locale_calendars/profile.rs",
+        "sha256": "1b86e787849aef02fb4a6d1ce2c37d78e019f959b94ae8e834f0bd04ecaccf86"
+      },
+      {
+        "bytes": 1073,
+        "path": "crates/lila-intl/src/provider/locale_calendars/record.rs",
+        "sha256": "0926e12f9a8606307ac6b89ffe35b42213f0f4ee1c34b5b6f14beda3e8bbc054"
+      },
+      {
+        "bytes": 3395,
+        "path": "crates/lila-intl/src/provider/locale_hour_cycles.rs",
+        "sha256": "f2af7809dfca6cb2b895a81361d14fbf44c671f1f0d6749253bc731802f24342"
+      },
+      {
+        "bytes": 5709,
+        "path": "crates/lila-intl/src/provider/locale_hour_cycles/profile.rs",
+        "sha256": "103454663ed9b6aba209afec840bc4c9bb4ecc5b17f40b7daf953259e9c3c70f"
+      },
+      {
+        "bytes": 1037,
+        "path": "crates/lila-intl/src/provider/locale_hour_cycles/record.rs",
+        "sha256": "046ca2e4063d9f011854c49b289770fb67511e2fed03e6c5b8071a39553f3d37"
+      },
+      {
+        "bytes": 1726,
+        "path": "crates/lila-intl/src/provider/locale_text.rs",
+        "sha256": "f22fbe72741acb3a01a046f3fc22faa8ab1986d767cc51fe993555375498a4f2"
+      },
+      {
+        "bytes": 3566,
+        "path": "crates/lila-intl/src/provider/locale_text/profile.rs",
+        "sha256": "fdcf3e6fe1ecb78011de4338c16ea62c91a0027176946e0bb740910335a5f43b"
+      },
+      {
+        "bytes": 640,
+        "path": "crates/lila-intl/src/provider/locale_text/record.rs",
+        "sha256": "a56c0b3995ade7d354712f00a76c63a75eeb522705a71e5cd5afc649748efdef"
+      },
+      {
+        "bytes": 1604,
+        "path": "crates/lila-intl/src/provider/locale_text/script.rs",
+        "sha256": "c77a8feaa51412ce121b7da490a4863fbc38a25e66f56d83fa2070736bc45643"
+      },
+      {
+        "bytes": 8563,
+        "path": "crates/lila-intl/src/provider/locale_time_zones.rs",
+        "sha256": "9d461c9b1b905cf299543e3c95bb2ade3b0e2b4f1defeca09b9fda5b8930e17a"
+      },
+      {
+        "bytes": 2444,
+        "path": "crates/lila-intl/src/provider/locale_week.rs",
+        "sha256": "50c962da42f1d701cd49aa718bc896efab0ad533f34c702c0f71c615e8fc8798"
+      },
+      {
+        "bytes": 3410,
+        "path": "crates/lila-intl/src/provider/locale_week/profile.rs",
+        "sha256": "fd81900be61d92c6d5012d97017b5769e38717d84f0ccf419fa5964c67b3ba7c"
+      },
+      {
+        "bytes": 3678,
+        "path": "crates/lila-intl/src/provider/locale_week/record.rs",
+        "sha256": "046d42b879544fa28d58590aefd968d7aaac09da0585f4e51b0f5180fbbdc415"
+      },
+      {
+        "bytes": 565,
+        "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
+        "sha256": "a3d520962681e1928a3784be05f80cf2466f12e0884136ae950f3f3a385cc3d5"
+      },
+      {
+        "bytes": 5089,
+        "path": "crates/lila-intl/src/provider/region_preference.rs",
+        "sha256": "f9cddf291e053fb1980fea123ca06b8053ea7566ea9b15e2e24b9b917c489d66"
+      },
+      {
+        "bytes": 20672,
+        "path": "crates/lila-intl/src/provider/time_zone_names.rs",
+        "sha256": "4e89e338554cf66bba18962cc16705b104f3ca12870d63d8981a058ecd039583"
+      },
+      {
+        "bytes": 1169,
+        "path": "crates/lila-intl/src/provider/time_zone_names/raw.rs",
+        "sha256": "87870d188a6966f848dfbae2f6817edcb5da653bf048486dfe2f9442b1c06615"
+      },
+      {
+        "bytes": 1882,
+        "path": "crates/lila-intl/src/provider/time_zone_snapshot.rs",
+        "sha256": "3c6affbd6c7281eefeb6c73f928fe69733cb5bdf05f4fb29e35da2a4dcdc34b6"
+      },
+      {
+        "bytes": 54634,
+        "path": "crates/lila-intl/src/selection.rs",
+        "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+      },
+      {
+        "bytes": 21454,
+        "path": "crates/lila-intl/src/selection/export.rs",
+        "sha256": "1ff9becaa320301f1ae1f1dcc85d468b4546d1aa86f33c31db9f35418408d97e"
+      },
+      {
+        "bytes": 35819,
+        "path": "crates/lila-intl/src/selection/manifest.rs",
+        "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
+      },
+      {
+        "bytes": 7999,
+        "path": "crates/lila-intl/src/service_selection.rs",
+        "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
+      },
+      {
+        "bytes": 5226,
+        "path": "crates/lila-intl/src/time_zone_names_image.rs",
+        "sha256": "77f90d8e57b0d0c063cbd8ac30957ebc12b27811a3806b106f76428a9cb2ad33"
+      },
+      {
+        "bytes": 5148,
+        "path": "crates/lila-intl/src/time_zone_names_image/projection.rs",
+        "sha256": "1840ff3eb7ac03353584c0c02ce7f86b0be5a21660c1a3d9d388decb6878d86c"
+      },
+      {
+        "bytes": 8630,
+        "path": "scripts/generate-intl-datetime-identity.py",
+        "sha256": "cf9ce43521b5cf7390fed74a1632dee0b5159801a3dc6b4bf60f1e43dfb9fd06"
+      },
+      {
+        "bytes": 18118,
+        "path": "scripts/generate-intl-datetime-profile.py",
+        "sha256": "1c5cfa397e2a9c69d94fa3ddefe7014dbde0046d62e30feef5177d770695a39e"
+      },
+      {
+        "bytes": 9139,
+        "path": "scripts/generate-intl-keyword-aliases.py",
+        "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
+      },
+      {
+        "bytes": 13915,
+        "path": "scripts/generate-intl-locale-calendars-profile.py",
+        "sha256": "83187fcfefa7517d6285d11802e39ed2213a02e06cdd8d4f0650e74a3db22013"
+      },
+      {
+        "bytes": 22012,
+        "path": "scripts/generate-intl-time-zone-names.py",
+        "sha256": "d416f1bef337fcba68470a4025083b2dc1a565ad7256483c12cf5e5212790fbc"
+      },
+      {
+        "bytes": 3932,
+        "path": "scripts/intl_calendar_eras.py",
+        "sha256": "336084a24f6a55bb580583516326f56d07590e0dfe9729b72df56fd9fd1b2f0b"
+      },
+      {
+        "bytes": 14260,
+        "path": "scripts/intl_cldr_profile.py",
+        "sha256": "502cf9ce1a0b98e11aa1670ab41dfd4d3cb6054b468ab618b7a8fc75c09956e2"
+      },
+      {
+        "bytes": 4424,
+        "path": "scripts/intl_datetime_names.py",
+        "sha256": "0b7a70396c4b13889ca912bacac444a4fa49852ea62128922ed176832615bfeb"
+      },
+      {
+        "bytes": 5338,
+        "path": "scripts/intl_datetime_patterns.py",
+        "sha256": "a32bc4a5959f09d158605542584b82274c6ce2a443e36572ed4b04949675eab6"
+      },
+      {
+        "bytes": 7526,
+        "path": "scripts/intl_datetime_pool.py",
+        "sha256": "49f86be90b50fdf8f9e20502b378cd2f7fb672a093af91b4b19437c3ff1109a3"
+      },
+      {
+        "bytes": 4680,
+        "path": "scripts/intl_datetime_zones.py",
+        "sha256": "7e075fc6dd49f3c9da042f59ebbfdf8840b794f4b7dfa1b50d832cf9cc3c4765"
+      },
+      {
+        "bytes": 3323,
+        "path": "scripts/intl_ldml_schema.py",
+        "sha256": "d5c046d9060a741cd8d86fab179c56ad489e922007da238255e71c2c9ec12b3a"
+      },
+      {
+        "bytes": 5622,
+        "path": "scripts/intl_positional_numbering.py",
+        "sha256": "295624436d4935cc11015bae2643427caf09f38d08bf4fdc1886a0a95a40bf15"
+      },
+      {
+        "bytes": 8279,
+        "path": "scripts/intl_rbnf_fields.py",
+        "sha256": "79da8713445249f480cf2c64b92b82dc9fc312d13ee240b1d0213cf5ed111978"
+      },
+      {
+        "bytes": 3266,
+        "path": "vendor/icu_calendar-2.0.6/Cargo.toml",
+        "sha256": "133164f2c7c66053988a55b15ca4364f8ae03ae52836f2094630cde3eaf9351c"
+      },
+      {
+        "bytes": 70604,
+        "path": "vendor/icu_calendar-2.0.6/src/any_calendar.rs",
+        "sha256": "cc32d3d9f37d603b2d091d6991d9e9b9860cf0dd9de4bfb800bb21380a6e5421"
+      },
+      {
+        "bytes": 13336,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/buddhist.rs",
+        "sha256": "eac3e9ad36e24fdfc96b90775f7ef0e0ab3453f0c1ca4eb15559432910f275cf"
+      },
+      {
+        "bytes": 35659,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/chinese.rs",
+        "sha256": "34ea430df803d09634272c4f92bb337d488ef3951f7ffb4f09e0c7161cf20121"
+      },
+      {
+        "bytes": 15867,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/chinese_based.rs",
+        "sha256": "30e5b9f4ecba3c383932f1da226387ec492524aef1d288a933b57471246a634b"
+      },
+      {
+        "bytes": 6530,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/chinese_based/construction.rs",
+        "sha256": "39427b322421a06558c718ac41bd4049d015ab121c7e8ebc070bcc95ee2f376b"
+      },
+      {
+        "bytes": 8821,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/chinese_based/proleptic.rs",
+        "sha256": "df019d42f253fd509d2961db309b8c3689995da5c8c7fb5eda0c57d086b68c2a"
+      },
+      {
+        "bytes": 7274,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/coptic.rs",
+        "sha256": "2462e5f644e3dbeeef8f907f35cb4768ec629360783e327b584bbc1f34d6a5ff"
+      },
+      {
+        "bytes": 30892,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/dangi.rs",
+        "sha256": "861ff280e22a58d5093d4bab24cd1752b2ddba883e4dfca5576279fe0665bc25"
+      },
+      {
+        "bytes": 12933,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/ethiopian.rs",
+        "sha256": "34a9116c624c649909ff75dfe1920ea409d30b6d3ec7582ecce8f495abd66ed7"
+      },
+      {
+        "bytes": 13194,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/gregorian.rs",
+        "sha256": "0f17844e2e5e7b6e318f1ab45c0dea9115826a3234a137861f8ef3938bf7287a"
+      },
+      {
+        "bytes": 17580,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/hebrew.rs",
+        "sha256": "6d19e5219dd63e2ba7bac805653710b0cd84df758e7a85ab1944a8bef519e550"
+      },
+      {
+        "bytes": 63307,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/hijri.rs",
+        "sha256": "33d4eec9dc4f35e656ecf20c21491a683c8d46a75756bdcc8e92a0f0abc186c6"
+      },
+      {
+        "bytes": 29942,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/hijri/ummalqura_data.rs",
+        "sha256": "4a13aa6eba8a02ef150971007f4f10fc6e1f0ddad44a1baeac651edd10a82920"
+      },
+      {
+        "bytes": 15780,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/indian.rs",
+        "sha256": "3d93134cd78b1e49c264eb0d345038e6448bf9ced1d0e1d3067b9cb6c4d8550a"
+      },
+      {
+        "bytes": 19463,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/iso.rs",
+        "sha256": "101b81918a873cb58cdca2e98fa4349ca04c88b2cb6401c56244c7df44bebba9"
+      },
+      {
+        "bytes": 31935,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/japanese.rs",
+        "sha256": "80ae17bb05141e2d91065f49b2aa8a41d37f6ecafed676ed94fa6b047fc44bc2"
+      },
+      {
+        "bytes": 17054,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/julian.rs",
+        "sha256": "f5191def5442543bae6c1ae6a443ffd8ccd69c87361e21c035da52c190fac3d7"
+      },
+      {
+        "bytes": 1670,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/mod.rs",
+        "sha256": "77450c6949e36e8496350d3664bd35aead278f4898ba543acfd8b1ca90ce848d"
+      },
+      {
+        "bytes": 23407,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/persian.rs",
+        "sha256": "90b27551fe24de57d859c732ee034cc2cc4a60581472dc2ece174fa62f3deaef"
+      },
+      {
+        "bytes": 15402,
+        "path": "vendor/icu_calendar-2.0.6/src/cal/roc.rs",
+        "sha256": "c82aca51e24dd038cdc7a1b36d86b5c058f92753df20db8aac7282c057d6a079"
+      },
+      {
+        "bytes": 4500,
+        "path": "vendor/icu_calendar-2.0.6/src/calendar.rs",
+        "sha256": "976ef558a0574c717d214cb4d1464885ed79d0fc1f3668d775106f8eb66870be"
+      },
+      {
+        "bytes": 14348,
+        "path": "vendor/icu_calendar-2.0.6/src/calendar_arithmetic.rs",
+        "sha256": "f22cd14476b67e59c9b18d211c79bc2b9f0a5e9904d88add497cccd624c8d855"
+      },
+      {
+        "bytes": 16399,
+        "path": "vendor/icu_calendar-2.0.6/src/date.rs",
+        "sha256": "91a3b142b48783d6fd4e508bc9bf07026c668ec72f795c269379324507d230d3"
+      },
+      {
+        "bytes": 4871,
+        "path": "vendor/icu_calendar-2.0.6/src/duration.rs",
+        "sha256": "65bde57c0af6bd8b146b92bb45bb14f661c918defe6bd388b51569503ec8bd33"
+      },
+      {
+        "bytes": 2596,
+        "path": "vendor/icu_calendar-2.0.6/src/error.rs",
+        "sha256": "c01e5adebd4be2b6287173a02623a2ff20afa2269d9e2ba4ecc01b643c7189cf"
+      },
+      {
+        "bytes": 4381,
+        "path": "vendor/icu_calendar-2.0.6/src/ixdtf.rs",
+        "sha256": "691dd80767b1d9f4f5aa2202303b49df38f2cf6699c6976ba44d5aae74fa3073"
+      },
+      {
+        "bytes": 4938,
+        "path": "vendor/icu_calendar-2.0.6/src/lib.rs",
+        "sha256": "2a10cdd624c9dbce2d8490acaf7f115ce96219bf659dfcc0d6181c132968ed19"
+      },
+      {
+        "bytes": 12746,
+        "path": "vendor/icu_calendar-2.0.6/src/provider.rs",
+        "sha256": "a5765a93b221479ea39ba8d1d2476b4874d3ad25c53ad78d80948a49927f15f7"
+      },
+      {
+        "bytes": 12299,
+        "path": "vendor/icu_calendar-2.0.6/src/provider/chinese_based.rs",
+        "sha256": "a0d75b6f1a443f8c6d4bd388ebf766732cb53c5485673b064d771744077bd672"
+      },
+      {
+        "bytes": 7661,
+        "path": "vendor/icu_calendar-2.0.6/src/provider/hijri.rs",
+        "sha256": "693afc6b18b7dc6280deed3e3d3a386eeb3cd41d8ca3681a34d3e00ca6b390ed"
+      },
+      {
+        "bytes": 7877,
+        "path": "vendor/icu_calendar-2.0.6/src/tests/continuity_test.rs",
+        "sha256": "d3c97c72efc0b23d0cdf55e2911f4962fa0f55e8261019a929f2fc7d8c6a680b"
+      },
+      {
+        "bytes": 224,
+        "path": "vendor/icu_calendar-2.0.6/src/tests/mod.rs",
+        "sha256": "0925663ff594ebac9892d652d3576a9bc1ed938b2e4ee7a6d23a641899e8bf5a"
+      },
+      {
+        "bytes": 12665,
+        "path": "vendor/icu_calendar-2.0.6/src/types.rs",
+        "sha256": "fced40c1477ca7d66edbea8597c21bf233deb7d3fe0e72addbff03a6291862fc"
+      },
+      {
+        "bytes": 23399,
+        "path": "vendor/icu_calendar-2.0.6/src/week.rs",
+        "sha256": "803b68991584f3cee05bf051db601c0207f266b9139fa27731d0bc55b1cae88d"
+      }
+    ]
+  },
+  "kernel_sha256": "59d0a1893213875e2d6bfa47adfd7dc683863b9ed3f2cb3e0a06a9aff8f107ab",
+  "language_region_selector_count": 0,
+  "normative_source": "https://tc39.es/ecma402/#sec-calendarsoflocale",
+  "ordering": "calendar preference order; canonical BCP47 aliases; stable uniqueness; runtime filter against actual checked DateTime AvailableCalendars",
+  "primary_manifest_path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
+  "primary_manifest_sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5",
+  "profile_sha256": "fcb074bd730a2c73a58a3c11a040a46efb959b35dc8e4a0457d955a7d9d722fe",
+  "raw_calendarPreferenceData_rows": [
+    {
+      "canonical_calendars": [
+        "gregory"
+      ],
+      "ordering": "gregorian",
+      "selectors": [
+        "001"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "ordering": "gregorian islamic islamic-civil islamic-tbla",
+      "selectors": [
+        "BD",
+        "DJ",
+        "DZ",
+        "EH",
+        "ER",
+        "ID",
+        "IQ",
+        "JO",
+        "KM",
+        "LB",
+        "LY",
+        "MA",
+        "MR",
+        "MY",
+        "NE",
+        "OM",
+        "PK",
+        "PS",
+        "SD",
+        "SY",
+        "TD",
+        "TN",
+        "YE"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "ordering": "gregorian islamic-civil islamic-tbla",
+      "selectors": [
+        "AL",
+        "AZ",
+        "MV",
+        "TJ",
+        "TM",
+        "TR",
+        "UZ",
+        "XK"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "ordering": "gregorian islamic-umalqura islamic islamic-civil islamic-tbla",
+      "selectors": [
+        "AE",
+        "BH",
+        "KW",
+        "QA"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "persian",
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "ordering": "persian gregorian islamic islamic-civil islamic-tbla",
+      "selectors": [
+        "AF",
+        "IR"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "ordering": "gregorian chinese",
+      "selectors": [
+        "CN",
+        "CX",
+        "HK",
+        "MO",
+        "SG"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "coptic",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "ordering": "gregorian coptic islamic islamic-civil islamic-tbla",
+      "selectors": [
+        "EG"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "ethiopic"
+      ],
+      "ordering": "gregorian ethiopic",
+      "selectors": [
+        "ET"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "hebrew",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "ordering": "gregorian hebrew islamic islamic-civil islamic-tbla",
+      "selectors": [
+        "IL"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "indian"
+      ],
+      "ordering": "gregorian indian",
+      "selectors": [
+        "IN"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "japanese"
+      ],
+      "ordering": "gregorian japanese",
+      "selectors": [
+        "JP"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "dangi"
+      ],
+      "ordering": "gregorian dangi",
+      "selectors": [
+        "KR"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-rgsa"
+      ],
+      "ordering": "gregorian islamic-umalqura islamic islamic-rgsa",
+      "selectors": [
+        "SA"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "buddhist",
+        "gregory"
+      ],
+      "ordering": "buddhist gregorian",
+      "selectors": [
+        "TH"
+      ]
+    },
+    {
+      "canonical_calendars": [
+        "gregory",
+        "roc",
+        "chinese"
+      ],
+      "ordering": "gregorian roc chinese",
+      "selectors": [
+        "TW"
+      ]
+    }
+  ],
+  "raw_node_count": 15,
+  "raw_selector_count": 52,
+  "region_availability": "territoryInfo plus active territoryContainment plus explicit preferences; exclude ZZ",
+  "region_inheritance": [
+    {
+      "region": "001",
+      "source_selector": "001"
+    },
+    {
+      "region": "002",
+      "source_selector": "001"
+    },
+    {
+      "region": "003",
+      "source_selector": "001"
+    },
+    {
+      "region": "005",
+      "source_selector": "001"
+    },
+    {
+      "region": "009",
+      "source_selector": "001"
+    },
+    {
+      "region": "011",
+      "source_selector": "001"
+    },
+    {
+      "region": "013",
+      "source_selector": "001"
+    },
+    {
+      "region": "014",
+      "source_selector": "001"
+    },
+    {
+      "region": "015",
+      "source_selector": "001"
+    },
+    {
+      "region": "017",
+      "source_selector": "001"
+    },
+    {
+      "region": "018",
+      "source_selector": "001"
+    },
+    {
+      "region": "019",
+      "source_selector": "001"
+    },
+    {
+      "region": "021",
+      "source_selector": "001"
+    },
+    {
+      "region": "029",
+      "source_selector": "001"
+    },
+    {
+      "region": "030",
+      "source_selector": "001"
+    },
+    {
+      "region": "034",
+      "source_selector": "001"
+    },
+    {
+      "region": "035",
+      "source_selector": "001"
+    },
+    {
+      "region": "039",
+      "source_selector": "001"
+    },
+    {
+      "region": "053",
+      "source_selector": "001"
+    },
+    {
+      "region": "054",
+      "source_selector": "001"
+    },
+    {
+      "region": "057",
+      "source_selector": "001"
+    },
+    {
+      "region": "061",
+      "source_selector": "001"
+    },
+    {
+      "region": "142",
+      "source_selector": "001"
+    },
+    {
+      "region": "143",
+      "source_selector": "001"
+    },
+    {
+      "region": "145",
+      "source_selector": "001"
+    },
+    {
+      "region": "150",
+      "source_selector": "001"
+    },
+    {
+      "region": "151",
+      "source_selector": "001"
+    },
+    {
+      "region": "154",
+      "source_selector": "001"
+    },
+    {
+      "region": "155",
+      "source_selector": "001"
+    },
+    {
+      "region": "202",
+      "source_selector": "001"
+    },
+    {
+      "region": "419",
+      "source_selector": "001"
+    },
+    {
+      "region": "AC",
+      "source_selector": "001"
+    },
+    {
+      "region": "AD",
+      "source_selector": "001"
+    },
+    {
+      "region": "AE",
+      "source_selector": "AE"
+    },
+    {
+      "region": "AF",
+      "source_selector": "AF"
+    },
+    {
+      "region": "AG",
+      "source_selector": "001"
+    },
+    {
+      "region": "AI",
+      "source_selector": "001"
+    },
+    {
+      "region": "AL",
+      "source_selector": "AL"
+    },
+    {
+      "region": "AM",
+      "source_selector": "001"
+    },
+    {
+      "region": "AO",
+      "source_selector": "001"
+    },
+    {
+      "region": "AQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "AR",
+      "source_selector": "001"
+    },
+    {
+      "region": "AS",
+      "source_selector": "001"
+    },
+    {
+      "region": "AT",
+      "source_selector": "001"
+    },
+    {
+      "region": "AU",
+      "source_selector": "001"
+    },
+    {
+      "region": "AW",
+      "source_selector": "001"
+    },
+    {
+      "region": "AX",
+      "source_selector": "001"
+    },
+    {
+      "region": "AZ",
+      "source_selector": "AZ"
+    },
+    {
+      "region": "BA",
+      "source_selector": "001"
+    },
+    {
+      "region": "BB",
+      "source_selector": "001"
+    },
+    {
+      "region": "BD",
+      "source_selector": "BD"
+    },
+    {
+      "region": "BE",
+      "source_selector": "001"
+    },
+    {
+      "region": "BF",
+      "source_selector": "001"
+    },
+    {
+      "region": "BG",
+      "source_selector": "001"
+    },
+    {
+      "region": "BH",
+      "source_selector": "BH"
+    },
+    {
+      "region": "BI",
+      "source_selector": "001"
+    },
+    {
+      "region": "BJ",
+      "source_selector": "001"
+    },
+    {
+      "region": "BL",
+      "source_selector": "001"
+    },
+    {
+      "region": "BM",
+      "source_selector": "001"
+    },
+    {
+      "region": "BN",
+      "source_selector": "001"
+    },
+    {
+      "region": "BO",
+      "source_selector": "001"
+    },
+    {
+      "region": "BQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "BR",
+      "source_selector": "001"
+    },
+    {
+      "region": "BS",
+      "source_selector": "001"
+    },
+    {
+      "region": "BT",
+      "source_selector": "001"
+    },
+    {
+      "region": "BV",
+      "source_selector": "001"
+    },
+    {
+      "region": "BW",
+      "source_selector": "001"
+    },
+    {
+      "region": "BY",
+      "source_selector": "001"
+    },
+    {
+      "region": "BZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "CA",
+      "source_selector": "001"
+    },
+    {
+      "region": "CC",
+      "source_selector": "001"
+    },
+    {
+      "region": "CD",
+      "source_selector": "001"
+    },
+    {
+      "region": "CF",
+      "source_selector": "001"
+    },
+    {
+      "region": "CG",
+      "source_selector": "001"
+    },
+    {
+      "region": "CH",
+      "source_selector": "001"
+    },
+    {
+      "region": "CI",
+      "source_selector": "001"
+    },
+    {
+      "region": "CK",
+      "source_selector": "001"
+    },
+    {
+      "region": "CL",
+      "source_selector": "001"
+    },
+    {
+      "region": "CM",
+      "source_selector": "001"
+    },
+    {
+      "region": "CN",
+      "source_selector": "CN"
+    },
+    {
+      "region": "CO",
+      "source_selector": "001"
+    },
+    {
+      "region": "CP",
+      "source_selector": "001"
+    },
+    {
+      "region": "CQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "CR",
+      "source_selector": "001"
+    },
+    {
+      "region": "CU",
+      "source_selector": "001"
+    },
+    {
+      "region": "CV",
+      "source_selector": "001"
+    },
+    {
+      "region": "CW",
+      "source_selector": "001"
+    },
+    {
+      "region": "CX",
+      "source_selector": "CX"
+    },
+    {
+      "region": "CY",
+      "source_selector": "001"
+    },
+    {
+      "region": "CZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "DE",
+      "source_selector": "001"
+    },
+    {
+      "region": "DG",
+      "source_selector": "001"
+    },
+    {
+      "region": "DJ",
+      "source_selector": "DJ"
+    },
+    {
+      "region": "DK",
+      "source_selector": "001"
+    },
+    {
+      "region": "DM",
+      "source_selector": "001"
+    },
+    {
+      "region": "DO",
+      "source_selector": "001"
+    },
+    {
+      "region": "DZ",
+      "source_selector": "DZ"
+    },
+    {
+      "region": "EA",
+      "source_selector": "001"
+    },
+    {
+      "region": "EC",
+      "source_selector": "001"
+    },
+    {
+      "region": "EE",
+      "source_selector": "001"
+    },
+    {
+      "region": "EG",
+      "source_selector": "EG"
+    },
+    {
+      "region": "EH",
+      "source_selector": "EH"
+    },
+    {
+      "region": "ER",
+      "source_selector": "ER"
+    },
+    {
+      "region": "ES",
+      "source_selector": "001"
+    },
+    {
+      "region": "ET",
+      "source_selector": "ET"
+    },
+    {
+      "region": "EU",
+      "source_selector": "001"
+    },
+    {
+      "region": "EZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "FI",
+      "source_selector": "001"
+    },
+    {
+      "region": "FJ",
+      "source_selector": "001"
+    },
+    {
+      "region": "FK",
+      "source_selector": "001"
+    },
+    {
+      "region": "FM",
+      "source_selector": "001"
+    },
+    {
+      "region": "FO",
+      "source_selector": "001"
+    },
+    {
+      "region": "FR",
+      "source_selector": "001"
+    },
+    {
+      "region": "GA",
+      "source_selector": "001"
+    },
+    {
+      "region": "GB",
+      "source_selector": "001"
+    },
+    {
+      "region": "GD",
+      "source_selector": "001"
+    },
+    {
+      "region": "GE",
+      "source_selector": "001"
+    },
+    {
+      "region": "GF",
+      "source_selector": "001"
+    },
+    {
+      "region": "GG",
+      "source_selector": "001"
+    },
+    {
+      "region": "GH",
+      "source_selector": "001"
+    },
+    {
+      "region": "GI",
+      "source_selector": "001"
+    },
+    {
+      "region": "GL",
+      "source_selector": "001"
+    },
+    {
+      "region": "GM",
+      "source_selector": "001"
+    },
+    {
+      "region": "GN",
+      "source_selector": "001"
+    },
+    {
+      "region": "GP",
+      "source_selector": "001"
+    },
+    {
+      "region": "GQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "GR",
+      "source_selector": "001"
+    },
+    {
+      "region": "GS",
+      "source_selector": "001"
+    },
+    {
+      "region": "GT",
+      "source_selector": "001"
+    },
+    {
+      "region": "GU",
+      "source_selector": "001"
+    },
+    {
+      "region": "GW",
+      "source_selector": "001"
+    },
+    {
+      "region": "GY",
+      "source_selector": "001"
+    },
+    {
+      "region": "HK",
+      "source_selector": "HK"
+    },
+    {
+      "region": "HM",
+      "source_selector": "001"
+    },
+    {
+      "region": "HN",
+      "source_selector": "001"
+    },
+    {
+      "region": "HR",
+      "source_selector": "001"
+    },
+    {
+      "region": "HT",
+      "source_selector": "001"
+    },
+    {
+      "region": "HU",
+      "source_selector": "001"
+    },
+    {
+      "region": "IC",
+      "source_selector": "001"
+    },
+    {
+      "region": "ID",
+      "source_selector": "ID"
+    },
+    {
+      "region": "IE",
+      "source_selector": "001"
+    },
+    {
+      "region": "IL",
+      "source_selector": "IL"
+    },
+    {
+      "region": "IM",
+      "source_selector": "001"
+    },
+    {
+      "region": "IN",
+      "source_selector": "IN"
+    },
+    {
+      "region": "IO",
+      "source_selector": "001"
+    },
+    {
+      "region": "IQ",
+      "source_selector": "IQ"
+    },
+    {
+      "region": "IR",
+      "source_selector": "IR"
+    },
+    {
+      "region": "IS",
+      "source_selector": "001"
+    },
+    {
+      "region": "IT",
+      "source_selector": "001"
+    },
+    {
+      "region": "JE",
+      "source_selector": "001"
+    },
+    {
+      "region": "JM",
+      "source_selector": "001"
+    },
+    {
+      "region": "JO",
+      "source_selector": "JO"
+    },
+    {
+      "region": "JP",
+      "source_selector": "JP"
+    },
+    {
+      "region": "KE",
+      "source_selector": "001"
+    },
+    {
+      "region": "KG",
+      "source_selector": "001"
+    },
+    {
+      "region": "KH",
+      "source_selector": "001"
+    },
+    {
+      "region": "KI",
+      "source_selector": "001"
+    },
+    {
+      "region": "KM",
+      "source_selector": "KM"
+    },
+    {
+      "region": "KN",
+      "source_selector": "001"
+    },
+    {
+      "region": "KP",
+      "source_selector": "001"
+    },
+    {
+      "region": "KR",
+      "source_selector": "KR"
+    },
+    {
+      "region": "KW",
+      "source_selector": "KW"
+    },
+    {
+      "region": "KY",
+      "source_selector": "001"
+    },
+    {
+      "region": "KZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "LA",
+      "source_selector": "001"
+    },
+    {
+      "region": "LB",
+      "source_selector": "LB"
+    },
+    {
+      "region": "LC",
+      "source_selector": "001"
+    },
+    {
+      "region": "LI",
+      "source_selector": "001"
+    },
+    {
+      "region": "LK",
+      "source_selector": "001"
+    },
+    {
+      "region": "LR",
+      "source_selector": "001"
+    },
+    {
+      "region": "LS",
+      "source_selector": "001"
+    },
+    {
+      "region": "LT",
+      "source_selector": "001"
+    },
+    {
+      "region": "LU",
+      "source_selector": "001"
+    },
+    {
+      "region": "LV",
+      "source_selector": "001"
+    },
+    {
+      "region": "LY",
+      "source_selector": "LY"
+    },
+    {
+      "region": "MA",
+      "source_selector": "MA"
+    },
+    {
+      "region": "MC",
+      "source_selector": "001"
+    },
+    {
+      "region": "MD",
+      "source_selector": "001"
+    },
+    {
+      "region": "ME",
+      "source_selector": "001"
+    },
+    {
+      "region": "MF",
+      "source_selector": "001"
+    },
+    {
+      "region": "MG",
+      "source_selector": "001"
+    },
+    {
+      "region": "MH",
+      "source_selector": "001"
+    },
+    {
+      "region": "MK",
+      "source_selector": "001"
+    },
+    {
+      "region": "ML",
+      "source_selector": "001"
+    },
+    {
+      "region": "MM",
+      "source_selector": "001"
+    },
+    {
+      "region": "MN",
+      "source_selector": "001"
+    },
+    {
+      "region": "MO",
+      "source_selector": "MO"
+    },
+    {
+      "region": "MP",
+      "source_selector": "001"
+    },
+    {
+      "region": "MQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "MR",
+      "source_selector": "MR"
+    },
+    {
+      "region": "MS",
+      "source_selector": "001"
+    },
+    {
+      "region": "MT",
+      "source_selector": "001"
+    },
+    {
+      "region": "MU",
+      "source_selector": "001"
+    },
+    {
+      "region": "MV",
+      "source_selector": "MV"
+    },
+    {
+      "region": "MW",
+      "source_selector": "001"
+    },
+    {
+      "region": "MX",
+      "source_selector": "001"
+    },
+    {
+      "region": "MY",
+      "source_selector": "MY"
+    },
+    {
+      "region": "MZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "NA",
+      "source_selector": "001"
+    },
+    {
+      "region": "NC",
+      "source_selector": "001"
+    },
+    {
+      "region": "NE",
+      "source_selector": "NE"
+    },
+    {
+      "region": "NF",
+      "source_selector": "001"
+    },
+    {
+      "region": "NG",
+      "source_selector": "001"
+    },
+    {
+      "region": "NI",
+      "source_selector": "001"
+    },
+    {
+      "region": "NL",
+      "source_selector": "001"
+    },
+    {
+      "region": "NO",
+      "source_selector": "001"
+    },
+    {
+      "region": "NP",
+      "source_selector": "001"
+    },
+    {
+      "region": "NR",
+      "source_selector": "001"
+    },
+    {
+      "region": "NU",
+      "source_selector": "001"
+    },
+    {
+      "region": "NZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "OM",
+      "source_selector": "OM"
+    },
+    {
+      "region": "PA",
+      "source_selector": "001"
+    },
+    {
+      "region": "PE",
+      "source_selector": "001"
+    },
+    {
+      "region": "PF",
+      "source_selector": "001"
+    },
+    {
+      "region": "PG",
+      "source_selector": "001"
+    },
+    {
+      "region": "PH",
+      "source_selector": "001"
+    },
+    {
+      "region": "PK",
+      "source_selector": "PK"
+    },
+    {
+      "region": "PL",
+      "source_selector": "001"
+    },
+    {
+      "region": "PM",
+      "source_selector": "001"
+    },
+    {
+      "region": "PN",
+      "source_selector": "001"
+    },
+    {
+      "region": "PR",
+      "source_selector": "001"
+    },
+    {
+      "region": "PS",
+      "source_selector": "PS"
+    },
+    {
+      "region": "PT",
+      "source_selector": "001"
+    },
+    {
+      "region": "PW",
+      "source_selector": "001"
+    },
+    {
+      "region": "PY",
+      "source_selector": "001"
+    },
+    {
+      "region": "QA",
+      "source_selector": "QA"
+    },
+    {
+      "region": "QO",
+      "source_selector": "001"
+    },
+    {
+      "region": "RE",
+      "source_selector": "001"
+    },
+    {
+      "region": "RO",
+      "source_selector": "001"
+    },
+    {
+      "region": "RS",
+      "source_selector": "001"
+    },
+    {
+      "region": "RU",
+      "source_selector": "001"
+    },
+    {
+      "region": "RW",
+      "source_selector": "001"
+    },
+    {
+      "region": "SA",
+      "source_selector": "SA"
+    },
+    {
+      "region": "SB",
+      "source_selector": "001"
+    },
+    {
+      "region": "SC",
+      "source_selector": "001"
+    },
+    {
+      "region": "SD",
+      "source_selector": "SD"
+    },
+    {
+      "region": "SE",
+      "source_selector": "001"
+    },
+    {
+      "region": "SG",
+      "source_selector": "SG"
+    },
+    {
+      "region": "SH",
+      "source_selector": "001"
+    },
+    {
+      "region": "SI",
+      "source_selector": "001"
+    },
+    {
+      "region": "SJ",
+      "source_selector": "001"
+    },
+    {
+      "region": "SK",
+      "source_selector": "001"
+    },
+    {
+      "region": "SL",
+      "source_selector": "001"
+    },
+    {
+      "region": "SM",
+      "source_selector": "001"
+    },
+    {
+      "region": "SN",
+      "source_selector": "001"
+    },
+    {
+      "region": "SO",
+      "source_selector": "001"
+    },
+    {
+      "region": "SR",
+      "source_selector": "001"
+    },
+    {
+      "region": "SS",
+      "source_selector": "001"
+    },
+    {
+      "region": "ST",
+      "source_selector": "001"
+    },
+    {
+      "region": "SV",
+      "source_selector": "001"
+    },
+    {
+      "region": "SX",
+      "source_selector": "001"
+    },
+    {
+      "region": "SY",
+      "source_selector": "SY"
+    },
+    {
+      "region": "SZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "TA",
+      "source_selector": "001"
+    },
+    {
+      "region": "TC",
+      "source_selector": "001"
+    },
+    {
+      "region": "TD",
+      "source_selector": "TD"
+    },
+    {
+      "region": "TF",
+      "source_selector": "001"
+    },
+    {
+      "region": "TG",
+      "source_selector": "001"
+    },
+    {
+      "region": "TH",
+      "source_selector": "TH"
+    },
+    {
+      "region": "TJ",
+      "source_selector": "TJ"
+    },
+    {
+      "region": "TK",
+      "source_selector": "001"
+    },
+    {
+      "region": "TL",
+      "source_selector": "001"
+    },
+    {
+      "region": "TM",
+      "source_selector": "TM"
+    },
+    {
+      "region": "TN",
+      "source_selector": "TN"
+    },
+    {
+      "region": "TO",
+      "source_selector": "001"
+    },
+    {
+      "region": "TR",
+      "source_selector": "TR"
+    },
+    {
+      "region": "TT",
+      "source_selector": "001"
+    },
+    {
+      "region": "TV",
+      "source_selector": "001"
+    },
+    {
+      "region": "TW",
+      "source_selector": "TW"
+    },
+    {
+      "region": "TZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "UA",
+      "source_selector": "001"
+    },
+    {
+      "region": "UG",
+      "source_selector": "001"
+    },
+    {
+      "region": "UM",
+      "source_selector": "001"
+    },
+    {
+      "region": "UN",
+      "source_selector": "001"
+    },
+    {
+      "region": "US",
+      "source_selector": "001"
+    },
+    {
+      "region": "UY",
+      "source_selector": "001"
+    },
+    {
+      "region": "UZ",
+      "source_selector": "UZ"
+    },
+    {
+      "region": "VA",
+      "source_selector": "001"
+    },
+    {
+      "region": "VC",
+      "source_selector": "001"
+    },
+    {
+      "region": "VE",
+      "source_selector": "001"
+    },
+    {
+      "region": "VG",
+      "source_selector": "001"
+    },
+    {
+      "region": "VI",
+      "source_selector": "001"
+    },
+    {
+      "region": "VN",
+      "source_selector": "001"
+    },
+    {
+      "region": "VU",
+      "source_selector": "001"
+    },
+    {
+      "region": "WF",
+      "source_selector": "001"
+    },
+    {
+      "region": "WS",
+      "source_selector": "001"
+    },
+    {
+      "region": "XK",
+      "source_selector": "XK"
+    },
+    {
+      "region": "YE",
+      "source_selector": "YE"
+    },
+    {
+      "region": "YT",
+      "source_selector": "001"
+    },
+    {
+      "region": "ZA",
+      "source_selector": "001"
+    },
+    {
+      "region": "ZM",
+      "source_selector": "001"
+    },
+    {
+      "region": "ZW",
+      "source_selector": "001"
+    }
+  ],
+  "region_selector_count": 52,
+  "schema": 1,
+  "shared_region_helper": "Root-authored canonical RegionPreference leaf; no duplicate selector",
+  "unavailable_override": "continue original base region; recognized sparse regions inherit001"
+}

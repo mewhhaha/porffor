@@ -1,5 +1,40 @@
 # Created-Realm weak-collection publication
 
+## Current atomic GC source — 2026-10-05
+
+WeakMap and WeakSet constructors, prototypes and methods are installed by the
+common completed GC bootstrap. `builtins/host/create_realm.rs` consumes that
+bootstrap through `emit_created_realm_global_object`; its former
+`created_realm_weak_collection_intrinsics.rs` duplicate is retired. Actual
+FunctionContext capture and Realm intrinsic records supply callable identity,
+prototype fallback and error ownership before publication.
+
+Successful weak storage still requires the separately selected
+[weak facility](weak-unavailable-runtime-boundary.md), which is unavailable.
+Preflight validation and intrinsic inspection remain ordinary operations; the
+historical successful-instance fixtures below do not verify current weak
+reachability. Their CLI sources remain. The maintained
+`created_realm_weak_collection_publication_structure` guard now protects
+catalog constructability and nonconstructable method domains, without a raw
+installer/token mirror.
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
+Current source — 2026-10-03: actual weak operations follow the
+[unavailable facility boundary](weak-unavailable-runtime-boundary.md). Active
+strong-retaining weak producers are retired. Installed intrinsic publication
+and earlier JavaScript validation remain observable; passive layout/edge rows
+are inventory only. Producer, valid-instance and verification descriptions
+below retain their earlier source scope and do not verify the current batch.
+Real weak reachability and semantic GC remain open; current controls are unexecuted.
+
 ## Scope
 
 This boundary publishes the implemented `WeakMap` and `WeakSet` constructors,

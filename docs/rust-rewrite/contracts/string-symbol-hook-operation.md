@@ -1,5 +1,49 @@
 # String symbol-hook operation
 
+## Current complete source batch — 2026-10-04
+
+The new private `string/symbol_method.rs` owner retains the original receiver
+and the method obtained by one actual property Get. Its fields are private,
+it is non-Copy, and its consuming dispatch is the sole callable/nullish policy
+consumer. Callers cannot extract a raw method to repeat lookup or replace
+IsCallable with a Function-tag shortcut. A closed optional-GetMethod versus
+required-Invoke policy owns absence and native TypeError behavior.
+
+The five named shared String entries keep their closed operation domain;
+split keeps its separate standard entry and uses the same observed-method
+owner. All six preserve original arguments and uncoerced String receivers
+through actual callable Proxy apply. MatchAll/ReplaceAll perform the existing
+IsRegExp and global-flags work before observing their hook. Primitive patterns
+still bypass symbol lookup. The [current String algorithm](https://tc39.es/ecma262/multipage/text-processing.html#sec-string.prototype.matchall)
+uses one optional original hook and a required invocation on the created
+RegExp after absence; null/undefined on that created receiver must throw.
+
+The inherited matchAll own-probe/prototype retry is removed. The created
+match/search/matchAll paths get their actual receiver once through the same
+owner. Match's prior Proxy-aware invocation remains supported. The synthetic
+receiver uses the called builtin's intrinsic RegExp prototype rather than the
+mutable public RegExp constructor or the entry Realm's prototype. The source
+and global flags retain their existing initialization; RegExpCreate's pattern
+ToString is distinct from the constructor's source-cloning algorithm. The sole
+zero-start/custom-invoked handshake is retired; independently live iterator
+from-start consumers remain.
+
+Native non-callable and global-flags errors use the current function's intrinsic
+TypeError. Original getter/apply/coercion throws propagate unchanged. Existing
+Engine and CLI controls cover all-six Proxy hooks, one getter, original versus
+created receivers, required nullish Invoke, order, abrupt identity and both
+borrowed intrinsic Realm directions. Existing domain/routing guards remain;
+obsolete implementation-count and retry pins are retired without a new mirror
+suite. The module inventory attaches the consumed private leaf.
+
+This complete source batch passed the ref93 combined workspace/all-target Rust
+type check. It remains unexecuted and requires emitted-Wasm validation plus
+grouped focused/pinned/broad checkpoints. It does not claim all RegExpCreate initialization, descriptors,
+pattern grammar, full String/RegExp closure or new published counts. Historical
+verification below applies only to the preceding source.
+
+## Historical preceding operation-domain seam
+
 Status: implemented for `String.prototype.match`, `matchAll`, `replace`,
 `replaceAll` and `search`.
 

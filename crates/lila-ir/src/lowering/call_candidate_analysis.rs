@@ -4,13 +4,14 @@ use super::*;
 pub(super) enum CallCandidateSource<'a> {
     IndirectSyntax(&'a [Expression]),
     AlreadyAccounted,
+    TemplateArguments,
 }
 
 impl<'a> CallCandidateSource<'a> {
     fn arguments(&self) -> Option<&'a [Expression]> {
         match self {
             Self::IndirectSyntax(arguments) => Some(arguments),
-            Self::AlreadyAccounted => None,
+            Self::AlreadyAccounted | Self::TemplateArguments => None,
         }
     }
 }
@@ -75,6 +76,12 @@ impl<'a> ScriptLowerer<'a> {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
                 Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(proof)) => {
+                    pass_through_results.insert(function_id.clone(), proof.into_result_info());
+                }
+                Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(proof)) => {
+                    pass_through_results.insert(function_id.clone(), proof.into_result_info());
+                }
+                Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(proof)) => {
@@ -444,8 +451,10 @@ impl<'a> ScriptLowerer<'a> {
             match self.resolve_dynamic_source_call(function_id, Some(source_arguments), arguments) {
                 None => {}
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_))
-                | Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(_)) => {
-                    unreachable!("the intrinsic eval function is not constructable")
+                | Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(_))
+                | Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(_))
+                | Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(_)) => {
+                    unreachable!("source-evaluation intrinsics are not constructable")
                 }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(_))
                 | Some(ResolvedDynamicSourceCall::CompiledScript(_)) => {}
@@ -469,7 +478,7 @@ impl<'a> ScriptLowerer<'a> {
         let common_instance_prototype = match callee
             .heap_shape
             .as_deref()
-            .and_then(|shape| read_heap_shape_property(shape, "prototype"))
+            .and_then(|shape| self.read_current_heap_shape_property(shape, "prototype"))
         {
             Some(ObjectShapeProperty::Data(prototype_info))
                 if matches!(

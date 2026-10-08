@@ -31,9 +31,14 @@
 //! in `objects::module_namespace`, alongside the internal methods it dispatches.
 
 use super::*;
+use crate::gc_types::*;
+use crate::runtime_helpers::*;
 mod completion;
 mod entry_completion;
 mod evaluation;
+mod initialization;
+mod realm_import;
+mod record_state;
 mod runtime;
 mod synchronous;
 mod traversal;
@@ -79,15 +84,6 @@ pub(crate) fn module_unit_guard_count(script: &ScriptIr) -> u32 {
 }
 
 impl FunctionBuilder<'_> {
-    /// Wasm global index of module `unit`'s "already evaluated" guard.
-    ///
-    /// The guards sit immediately after the template-object globals, which
-    /// themselves sit after the fixed registry, so the block stays dense and no
-    /// existing index moves.
-    pub(crate) fn module_unit_guard_global_index(&self, unit: u32) -> u32 {
-        GLOBAL_INDEX_REGISTRY.len() as u32 + self.strings.template_objects.len() as u32 + unit
-    }
-
     /// `StatementIr::ModuleUnitOnce`: run `block` the first time control
     /// reaches it and no-op afterwards.
     ///
@@ -100,15 +96,14 @@ impl FunctionBuilder<'_> {
         block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let guard = self.module_unit_guard_global_index(module);
-        function.instruction(&Instruction::GlobalGet(guard));
+        let guard = self.runtime_schema().module_unit_guard(module)?;
+        guard.load(function);
         function.instruction(&Instruction::I32Eqz);
         // The `if` is a Wasm control frame. `open_frame` emits it and records
         // the label it opened in one call, so the branch arithmetic can see it
         // whether or not anyone remembered to say so.
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::GlobalSet(guard));
+        guard.mark_started(function);
         self.push_scope();
         let result = self.compile_block_contents(block, function);
         self.pop_scope();
@@ -117,7 +112,7 @@ impl FunctionBuilder<'_> {
         result
     }
 
-    /// `ExprIr::DynamicImport`: leaves a promise payload on the stack.
+    /// `ExprIr::DynamicImport`: requires a compiled graph, never a runtime parser.
     ///
     /// Reaching this arm means the *host* compiled a source that writes
     /// `import()` without supplying the graph its specifiers name, so there is
@@ -140,6 +135,7 @@ impl FunctionBuilder<'_> {
         _referrer: Option<u32>,
         _specifier: &TypedExpr,
         _options: Option<&TypedExpr>,
+        _output: &ValueLocals,
         _function: &mut Function,
     ) -> Result<(), EmitError> {
         Err(unsupported(
@@ -148,11 +144,11 @@ impl FunctionBuilder<'_> {
         ))
     }
 
-    /// `ExprIr::ImportMeta`: leaves the module's `import.meta` object on the
-    /// stack.
+    /// `ExprIr::ImportMeta`: retains its explicit unsupported source boundary.
     pub(crate) fn emit_import_meta(
         &mut self,
         _module: u32,
+        _output: &ValueLocals,
         _function: &mut Function,
     ) -> Result<(), EmitError> {
         Err(unsupported("import.meta"))

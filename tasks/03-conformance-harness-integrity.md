@@ -1,12 +1,175 @@
 # T03 — Test262 harness integrity and host contract
 
-**Status:** In progress — complete Wasm-AOT host ownership and the exact typed shortcut ledger are enforced; semantic cleanup remains
+## Compiler source identity — 2026-10-07 dry source
+
+The compiler no longer invents `1` for an unbound identifier named `BPE`, nor
+synthetic generator completions for objects containing `$LilaYieldStar*`
+properties. Ordinary environment resolution and acquired method calls own those
+programs. The numeric constant recognizer also declines property access, so
+`Number` and `Math` spellings cannot erase shadowed receivers or getter effects
+during exponentiation. Authored IR and native controls cover these boundaries,
+including operand/coercion order and the actual smallest subnormal Number value.
+They remain uncompiled and unrun. See the [source identity contract](../docs/rust-rewrite/contracts/compiler-source-identity.md)
+for exact deferred commands. This is source work; it publishes no suite result.
+
+The same batch routes descriptor-field and constructor/class prototype inference
+through current-property evidence. Unknown inherited descriptor fields retain
+possible getter effects. The old unrelated-global wrapper metadata assertion is
+corrected while its source remains; separate native controls require actual
+successful wrapper execution and live inherited descriptor/prototype behavior.
+
+## Source execution authority — 2026-10-07 dry source
+
+The immutable ArrayBuffer, SharedArrayBuffer and four Proxy/Realm prefilters and
+their path allowlists are retired. Every nonempty supervisor inventory now needs
+the actual selected worker; metadata can no longer authorize a non-executing
+Unsupported result. The original compiler/runtime owns capability, dynamic-source
+and semantic diagnostics after unchanged source/harness materialization. Existing
+source-preservation and semantic controls remain; obsolete classifier-only tests
+are replaced by worker-ownership, genuine parse-phase/wrong-phase, actual
+runtime-completion and typed unavailable-capability regressions. The differential Test262 seed control now expects
+its original valid program to execute regardless of its feature annotation.
+
+The exact selector TSV removes the thirty rows owned by those deleted functions.
+Canonical generated inventory refresh is deferred because the official scanner
+compiles its standalone Rust source. The inventory remains explicitly stale;
+no generated conformance status, source count or PASS receipt is published by
+this dry edit. The later generator command and behavioral contract are recorded
+in [source execution](../docs/rust-rewrite/contracts/test262-source-execution.md).
+No compilation or tests ran. The combined type checkpoint, focused controls,
+original affected suite cases and full T03 acceptance remain required.
+
+## Oracle thrown-exception provenance — 2026-10-06 source
+
+Spec-exec runtime and resolution negatives now require an actual oracle
+JavaScript exception carrying the matching execution phase. A runtime-thrown
+SyntaxError cannot satisfy a module-resolution expectation. Diagnostic text,
+an error's mutable `name`, and a primitive spelling an error type cannot supply
+the expected constructor. Parse/early entry rejection retains its separate
+typed admission path.
+
+Built-in constructor admission uses the raw native error brand and the exact
+intrinsic constructor of its owning realm. For opaque thrown objects, it reads
+raw data-property descriptors and prototypes without invoking constructor
+accessors, Proxy traps or JavaScript property getters. Accessor constructors,
+Proxy-wrapped errors and custom subclasses conservatively remain unclassified
+for an expected intrinsic type; they do not acquire a proof from their text or
+an inherited error name. Ordinary and implicit root TypeErrors remain admitted,
+including an ordinary TypeError whose `name` was changed to `RangeError`.
+
+Internal host failures retain private object-identity provenance, including
+after a caught rethrow. They cannot become JavaScript-negative evidence, and
+neither can worker errors or host diagnostics. New original-runner controls
+cover all five execution modes, wrong type/name/message and primitive throws,
+conservative constructor refusal, module phase separation and direct/rethrown
+host failure. The source and controls pass the combined 2026-10-06 workspace
+type check; their execution remains pending. The Test262
+spec-exec path still shares Lila compiler preflight; this does not establish
+independent parser agreement or full T03 acceptance.
+
+## Compile-negative phase provenance — 2026-10-06 source
+
+The compile-negative matcher now requires structured compiler phase/type data.
+It no longer accepts an untyped compiler/host error by substring or by an absent
+expected type. If the Lila preflight accepts a parse/early negative, the selected
+oracle can satisfy that expectation only with an actual entry-parser SyntaxError
+provenance from the engine adapter. Runtime-thrown SyntaxErrors and Error messages
+containing that name remain failures. The prior oracle-fallthrough source literal
+is retained with its corrected red assertion; Script/strict/Module phase controls
+are authored and pass the combined 2026-10-06 workspace type check; execution
+remains pending. Broader oracle runtime-error
+constructor admission is described above; independent negative-preflight
+comparison remains separate debt.
+
+## Whole-case compilation deadline — 2026-10-05 source batch
+
+Product Test262 execution now requires a checked supervisor dispatch before
+admission. The CLI selects its actual executing image; missing worker selection
+is an error, and the legacy FORCE/DISABLE environment toggles do not authorize
+in-process compilation. A private single-case worker role validates the exact
+mode-qualified execution ID, fresh request and one worker thread. Compile-only
+negative cases use the same boundary; metadata-only unsupported rejections do
+not enter the compiler. Parsing, lowering, Wasm emission, native compilation and
+execution share the pre-spawn monotonic deadline. Wasm-AOT preserves the existing
+300000 ms cold-compilation allowance plus the configured execution limit.
+
+The parent kills the worker process group and boundedly reaps its child on every
+exit before admitting the exact snapshot. Timeout, crash, poll/cleanup failure,
+missing or foreign evidence remain failures. Current snapshot executable/pin/
+backend/selection identity is unchanged. Publication requires `ISOLATE_CASES=1`
+and records that mandatory policy; zero is rejected before compiler invocation.
+
+The ten existing snapshot comparison controls moved intact into the private
+library test family, whose fixture role exists only under `cfg(test)`. Existing
+real CLI controls now dispatch Test262 commands through the CLI image, while new
+finite controls cover default supervision, ignored legacy bypass, worker request
+rejection, deadline expiry and descendant retirement. These source changes have
+not been compiled or executed. See the [deadline contract](../docs/rust-rewrite/contracts/test262-case-deadline.md).
+
+## Mandatory compiler provenance — 2026-10-04 dry source
+
+Current execution snapshots use schema 8 with mandatory checked build-source
+fingerprint/scheme, source revision and executing-image SHA-256. Version and
+compiler binding share one owner. Missing, null or malformed identity rejects
+current evidence; legacy versions 4–7 remain explicitly unbound history and
+cannot resume, join a current aggregate, publish or acquire an invented proof.
+
+Writers and resume require the actual running compiler. Every aggregate child
+must carry the same producer as its parent. Verified/progress/backlog summaries
+retain that identity; read-only schema-8 comparisons can compare different
+compiler builds while preserving each side's producer. Suite pins, exact case
+identity, matrix coverage, outcome classifications and complete evidence remain
+independent mandatory obligations.
+
+The CLI exposes `compiler-identity` without creating a Realm. Publication JSON,
+text and future generated README retain the verified producer. The publication
+session's schema-3 manifest keeps observed checkout/source/suite/configuration
+separate from the native embedded build fingerprint, binds the reported image
+to observed executable bytes, and requires native checkpoint identity before
+rewriting its progress high-water mark. Old observed sidecars do not authorize
+adoption of unbound snapshots.
+
+Meaningful Engine, harness, CLI and driver controls are authored. Compilation,
+controls, emitted Wasm and pinned acceptance remain unverified. All remaining
+task source precedes the next checkpoint under a confirmed 4096 MiB aggregate
+kernel cap, zero swap and serial execution. No task closes, historical artifact
+changes or status count refresh occurs. See the
+[compiler provenance contract](../docs/rust-rewrite/contracts/snapshot-compiler-provenance.md).
+
+
+**Status:** In progress — audited semantic shortcuts are retired; complete host/runtime acceptance verification remains
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** T01 for the authoritative inventory  
 **Blocks:** Trustworthy results for every feature lane
 
 ## Current repository state
+
+The 2026-09-30 publisher repair replaces assumed fake-suite passes with
+`VerifiedFakeSuiteCounts`. Its sole constructor executes a fresh full fake
+suite through Wasm AOT, requires a nonempty passing verdict and exact completed
+execution identities, and derives the wasm-safe subset from that evidence.
+Incomplete, duplicate or foreign records cannot reach the publication builder;
+any failing case prevents canonical artifacts and README writes. Three focused
+regressions cover mode counts, incomplete evidence, a failure outside the safe
+subset and an empty selection. All-target checking and all three focused
+library tests pass, as does the full fake-suite run: 191 executions from 190
+physical files. The low-RAM wrapper retains the selected compilation-job limit
+for the final publisher's measured run; all 45 driver contracts pass. Positive
+publication integration and broad verification remain pending. The generated
+README block is unchanged until the
+complete pinned publication is verified.
+
+The full fake-suite publication integration now belongs to its own Cargo
+integration target. It runs the actual CLI with one compilation job, retains
+the complete 191-execution measurement, and kills and waits for the process
+at the unchanged 900-second deadline. The preceding shared-process workspace
+attempt timed out at 90 executions but continued to 120 passing executions;
+completed cases took up to 125 seconds while eight CLI tests and another suite
+run competed for resources. The standalone full fake run passed in 540 seconds.
+This evidence supports isolating the workload rather than recording an expected
+failure. The moved integration and affected hygiene checks still require
+verification. See [the publication evidence contract](../docs/rust-rewrite/contracts/fake-suite-publication.md).
 
 The repository has a checked-in host-ABI contract, shortcut inventory, exact
 per-entry ledger and CI audits. `./scripts/check-test262-host-abi.sh` passes in
@@ -18,15 +181,55 @@ entry; observations inside a declaration retain a local occurrence ordinal. It
 rejects new, missing, duplicated or drifted entries, invalid classifications
 and non-concrete task IDs, then byte-compares the generated inventory.
 
-The current scanner-visible ledger contains 181 observations: 32 legitimate
-harness adaptations, 106 diagnostic instrumentation sites and 43 semantic
-shortcuts. The removal-task summary assigns 35 entries to T03 and leaves T17 at
-80. The T03 removal bucket contains 32 legitimate adaptations, two diagnostic
-guards and one semantic shortcut. Every entry has a concrete owner, removal
-task and closed reason code; none use `T26-unclassified`. This is an honest
-cleanup map, not completion. The semantic materialization layer is still
-large, so harness results cannot yet satisfy
-this task's integrity acceptance criteria.
+The source audit refreshed on **2026-09-29** verifies 56 observations: 23
+legitimate harness adaptations, 33 diagnostic instrumentation sites and **zero
+semantic shortcuts**. The removal-task summary assigns 23 adaptations to T03,
+one diagnostic observation to T13 and 32 diagnostics to T17. Every entry has a
+concrete owner, removal task and closed reason code; none use
+`T26-unclassified`. The [generated accounting](../test262/backlog/current-shortcut-status.md)
+records the exact source, ledger and inventory hashes.
+
+The per-path rewrite dispatcher, the resizable-helper static-subclass
+substitution and the TypedArray literal/split-helper plan are deleted. Normal
+materialization now appends the original case source and complete configured
+assertion and declared helper bodies, with explicit host ownership, Script
+mode and Module-prelude handling. Raw cases retain their original bytes. The
+scanner census establishes closure on its audited surface; full host behavior,
+the required Cargo suites and representative pinned host/runtime replays still
+require the acceptance checkpoint below. T03 remains open until that evidence
+is complete; T01 and T26 own current-pin aggregate publication and conformance
+closure.
+
+The 2026-09-29 verification passes the source audit, generated-report check and
+host-ABI contract check, all nine shortcut-accounting Python tests, all 15 Rust
+scanner unit tests and the shell scanner/ledger-drift controls. Refresh and
+reproduce that source-level checkpoint with:
+
+```sh
+bash scripts/audit-test262-shortcuts.sh --check
+python3 scripts/generate-shortcut-status.py --check
+bash scripts/check-test262-host-abi.sh
+python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+bash scripts/tests/audit-test262-shortcut-scanner.sh
+```
+
+After a source or ledger change, regenerate the inventory with
+`bash scripts/audit-test262-shortcuts.sh > test262/backlog/shortcut-inventory.md`,
+then run the source check and `python3 scripts/generate-shortcut-status.py`.
+These commands produce source-observation accounting, not Test262 pass counts.
+
+The vendored suite is plain files inside the Lila repository. Its current clean
+content pin is `aa55200d1310384c5cf69ea95b2a2ecba457007b`, obtained with
+`git rev-parse --verify HEAD:test262/vendor/test262`. Running
+`git -C test262/vendor/test262 rev-parse HEAD` resolves the enclosing Lila
+commit, not an upstream Test262 revision. The native runner already uses the
+suite tree identity and accepts historical commit pins only after verifying
+identical suite trees. Historical replay notes below retain their originally
+recorded labels; they must not be read as fresh suite-pin or conformance claims.
+
+The following cohort notes preserve earlier evidence. References to surviving
+rewrites, helper substitutions or shortcut totals describe those checkpoints;
+the current audited materialization path and totals are stated above.
 
 The final twelve T18 semantic observations are now gone, leaving T18 with zero
 shortcut ownership. The five affected physical String sources preserve their
@@ -276,7 +479,7 @@ current pin's absent `setBigUint64` metadata pair. Removing the metadata rewrite
 owner and dispatcher deletes two more T17 semantic observations; the shared
 DataView method mapper remains for the range and resizable rewrites.
 
-The TypedArray sort value matrix, `TypedArray.of` zero case and eleven borrowed
+The TypedArray sort value matrix, `TypedArray.of` zero case and ten borrowed
 Array callback resize cases now use their 13 pinned Test262 source bodies. One
 13x2 invariant pins the exact sloppy/strict execution modes, original bytes,
 declared includes, supported-feature boundary and absence of either a

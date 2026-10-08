@@ -546,6 +546,38 @@ fn run_wasm_backend_succeeds_for_atomics_notify_core_fixture() {
     assert!(stdout.contains("number(890"));
 }
 
+#[test]
+fn run_wasm_backend_throws_when_atomics_coercion_detaches() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_atomics_detached_after_coercion.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(347"));
+}
+
+#[test]
+fn run_wasm_backend_revalidates_atomics_after_resize_coercion() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_atomics_resize_after_coercion.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(348"));
+}
+
 /// Was the declared T17 hang; it is an ordinary passing test as of batch 6.
 ///
 /// `Atomics.wait` used to block the process outright, so this ran as a guarded

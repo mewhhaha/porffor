@@ -1,117 +1,58 @@
-//! `binary_data` intrinsic installation.
-//!
-//! Extracted verbatim from `builtins/bootstrap.rs::init_builtin_constructor_object`.
-//! Property installation order is observable through `Object.keys`, so the
-//! statement order inside each installer is load-bearing — do not reorder.
+//! Intrinsic members retain property order and exact shared function identity.
 
 use super::super::*;
-use super::IntrinsicInstall;
+use super::{IntrinsicInstall, IntrinsicKey};
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(crate) fn install_array_buffer_constructor_intrinsics(
         &mut self,
         context: &IntrinsicInstall<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // Re-bind the shared preamble values under the names the moved body
-        // already uses, so the body below is a verbatim copy of the arm it
-        // replaced. Most families read only a few of them.
-        #[allow(unused_variables)]
-        let IntrinsicInstall {
-            builtin,
-            meta,
-            prototype_global_index,
-            constructor_global_index,
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            prototype_object_local,
-        } = *context;
-
-        if matches!(builtin, StandardBuiltinId::ArrayBufferConstructor) {
-            let is_view_meta = self
-                .functions
-                .get(&StandardBuiltinId::ArrayBufferIsView.function_id())
-                .ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `ArrayBuffer.isView`",
-                    )
-                })?;
-            self.emit_object_define_function_data(object_local, "isView", is_view_meta, function)?;
-        }
-
-        let key_local = self.reserve_temp_local();
-        let getter_payload_local = self.reserve_temp_local();
-        let getter_tag_local = self.reserve_temp_local();
-        let species_meta = self
-            .functions
-            .get(&StandardBuiltinId::ArrayBufferSpeciesGetter.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `ArrayBuffer[Symbol.species]`",
-                )
-            })?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.species"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_function_value_payload(species_meta, function)?;
-        function.instruction(&Instruction::LocalSet(getter_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(getter_tag_local));
-        self.emit_object_append_accessor_property_with_flags(
-            object_local,
-            key_local,
-            Some((getter_payload_local, getter_tag_local)),
-            None,
-            false,
-            true,
-            function,
-        )?;
-
-        function.instruction(&Instruction::GlobalGet(prototype_global_index));
-        function.instruction(&Instruction::LocalSet(object_local));
-        for (name, builtin) in [(
-            "byteLength",
-            if matches!(builtin, StandardBuiltinId::SharedArrayBufferConstructor) {
-                StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
-            } else {
-                StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
-            },
-        )] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_function_value_payload(meta, function)?;
-            function.instruction(&Instruction::LocalSet(getter_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(getter_tag_local));
-            self.emit_object_append_accessor_property_with_flags(
-                object_local,
-                key_local,
-                Some((getter_payload_local, getter_tag_local)),
-                None,
-                false,
+        let shared = context.builtin == StandardBuiltinId::SharedArrayBufferConstructor;
+        if !shared {
+            self.emit_install_intrinsic_method(
+                context.constructor,
+                IntrinsicKey::Name("isView"),
+                StandardBuiltinId::ArrayBufferIsView,
+                context.realm,
+                true,
                 true,
                 function,
             )?;
         }
-        if matches!(builtin, StandardBuiltinId::SharedArrayBufferConstructor) {
-            let grow_meta = self
-                .functions
-                .get(&StandardBuiltinId::SharedArrayBufferPrototypeGrow.function_id())
-                .ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `SharedArrayBuffer.prototype.grow`",
-                    )
-                })?;
-            self.emit_object_define_function_data(object_local, "grow", grow_meta, function)?;
+        self.emit_install_intrinsic_accessor(
+            context.constructor,
+            IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
+            Some(StandardBuiltinId::ArrayBufferSpeciesGetter),
+            None,
+            context.realm,
+            true,
+            function,
+        )?;
+        self.emit_install_intrinsic_accessor(
+            context.prototype,
+            IntrinsicKey::Name("byteLength"),
+            Some(if shared {
+                StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
+            } else {
+                StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
+            }),
+            None,
+            context.realm,
+            true,
+            function,
+        )?;
+        if shared {
+            self.emit_install_intrinsic_method(
+                context.prototype,
+                IntrinsicKey::Name("grow"),
+                StandardBuiltinId::SharedArrayBufferPrototypeGrow,
+                context.realm,
+                true,
+                true,
+                function,
+            )?;
             for (name, builtin) in [
                 (
                     "maxByteLength",
@@ -122,24 +63,12 @@ impl<'a> FunctionBuilder<'a> {
                     StandardBuiltinId::SharedArrayBufferPrototypeGrowableGetter,
                 ),
             ] {
-                let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                        builtin.debug_name()
-                    ))
-                })?;
-                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-                function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(getter_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(getter_tag_local));
-                self.emit_object_append_accessor_property_with_flags(
-                    object_local,
-                    key_local,
-                    Some((getter_payload_local, getter_tag_local)),
+                self.emit_install_intrinsic_accessor(
+                    context.prototype,
+                    IntrinsicKey::Name(name),
+                    Some(builtin),
                     None,
-                    false,
+                    context.realm,
                     true,
                     function,
                 )?;
@@ -159,54 +88,33 @@ impl<'a> FunctionBuilder<'a> {
                     StandardBuiltinId::ArrayBufferPrototypeResizableGetter,
                 ),
             ] {
-                let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                        builtin.debug_name()
-                    ))
-                })?;
-                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-                function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(getter_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(getter_tag_local));
-                self.emit_object_append_accessor_property_with_flags(
-                    object_local,
-                    key_local,
-                    Some((getter_payload_local, getter_tag_local)),
+                self.emit_install_intrinsic_accessor(
+                    context.prototype,
+                    IntrinsicKey::Name(name),
+                    Some(builtin),
                     None,
-                    false,
+                    context.realm,
                     true,
                     function,
                 )?;
             }
         }
-        let slice_builtin = if matches!(builtin, StandardBuiltinId::SharedArrayBufferConstructor) {
-            StandardBuiltinId::SharedArrayBufferPrototypeSlice
-        } else {
-            StandardBuiltinId::ArrayBufferPrototypeSlice
-        };
-        let slice_meta = self
-            .functions
-            .get(&slice_builtin.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `ArrayBuffer.prototype.slice`",
-                )
-            })?;
-        self.emit_object_define_function_data(object_local, "slice", slice_meta, function)?;
-        if matches!(builtin, StandardBuiltinId::ArrayBufferConstructor) {
-            let resize_meta = self
-                .functions
-                .get(&StandardBuiltinId::ArrayBufferPrototypeResize.function_id())
-                .ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `ArrayBuffer.prototype.resize`",
-                    )
-                })?;
-            self.emit_object_define_function_data(object_local, "resize", resize_meta, function)?;
+        self.emit_install_intrinsic_method(
+            context.prototype,
+            IntrinsicKey::Name("slice"),
+            if shared {
+                StandardBuiltinId::SharedArrayBufferPrototypeSlice
+            } else {
+                StandardBuiltinId::ArrayBufferPrototypeSlice
+            },
+            context.realm,
+            true,
+            true,
+            function,
+        )?;
+        if !shared {
             for (name, builtin) in [
+                ("resize", StandardBuiltinId::ArrayBufferPrototypeResize),
                 ("transfer", StandardBuiltinId::ArrayBufferPrototypeTransfer),
                 (
                     "transferToFixedLength",
@@ -221,44 +129,30 @@ impl<'a> FunctionBuilder<'a> {
                     StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable,
                 ),
             ] {
-                let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                        builtin.debug_name()
-                    ))
-                })?;
-                self.emit_object_define_function_data(object_local, name, meta, function)?;
+                self.emit_install_intrinsic_method(
+                    context.prototype,
+                    IntrinsicKey::Name(name),
+                    builtin,
+                    context.realm,
+                    true,
+                    true,
+                    function,
+                )?;
             }
         }
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(
-            if matches!(builtin, StandardBuiltinId::SharedArrayBufferConstructor) {
+        self.emit_install_intrinsic_string(
+            context.prototype,
+            IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::ToStringTag),
+            if shared {
                 "SharedArrayBuffer"
             } else {
                 "ArrayBuffer"
             },
-        )));
-        function.instruction(&Instruction::LocalSet(getter_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(getter_tag_local));
-        self.emit_object_append_data_property_with_flags(
-            object_local,
-            key_local,
-            getter_payload_local,
-            getter_tag_local,
             false,
             false,
             true,
             function,
         )?;
-        self.release_temp_local(getter_tag_local);
-        self.release_temp_local(getter_payload_local);
-        self.release_temp_local(key_local);
-
         Ok(())
     }
 
@@ -267,28 +161,6 @@ impl<'a> FunctionBuilder<'a> {
         context: &IntrinsicInstall<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // Re-bind the shared preamble values under the names the moved body
-        // already uses, so the body below is a verbatim copy of the arm it
-        // replaced. Most families read only a few of them.
-        #[allow(unused_variables)]
-        let IntrinsicInstall {
-            builtin,
-            meta,
-            prototype_global_index,
-            constructor_global_index,
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            prototype_object_local,
-        } = *context;
-
-        let prototype_object_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let getter_payload_local = self.reserve_temp_local();
-        let getter_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(prototype_global_index));
-        function.instruction(&Instruction::LocalSet(prototype_object_local));
         for (name, builtin) in [
             ("buffer", StandardBuiltinId::DataViewPrototypeBufferGetter),
             (
@@ -300,30 +172,16 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::DataViewPrototypeByteOffsetGetter,
             ),
         ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_function_value_payload(meta, function)?;
-            function.instruction(&Instruction::LocalSet(getter_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(getter_tag_local));
-            self.emit_object_append_accessor_property_with_flags(
-                prototype_object_local,
-                key_local,
-                Some((getter_payload_local, getter_tag_local)),
+            self.emit_install_intrinsic_accessor(
+                context.prototype,
+                IntrinsicKey::Name(name),
+                Some(builtin),
                 None,
-                false,
+                context.realm,
                 true,
                 function,
             )?;
         }
-        function.instruction(&Instruction::GlobalGet(prototype_global_index));
-        function.instruction(&Instruction::LocalSet(prototype_object_local));
         for (name, builtin) in [
             ("getUint8", StandardBuiltinId::DataViewPrototypeGetUint8),
             ("setUint8", StandardBuiltinId::DataViewPrototypeSetUint8),
@@ -360,39 +218,25 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::DataViewPrototypeSetBigUint64,
             ),
         ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
+            self.emit_install_intrinsic_method(
+                context.prototype,
+                IntrinsicKey::Name(name),
+                builtin,
+                context.realm,
+                true,
+                true,
+                function,
+            )?;
         }
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("DataView")));
-        function.instruction(&Instruction::LocalSet(getter_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(getter_tag_local));
-        // 25.3.4.25: { [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]: true }.
-        self.emit_object_append_data_property_with_flags(
-            prototype_object_local,
-            key_local,
-            getter_payload_local,
-            getter_tag_local,
+        self.emit_install_intrinsic_string(
+            context.prototype,
+            IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::ToStringTag),
+            "DataView",
             false,
             false,
             true,
             function,
         )?;
-        self.release_temp_local(getter_tag_local);
-        self.release_temp_local(getter_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(prototype_object_local);
-
         Ok(())
     }
 }

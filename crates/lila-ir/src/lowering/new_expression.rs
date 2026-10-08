@@ -81,35 +81,19 @@ impl<'a> ScriptLowerer<'a> {
                         (args, result, invocation_effects)
                     };
                 let static_regexp_compilation = if builtin == StandardBuiltinId::RegExpConstructor {
-                    let compilation = match args.as_slice() {
+                    match args.as_slice() {
                         [TypedExpr {
                             expr: ExprIr::String(pattern),
                             ..
-                        }] => Some(RegExpProgram::compile(pattern, "")),
+                        }] => Self::static_regexp_compilation_for_pattern(pattern, ""),
                         [TypedExpr {
                             expr: ExprIr::String(pattern),
                             ..
                         }, TypedExpr {
                             expr: ExprIr::String(flags),
                             ..
-                        }, ..] => Some(RegExpProgram::compile(pattern, flags)),
+                        }, ..] => Self::static_regexp_compilation_for_pattern(pattern, flags),
                         _ => None,
-                    };
-                    // See the note at the sibling site in
-                    // `static_regexp_compilation_for_direct_call`: exhaustive on
-                    // `RegExpCompileErrorKind` so a third variant is a compile
-                    // error, not a silent "unsupported". Behaviour unchanged.
-                    match compilation {
-                        Some(Ok(program)) => Some(StaticRegExpCompilation::Program(program)),
-                        Some(Err(error)) => match error.kind {
-                            RegExpCompileErrorKind::InvalidSyntax => {
-                                Some(StaticRegExpCompilation::InvalidSyntax {
-                                    message: format!("invalid regular-expression pattern: {error}"),
-                                })
-                            }
-                            RegExpCompileErrorKind::UnsupportedFeature => None,
-                        },
-                        None => None,
                     }
                 } else {
                     None

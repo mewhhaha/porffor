@@ -1,4 +1,5 @@
 //! Lossless primitive NumberFormat messages shared by Wasm emission and host.
+use std::sync::Arc;
 
 use crate::number_format::numeric::ObservedNumericInput;
 use crate::number_format::options::*;
@@ -11,8 +12,11 @@ mod configuration;
 mod domains;
 mod messages;
 mod primitives;
+mod rounding;
+use crate::number_format::numeric::RoundingSettings;
 pub use domains::{NumberConfigurationWord, NumberNumericKind, NumberPrecisionKind};
-use primitives::{NumberWireReader, NumberWireWriter};
+pub(crate) use primitives::{NumberWireReader, NumberWireWriter};
+pub(crate) use rounding::{decode_rounding_words, rounding_wire_words};
 
 pub const NUMBER_WIRE_VERSION: u64 = 1;
 pub const NUMBER_WIRE_HEADER_BYTES: u64 = 16;
@@ -21,6 +25,7 @@ pub const NUMBER_APPROXIMATELY_SIGN_CODE: u64 = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NumberWireError {
+    UnavailableService(crate::IntlService),
     Malformed(&'static str),
     Configuration(InvalidNumberConfiguration),
     Kernel(NumberFormatKernelError),
@@ -29,6 +34,7 @@ pub enum NumberWireError {
 impl fmt::Display for NumberWireError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnavailableService(service) => crate::UnavailableIntlService(*service).fmt(f),
             Self::Malformed(reason) => write!(f, "invalid number wire message: {reason}"),
             Self::Configuration(error) => write!(f, "invalid number wire configuration: {error:?}"),
             Self::Kernel(error) => error.fmt(f),
@@ -49,7 +55,7 @@ impl From<NumberFormatKernelError> for NumberWireError {
 }
 
 #[derive(Clone, Copy)]
-enum NumberWireDirection {
+pub(crate) enum NumberWireDirection {
     Request,
     Response,
 }

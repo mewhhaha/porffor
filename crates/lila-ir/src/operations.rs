@@ -268,7 +268,8 @@ impl DoneSlot {
 /// disagree with anything — it is decoration by the same argument the contract
 /// uses to delete `OperationLoweringStatus::SharedRustModel`. The sync/async
 /// distinction is carried by *which plan owns the record*:
-/// [`crate::AsyncFunctionForOfIteratorPlanIr`] owns the resumable synchronous
+/// [`crate::AsyncFunctionForOfIteratorPlanIr`] and
+/// [`crate::GeneratorForOfIteratorPlanIr`] own the resumable synchronous
 /// record, while [`crate::AsyncForOfIteratorPlanIr`] owns the async-protocol
 /// record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1615,7 +1616,7 @@ const T04: TaskId = TaskId::T04;
 /// `"done"`/`"value"` reads, and routes exits through
 /// `emit_iterator_close_condition_i32` (`:8451`) into `emit_iterator_close`
 /// (`:8479`) or `emit_iterator_close_preserving_current_throw` (`:8622`).
-/// `compile_async_function_for_of_iterator` emits the same synchronous
+/// `compile_resumable_sync_for_of_iterator` emits the same synchronous
 /// protocol while keeping its Iterator Record in the async activation.
 /// `compile_async_for_of_iterator` (`control_flow.rs:5577`) open-codes the async
 /// close. `compile_array_destructure_from_value_locals` (`control_flow.rs:7656`)

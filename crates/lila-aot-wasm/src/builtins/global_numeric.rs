@@ -5,46 +5,50 @@ enum GlobalNumericBuiltin {
     IsNaN,
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     fn emit_global_numeric_builtin(
         &mut self,
         builtin: GlobalNumericBuiltin,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        let truth = schema.reserve_i32_local(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        self.emit_value_to_number_payload(&argument, &pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let bits = pending.value().scalar();
+        bits.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        bits.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
         match builtin {
-            GlobalNumericBuiltin::IsFinite | GlobalNumericBuiltin::IsNaN => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-                function.instruction(&Instruction::LocalSet(arg_payload_local));
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                match builtin {
-                    GlobalNumericBuiltin::IsFinite => {
-                        function.instruction(&Instruction::I32Eqz);
-                        for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-                            function.instruction(&Instruction::LocalGet(arg_payload_local));
-                            function.instruction(&Instruction::F64ReinterpretI64);
-                            function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                            function.instruction(&Instruction::F64Ne);
-                            function.instruction(&Instruction::I32And);
-                        }
-                    }
-                    GlobalNumericBuiltin::IsNaN => {}
+            GlobalNumericBuiltin::IsNaN => {}
+            GlobalNumericBuiltin::IsFinite => {
+                function.instruction(&Instruction::I32Eqz);
+                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+                    bits.load(function);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+                    function.instruction(&Instruction::F64Ne);
+                    function.instruction(&Instruction::I32And);
                 }
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
             }
         }
+        truth.store(function);
+        argument.set_boolean(truth, function);
+        pending.set_normal(&argument, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&pending, function);
+        schema.release_i32_local(truth, function);
+        pending.clear(function);
+        argument.clear(function);
         Ok(())
     }
 

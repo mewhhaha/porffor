@@ -1,69 +1,204 @@
 use super::*;
 
-/// The only byte-reading authority used by the Date parsers. EOF is a sentinel,
-/// never a load from an adjacent string or from beyond linear memory.
+/// The only UTF-16 reading authority used by Date parsing. Bounds checks
+/// precede GC array reads; EOF cannot observe an adjacent value.
 pub(super) struct DateParseCursor {
-    offset: u32,
-    length: u32,
-    index: u32,
-    byte: u32,
-    pub(super) valid: u32,
+    units: GcLocal<CodeUnitArray>,
+    length: I64Local,
+    index: I64Local,
+    byte: I64Local,
+    pub(super) valid: I64Local,
 }
 
 impl DateParseCursor {
     pub(super) fn new(
         builder: &mut FunctionBuilder<'_>,
-        source: u32,
+        source: &GcLocal<StringValue>,
         function: &mut Function,
     ) -> Self {
+        let schema = builder.runtime_schema();
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(source, schema, function)
+                .reference(),
+            function,
+        );
         let cursor = Self {
-            offset: builder.reserve_temp_local(),
-            length: builder.reserve_temp_local(),
-            index: builder.reserve_temp_local(),
-            byte: builder.reserve_temp_local(),
-            valid: builder.reserve_temp_local(),
+            units,
+            length: schema.reserve_i64_local(function),
+            index: schema.reserve_i64_local(function),
+            byte: schema.reserve_i64_local(function),
+            valid: schema.reserve_i64_local(function),
         };
-        builder.emit_unpack_string_payload(source, cursor.offset, cursor.length, function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&cursor.units, schema, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        cursor.length.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(cursor.index));
+        cursor.index.store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(cursor.valid));
+        cursor.valid.store(function);
         cursor
     }
 
+    fn read_unit(
+        &self,
+        builder: &FunctionBuilder<'_>,
+        position: I64Local,
+        output: I64Local,
+        function: &mut Function,
+    ) {
+        let schema = builder.runtime_schema();
+        let index = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        position.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        index.store(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&self.units, index, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        output.store(function);
+        schema.release_i32_local(unit, function);
+        schema.release_i32_local(index, function);
+    }
+
     fn peek(&self, builder: &FunctionBuilder<'_>, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.index));
-        function.instruction(&Instruction::LocalGet(self.length));
+        self.index.load(function);
+        self.length.load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        builder.emit_load_string_byte(self.offset, self.index, self.byte, function);
+        self.read_unit(builder, self.index, self.byte, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.byte));
+        self.byte.store(function);
         function.instruction(&Instruction::End);
     }
 
     pub(super) fn at(&self, builder: &FunctionBuilder<'_>, expected: u8, function: &mut Function) {
         self.peek(builder, function);
-        function.instruction(&Instruction::LocalGet(self.byte));
+        self.byte.load(function);
         function.instruction(&Instruction::I64Const(expected as i64));
         function.instruction(&Instruction::I64Eq);
     }
 
     pub(super) fn advance(&self, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.index));
+        self.index.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(self.index));
+        self.index.store(function);
+    }
+
+    /// Look ahead without consuming input or loading beyond the source span.
+    pub(super) fn at_bytes(
+        &self,
+        builder: &mut FunctionBuilder<'_>,
+        expected: &[u8],
+        function: &mut Function,
+    ) {
+        let position = builder.runtime_schema().reserve_i64_local(function);
+        let matched = builder.runtime_schema().reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(1));
+        matched.store(function);
+        for (delta, byte) in expected.iter().enumerate() {
+            self.index.load(function);
+            function.instruction(&Instruction::I64Const(delta as i64));
+            function.instruction(&Instruction::I64Add);
+            position.store(function);
+            position.load(function);
+            self.length.load(function);
+            function.instruction(&Instruction::I64LtU);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.read_unit(builder, position, self.byte, function);
+            self.byte.load(function);
+            function.instruction(&Instruction::I64Const(*byte as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I64ExtendI32U);
+            matched.load(function);
+            function.instruction(&Instruction::I64And);
+            matched.store(function);
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::I64Const(0));
+            matched.store(function);
+            function.instruction(&Instruction::End);
+        }
+        matched.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        builder
+            .runtime_schema()
+            .release_i64_local(matched, function);
+        builder
+            .runtime_schema()
+            .release_i64_local(position, function);
+    }
+
+    /// The emitted non-UTC display suffix contains a bounded ASCII primary
+    /// identifier followed by a comma. Its explicit offset determines parsing.
+    pub(super) fn display_time_zone_name(
+        &self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) {
+        let count = builder.runtime_schema().reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        count.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        self.at(builder, b',', function);
+        function.instruction(&Instruction::BrIf(1));
+        count.load(function);
+        function.instruction(&Instruction::I64Const(
+            lila_intl::MAX_TIME_ZONE_IDENTIFIER_BYTES as i64,
+        ));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::I32Const(0));
+        for (lower, upper) in [(b'A', b'Z'), (b'a', b'z'), (b'0', b'9')] {
+            self.byte.load(function);
+            function.instruction(&Instruction::I64Const(lower as i64));
+            function.instruction(&Instruction::I64GeU);
+            self.byte.load(function);
+            function.instruction(&Instruction::I64Const(upper as i64));
+            function.instruction(&Instruction::I64LeU);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I32Or);
+        }
+        for byte in b"/._+-:" {
+            self.byte.load(function);
+            function.instruction(&Instruction::I64Const(*byte as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+        self.require(function);
+        self.advance(function);
+        count.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        count.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        count.load(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GtU);
+        self.require(function);
+        self.at(builder, b',', function);
+        self.require(function);
+        builder.runtime_schema().release_i64_local(count, function);
     }
 
     /// Consume an i32 predicate without allowing a later success to erase a
     /// previous failure. Every parser starts with a fresh validity local.
     pub(super) fn require(&self, function: &mut Function) {
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(self.valid));
+        self.valid.load(function);
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(self.valid));
+        self.valid.store(function);
     }
 
     pub(super) fn expect(
@@ -80,24 +215,24 @@ impl DateParseCursor {
     }
 
     fn digit(&self, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.byte));
+        self.byte.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(self.byte));
+        self.byte.load(function);
         function.instruction(&Instruction::I64Const(b'9' as i64));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
     }
 
-    fn append_digit(&self, dest: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(dest));
+    fn append_digit(&self, dest: I64Local, function: &mut Function) {
+        dest.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(self.byte));
+        self.byte.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
         self.advance(function);
     }
 
@@ -105,43 +240,43 @@ impl DateParseCursor {
         &self,
         builder: &FunctionBuilder<'_>,
         digits: usize,
-        dest: u32,
+        dest: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
         for _ in 0..digits {
             self.peek(builder, function);
             self.digit(function);
             self.require(function);
             self.append_digit(dest, function);
         }
-        function.instruction(&Instruction::LocalGet(dest));
+        dest.load(function);
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
     }
 
     pub(super) fn display_year(
         &self,
         builder: &mut FunctionBuilder<'_>,
-        dest: u32,
+        dest: I64Local,
         function: &mut Function,
     ) {
-        let negative = builder.reserve_temp_local();
-        let count = builder.reserve_temp_local();
+        let negative = builder.runtime_schema().reserve_i64_local(function);
+        let count = builder.runtime_schema().reserve_i64_local(function);
         self.at(builder, b'-', function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative));
-        function.instruction(&Instruction::LocalGet(negative));
+        negative.store(function);
+        negative.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.advance(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(count));
+        count.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
         // The emitted display formats have at least four and at most six year
         // digits throughout the TimeClip range. No unbounded integer parsing.
         for _ in 0..6 {
@@ -149,89 +284,92 @@ impl DateParseCursor {
             self.digit(function);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.append_digit(dest, function);
-            function.instruction(&Instruction::LocalGet(count));
+            count.load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(count));
+            count.store(function);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(count));
+        count.load(function);
         function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::I64GeU);
         self.require(function);
-        function.instruction(&Instruction::LocalGet(negative));
+        negative.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(dest));
+        dest.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         self.require(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(dest));
+        dest.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(dest));
+        dest.load(function);
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest));
-        builder.release_temp_local(count);
-        builder.release_temp_local(negative);
+        dest.store(function);
+        builder.runtime_schema().release_i64_local(count, function);
+        builder
+            .runtime_schema()
+            .release_i64_local(negative, function);
     }
 
     pub(super) fn name(
         &self,
         builder: &mut FunctionBuilder<'_>,
         names: &[[u8; 3]],
-        dest: u32,
+        dest: I64Local,
         function: &mut Function,
     ) {
-        let packed = builder.reserve_temp_local();
+        let packed = builder.runtime_schema().reserve_i64_local(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(packed));
+        packed.store(function);
         for _ in 0..3 {
             self.peek(builder, function);
-            function.instruction(&Instruction::LocalGet(packed));
+            packed.load(function);
             function.instruction(&Instruction::I64Const(256));
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalGet(self.byte));
+            self.byte.load(function);
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(packed));
+            packed.store(function);
             self.advance(function);
         }
         function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
         for (index, name) in names.iter().enumerate() {
             let value = ((name[0] as i64) << 16) | ((name[1] as i64) << 8) | name[2] as i64;
-            function.instruction(&Instruction::LocalGet(packed));
+            packed.load(function);
             function.instruction(&Instruction::I64Const(value));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(index as i64));
-            function.instruction(&Instruction::LocalSet(dest));
+            dest.store(function);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(dest));
+        dest.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
         self.require(function);
-        function.instruction(&Instruction::LocalGet(dest));
+        dest.load(function);
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest));
-        builder.release_temp_local(packed);
+        dest.store(function);
+        builder.runtime_schema().release_i64_local(packed, function);
     }
 
     pub(super) fn require_end(&self, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.index));
-        function.instruction(&Instruction::LocalGet(self.length));
+        self.index.load(function);
+        self.length.load(function);
         function.instruction(&Instruction::I64Eq);
         self.require(function);
     }
 
-    pub(super) fn release(self, builder: &mut FunctionBuilder<'_>) {
-        for local in [self.valid, self.byte, self.index, self.length, self.offset] {
-            builder.release_temp_local(local);
+    pub(super) fn release(self, builder: &mut FunctionBuilder<'_>, function: &mut Function) {
+        self.units.clear(function);
+        for local in [self.valid, self.byte, self.index, self.length] {
+            builder.runtime_schema().release_i64_local(local, function);
         }
     }
 }

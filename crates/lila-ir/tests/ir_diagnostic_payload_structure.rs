@@ -41,13 +41,20 @@ fn diagnostic_stores_one_private_closed_payload() {
         "payload:IrDiagnosticPayload,pubspan:Option<SourceSpan>,pubmessage:String,}"
     );
 
-    let payload = normalized(bounded(
-        DIAGNOSTICS,
-        "enum IrDiagnosticPayload {",
-        "impl IrDiagnostic",
-    ));
+    let payload = normalized(
+        &bounded(
+            DIAGNOSTICS,
+            "enum IrDiagnosticPayload {",
+            "impl IrDiagnostic",
+        )
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("///"))
+        .collect::<Vec<_>>()
+        .join("\n"),
+    );
     assert!(payload.starts_with(concat!(
         "Rejected(EarlyErrorCode),",
+        "RejectedInDependency(EarlyErrorCode),",
         "Unsupported,",
         "UnsupportedFeature(UnsupportedFeature),",
         "UnsupportedParserFeature,",

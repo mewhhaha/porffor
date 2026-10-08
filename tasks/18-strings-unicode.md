@@ -1,6 +1,26 @@
 # T18 — Strings, Unicode and the complete String API
 
-**Status:** In progress — UTF-16-aware primitives exist; T18 materializers are retired and broad API closure remains
+## Unicode inventory and native checkpoint — 2026-10-08
+
+Normalization inventory construction avoids temporary strings and vectors for
+identity scalars. Its exhaustive reference control preserves every old mapping,
+sequence offset, combining class, composition and row order. All three native
+Unicode cohorts pass in strict and sloppy modes. The cross-Realm cohort now
+installs the ordinary Test262 `$262` wrapper before using it, matching neighboring
+fixtures; every original Unicode, ordering and Realm assertion remains. These
+focused checks leave full pinned String and performance acceptance open. See the
+[current checkpoint](README.md#closure-audit-and-verification--2026-10-08).
+
+## Current source position — 2026-10-07
+
+The reviewed invocation, Unicode normalization and locale case owners are
+authored, including Turkish/Azeri/Lithuanian contexts and final sigma. The queued
+parseInt radix repair also uses the shared modulo conversion in current source.
+This bounded audit found no additional actionable source gap in those owners;
+older unfinished-source notes below describe predecessors. Task-wide native,
+full pinned String/Test262 and performance/resource acceptance remain pending.
+
+**Status:** In progress — reviewed String/Unicode source is authored; task-wide native, pinned-suite and performance/resource acceptance remain pending.
 
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T10; regular-expression methods integrate with T19  
@@ -8,11 +28,113 @@
 
 ## Current repository state
 
+The 2026-10-04 complete String invocation-family source retires thirty-three
+canonical-name substitutions and the primitive CharCodeAt/Split gates. Existing
+acquired-callee and raw-receiver owners retain every ordinary/spread argument,
+including ignored operands. MatchAll now publishes arbitrary normal hook values
+in both live result analysis and the spread signature. CharCodeAt/CodePointAt
+spread signatures retain Number and Number-or-Undefined results.
+
+All forty-seven generic String catalog rows record synchronous user code; the
+two internal-brand ToString/ValueOf rows remain distinct. A consumed const
+catalog rule makes a missing generic flag fail compilation. Existing invocation
+effects invalidate captured kind, shape and element facts through coercion and
+symbol hooks, including Concat. No new backend or native algorithm is introduced.
+
+Actual lowering controls and three finite paired Engine cohorts are authored
+with code, invariant and documentation. They cover all thirty-three native
+aliases, real spread/cached-next mutation, argument replacement, arbitrary
+Number/Function/Symbol hooks, raw Proxy receivers, both borrowed error Realms,
+full nullish Split.call arguments and original abrupt identity. The ref105
+passing Rust proof belongs to the predecessor; this successor still needs its
+grouped type check and emitted-Wasm/runtime acceptance. Locale case algorithms
+and full T18/T19/T26/pinned acceptance remain open. See the
+[String invocation contract](../docs/rust-rewrite/contracts/string-invocation-family.md).
+
+The next dry source successor removes the primitive Number borrowed Match/Split
+shortcuts and their complete copied-boolean lifecycle. Actual property
+acquisition, raw primitive receivers and full ordinary/spread arguments now
+reach the existing indirect owner. Arbitrary hook returns retain conservative
+facts and synchronous effects; argument IR is no longer discarded by the static
+separator throw shortcut. Existing Number/Boolean conversion policies and live
+native String bodies retain their owners.
+
+The unproduced StringCharCodeAt IR variant, sole inline emitter and HTML-name-only
+metadata are also deleted. Native CharCodeAt and all thirteen HTML algorithms
+remain independently live. Exhaustive visitor and architecture controls follow
+the actual remaining domain, including the eighth shape-accessor producer.
+Meaningful IR and two paired Engine cohorts are authored, but this successor is
+type/runtime unverified. The full-task source pass precedes capped verification.
+See the [Number and dispatch contract](../docs/rust-rewrite/contracts/number-string-hook-and-dispatch-retirement.md).
+
+The 2026-10-04 invocation retirement source removes the inferred substring/slice
+branch that reconstructed a canonical name. The ordinary method owner retains
+the original acquired function and materialized raw receiver, all arguments,
+real spread iteration and ignored extra operands. Existing signatures publish
+String results and defer receiver/start/end coercion to the canonical UTF-16
+range bodies. Both actual catalog rows carry synchronous-user-code flags, so
+receiver/numeric coercion hooks invalidate later caller facts through existing
+ordinary and spread-aware effect owners.
+
+The final Wasm indirect emitter removes its three-target Match/Split/Slice
+interception and evaluates the actual callee before the complete raw receiver
+and argument-vector call. The existing general Function/Proxy entry retains
+completion and cleanup. Primitive String source shortcuts and broader protocol
+facts remain separately scoped successor work.
+
+Actual IR controls and a paired finite String Engine cohort are authored with
+the duplicate Array-call retirement. They cover literal transferred/computed
+aliases, acquisition before method/receiver replacement, complete argument and
+coercion order, original throws, borrowed native error Realms and surrogate
+extraction. This source passed the ref105 combined all-target Rust type check;
+emitted-Wasm/runtime, full T18/T26 and fresh pinned status remain open. See the
+[invocation retirement contract](../docs/rust-rewrite/contracts/invocation-shortcut-retirement.md).
+
+The complete 2026-10-04 String symbol-method source batch joins six existing
+entries through one private observed receiver/method owner and consuming
+callable dispatch. Callable Proxy hooks retain their apply receiver and original
+arguments. Original null/undefined GetMethod results select fallback without an
+own-property probe or repeated inherited getter. Required created-RegExp Invoke
+throws for every non-callable value, including null/undefined. Primitive inputs
+still bypass symbol hooks, and MatchAll/ReplaceAll retain IsRegExp then flags
+before hook lookup. Native errors and created receiver prototypes use the
+called builtin's intrinsic Realm. The inherited matchAll retry and mutable
+public RegExp.prototype lookup are retired.
+
+Meaningful existing Engine/CLI sources cover one observation, Proxy calls,
+original versus created receivers, nullish required invocation, abrupt identity
+and both borrowed Realm directions. Existing source guards retain domain and
+routing boundaries while obsolete implementation-count pins are retired.
+This batch passed the ref93 combined all-target Rust type check and remains
+unexecuted; full T18/T19 and current-pin acceptance remain open. See the
+[contract](../docs/rust-rewrite/contracts/string-symbol-hook-operation.md).
+
 Heap strings and many String methods operate on UTF-16 code units, with focused
 coverage for surrogates, case conversion and symbol hooks. The Test262 harness
 has no remaining T18-owned shortcut observations, while full Unicode
 normalization/case data and RegExp/Intl integration are not proven complete.
 The complete current-pin String tree and T18 acceptance gate remain open.
+
+The integrated 2026-10-03 dry source batch routes `concat` calls through ordinary property lookup
+and call rather than guessing String or Array concat from the receiver kind.
+It preserves the original primitive or boxed receiver for getters and calls,
+acquires the method before arguments, and checks callability after argument
+evaluation. Planning keeps Array, String and Iterator concat bodies live.
+The published `S15.5.4.6_A1_T9.js` boxed-String failure motivates the change;
+the unchanged pinned source, own/prototype overrides, accessor ordering and
+abrupt-completion controls are prepared for both script modes. Compilation,
+runtime execution and full String/Test262 verification remain pending.
+See [the concat lookup contract](../docs/rust-rewrite/contracts/string-concat-method-lookup.md).
+
+Independent source review found that builtin-target inference could rewrite a
+transferred Array/String method alias to the canonical `concat` key. The integrated alias
+followup preserves the authored reference and prepares controls for unrelated
+own `concat` overrides/getters, inherited receiver identity, and method
+acquisition before arguments replace the alias or receiver prototype. The
+original fixture retains all 37 checks; its earlier 39 prepared labels included
+two descriptor property keys rather than checks. Fifteen alias checks bring the
+prepared fixture to 52 checks. The original source packet and failed peer review
+remain retained; no compiler, runtime or conformance pass is inherited.
 
 The metadata cases for `String.prototype.at`, `charAt`, `charCodeAt`,
 `codePointAt`, `includes`, `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`,
@@ -212,6 +334,12 @@ consumes it for the composition decision; spelling borrows before runtime-code
 selection consumes each validation-loop form. This is source-equivalent
 lifecycle hardening and adds no runtime Wasm form word or conformance claim.
 
+Historical Batch AD receipt: the global ASCII class child and its three
+layout-only structure tests were retired by the T19 ordinary `@@match`
+catalogue deletion. The following hashes and verification describe that former
+owner, not current product dispatch. Compiled protocol fixtures remain; this
+retirement does not close full RegExpExec or String conformance.
+
 The static global ASCII class matcher uses the private, non-copyable
 `GlobalAsciiClassQuantifier::{DigitOnce, DigitTwice, NonDigitTwice}` domain
 instead of an independent digit-polarity Boolean and arbitrary integer width.
@@ -227,6 +355,12 @@ and
 Batch AD focused structure and CLI verification is deferred to the combined
 checkpoint; the three exact pinned leaves and semantic golden were not rerun.
 It does not complete String, RegExp, T18 or T19.
+
+Historical Batch AI receipt: the postal-code match-result child and its three
+layout-only structure tests were retired by the T19 ordinary `@@match`
+catalogue deletion. The following hashes and verification describe that former
+owner, not current product dispatch. Compiled protocol fixtures remain; this
+retirement does not close full RegExpExec or String conformance.
 
 The specialized postal-code match-result shape and raw emitter now have one
 private `builtins/string/postal_code_match_result_shape.rs` owner. The parent
@@ -254,6 +388,12 @@ failure bucket at zero. No semantic golden was needed or run. Final formatter,
 diff, module-boundary, task-plan and 240-entry shortcut-inventory gates are
 green. The source-equivalent owner move adds no fixture or conformance claim.
 It does not complete String, RegExp, T18 or T19.
+
+Historical Batch AC receipt: the duplicate-named-group child and its three
+layout-only structure tests were retired by the T19 ordinary `@@match`
+catalogue deletion. The following hashes and verification describe that former
+owner, not current product dispatch. Compiled protocol fixtures remain; this
+retirement does not close full RegExpExec or String conformance.
 
 The duplicate-named-group matcher uses the private, non-copyable
 `DuplicateNamedGroupPattern::{AlternativeCaptures, IteratedBackreference}`
@@ -444,3 +584,24 @@ cargo test -p lila-cli wasm_string --quiet
 ```
 
 Add focused representation tests for every surrogate boundary and rerun JSON, RegExp, URI, Date and Intl-adjacent filters that consume strings.
+
+### Separate queued batch5: parseInt radix ToInt32 — source-only, UNRUN
+
+The published `current-pin-wasm-aot-20260930-2885103bea4c-2x1` backlog retains
+four sloppy/strict Runtime/Bug executions for complete
+`staging/sm/Number/parseInt-01.js` and `staging/sm/global/parseInt-01.js`, with
+NaN instead of 16. The current radix emitter still saturates a Number to i64
+before wrapping to i32. Finite 1e308 therefore becomes an invalid radix;
+ToInt32 requires zero and default hexadecimal prefix handling yields 16.
+
+The separately queued patch routes radix conversion through the existing
+binary64 modulo authority, then interprets the bounded residue as signed.
+ToString precedes the single ToNumber and both retain exact abrupt values.
+Six Engine tests specify twelve fresh mode observations, including both
+complete pinned sources with full sta.js/assert.js and native coercion,
+mutation, huge/fractional wrapping, signed range and nonfinite controls.
+Actual Source binding, compilation and all runtime evidence are deferred.
+See `docs/rust-rewrite/contracts/parse-int-radix-conversion.md` and the separate
+packet's hashes, inverse and source-only receipts. No status count or T18
+closure changes are claimed. Append these exact bytes after the then-current
+concat note; preserve every preceding Task18 byte.

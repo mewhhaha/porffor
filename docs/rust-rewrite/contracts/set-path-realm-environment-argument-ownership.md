@@ -1,5 +1,17 @@
 # Set-path Realm environment argument ownership
 
+Current dry source — 2026-10-05: the scalar set-path Realm argument owner
+and its raw source-mirror target are retired in the atomic GC draft. Object
+operations and native errors retain complete GC values and typed Realm owners.
+The exact scalar argument, literal call counts and old module spelling below
+belong to the historical implementation. Their earlier results do not verify
+the current source batch.
+
+The existing created-Realm Proxy Set CLI fixture and its registration witness
+remain unchanged; current Engine Object/Reflect behavioral controls remain
+intact. Compilation and runtime verification are deferred until all remaining
+source families and representation/provider cleanup are finished.
+
 `SetPathRealmEnvironmentArgument` is the private two-row authority that emits
 parameter 6 for the outlined object-mutation helpers. A trusted standard
 builtin or set-path helper source emits the current environment; the global

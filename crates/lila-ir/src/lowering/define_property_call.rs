@@ -64,7 +64,6 @@ impl<'a> ScriptLowerer<'a> {
                     | StandardBuiltinId::FunctionPrototypeCall
                     | StandardBuiltinId::FunctionPrototypeApply
                     | StandardBuiltinId::ReflectApply
-                    | StandardBuiltinId::BoundFunctionInvoker
             )
         )
     }
@@ -169,12 +168,7 @@ impl<'a> ScriptLowerer<'a> {
         // Lowered argument shapes carry no evaluation epoch. Refresh the canonical global object
         // after later arguments. A fresh literal cannot have escaped yet, while exact function
         // targets remain distinguishable from structurally identical function shapes by identity.
-        let target_for_effects = if matches!(
-            &target.expr,
-            ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME
-        ) && self.lookup_binding(GLOBAL_THIS_NAME).is_none()
-            && self.lookup_global_property_info(GLOBAL_THIS_NAME).is_none()
-        {
+        let target_for_effects = if matches!(&target.expr, ExprIr::ExecutionGlobalObject) {
             Some(self.global_this_info())
         } else if matches!(
             &target.expr,
@@ -192,12 +186,26 @@ impl<'a> ScriptLowerer<'a> {
         let key_may_call_user_code = args
             .get(1)
             .is_some_and(|key| key.possible_kinds.intersects(Self::object_like_kind_set()));
+        // ToPropertyDescriptor can be effect-free while the target's
+        // [[DefineOwnProperty]] still invokes source code. ArraySetLength
+        // converts a supplied value twice, after descriptor fields are read.
+        // Keep possible length definitions conservative without weakening the
+        // proof for an ordinary function or a different known array key.
+        let array_length_definition_may_call_user_code =
+            target.possible_kinds.contains(ValueKind::Array)
+                && args.get(1).is_some_and(|key| match &key.expr {
+                    ExprIr::String(name) => name == "length",
+                    _ => key.kind != ValueKind::Symbol,
+                });
         let object_prototype_shape = self
             .is_intrinsic_global_constructor(OBJECT_NAME)
             .then(|| self.lookup_global_property(OBJECT_NAME))
             .flatten()
             .and_then(|constructor| {
-                read_heap_shape_property(constructor.heap_shape.as_deref()?, "prototype")
+                self.read_current_heap_shape_property(
+                    constructor.heap_shape.as_deref()?,
+                    "prototype",
+                )
             })
             .and_then(|prototype| match prototype {
                 ObjectShapeProperty::Data(prototype) => prototype.heap_shape,
@@ -218,9 +226,14 @@ impl<'a> ScriptLowerer<'a> {
                 match (&descriptor.expr, descriptor.heap_shape.as_deref()) {
                     (ExprIr::ObjectLiteral(properties), Some(HeapShape::Object(shape)))
                         if !properties.iter().any(|property| {
-                            matches!(property, ObjectPropertyIr::PrototypeSetter { .. })
+                            matches!(property, ObjectPropertyIr::PrototypeSetter { value }
+                                if !matches!(value.expr, ExprIr::Null))
                         }) =>
                     {
+                        let null_prototype = properties.iter().any(|property| {
+                            matches!(property, ObjectPropertyIr::PrototypeSetter { value }
+                                if matches!(value.expr, ExprIr::Null))
+                        });
                         let descriptor_field_names = [
                             "enumerable",
                             "configurable",
@@ -232,14 +245,24 @@ impl<'a> ScriptLowerer<'a> {
                         for (field_index, name) in descriptor_field_names.iter().enumerate() {
                             let property = match shape.properties.get(*name) {
                                 Some(property) => Some(property.clone()),
-                                None => match object_prototype_shape.as_deref() {
-                                    Some(prototype) => read_heap_shape_property(prototype, name),
-                                    None => {
-                                        descriptor_field_read_precision =
-                                            DescriptorFieldReadPrecision::Unknown;
-                                        break;
+                                // This fresh literal has no inherited fields.
+                                // The retained Null operand proves the end of
+                                // the chain; an omitted shape entry alone does not.
+                                None if null_prototype => None,
+                                None => {
+                                    match object_prototype_shape.as_deref().and_then(|prototype| {
+                                        self.read_current_heap_shape_property(prototype, name)
+                                    }) {
+                                        Some(property) => Some(property),
+                                        None => {
+                                            // Missing snapshot information proves neither absence
+                                            // nor an effect-free inherited HasProperty/Get.
+                                            descriptor_field_read_precision =
+                                                DescriptorFieldReadPrecision::Unknown;
+                                            break;
+                                        }
                                     }
-                                },
+                                }
                             };
                             let Some(ObjectShapeProperty::Accessor {
                                 getter: Some(getter),
@@ -291,7 +314,11 @@ impl<'a> ScriptLowerer<'a> {
             DescriptorFieldReadPrecision::Unknown
         );
 
-        if target_may_be_proxy || key_may_call_user_code || descriptor_field_access_is_unknown {
+        if target_may_be_proxy
+            || key_may_call_user_code
+            || descriptor_field_access_is_unknown
+            || array_length_definition_may_call_user_code
+        {
             self.observe_all_planned_source_as_unknown_property_hooks();
         }
         if let Some(descriptor) = args.get(2) {
@@ -311,6 +338,7 @@ impl<'a> ScriptLowerer<'a> {
             || target_for_effects.is_none()
             || key_may_call_user_code
             || descriptor_may_call_user_code
+            || array_length_definition_may_call_user_code
         {
             self.invalidate_unknown_user_code_effects();
         } else {

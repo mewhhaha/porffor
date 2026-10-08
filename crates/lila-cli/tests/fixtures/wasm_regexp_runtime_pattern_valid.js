@@ -83,58 +83,14 @@ check(codePoint.source, unicodePatterns[1], "the braced code-point escape keeps 
 check(codePoint.test("A"), true, "a braced code-point escape matches its code point");
 check(codePoint.test("B"), false, "a braced code-point escape matches nothing else");
 
-// (c) A computed valid pattern whose string NEVER appears as a literal.
-//
-// `"(?<q1>x)"` is assembled at run time, so no row exists for it. The POLICY
-// this lane chose, and this is the assertion that pins it:
-//
-//   a table miss does NOT throw.
-//
-// The alternative — throw SyntaxError on any miss — was rejected on measured
-// grounds: a zeroed program does not mean `exec` answers `null`, it means
-// `emit_regexp_exec_simple_from_locals` (a real fallback matcher) gets its turn,
-// and only when that declines does exec throw
-// `TypeError: RegExp.prototype.exec unsupported pattern`. Throwing at
-// construction would convert every answer that fallback gets right — including
-// the ordinary `new RegExp("a", computedFlags)` shape — into a spurious
-// SyntaxError.
-//
-// Measured on the batch-7 head: construction succeeds, `source` is exact, and
-// `test` throws that TypeError. What must never happen is the third option: a
-// quiet `false` for a pattern that should match. That is the wrong-answer class,
-// and it is what the last check below forbids.
-// The halves are read out of an array rather than concatenated as two literals
-// on purpose: `"(?<" + "q1>x)"` is a constant-foldable expression, and a fold
-// would turn this into an ordinary literal, put it in the candidate set, and
-// make the whole "unseen" case vacuous. Element reads cannot be folded, so the
-// concatenated pattern genuinely never exists at compile time. (Both halves are
-// themselves illegal patterns and pick up `Rejected` rows; neither is ever used
-// as one.)
-var unseenParts = ["(?<", "q1>x)"];
-var unseenHead = unseenParts[0];
-var unseenTail = unseenParts[1];
-var unseen = unseenHead + unseenTail;
-
-var unseenRegExp = null;
-var unseenConstruction = "ok";
-try {
-  unseenRegExp = new RegExp(unseen);
-} catch (error) {
-  unseenConstruction = "threw:" + error.name;
-}
-check(unseenConstruction, "ok", "policy: an unseen but valid pattern does not throw");
-check(unseenRegExp.source, unseenHead + unseenTail, "an unseen pattern keeps its source");
-
-var unseenAnswer;
-try {
-  unseenAnswer = unseenRegExp.test("x") ? "match" : "no-match";
-} catch (error) {
-  unseenAnswer = "threw:" + error.name;
-}
-check(
-  unseenAnswer === "no-match",
-  false,
-  "an unseen valid pattern must never answer a silent no-match"
-);
+// (c) A clean computed pattern whose complete source never appears in the
+// finite candidate table still compiles through the Wasm runtime compiler.
+// This prevents a blanket table-miss rejection from satisfying the separate
+// unsupported-grammar control in wasm_regexp_runtime_gap_named_group.js.
+var unseenClean = String.fromCharCode(0x7a) + "+";
+var unseenCleanRegExp = new RegExp(unseenClean, "u");
+check(unseenCleanRegExp.source, unseenClean, "uncached clean source");
+check(unseenCleanRegExp.test("zz"), true, "uncached clean pattern matches");
+check(unseenCleanRegExp.test("x"), false, "uncached clean pattern rejects");
 
 true;

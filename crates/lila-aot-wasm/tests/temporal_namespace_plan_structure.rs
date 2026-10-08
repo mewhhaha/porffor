@@ -62,7 +62,7 @@ fn temporal_namespace_shapes_and_installers_share_two_ordered_member_lists() {
         now_members
             .matches("StandardBuiltinId::TemporalNow")
             .count(),
-        3
+        6
     );
     ordered(
         now_members,
@@ -71,6 +71,9 @@ fn temporal_namespace_shapes_and_installers_share_two_ordered_member_lists() {
             "TemporalNowTimeZoneId",
             "instant",
             "zonedDateTimeISO",
+            "plainDateTimeISO",
+            "plainDateISO",
+            "plainTimeISO",
         ],
     );
 

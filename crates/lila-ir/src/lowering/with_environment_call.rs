@@ -19,6 +19,13 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        if self
+            .analysis
+            .module_execution
+            .is_private_dispatcher_name(&name)
+        {
+            return None;
+        }
 
         // Direct eval has a separate dynamic-source capability and Call
         // classification. This bounded Reference seam must not turn it into an
@@ -59,6 +66,27 @@ impl<'a> ScriptLowerer<'a> {
         let result = plan.call(args, fallback);
         self.observe_unaccounted_invocation_effects(InvocationTargetProvenance::Erased);
         Some(result)
+    }
+
+    pub(super) fn capture_with_environment_identifier_reference(
+        &mut self,
+        name: &str,
+    ) -> Option<(TypedExpr, TypedExpr)> {
+        let fallback_reference = self.locate_identifier_reference(name);
+        let objects = self
+            .with_environment_chain
+            .select_preceding(fallback_reference.declarative_position())?;
+        let plan = objects.into_identifier_call_plan(name.to_string(), self.reference_strictness());
+        self.invalidate_unknown_user_code_effects();
+        let fallback = self.with_identifier_call_fallback(name, fallback_reference);
+        let storage =
+            self.alloc_suspension_owned_binding("call.with.base", unknown_runtime_value_info());
+        let (selection, callee, receiver) = plan.capture(storage, fallback);
+        self.async_expression_prefix
+            .as_mut()
+            .expect("suspended call owns a prefix")
+            .push(selection);
+        Some((callee, receiver))
     }
 
     /// Consume the already located fallback into a fresh run-time callee read.

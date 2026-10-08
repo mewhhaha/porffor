@@ -1,7 +1,7 @@
 use crate::datetime::*;
 
 use super::super::{
-    calendar::{Fields, Year},
+    calendar::{CalendarYear, EraName, Fields},
     pattern::{Field, Pattern, PeriodKind, Token},
     plan::{
         adjustment::{adjust_widths, matching_clock, with_cycle},
@@ -86,7 +86,7 @@ pub(super) fn greatest(
         let different = match difference {
             Difference::Era => era(start.year) != era(end.year),
             Difference::Year => year(start.year) != year(end.year),
-            Difference::Month => (start.month, start.leap_month) != (end.month, end.leap_month),
+            Difference::Month => start.month.formatting() != end.month.formatting(),
             Difference::Day => start.day != end.day,
             Difference::AmPm => am_pm && (start.hour < 12) != (end.hour < 12),
             Difference::DayPeriod => {
@@ -118,16 +118,16 @@ pub(super) fn greatest(
     Ok(None)
 }
 
-fn era(year: Year) -> u8 {
+fn era(year: CalendarYear) -> Option<EraName> {
     match year {
-        Year::Era { era, .. } => era,
-        Year::Cyclic { .. } => 0,
+        CalendarYear::Era { name, .. } => Some(name),
+        CalendarYear::Cyclic { .. } => None,
     }
 }
-fn year(year: Year) -> i32 {
+fn year(year: CalendarYear) -> i32 {
     match year {
-        Year::Era { year, .. } => year,
-        Year::Cyclic { related, .. } => related,
+        CalendarYear::Era { year, .. } => year,
+        CalendarYear::Cyclic { related_iso, .. } => related_iso,
     }
 }
 fn rank(field: Field) -> Option<Difference> {
@@ -135,7 +135,7 @@ fn rank(field: Field) -> Option<Difference> {
         Field::Era(_) => Difference::Era,
         Field::Year(_) | Field::RelatedYear(_) | Field::CyclicYear(_) => Difference::Year,
         Field::Month { .. } => Difference::Month,
-        Field::Day(_) | Field::Weekday { .. } => Difference::Day,
+        Field::Day(_) | Field::Weekday { .. } | Field::NumericWeekday { .. } => Difference::Day,
         Field::DayPeriod {
             kind: PeriodKind::AmPm | PeriodKind::NoonMidnight,
             ..
@@ -231,6 +231,7 @@ fn year_fields(pattern: &Pattern) -> [bool; 3] {
                 | Field::Month { .. }
                 | Field::Day(_)
                 | Field::Weekday { .. }
+                | Field::NumericWeekday { .. }
                 | Field::DayPeriod { .. }
                 | Field::Hour { .. }
                 | Field::Minute(_)

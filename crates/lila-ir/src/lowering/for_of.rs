@@ -1,8 +1,12 @@
+mod async_function;
+mod generator;
 mod protocol;
 
+use self::generator::GeneratorForOfHeadSource;
 use self::protocol::ForOfLoweringIr;
 use super::async_disposable::LoweredForOfHeadKind;
 use super::*;
+use crate::resumable_for_of_control::resumable_sync_for_of_body_has_local_control_owners;
 
 enum ForOfBareIdentifierHead {
     Absent,
@@ -16,112 +20,14 @@ struct LexicalForOfPatternBinding {
 }
 
 impl<'a> ScriptLowerer<'a> {
-    /// Builds the activation-backed synchronous Iterator Record walk for an
-    /// ordinary `for-of` whose body suspends in a plain async function.
-    fn lower_async_function_for_of_iterator_with_body_await(
-        &mut self,
-        head: AsyncFunctionForOfIteratorHeadIr,
-        iterable: TypedExpr,
-        body: StatementIr,
-        body_kind: ValueKind,
-        entry_state: Option<u32>,
-        head_environment: Option<ForInOfEnvironmentIr>,
-    ) -> ForOfLoweringIr {
-        let Some(entry_state) = entry_state else {
-            self.unsupported(
-                "async for-of with a body await requires a plain async function body with a \
-                 resumable entry state, and this body has none",
-            );
-            return ForOfLoweringIr::no_iteration();
-        };
-        let statements = match body {
-            StatementIr::Block(block) if block.lexical_environment.is_none() => block.statements,
-            StatementIr::LexicalBlock(statements) => statements,
-            statement => vec![statement],
-        };
-        let statements = flatten_suspending_lexical_blocks(statements);
-        let record = IteratorRecordIr::new(
-            self.alloc_iterator_slot(),
-            self.alloc_next_method_slot(),
-            self.alloc_done_slot(),
-        );
-        let plan = match AsyncFunctionForOfIteratorPlanIr::new(
-            head,
-            record,
-            head_environment,
-            statements,
-            entry_state,
-        ) {
-            Ok(plan) => plan,
-            Err(AsyncFunctionForOfIteratorPlanError::InvalidBody(error)) => {
-                self.unsupported(&format!("invalid async for-of body continuation: {error:?}"));
-                return ForOfLoweringIr::no_iteration();
-            }
-            Err(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { body_exit_state }) => {
-                self.unsupported(&format!(
-                    "async for-of exit state overflows after body completion {body_exit_state}"
-                ));
-                return ForOfLoweringIr::no_iteration();
-            }
-            Err(AsyncFunctionForOfIteratorPlanError::CapturedTdzEnvironment {
-                tdz_placeholder_names,
-            }) => {
-                self.unsupported(&format!(
-                    "async for-of with a body await cannot materialize the head's captured TDZ \
-                     environment for {tdz_placeholder_names:?}"
-                ));
-                return ForOfLoweringIr::no_iteration();
-            }
-            Err(
-                error @ (AsyncFunctionForOfIteratorPlanError::BindingHeadEnvironmentRequired {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::VarBindingHasHeadEnvironment { .. }
-                | AsyncFunctionForOfIteratorPlanError::SingleBindingTdzNameCount { .. }
-                | AsyncFunctionForOfIteratorPlanError::SingleBindingIterationNamesMismatch {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::PreparedAssignmentHasHeadEnvironment {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::LexicalPatternMode { .. }
-                | AsyncFunctionForOfIteratorPlanError::LexicalPatternHeadEnvironmentRequired {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::LexicalPatternNameCountMismatch { .. }
-                | AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName { .. }
-                | AsyncFunctionForOfIteratorPlanError::DuplicateLexicalPatternIterationStorageName {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::LexicalPatternTdzNamesMismatch { .. }
-                | AsyncFunctionForOfIteratorPlanError::LexicalPatternIterationNamesMismatch {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::EmptyLexicalPatternHasIterationEnvironment {
-                    ..
-                }
-                | AsyncFunctionForOfIteratorPlanError::LexicalPatternValueNameCollision { .. }
-                | AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout(_)
-                | AsyncFunctionForOfIteratorPlanError::InvalidLexicalPatternInitialization(_)),
-            ) => {
-                self.unsupported(&format!(
-                    "invalid resumable async for-of head invariant: {error:?}"
-                ));
-                return ForOfLoweringIr::no_iteration();
-            }
-        };
-        match plan.value_storage() {
-            AsyncFunctionForOfIteratorValueStorageIr::Activation(binding) => {
-                self.add_suspension_owned_binding(binding.name.clone());
-            }
-            AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(_)
-            | AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { .. } => {}
-        }
-        self.current_async_resume_state = Some(plan.exit_state());
-        ForOfLoweringIr::async_function_iterator(iterable, plan, body_kind)
-    }
-
     pub(super) fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
+        if self
+            .analysis
+            .complete_for_of_owners
+            .contains_key(&(for_of as *const ForOfLoop as usize))
+        {
+            return self.lower_for_of_loop_region(for_of);
+        }
         if matches!(for_of.initializer(), IterableLoopInitializer::Using(_)) {
             let Some(region) =
                 super::synchronous_resource_loop::SynchronousResourceLoop::iterator(for_of)
@@ -138,6 +44,14 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         for_of: &ForOfLoop,
     ) -> (StatementIr, ValueKind) {
+        if let Some(owner) = self
+            .analysis
+            .complete_for_of_owners
+            .get(&(for_of as *const ForOfLoop as usize))
+            .copied()
+        {
+            return self.lower_async_generator_for_of(for_of, owner);
+        }
         self.lower_for_of_head(for_of).into_statement_and_kind()
     }
 
@@ -150,20 +64,53 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("for-await-of outside async function");
             return ForOfLoweringIr::no_iteration();
         }
-        if for_of.r#await() && contains(for_of.body(), ContainsSymbol::AwaitExpression) {
+        let plain_async_for_await_body = self.plain_async_entry_state().is_some()
+            && for_of.r#await()
+            && contains(for_of.body(), ContainsSymbol::AwaitExpression);
+        if for_of.r#await()
+            && contains(for_of.body(), ContainsSymbol::AwaitExpression)
+            && !plain_async_for_await_body
+        {
             self.unsupported("explicit await in for-await-of body");
             return ForOfLoweringIr::no_iteration();
+        }
+        // Only a plain Generator owns the new Yield continuation region.
+        let generator_entry_state = self.plain_generator_entry_state().filter(|_| {
+            !for_of.r#await() && contains(for_of.body(), ContainsSymbol::YieldExpression)
+        });
+        if generator_entry_state.is_some() && !generator_for_of_source_shape_is_supported(for_of) {
+            self.unsupported("generator for-of requires an eager identifier binding, lexical-pattern binding, identifier assignment, or ordinary-property assignment head and a body without nested resumable loops or foreign branch owners");
+            return ForOfLoweringIr::no_iteration();
+        }
+        if plain_async_for_await_body {
+            let eager_binding = match for_of.initializer() {
+                IterableLoopInitializer::Var(variable) => {
+                    matches!(variable.binding(), Binding::Identifier(_))
+                        && !self.borrows_direct_eval_variable_environment()
+                }
+                IterableLoopInitializer::Let(Binding::Identifier(_))
+                | IterableLoopInitializer::Const(Binding::Identifier(_)) => true,
+                _ => false,
+            };
+            if !eager_binding
+                || contains(for_of.initializer(), ContainsSymbol::AwaitExpression)
+                || contains(for_of.iterable(), ContainsSymbol::AwaitExpression)
+                || !resumable_sync_for_of_body_has_local_control_owners(for_of.body())
+            {
+                self.unsupported("plain async for-await-of with a body await requires an eager identifier binding and iterable, and local body control owners");
+                return ForOfLoweringIr::no_iteration();
+            }
         }
         // A body await must retain the Iterator Record across driver returns.
         let plain_async_await_body = self.plain_async_entry_state().is_some()
             && !for_of.r#await()
             && contains(for_of.body(), ContainsSymbol::AwaitExpression);
         if plain_async_await_body
-            && (generator_loop_has_unsupported_control(for_of.body(), false)
+            && (!resumable_sync_for_of_body_has_local_control_owners(for_of.body())
                 || contains(for_of.iterable(), ContainsSymbol::AwaitExpression))
         {
             self.unsupported(
-                "async for-of with await requires an eager iterable and a body without break or continue",
+                "async for-of with await requires an eager iterable and a body without foreign branch owners",
             );
             return ForOfLoweringIr::no_iteration();
         }
@@ -239,7 +186,11 @@ impl<'a> ScriptLowerer<'a> {
                 (
                     LoweredForOfHeadKind::Assignment,
                     BindingMode::Let,
-                    self.alloc_temp_binding_name("forof"),
+                    self.alloc_temp_binding_name(if generator_entry_state.is_some() {
+                        "forof.assignment"
+                    } else {
+                        "forof"
+                    }),
                 )
             }
             IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
@@ -247,7 +198,11 @@ impl<'a> ScriptLowerer<'a> {
                 (
                     LoweredForOfHeadKind::Assignment,
                     BindingMode::Let,
-                    self.alloc_temp_binding_name("forof"),
+                    self.alloc_temp_binding_name(if generator_entry_state.is_some() {
+                        "forof.assignment"
+                    } else {
+                        "forof"
+                    }),
                 )
             }
             IterableLoopInitializer::Using(Binding::Identifier(identifier)) => {
@@ -286,13 +241,19 @@ impl<'a> ScriptLowerer<'a> {
             // Re-evaluate the property Reference on each iteration, after
             // the iterator value has been stored in a private temporary.
             IterableLoopInitializer::Access(
-                access @ (PropertyAccess::Simple(_) | PropertyAccess::Private(_)),
+                access @ (PropertyAccess::Simple(_)
+                | PropertyAccess::Private(_)
+                | PropertyAccess::Super(_)),
             ) => {
                 access_initializer = Some(access.clone());
                 (
                     LoweredForOfHeadKind::Assignment,
                     BindingMode::Let,
-                    self.alloc_temp_binding_name("forof.access"),
+                    self.alloc_temp_binding_name(if generator_entry_state.is_some() {
+                        "forof.assignment"
+                    } else {
+                        "forof.access"
+                    }),
                 )
             }
             _ => {
@@ -383,15 +344,11 @@ impl<'a> ScriptLowerer<'a> {
             for key in [WellKnownSymbol::AsyncIterator, WellKnownSymbol::Iterator] {
                 let function_targets = self
                     .optional_chain_well_known_symbol_property_info(&iterable.value_info(), key)
-                    .map(|method| {
-                        method
-                            .function_targets
-                            .known_targets()
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
+                    .function_targets
+                    .known_targets()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
                 for function_id in function_targets {
                     let fallback = self
                         .function_signature_for_current_flow(&function_id)
@@ -479,10 +436,22 @@ impl<'a> ScriptLowerer<'a> {
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
-            let access = access.clone();
-            vec![StatementIr::DeclarationEvaluation(
-                self.lower_property_assign_value(&access, value),
-            )]
+            let assignment = match (generator_entry_state, access) {
+                (Some(_), PropertyAccess::Simple(access)) => {
+                    let (plan, referenced_name, metadata) =
+                        self.lower_ordinary_property_reference_plan(access);
+                    self.complete_ordinary_property_plain_assignment(
+                        access,
+                        plan,
+                        referenced_name,
+                        metadata,
+                        value,
+                        false,
+                    )
+                }
+                _ => self.lower_property_assign_value(access, value),
+            };
+            vec![StatementIr::DeclarationEvaluation(assignment)]
         } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
             let value = TypedExpr::from_info(
                 element_info.clone(),
@@ -533,14 +502,13 @@ impl<'a> ScriptLowerer<'a> {
                         },
                     );
                 }
-                let Some(prefix) = self
-                    .lower_pattern_lexical_binding_from_value_with_storage_names(
-                        *pattern_mode,
-                        pattern,
-                        init,
-                        Some(&storage_names),
-                    )
-                else {
+                let lowered = self.lower_pattern_lexical_binding_from_value_with_storage_names(
+                    *pattern_mode,
+                    pattern,
+                    init,
+                    Some(&storage_names),
+                );
+                let Some(prefix) = lowered else {
                     self.pop_scope();
                     return ForOfLoweringIr::no_iteration();
                 };
@@ -549,8 +517,76 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             Vec::new()
         };
+        // Validate the actual lexical head before lowering any body states.
+        let generator_pattern = if generator_entry_state.is_some() {
+            if let (
+                Some((pattern_mode @ (BindingMode::Let | BindingMode::Const), _)),
+                Some(bindings),
+            ) = (
+                pattern_initializer.as_ref(),
+                lexical_pattern_bindings.as_ref(),
+            ) {
+                match ValidatedResumableSyncForOfLexicalPatternIr::new(
+                    *pattern_mode,
+                    storage_name.clone(),
+                    bindings
+                        .iter()
+                        .map(|binding| binding.iteration_storage_name.clone())
+                        .collect(),
+                    bindings
+                        .iter()
+                        .map(|binding| {
+                            TdzPlaceholderName::for_source_name(&binding.source_name).into_string()
+                        })
+                        .collect(),
+                    pattern_prefix.clone(),
+                    lexical_environment.clone(),
+                ) {
+                    Ok(pattern) => Some(pattern),
+                    Err(error) => {
+                        self.pop_scope();
+                        self.unsupported(&format!(
+                            "invalid generator lexical-pattern head: {error:?}"
+                        ));
+                        return ForOfLoweringIr::no_iteration();
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if plain_async_for_await_body {
+            let Some(value_resume_state) = async_entry_state.and_then(|state| state.checked_add(1))
+            else {
+                self.pop_scope();
+                self.unsupported("plain async for-await-of value resume state overflows");
+                return ForOfLoweringIr::no_iteration();
+            };
+            self.current_async_resume_state = Some(value_resume_state);
+        }
         let plain_async_entry_state = self.plain_async_entry_state();
+        // This body's existing iterator continuation is a separate owner.
+        // An enclosing complete region must not allocate eager child phases
+        // that its source walk intentionally does not count inside ForOf.
+        let enclosing_complete_depths = (
+            self.ordinary_generator_region_depth,
+            self.ordinary_generator_switch_depth,
+            self.ordinary_generator_for_in_depth,
+        );
+        self.ordinary_generator_region_depth = 0;
+        self.ordinary_generator_switch_depth = 0;
+        self.ordinary_generator_for_in_depth = 0;
+        let enclosing_mixed_domain = self.async_generator_source_domain;
+        self.async_generator_source_domain = AsyncGeneratorSourceDomain::ForeignIteratorBody;
         let (mut body, body_kind) = self.lower_loop_body(for_of.body());
+        self.async_generator_source_domain = enclosing_mixed_domain;
+        (
+            self.ordinary_generator_region_depth,
+            self.ordinary_generator_switch_depth,
+            self.ordinary_generator_for_in_depth,
+        ) = enclosing_complete_depths;
         let async_disposable_head = pending_async_disposable_head
             .map(|pending| self.finish_async_disposable_for_of_head(pending));
         let async_generator_close_suspension = uses_unified_resumable_plan
@@ -575,6 +611,63 @@ impl<'a> ScriptLowerer<'a> {
         let after_globals = self.global_properties.clone();
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
+        if let Some(entry_state) = generator_entry_state {
+            let source = if let Some(pattern) = generator_pattern {
+                GeneratorForOfHeadSource::LexicalPattern(pattern)
+            } else {
+                match &bare_identifier_head {
+                    ForOfBareIdentifierHead::AssignmentTarget { source_name } => {
+                        GeneratorForOfHeadSource::IdentifierAssignment {
+                            source_name,
+                            value_name: storage_name,
+                            head_environment: lexical_environment,
+                        }
+                    }
+                    ForOfBareIdentifierHead::Absent if access_initializer.is_some() => {
+                        GeneratorForOfHeadSource::OrdinaryProperty {
+                            value_name: storage_name,
+                            head_environment: lexical_environment,
+                        }
+                    }
+                    ForOfBareIdentifierHead::Absent
+                    | ForOfBareIdentifierHead::BorrowedVar { .. } => {
+                        GeneratorForOfHeadSource::Binding {
+                            source_name: &name,
+                            binding: ForOfAssignmentIr {
+                                mode,
+                                name: storage_name,
+                            },
+                            head_environment: lexical_environment,
+                        }
+                    }
+                }
+            };
+            return self.lower_generator_for_of_iterator(
+                source,
+                iterable,
+                body,
+                body_kind,
+                entry_state,
+            );
+        }
+
+        if plain_async_for_await_body {
+            let head = AsyncFunctionForOfIteratorHeadIr::Binding {
+                source_name: name,
+                binding: ForOfAssignmentIr {
+                    mode,
+                    name: storage_name,
+                },
+            };
+            return self.lower_plain_async_for_await_with_body_await(
+                head,
+                iterable,
+                body,
+                body_kind,
+                async_entry_state.expect("a plain async for-await head owns next entry"),
+                lexical_environment,
+            );
+        }
         if plain_async_await_body {
             let head = if let (
                 Some((pattern_mode @ (BindingMode::Let | BindingMode::Const), _)),
@@ -607,10 +700,13 @@ impl<'a> ScriptLowerer<'a> {
                     value_name: storage_name,
                 }
             } else {
-                AsyncFunctionForOfIteratorHeadIr::Binding(ForOfAssignmentIr {
-                    mode,
-                    name: storage_name,
-                })
+                AsyncFunctionForOfIteratorHeadIr::Binding {
+                    source_name: name.clone(),
+                    binding: ForOfAssignmentIr {
+                        mode,
+                        name: storage_name,
+                    },
+                }
             };
             return self.lower_async_function_for_of_iterator_with_body_await(
                 head,

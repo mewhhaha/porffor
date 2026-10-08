@@ -144,7 +144,7 @@ impl fmt::Display for NumberFormatKernelError {
 
 impl std::error::Error for NumberFormatKernelError {}
 
-pub(super) fn owned_text(
+pub(crate) fn owned_text(
     text: &str,
     limits: &PartitionLimits,
 ) -> Result<Box<str>, NumberFormatKernelError> {

@@ -797,7 +797,7 @@ impl ImportCall {
             // 8. Perform HostLoadImportedModule(referrer, specifierString, empty, promiseCapability).
             Ok(specifier) => {
                 let attributes = match options {
-                    Some(options) if phase == ModuleRequestPhase::Evaluation => {
+                    Some(options) => {
                         match attributes_from_options(options, context) {
                             Ok(attributes) => attributes,
                             Err(err) => {

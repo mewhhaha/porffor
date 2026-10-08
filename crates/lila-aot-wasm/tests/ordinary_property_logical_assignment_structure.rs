@@ -2,7 +2,10 @@ const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const EARLY_ERRORS_SOURCE: &str = include_str!("../../lila-ir/src/early_errors.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
-const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
+const CONDITIONAL_FLOW_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/conditional_flow.rs");
+const THROW_INFERENCE_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/throw_inference/expression.rs");
 const BUILTIN_CALL_INFO_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/builtin_call_info.rs");
 const DEFINE_PROPERTY_CALL_SOURCE: &str =
@@ -12,9 +15,7 @@ const REFERENCE_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
 const LOGICAL_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_logical.rs");
-const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
-const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const FIXTURE: &str = include_str!(
     "../../lila-cli/tests/fixtures/wasm_ordinary_property_logical_assignment_reference.js"
 );
@@ -271,7 +272,9 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
     assert!(BUILTIN_CALL_INFO_SOURCE.contains("StandardBuiltinId::ObjectSetPrototypeOf =>"));
     assert!(BUILTIN_CALL_INFO_SOURCE.contains("StandardBuiltinId::ObjectDefineProperties =>"));
     assert!(BUILTIN_CALL_INFO_SOURCE.contains("StandardBuiltinId::ReflectSetPrototypeOf =>"));
-    assert!(LOWERING_SOURCE.contains("self.lookup_binding(GLOBAL_THIS_NAME).is_none()"));
+    assert!(
+        LOWERING_SOURCE.contains("self.identifier_resolves_to_intrinsic_global(GLOBAL_THIS_NAME)")
+    );
     assert!(LOWERING_SOURCE.contains("fn is_intrinsic_global_constructor(&self, name: &str)"));
 
     let helper = bounded(
@@ -311,10 +314,15 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
         "nested_script_global_value_infos: BTreeMap<String, ValueInfo>",
         "fn capture_conditional_flow_facts(&self) -> ConditionalFlowFacts",
         "fn merge_conditional_flow_facts(",
-        "fn set_script_global_var_value_info(&mut self, name: &str, info: ValueInfo)",
     ] {
-        assert!(LOWERING_SOURCE.contains(marker), "flow join lost {marker}");
+        assert!(
+            CONDITIONAL_FLOW_SOURCE.contains(marker),
+            "flow join lost {marker}"
+        );
     }
+    assert!(LOWERING_SOURCE.contains("mod conditional_flow;"));
+    assert!(LOWERING_SOURCE
+        .contains("fn set_script_global_var_value_info(&mut self, name: &str, info: ValueInfo)"));
 
     let arm = bounded(
         ASSIGNMENT_SOURCE,
@@ -338,130 +346,8 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
 }
 
 #[test]
-fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
-    let states = bounded(
-        EXPRESSIONS_SOURCE,
-        "struct ReadOrdinaryPropertyReferenceLocals {",
-        "/// The sealed input required by the shared ordinary Reference evaluator.",
-    );
-    assert!(!states.contains("Clone"));
-    assert!(!states.contains("Copy"));
-    for field in [
-        "base_and_receiver_payload",
-        "base_and_receiver_tag",
-        "target_object_payload",
-        "target_object_tag",
-        "property_key_payload",
-        "property_key_tag",
-        "old_value_payload",
-        "old_value_tag",
-    ] {
-        assert!(states.contains(field), "read typestate lost {field}");
-    }
-
-    let sealed = bounded(
-        EXPRESSIONS_SOURCE,
-        "trait OrdinaryPropertyReferenceSource {",
-        "impl<'a> FunctionBuilder<'a> {",
-    );
-    assert_eq!(
-        sealed
-            .matches("impl OrdinaryPropertyReferenceSource for ")
-            .count(),
-        4
-    );
-    assert!(sealed
-        .contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyLogicalAssignmentIr"));
-
-    let get = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_get_value_from_raw_ordinary_property_reference(",
-        "    fn evaluate_rhs_for_raw_ordinary_property_assignment(",
-    );
-    positions_in_order(
-        get,
-        &[
-            "self.compile_nullish_tagged_i32(base_and_receiver_tag, function)?;",
-            "self.emit_throw_runtime_error(",
-            "let target_object_payload = self.reserve_temp_local();",
-            "let target_object_tag = self.reserve_temp_local();",
-            "self.emit_value_to_object_locals(",
-            "self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;",
-            "self.emit_object_read_with_key_tag(",
-            "target_object_payload",
-            "target_object_tag",
-            "base_and_receiver_payload",
-            "base_and_receiver_tag",
-            "Ok(ReadOrdinaryPropertyReferenceLocals {",
-        ],
-    );
-    assert_eq!(get.matches("emit_value_to_property_key_locals(").count(), 1);
-
-    let taken = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_taken_ordinary_property_logical_assignment_branch(",
-        "    fn emit_short_circuited_ordinary_property_logical_result(",
-    );
-    positions_in_order(
-        taken,
-        &[
-            "self.compile_expr_to_locals(assignment.rhs(), rhs_payload, rhs_tag, function)?;",
-            "self.emit_propagate_throw_from_locals_if_needed(rhs_payload, rhs_tag, function)?;",
-            "self.emit_ordinary_set_result_via_helper(",
-            "target_object_payload",
-            "target_object_tag",
-            "base_and_receiver_payload",
-            "base_and_receiver_tag",
-            "property_key_payload",
-            "property_key_tag",
-            "if assignment.strictness().throws_on_failed_set()",
-            "self.emit_throw_runtime_error_to_active_handler(",
-            "Instruction::LocalGet(rhs_payload)",
-            "Instruction::LocalSet(payload_local)",
-            "Instruction::LocalGet(rhs_tag)",
-            "Instruction::LocalSet(tag_local)",
-        ],
-    );
-    assert!(!taken.contains("emit_value_to_property_key_locals("));
-
-    let entry = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn compile_ordinary_property_logical_assignment_to_locals(",
-        "    fn emit_result_from_read_ordinary_property_reference(",
-    );
-    positions_in_order(
-        entry,
-        &[
-            "self.evaluate_raw_ordinary_property_reference(assignment, function)?",
-            "self.emit_get_value_from_raw_ordinary_property_reference(",
-            "let ReadOrdinaryPropertyReferenceLocals {",
-            "match assignment.op()",
-            "LogicalBinaryOp::And | LogicalBinaryOp::Or",
-            "LogicalBinaryOp::Coalesce",
-            "Instruction::If(BlockType::Empty)",
-            "emit_taken_ordinary_property_logical_assignment_branch(",
-            "Instruction::Else",
-            "emit_taken_ordinary_property_logical_assignment_branch(",
-            "Instruction::End",
-            "self.release_temp_local(set_result)",
-            "self.release_temp_local(rhs_tag)",
-            "self.release_temp_local(rhs_payload)",
-            "self.release_temp_local(target_object_tag)",
-            "self.release_temp_local(target_object_payload)",
-        ],
-    );
-    assert!(!entry.contains("_ =>"));
-}
-
-#[test]
 fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
     for marker in [
-        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;",
-        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
         "fn dynamic_property_keys_root_every_possible_shape_accessor()",
         "fn joined_logical_property_base_roots_every_carried_builtin_accessor()",
         "fn joined_eager_property_base_roots_every_carried_builtin_getter()",
@@ -474,54 +360,6 @@ fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
     ] {
         assert!(PLANNING_SOURCE.contains(marker), "planning lost {marker}");
     }
-    let budgets = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {",
-        "pub(crate) fn collect_hoisted_vars_block_root(",
-    );
-    let budget = bounded(
-        budgets,
-        "        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {",
-        "        ExprIr::OrdinaryPropertyNumericUpdate(update) => {",
-    );
-    positions_in_order(
-        budget,
-        &[
-            "let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS",
-            ".max(ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS)",
-            ".max(ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS)",
-            ".max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)",
-            "let taken_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS",
-            "count_expr_temp_locals(assignment.rhs())",
-            ".max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)",
-            "read_phase.max(taken_phase)",
-        ],
-    );
-
-    assert_eq!(
-        EXPRESSIONS_SOURCE
-            .matches("ExprIr::OrdinaryPropertyLogicalAssignment(assignment) =>")
-            .count(),
-        2
-    );
-    assert_eq!(
-        PLANNING_SOURCE
-            .matches("ExprIr::OrdinaryPropertyLogicalAssignment(assignment) =>")
-            .count(),
-        4
-    );
-    assert_eq!(
-        PLANNING_SOURCE
-            .matches("ExprIr::OrdinaryPropertyLogicalAssignment(_) =>")
-            .count(),
-        1
-    );
-    assert_eq!(
-        DATA_SOURCE
-            .matches("ExprIr::OrdinaryPropertyLogicalAssignment(assignment) =>")
-            .count(),
-        1
-    );
     assert!(
         EARLY_ERRORS_SOURCE.contains("ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {")
     );

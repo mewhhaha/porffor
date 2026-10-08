@@ -75,7 +75,9 @@ pub struct CliCapture {
 
 /// Runs one CLI invocation in-process with injected arguments and captured
 /// output. Wasmtime's compiled engine and caches are shared process-wide, but
-/// `command_main` constructs a fresh ECMAScript realm for every invocation.
+/// Product execution constructs a fresh ECMAScript realm for each invocation.
+/// Differential replay delegates to the explicitly selected worker executable;
+/// embedding callers supply `--worker-bin` because their process is not the CLI.
 pub fn run_cli_capture<I, S>(args: I) -> CliCapture
 where
     I: IntoIterator<Item = S>,

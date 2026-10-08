@@ -1,392 +1,383 @@
-use super::provider_wire::{NfOperation, NfResponseReader, NfWireField, NfWireWord};
 use super::*;
+use crate::builtins::intl_provider_wire::IntlNumberProviderRequest;
+use crate::functions::ArgumentListConstruction;
 
 impl FunctionBuilder<'_> {
-    fn emit_nf_resolved_property(
+    fn emit_nf_resolved_choice<V: GcI32Constant + Copy>(
         &mut self,
-        object: u32,
+        object: &GcLocal<OrdinaryObject>,
         property: &str,
-        value: TaggedLocals,
+        code: &GcI32DomainLocal<V>,
+        choices: impl IntoIterator<Item = (&'static str, V)>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key = self.reserve_temp_local();
-        self.emit_nf_set_string(key, property, function);
-        self.emit_object_append_data_property_with_flags(
-            object,
-            key,
-            value.payload,
-            value.tag,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        self.release_temp_local(key);
-        Ok(())
-    }
-
-    fn emit_nf_resolved_choice(
-        &mut self,
-        record: u32,
-        object: u32,
-        word: NfWord,
-        property: &str,
-        options: &[(&str, i64)],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let code = self.reserve_temp_local();
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        self.emit_nf_load_word(record, word, code, function);
-        self.emit_nf_set_const(value.payload, 0, function);
-        for &(name, expected) in options {
-            self.emit_nf_if_eq(code, expected as u64, function);
-            self.emit_nf_set_string(value.payload, name, function);
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        let recognized = schema.reserve_i32_local(function);
+        set_i32(recognized, 0, function);
+        for (spelling, expected) in choices {
+            emit_domain_is(code, expected, function);
+            self.open_frame(ControlFrameKind::If, function);
+            let text = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(spelling, function)?,
+                function,
+            );
+            value.set_reference(&text, schema, function);
+            set_i32(recognized, 1, function);
+            text.clear(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(value.payload));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        recognized.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_nf_set_const(value.tag, ValueKind::String.tag() as i64, function);
-        self.emit_nf_resolved_property(object, property, value, function)?;
-        for local in [value.tag, value.payload, code] {
-            self.release_temp_local(local);
-        }
+        self.emit_intl_number_append_result_property(object, property, &value, function)?;
+        schema.release_i32_local(recognized, function);
+        value.clear(function);
         Ok(())
     }
-
-    fn emit_nf_resolved_number(
-        &mut self,
-        record: u32,
-        object: u32,
-        word: NfWord,
-        property: &str,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        self.emit_nf_load_word(record, word, value.payload, function);
-        function.instruction(&Instruction::LocalGet(value.payload));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(value.payload));
-        self.emit_nf_set_const(value.tag, ValueKind::Number.tag() as i64, function);
-        self.emit_nf_resolved_property(object, property, value, function)?;
-        self.release_temp_local(value.tag);
-        self.release_temp_local(value.payload);
-        Ok(())
-    }
-
     pub(crate) fn emit_intl_number_format_resolved_options(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let object = self.reserve_temp_local();
-        let code = self.reserve_temp_local();
-        let precision = self.reserve_temp_local();
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        self.emit_nf_record_from_receiver(record, function)?;
-        self.emit_nf_result_object(function)?;
-        function.instruction(&Instruction::LocalSet(object));
-        self.emit_nf_set_const(value.tag, ValueKind::String.tag() as i64, function);
-        for (name, offset) in [
-            ("locale", HEAP_INTL_NF_LOCALE_OFFSET),
-            ("numberingSystem", HEAP_INTL_NF_NUMBERING_SYSTEM_OFFSET),
+        let record = self.emit_nf_record_from_receiver(function)?;
+        let schema = self.runtime_schema();
+        let nf = schema.struct_type::<IntlNumberFormatObject>();
+        let object = self.emit_intl_number_result_object(function)?;
+        let selected = NfOptionsLocals::new(self, function)?;
+        nf.field(IntlNumberFormatObjectSchema::STYLE)
+            .read(&record, schema, function)
+            .store_domain(&selected.style, function);
+        nf.field(IntlNumberFormatObjectSchema::CURRENCY_DISPLAY)
+            .read(&record, schema, function)
+            .store_domain(&selected.currency_display, function);
+        nf.field(IntlNumberFormatObjectSchema::CURRENCY_SIGN)
+            .read(&record, schema, function)
+            .store_domain(&selected.currency_sign, function);
+        nf.field(IntlNumberFormatObjectSchema::UNIT_DISPLAY)
+            .read(&record, schema, function)
+            .store_domain(&selected.unit_display, function);
+        nf.field(IntlNumberFormatObjectSchema::NOTATION)
+            .read(&record, schema, function)
+            .store_domain(&selected.notation, function);
+        nf.field(IntlNumberFormatObjectSchema::COMPACT_DISPLAY)
+            .read(&record, schema, function)
+            .store_domain(&selected.compact_display, function);
+        nf.field(IntlNumberFormatObjectSchema::GROUPING)
+            .read(&record, schema, function)
+            .store_domain(&selected.grouping, function);
+        nf.field(IntlNumberFormatObjectSchema::SIGN_DISPLAY)
+            .read(&record, schema, function)
+            .store_domain(&selected.sign, function);
+        selected.style_text.replace(
+            nf.field(IntlNumberFormatObjectSchema::STYLE_TEXT)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        let rounding = schema.reserve_gc_local(function).initialize(
+            nf.field(IntlNumberFormatObjectSchema::ROUNDING)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        let rules = schema.struct_type::<IntlNumberRounding>();
+        let precision = GcI32DomainLocal::new(schema, NumberPrecisionKind::Fraction, function);
+        rules
+            .field(IntlNumberRoundingSchema::PRECISION)
+            .read(&rounding, schema, function)
+            .store_domain(&precision, function);
+        let mode = GcI32DomainLocal::new(schema, RoundingMode::HalfExpand, function);
+        rules
+            .field(IntlNumberRoundingSchema::ROUNDING_MODE)
+            .read(&rounding, schema, function)
+            .store_domain(&mode, function);
+        let trailing = GcI32DomainLocal::new(schema, TrailingZeroDisplay::Auto, function);
+        rules
+            .field(IntlNumberRoundingSchema::TRAILING_ZERO)
+            .read(&rounding, schema, function)
+            .store_domain(&trailing, function);
+        let value = schema.reserve_value_local(function);
+        let count = schema.reserve_i32_local(function);
+        let bits = schema.reserve_i64_local(function);
+        macro_rules! number_property {
+            ($field:expr, $name:literal) => {{
+                rules
+                    .field($field)
+                    .read(&rounding, schema, function)
+                    .store(count, function);
+                count.load(function);
+                function.instruction(&Instruction::I32Const(0));
+                function.instruction(&Instruction::I32LtS);
+                self.open_frame(ControlFrameKind::If, function);
+                function.instruction(&Instruction::Unreachable);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                count.load(function);
+                function.instruction(&Instruction::F64ConvertI32U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                bits.store(function);
+                value.set_number(bits, function);
+                self.emit_intl_number_append_result_property(&object, $name, &value, function)?;
+            }};
+        }
+        for (name, field) in [
+            ("locale", IntlNumberFormatObjectSchema::LOCALE),
+            (
+                "numberingSystem",
+                IntlNumberFormatObjectSchema::NUMBERING_SYSTEM,
+            ),
         ] {
-            self.load_i64_to_local_from_offset(record, offset, value.payload, function);
-            self.emit_nf_resolved_property(object, name, value, function)?;
+            let text = schema.reserve_gc_local(function).initialize(
+                nf.field(field).read(&record, schema, function).reference(),
+                function,
+            );
+            value.set_reference(&text, schema, function);
+            self.emit_intl_number_append_result_property(&object, name, &value, function)?;
+            text.clear(function);
         }
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::Style,
+            &object,
             "style",
-            StyleOption::OPTIONS,
+            &selected.style,
+            StyleOption::ALL.iter().map(|v| (v.name(), *v)),
             function,
         )?;
-        self.emit_nf_load_word(record, NfWord::Style, code, function);
-        self.emit_nf_if_eq(code, StyleOption::Currency.wire_code(), function);
-        self.load_i64_to_local_from_offset(
-            record,
-            HEAP_INTL_NF_STYLE_TEXT_OFFSET,
-            value.payload,
-            function,
-        );
-        self.emit_nf_resolved_property(object, "currency", value, function)?;
+        emit_domain_is(&selected.style, StyleOption::Currency, function);
+        self.open_frame(ControlFrameKind::If, function);
+        value.set_reference(&selected.style_text, schema, function);
+        self.emit_intl_number_append_result_property(&object, "currency", &value, function)?;
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::CurrencyDisplay,
+            &object,
             "currencyDisplay",
-            CurrencyDisplay::OPTIONS,
+            &selected.currency_display,
+            CurrencyDisplay::ALL.iter().map(|v| (v.name(), Some(*v))),
             function,
         )?;
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::CurrencySign,
+            &object,
             "currencySign",
-            CurrencySign::OPTIONS,
+            &selected.currency_sign,
+            CurrencySign::ALL.iter().map(|v| (v.name(), Some(*v))),
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_nf_if_eq(code, StyleOption::Unit.wire_code(), function);
-        self.load_i64_to_local_from_offset(
-            record,
-            HEAP_INTL_NF_STYLE_TEXT_OFFSET,
-            value.payload,
-            function,
-        );
-        self.emit_nf_resolved_property(object, "unit", value, function)?;
+        emit_domain_is(&selected.style, StyleOption::Unit, function);
+        self.open_frame(ControlFrameKind::If, function);
+        value.set_reference(&selected.style_text, schema, function);
+        self.emit_intl_number_append_result_property(&object, "unit", &value, function)?;
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::UnitDisplay,
+            &object,
             "unitDisplay",
-            UnitDisplay::OPTIONS,
+            &selected.unit_display,
+            UnitDisplay::ALL.iter().map(|v| (v.name(), Some(*v))),
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_nf_resolved_number(
-            record,
-            object,
-            NfWord::MinimumInteger,
-            "minimumIntegerDigits",
-            function,
-        )?;
-        self.emit_nf_load_word(record, NfWord::Precision, precision, function);
-        function.instruction(&Instruction::LocalGet(precision));
-        function.instruction(&Instruction::I64Const(
-            NumberPrecisionKind::Significant.wire_code() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_nf_resolved_number(
-            record,
-            object,
-            NfWord::MinimumFraction,
-            "minimumFractionDigits",
-            function,
-        )?;
-        self.emit_nf_resolved_number(
-            record,
-            object,
-            NfWord::MaximumFraction,
-            "maximumFractionDigits",
-            function,
-        )?;
+        number_property!(
+            IntlNumberRoundingSchema::MINIMUM_INTEGER,
+            "minimumIntegerDigits"
+        );
+        emit_domain_is(&precision, NumberPrecisionKind::Significant, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        number_property!(
+            IntlNumberRoundingSchema::MINIMUM_FRACTION,
+            "minimumFractionDigits"
+        );
+        number_property!(
+            IntlNumberRoundingSchema::MAXIMUM_FRACTION,
+            "maximumFractionDigits"
+        );
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(precision));
-        function.instruction(&Instruction::I64Const(
-            NumberPrecisionKind::Fraction.wire_code() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_nf_resolved_number(
-            record,
-            object,
-            NfWord::MinimumSignificant,
-            "minimumSignificantDigits",
-            function,
-        )?;
-        self.emit_nf_resolved_number(
-            record,
-            object,
-            NfWord::MaximumSignificant,
-            "maximumSignificantDigits",
-            function,
-        )?;
+        emit_domain_is(&precision, NumberPrecisionKind::Fraction, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        number_property!(
+            IntlNumberRoundingSchema::MINIMUM_SIGNIFICANT,
+            "minimumSignificantDigits"
+        );
+        number_property!(
+            IntlNumberRoundingSchema::MAXIMUM_SIGNIFICANT,
+            "maximumSignificantDigits"
+        );
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_nf_load_word(record, NfWord::Grouping, code, function);
-        self.emit_nf_if_eq(code, Grouping::Never.wire_code(), function);
-        self.emit_nf_set_const(value.payload, 0, function);
-        self.emit_nf_set_const(value.tag, ValueKind::Boolean.tag() as i64, function);
-        self.emit_nf_resolved_property(object, "useGrouping", value, function)?;
+        emit_domain_is(&selected.grouping, Grouping::Never, function);
+        self.open_frame(ControlFrameKind::If, function);
+        value.set_scalar(ScalarValue::Boolean(false), function);
+        self.emit_intl_number_append_result_property(&object, "useGrouping", &value, function)?;
         function.instruction(&Instruction::Else);
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::Grouping,
+            &object,
             "useGrouping",
-            &[
-                ("auto", Grouping::Auto.wire_code() as i64),
-                ("always", Grouping::Always.wire_code() as i64),
-                ("min2", Grouping::MinTwo.wire_code() as i64),
+            &selected.grouping,
+            [
+                ("auto", Grouping::Auto),
+                ("always", Grouping::Always),
+                ("min2", Grouping::MinTwo),
             ],
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::Notation,
+            &object,
             "notation",
-            NotationOption::OPTIONS,
+            &selected.notation,
+            NotationOption::ALL.iter().map(|v| (v.name(), *v)),
             function,
         )?;
-        self.emit_nf_load_word(record, NfWord::Notation, code, function);
-        self.emit_nf_if_eq(code, NotationOption::Compact.wire_code(), function);
+        emit_domain_is(&selected.notation, NotationOption::Compact, function);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::CompactDisplay,
+            &object,
             "compactDisplay",
-            CompactDisplay::OPTIONS,
+            &selected.compact_display,
+            CompactDisplay::ALL.iter().map(|v| (v.name(), Some(*v))),
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::SignDisplay,
+            &object,
             "signDisplay",
-            SignDisplay::OPTIONS,
+            &selected.sign,
+            SignDisplay::ALL.iter().map(|v| (v.name(), *v)),
             function,
         )?;
-        self.emit_nf_resolved_number(
-            record,
-            object,
-            NfWord::RoundingIncrement,
-            "roundingIncrement",
-            function,
-        )?;
+        number_property!(
+            IntlNumberRoundingSchema::ROUNDING_INCREMENT,
+            "roundingIncrement"
+        );
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::RoundingMode,
+            &object,
             "roundingMode",
-            RoundingMode::OPTIONS,
+            &mode,
+            RoundingMode::ALL.iter().map(|v| (v.name(), *v)),
             function,
         )?;
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::Precision,
+            &object,
             "roundingPriority",
-            &[
+            &precision,
+            [
+                (RoundingPriority::Auto.name(), NumberPrecisionKind::Fraction),
                 (
                     RoundingPriority::Auto.name(),
-                    NumberPrecisionKind::Fraction.wire_code() as i64,
-                ),
-                (
-                    RoundingPriority::Auto.name(),
-                    NumberPrecisionKind::Significant.wire_code() as i64,
+                    NumberPrecisionKind::Significant,
                 ),
                 (
                     RoundingPriority::MorePrecision.name(),
-                    NumberPrecisionKind::More.wire_code() as i64,
+                    NumberPrecisionKind::More,
                 ),
                 (
                     RoundingPriority::LessPrecision.name(),
-                    NumberPrecisionKind::Less.wire_code() as i64,
+                    NumberPrecisionKind::Less,
                 ),
             ],
             function,
         )?;
         self.emit_nf_resolved_choice(
-            record,
-            object,
-            NfWord::TrailingZero,
+            &object,
             "trailingZeroDisplay",
-            TrailingZeroDisplay::OPTIONS,
+            &trailing,
+            TrailingZeroDisplay::ALL.iter().map(|v| (v.name(), *v)),
             function,
         )?;
-        self.emit_nf_copy(object, self.result_local, function);
-        self.emit_nf_set_const(
-            self.result_tag_local,
-            ValueKind::Object.tag() as i64,
-            function,
-        );
-        for local in [value.tag, value.payload, precision, code, object, record] {
-            self.release_temp_local(local);
-        }
+        self.completion().initialize(function);
+        self.completion()
+            .value()
+            .set_reference(&object, schema, function);
+        schema.release_i64_local(bits, function);
+        schema.release_i32_local(count, function);
+        value.clear(function);
+        trailing.clear(schema, function);
+        mode.clear(schema, function);
+        precision.clear(schema, function);
+        rounding.clear(function);
+        selected.clear(schema, function);
+        object.clear(function);
+        record.clear(function);
         Ok(())
     }
-
     pub(crate) fn emit_intl_number_format_supported_locales_of(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        let locales = self.reserve_temp_local();
-        let matcher = self.reserve_temp_local();
-        let request = self.reserve_temp_local();
-        let response = self.reserve_temp_local();
-        let count = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let output = self.reserve_temp_local();
-        self.emit_builtin_arg_to_locals(0, value.payload, value.tag, function);
-        self.emit_nf_intrinsic_call(
-            StandardBuiltinId::IntlGetCanonicalLocales,
-            None,
-            &[(value.payload, value.tag)],
-            locales,
-            value.tag,
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &value, function);
+        let locales = self.emit_intl_canonical_locale_list(&value, function)?;
+        self.emit_builtin_arg_to_value(1, &value, function);
+        self.emit_intl_number_options_object(&value, function)?;
+        let matcher = GcI32DomainLocal::new(schema, LocaleMatcher::BestFit, function);
+        self.emit_intl_number_choice_option(
+            &value,
+            IntlErrorOption::LocaleMatcher,
+            LocaleMatcher::ALL.iter().map(|v| (v.name(), *v)),
+            LocaleMatcher::BestFit,
+            &matcher,
             function,
         )?;
-        self.emit_builtin_arg_to_locals(1, value.payload, value.tag, function);
-        self.emit_nf_options_object(value, function)?;
-        self.emit_nf_choice_option(
-            value,
-            "localeMatcher",
-            LocaleMatcher::OPTIONS,
-            LocaleMatcher::BestFit.wire_code(),
-            matcher,
+        let response = self.emit_intl_number_provider_call(
+            IntlNumberProviderRequest::Supported {
+                locales: &locales,
+                matcher: &matcher,
+            },
             function,
         )?;
-        self.emit_nf_provider_request(
-            NfOperation::SupportedLocales,
-            &[
-                NfWireField::Word(NfWireWord::Local(matcher)),
-                NfWireField::CanonicalLocales(locales),
-            ],
-            request,
-            function,
-        )?;
-        self.emit_nf_provider_call(NfOperation::SupportedLocales, request, response, function)?;
-        let reader = NfResponseReader::new(self, response, function);
-        reader.word(self, count, function);
+        let reader = response.reader(schema, function);
+        let count = schema.reserve_i64_local(function);
+        let index = schema.reserve_i64_local(function);
+        reader.read_u64(count, schema, function);
         reader.require_records(count, 8, function);
-        self.emit_alloc_array_payload_with_length_in_current_function_realm(
-            count, output, function,
-        )?;
-        self.emit_nf_set_const(index, 0, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
+        let list = ArgumentListConstruction::new(schema, function);
+        function.instruction(&Instruction::I64Const(0));
+        index.store(function);
+        let done = self.open_frame(ControlFrameKind::Block, function);
+        let next = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        reader.bytes(self, value.payload, function);
-        self.emit_nf_output_array_entry(output, index, value.payload, ValueKind::String, function);
-        function.instruction(&Instruction::LocalGet(index));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(done, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let text = reader.read_utf8(schema, function);
+        value.set_reference(&text, schema, function);
+        list.append(&value, schema, function);
+        text.clear(function);
+        index.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Br(0));
+        index.store(function);
+        self.emit_branch_to_target(next, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        reader.finish(self, function);
-        self.emit_nf_copy(output, self.result_local, function);
-        self.emit_nf_set_const(
-            self.result_tag_local,
-            ValueKind::Array.tag() as i64,
-            function,
-        );
-        for local in [
-            output,
-            index,
-            count,
-            response,
-            request,
-            matcher,
-            locales,
-            value.tag,
-            value.payload,
-        ] {
-            self.release_temp_local(local);
-        }
+        reader.finish(schema, function);
+        let list = list.finish(self, function);
+        let array = self.emit_array_from_argument_list(&list, function)?;
+        self.completion().initialize(function);
+        self.completion()
+            .value()
+            .set_reference(&array, schema, function);
+        array.clear(function);
+        list.clear(function);
+        schema.release_i64_local(index, function);
+        schema.release_i64_local(count, function);
+        response.clear(function);
+        matcher.clear(schema, function);
+        locales.clear(function);
+        value.clear(function);
         Ok(())
     }
 }

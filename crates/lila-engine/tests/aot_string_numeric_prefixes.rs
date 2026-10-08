@@ -1,18 +1,31 @@
-use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
+use lila_engine::{
+    CompileOptions, Engine, ExecutionBackend, ObservedCompletion, ObservedJsValue, RealmBuilder,
+    RunOptions,
+};
 
 fn assert_numeric_conversion(source: &str) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    let outcome = Engine::new(RealmBuilder::new().build())
-        .run_script(
-            source,
-            CompileOptions::default(),
-            RunOptions {
-                backend: ExecutionBackend::WasmAot,
-                ..RunOptions::default()
-            },
-        )
-        .expect("string numeric conversion compiles and executes through Wasm AOT");
-    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    for directive in ["", "'use strict';\n"] {
+        let source = format!("{directive}{source}");
+        let outcome = Engine::new(RealmBuilder::new().build())
+            .observe_script(
+                &source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("numeric conversion control failed: {error}\n{source}"));
+        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Boolean(true)),
+            "{source}"
+        );
+        assert!(outcome.output_events.is_empty(), "{source}");
+    }
 }
 
 #[test]
@@ -95,4 +108,115 @@ convert('0B' + '1'.repeat(53) + '0'.repeat(971)) === Number.MAX_VALUE &&
 "#,
     );
     assert_numeric_conversion(&source);
+}
+
+#[test]
+fn global_numeric_predicates_use_ecmascript_numeric_string_rules_for_literals() {
+    assert_numeric_conversion(
+        r#"
+!isNaN('0x10') && isFinite('0x10') &&
+  !isNaN('0B101') && isFinite('0O17') &&
+  !isNaN('\u00a0\uFEFF1\u2029') && isFinite('\u00a0\uFEFF1\u2029') &&
+  !isNaN('') && isFinite('  \t') &&
+  !isNaN('-0') && isFinite('-0') &&
+  !isNaN('Infinity') && !isFinite('Infinity') &&
+  !isNaN('-Infinity') && !isFinite('-Infinity') &&
+  isNaN('inf') && !isFinite('inf') &&
+  isNaN('-inf') && !isFinite('-inf') &&
+  isNaN('+0x10') && isNaN('0b102') && isNaN('1_0') &&
+  !Number.isFinite('0x10') && !Number.isNaN('not numeric') &&
+  Number.isFinite(16) && Number.isNaN(NaN);
+"#,
+    );
+}
+
+#[test]
+fn literal_arrays_keep_live_to_primitive_hooks_and_original_abrupt_values() {
+    assert_numeric_conversion(
+        r#"
+const previous = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.toPrimitive);
+const seen = [];
+let gets = 0;
+let calls = 0;
+Object.defineProperty(Array.prototype, Symbol.toPrimitive, {configurable: true, get() {
+  gets++;
+  if (!Array.isArray(this)) throw 'array numeric Get receiver';
+  return function(hint) {
+    'use strict';
+    calls++;
+    if (hint !== 'number' || !Array.isArray(this)) throw 'array numeric conversion receiver';
+    seen.push(this);
+    return this.length === 0 ? 'not numeric' : '0x10';
+  };
+}});
+const values = !isNaN([1]) && isFinite([1]) && isNaN([]) && !isFinite([]);
+const identity = gets === 4 && calls === 4 && seen.length === 4 &&
+  seen[0] !== seen[1] && seen[2] !== seen[3] && seen[0][0] === 1;
+const marker = {};
+let assigned = 'kept';
+let caught = false;
+Object.defineProperty(Array.prototype, Symbol.toPrimitive, {configurable: true, value() { throw marker; }});
+try { assigned = isNaN([1]); } catch (error) { caught = error === marker; }
+if (previous === undefined) delete Array.prototype[Symbol.toPrimitive];
+else Object.defineProperty(Array.prototype, Symbol.toPrimitive, previous);
+values && identity && caught && assigned === 'kept';
+"#,
+    );
+}
+
+#[test]
+fn global_numeric_calls_preserve_argument_conversion_and_intrinsic_error_order() {
+    assert_numeric_conversion(
+        r#"
+const extraTrace = [];
+function extraArgument() {
+  extraTrace.push('extra');
+  return {[Symbol.toPrimitive]() { throw 'ignored argument must not be converted'; }};
+}
+const extraValues = !isNaN('0x10', extraArgument()) && isFinite('0x10', extraArgument()) &&
+  !globalThis.isNaN('0x10', extraArgument()) && globalThis.isFinite('0x10', extraArgument());
+const extraMarker = {};
+let extraAssigned = 'kept';
+let extraCaught = false;
+function abruptExtra() { extraTrace.push('abrupt-extra'); throw extraMarker; }
+try {
+  extraAssigned = isFinite({[Symbol.toPrimitive]() { throw 'conversion must follow all arguments'; }}, abruptExtra());
+} catch (error) { extraCaught = error === extraMarker; }
+const trace = [];
+const intrinsicPrototype = TypeError.prototype;
+TypeError = undefined;
+let assigned = 'kept';
+let errors = 0;
+function argument() {
+  trace.push('argument');
+  return {[Symbol.toPrimitive](hint) {
+    if (hint !== 'number') throw 'global numeric conversion hint';
+    trace.push('primitive');
+    return 1n;
+  }, toString() { throw 'primitive result must not fall back'; }};
+}
+try { assigned = isFinite(argument()); }
+catch (error) {
+  if (Object.getPrototypeOf(error) !== intrinsicPrototype) throw 'global isFinite intrinsic error';
+  errors++;
+  trace.push('finite-error');
+}
+try { assigned = isNaN(1n); }
+catch (error) {
+  if (Object.getPrototypeOf(error) !== intrinsicPrototype) throw 'global isNaN intrinsic error';
+  errors++;
+  trace.push('nan-error');
+}
+try { assigned = isFinite(Symbol('numeric')); }
+catch (error) {
+  if (Object.getPrototypeOf(error) !== intrinsicPrototype) throw 'global Symbol intrinsic error';
+  errors++;
+  trace.push('symbol-error');
+}
+extraValues && extraCaught && extraAssigned === 'kept' &&
+  extraTrace.join(',') === 'extra,extra,extra,extra,abrupt-extra' &&
+  errors === 3 && assigned === 'kept' &&
+  trace.join(',') === 'argument,primitive,finite-error,nan-error,symbol-error';
+"#,
+    );
 }

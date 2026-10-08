@@ -1,0 +1,69 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/module-cycles-and-metadata",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "module",
+      "identity": "entry.js",
+      "source": "import { value } from 'left';\nimport * as first from 'left';\nconst key = 'alias';\nconst repeated = await import(key);\nif (first !== repeated || value() !== 3) throw 'module identity or cycle';\nif (import.meta.url !== 'lila://metadata/root.js' || first.meta() !== 'lila://metadata/left.js') throw 'metadata owner';\nprint('embedded-cycle:3');\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "left.js",
+        "source": "import { right } from 'right'; export function left() { return 1; } export function value() { return left() + right(); } export function meta() { return import.meta.url; }",
+        "meta_url": "lila://metadata/left.js"
+      },
+      {
+        "identity": "right.js",
+        "source": "import { left } from 'left'; export function right() { return left() + 1; }",
+        "meta_url": "lila://right.js"
+      },
+      {
+        "identity": "unused.js",
+        "source": "print('unreached-module'); export const unused = 99;",
+        "meta_url": "lila://unused.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "module",
+          "identity": "entry.js"
+        },
+        "specifier": "left",
+        "attributes": [],
+        "target": "left.js"
+      },
+      {
+        "referrer": {
+          "kind": "module",
+          "identity": "entry.js"
+        },
+        "specifier": "alias",
+        "attributes": [],
+        "target": "left.js"
+      },
+      {
+        "referrer": {
+          "kind": "module",
+          "identity": "left.js"
+        },
+        "specifier": "right",
+        "attributes": [],
+        "target": "right.js"
+      },
+      {
+        "referrer": {
+          "kind": "module",
+          "identity": "right.js"
+        },
+        "specifier": "left",
+        "attributes": [],
+        "target": "left.js"
+      }
+    ]
+  }
+}

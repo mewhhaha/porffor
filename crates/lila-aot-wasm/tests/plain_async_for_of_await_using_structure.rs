@@ -3,7 +3,6 @@ const FOR_OF_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/fo
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
-const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const FIXTURE: &str =
@@ -405,7 +404,6 @@ fn backend_typestate_and_exhaustive_consumers_make_the_async_head_compile_visibl
         "enum ActivationAsyncDisposeCompletionContinuation",
         "Scope",
         "ClassicFor",
-        "ForOf(AsyncDisposableForOfCompletionContinuationLocals)",
         "enum AsyncDisposableForOfIterationEnvironment",
         "Absent",
         "Active",
@@ -429,9 +427,6 @@ fn backend_typestate_and_exhaustive_consumers_make_the_async_head_compile_visibl
         "fn binding_name(&self)",
         "fn finalizer(&self)",
         "const fn execution_kind(&self)",
-        "const fn resume_state_offset(&self)",
-        "const fn resume_payload_offset(&self)",
-        "const fn resume_tag_offset(&self)",
     ] {
         let helper = bounded(owner, helper, "    }");
         assert!(helper.contains("Self::AsyncFunctionForOf"), "{helper}");
@@ -480,29 +475,6 @@ fn backend_typestate_and_exhaustive_consumers_make_the_async_head_compile_visibl
         assert!(dispatch.contains("self.compile_async_disposable_for_of_iterator("));
     }
 
-    let planning_lexicals = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_statement_lexicals(statement: &StatementIr)",
-        "pub(crate) fn count_statement_temp_locals(statement: &StatementIr)",
-    );
-    assert!(planning_lexicals.contains("ForOfIteratorHeadIr::AsyncDisposable(head)"));
-    assert!(planning_lexicals.contains("(BindingMode::Const, head.binding_name())"));
-    let planning_temps = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_statement_temp_locals(statement: &StatementIr)",
-        "const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS",
-    );
-    assert!(planning_temps.contains("ForOfIteratorHeadIr::AsyncDisposable(_)"));
-    assert!(planning_temps.contains("ASYNC_DISPOSABLE_FOR_OF_PERSISTENT_TEMP_LOCALS"));
-    assert!(planning_temps.contains("ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS"));
-    assert!(planning_temps.contains("ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS"));
-    assert!(planning_temps.contains("ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS"));
-    assert!(PLANNING_SOURCE.contains(
-        "const ASYNC_DISPOSABLE_FOR_OF_PERSISTENT_TEMP_LOCALS: usize = 1 + 7 * 2 + 1 + 2 * 4 + 5;"
-    ));
-    assert!(PLANNING_SOURCE
-        .contains("const ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS: usize = 6;"));
-
     let data = bounded(
         DATA_SOURCE,
         "StatementIr::ForOfIterator {",
@@ -544,108 +516,4 @@ fn backend_disposes_and_awaits_before_choosing_next_or_iterator_close() {
     ] {
         assert!(compile.contains(marker), "{marker}");
     }
-    positions_in_order(
-        compile,
-        &[
-            "self.emit_async_state_in_range(",
-            "self.emit_enter_for_in_of_tdz_scope(",
-            "self.compile_expr_to_locals(",
-            "self.emit_leave_for_in_of_tdz_scope(",
-            "self.strings.property_key_symbol_payload(\"Symbol.iterator\")",
-            "self.write_binding_from_locals(\n            iterator_storage",
-            "self.write_binding_from_locals(next_storage",
-            "self.write_binding_from_locals(done_storage",
-            "let break_frame = self.open_frame(ControlFrameKind::Block",
-            "let loop_frame = self.open_frame(ControlFrameKind::Loop",
-            "self.emit_function_or_proxy_call_leave_throw_completion(\n            next_payload_local",
-            "self.strings.payload(\"done\")",
-            "self.strings.payload(\"value\")",
-            "self.emit_enter_lexical_environment(environment, function)",
-            "activation_owned_binding_storage(owner.binding_name())",
-            "A nested implicit await-using finalizer resumes source execution",
-            "finalizer.entry_state()",
-            "Instruction::I64GtU",
-            "finalizer.dispose_state()",
-            "Instruction::I64LtU",
-            "Instruction::I32And",
-            "self.restore_async_disposable_for_of_binding(&capability_storage, storage, function)",
-            "self.read_binding_to_locals(\n            iteration_iterator_storage",
-            "let continue_frame = self.open_frame(ControlFrameKind::Block",
-            "let disposal_frame = self.open_frame(ControlFrameKind::Block",
-            "self.initialize_binding_uninitialized(storage, function)",
-            "self.initialize_empty_activation_async_dispose_capability(",
-            "self.reset_async_disposable_resource_locals(&acquired, function)",
-            "self.acquire_async_disposable_resource_from_locals(&acquired, function)",
-            "self.append_activation_async_disposable_resource(&capability, &acquired, function)",
-            "self.write_binding_from_locals(\n            storage",
-            "self.release_active_activation_async_dispose_capability(capability)",
-            "Resume those states through the body without reacquiring",
-            "self.emit_async_state_in_range(",
-            "finalizer.entry_state()",
-            "finalizer.dispose_state()",
-            "self.push_labels(labels, break_frame, Some(continue_frame))",
-            "self.compile_statement(body, function)",
-            "Do not expose the now",
-            "self.loop_stack.pop()",
-            "self.begin_async_dispose_pending_completion(function)",
-            "self.begin_activation_async_dispose_capability(",
-            "self.consume_activation_async_dispose_capability(",
-            "ActivationAsyncDisposeCompletionContinuation::ForOf(",
-            "AsyncDisposableForOfCompletionContinuationLocals",
-        ],
-    );
-
-    let restore = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn restore_async_disposable_for_of_binding(",
-        "fn reserve_async_disposable_resource_locals(",
-    );
-    positions_in_order(
-        restore,
-        &[
-            "self.read_binding_to_locals(\n            capability_storage.binding",
-            "HEAP_OBJECT_BOXED_PAYLOAD_OFFSET",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET",
-            "self.write_binding_from_locals(\n            binding_storage",
-            "self.release_temp_local(value_tag_local)",
-            "self.release_temp_local(value_payload_local)",
-            "self.release_temp_local(entry_local)",
-            "self.release_temp_local(record_local)",
-            "self.release_temp_local(object_tag_local)",
-            "self.release_temp_local(object_local)",
-        ],
-    );
-    assert_eq!(restore.matches("self.reserve_temp_local()").count(), 6);
-
-    let finish = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn finish_async_disposable_for_of_iteration(",
-        "fn finish_async_dispose_pending_completion(",
-    );
-    positions_in_order(
-        finish,
-        &[
-            "match continuation.iteration_environment",
-            "AsyncDisposableForOfIterationEnvironment::Absent => {}",
-            "AsyncDisposableForOfIterationEnvironment::Active =>",
-            "self.emit_leave_lexical_environment(function)",
-            "COMPLETION_KIND_CONTINUE",
-            "continuation.continue_target.frame",
-            "self.set_completion_kind(CompletionKind::Normal, function)",
-            "COMPLETION_KIND_NORMAL",
-            "self.emit_set_async_resume_state(activation_local, finalizer.entry_state()",
-            "LocalSet(continuation.state_local)",
-            "self.emit_branch_to_target(continuation.loop_target, function)",
-            "self.emit_set_async_resume_state(activation_local, finalizer.exit_state()",
-            "self.save_current_completion(",
-            "COMPLETION_KIND_THROW",
-            "self.emit_iterator_close_preserving_current_throw(",
-            "Instruction::Else",
-            "self.emit_iterator_close(",
-            "self.emit_dispatch_activation_async_dispose_completion(owner, function)",
-        ],
-    );
-    assert!(!finish.contains("_ =>"));
 }

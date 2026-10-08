@@ -1,27 +1,26 @@
 //! The ordered registry of shared runtime-helper functions.
 //!
-//! Before this module the same list existed four times: once in the
-//! `FunctionSection` (emission of the type index), once in the `CodeSection`
-//! (emission of the body), once as 27 hand-written `base + N` accessors on
-//! [`FunctionBuilder`](crate::emit::FunctionBuilder), and once as a literal
-//! `27` in `debug_dump`. The literal had already drifted — the counted truth is
-//! now 41 unconditional helpers plus one conditional one — because nothing
-//! forced the four copies to agree.
-//!
-//! Now the enum *is* the order. `RuntimeHelperId as u32` is the offset from the
-//! first helper's Wasm function index, [`RuntimeHelperId::ALL`] is asserted at
-//! compile time to be in declaration order, and both [`RuntimeHelperId::type_index`]
-//! and [`RuntimeHelperId::is_emitted`] are exhaustive matches with no `_` arm,
-//! so adding a helper fails to build until its Wasm type and its emission
-//! condition are both stated.
+//! One row owns each helper's registration order, exact typed operands and
+//! results. Named caller/body projections derive from that row; no shared
+//! JavaScript-call signature or semantic byte address crosses a helper call.
 
 use lila_ir::ToPrimitiveHint;
 
-use crate::module::{
-    ARRAY_ALLOC_TYPE_INDEX, FUNCTION_OBJECT_ALLOC_TYPE_INDEX, HEAP_ALLOC_TYPE_INDEX,
-    JS_FUNCTION_TYPE_INDEX, OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX,
-    OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX, PLAIN_OBJECT_ALLOC_TYPE_INDEX,
-};
+use crate::code_sink::Function;
+use crate::gc_types::*;
+use crate::module::StaticSignature;
+use crate::RuntimeErrorMessage;
+use wasm_encoder::Instruction;
+
+/// Maximum bytes for one RegExp matcher's transient choice-frame arena.
+///
+/// The caller capture output, live capture/repeat state and all retained choice
+/// frames share this ceiling. A single checked tail owner starts with one frame
+/// and grows capacity only for actual backtracking demand after immutable input
+/// materialization. Numeric repetition bounds never size an allocation. Admission
+/// and failed memory growth report ResourceExhausted (RangeError) before writes;
+/// the arena is scrubbed and rewound before an observable matcher exit.
+pub(crate) const REGEXP_MATCHER_SCRATCH_MAX_BYTES: i64 = 512 * 1024 * 1024;
 
 /// How a failed RegExp matcher result becomes a JavaScript throw.
 ///
@@ -47,7 +46,7 @@ macro_rules! regexp_matcher_status_domain {
             $failure:ident => {
                 word: $word:literal,
                 route: $route:ident,
-                message: $message:literal,
+                message: $message:ident,
             }
         ),+ $(,)?
     ) => {
@@ -73,9 +72,9 @@ macro_rules! regexp_matcher_status_domain {
                 }
             }
 
-            pub(crate) const fn message(self) -> &'static str {
+            pub(crate) const fn message(self) -> RuntimeErrorMessage {
                 match self {
-                    $( Self::$failure => $message, )+
+                    $( Self::$failure => RuntimeErrorMessage::$message, )+
                 }
             }
         }
@@ -112,12 +111,12 @@ regexp_matcher_status_domain! {
     CorruptProgram => {
         word: 1,
         route: GenericError,
-        message: "RegExp compiled program matcher failed",
+        message: REGEXP_COMPILED_PROGRAM_MATCHER_FAILED,
     },
     ResourceExhausted => {
         word: 2,
         route: CurrentFunctionRealmRangeError,
-        message: "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        message: REGEXP_MATCHER_SCRATCH_ARENA_EXCEEDS_THE_ENGINE_ADDRESSABLE_RESOURCE_LIMIT,
     },
 }
 
@@ -144,21 +143,20 @@ const _: () = assert!(
 );
 
 /// The pure Pattern compiler's private second result slot. These are not
-/// JavaScript completion tags. Unsupported preserves the explicit old fallback;
-/// every other non-success route throws before publishing receiver state.
+/// JavaScript completion tags. Syntax/resource/internal failures retain
+/// JavaScript errors.
+/// No non-success result publishes receiver state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegExpCompilerStatus {
     Compiled,
     SyntaxError,
-    Unsupported,
     ResourceExhausted,
     CorruptProgram,
 }
 impl RegExpCompilerStatus {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 4] = [
         Self::Compiled,
         Self::SyntaxError,
-        Self::Unsupported,
         Self::ResourceExhausted,
         Self::CorruptProgram,
     ];
@@ -166,7 +164,6 @@ impl RegExpCompilerStatus {
         match self {
             Self::Compiled => 0,
             Self::SyntaxError => 1,
-            Self::Unsupported => 2,
             Self::ResourceExhausted => 3,
             Self::CorruptProgram => 4,
         }
@@ -230,251 +227,690 @@ impl RuntimeHelperEmission {
     }
 }
 
-/// Every shared runtime helper, in the order its body is written into the code
-/// section.
+/// A checked Key parameter is minted only by a registered Key row. It cannot
+/// be made from an arbitrary value by object-family callers.
+pub(crate) struct RuntimeHelperPropertyKeyParameter {
+    value: ValueLocals,
+}
+impl RuntimeHelperPropertyKeyParameter {
+    pub(crate) fn into_value(self) -> ValueLocals {
+        self.value
+    }
+}
+
+/// Presence is separate from the value tag: Read(undefined) still performs
+/// the prescribed option validation, while an omitted options read does not.
+/// Only the registered OptionalValue operand can construct this parameter.
+pub(crate) struct RuntimeHelperOptionalValueParameter {
+    present: I32Local,
+    value: ValueLocals,
+}
+impl RuntimeHelperOptionalValueParameter {
+    fn emit_argument(value: Option<&ValueLocals>, function: &mut Function) {
+        match value {
+            Some(value) => {
+                function.instruction(&Instruction::I32Const(1));
+                value.emit(function);
+            }
+            None => {
+                function.instruction(&Instruction::I32Const(0));
+                function.instruction(&Instruction::I32Const(
+                    crate::WasmRuntimeValueTag::Undefined as i32,
+                ));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::RefNull(wasm_encoder::HeapType::Abstract {
+                    shared: false,
+                    ty: wasm_encoder::AbstractHeapType::Eq,
+                }));
+            }
+        }
+    }
+
+    pub(crate) fn emit_if_present(
+        &self,
+        builder: &mut crate::emit::FunctionBuilder<'_>,
+        function: &mut Function,
+        consume: impl FnOnce(
+            &ValueLocals,
+            &mut crate::emit::FunctionBuilder<'_>,
+            &mut Function,
+        ) -> Result<(), crate::EmitError>,
+    ) -> Result<(), crate::EmitError> {
+        self.present.load(function);
+        builder.open_frame(crate::emit::ControlFrameKind::If, function);
+        consume(&self.value, builder, function)?;
+        builder.pop_control(crate::emit::ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn release(self, function: &mut Function) {
+        self.value.clear(function);
+    }
+}
+
+mod helper_sealed {
+    pub trait Arguments {}
+    pub trait Parameters {}
+}
+
+/// Which half of the module a helper body belongs to.
 ///
-/// Declaration order is load-bearing twice over:
-///
-/// * [`RuntimeHelperId::index`] is `base + self as u32`, so a variant moved in
-///   this list moves the Wasm function index every call site uses.
-/// * A conditional helper must come last (see [`Self::conditional_helpers_are_last`]),
-///   because a helper emitted after a skipped one would silently shift down.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A runtime body is identical for every program and sits below `main`. A
+/// program body is generated from the script and sits after the program's own
+/// callables, so it can never shift a runtime index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HelperOwner {
+    /// Program-independent; reached by plain `call`.
+    Runtime,
+    /// Program-generated; reached by plain `call` from program code only.
+    Program,
+    /// Program-generated and reached from runtime code through its hook global
+    /// (null until `main` installs it), see [`RuntimeSchema::call_hook`].
+    Hook(ProgramHook),
+}
+
+/// Every place runtime code asks the program a question only the program can
+/// answer. Each hook is one mutable global typed by its helper row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
-pub(crate) enum RuntimeHelperId {
-    // The six allocation helpers are plain free functions (`emit_*_helper_function`)
-    // rather than `FunctionBuilder` bodies, but they occupy the first six slots.
-    HeapAlloc = 0,
-    ObjectAppendDataProperty = 1,
-    ObjectAppendAccessorProperty = 2,
-    FunctionObjectAlloc = 3,
-    PlainObjectAlloc = 4,
-    ArrayAlloc = 5,
-    ObjectRead = 6,
-    ObjectWrite = 7,
-    ObjectDefineData = 8,
-    ProxyCall = 9,
-    ProxyConstruct = 10,
-    StringEquality = 11,
-    NumberToString = 12,
-    StringToNumber = 13,
-    ValueToString = 14,
-    ValueToNumber = 15,
-    ValueToNumeric = 16,
-    ObjectGetPrototypeOf = 17,
-    ObjectIsExtensible = 18,
-    ObjectPreventExtensions = 19,
-    ObjectReadProxy = 20,
-    RegExpMatcher = 21,
-    FunctionCall = 22,
-    DynamicPropertyRead = 23,
-    OrdinarySetDataOnReceiver = 24,
-    OrdinarySetDataOnReceiverWithFallback = 25,
-    ArrayWrite = 26,
-    OrdinarySet = 27,
-    OrdinarySetWithoutReceiverFallback = 28,
-    DecimalToBinary64 = 29,
-    BigIntArithmetic = 30,
-    TemporalCalendarIsoDateProbe = 31,
-    TemporalCalendarIdentifier = 32,
-    /// The whole `expr[index]` *read* composite: Arguments / Array (with the
-    /// prototype walk) / TypedArray element load / ordinary object key read,
-    /// including the number→string key materialization for the object arm.
-    ///
-    /// **Retraction, batch 3.** This doc comment used to assert that this
-    /// composite "is what pushed the `testIntl.js` `canonicalizeLanguageTag`
-    /// body to 3,615,449 bytes". The *causal* half of that claim is refuted.
-    /// The *predicted* replacement cause is [`Self::ValueToPrimitiveString`] /
-    /// [`Self::ValueToPropertyKey`] — predicted, not established: see the note
-    /// on those variants for the ratio argument, its falsifier and its known
-    /// blind spot. What survives here without qualification is only that this
-    /// composite is large per inline site; with this helper in place
-    /// `helper::indexed_element_read` is 2,761 bytes, and
-    /// `canonicalizeLanguageTag` was still *exactly* 3,615,449 bytes
-    /// afterwards, which is what falsified the causal claim.
-    ///
-    /// Reproduce (no cargo needed, ~20 s per build):
-    ///
-    /// ```sh
-    /// LILA_WASM_DUMP=/tmp/x.wasm ./target/debug/lila build wasm probe.js
-    /// # then read the code-section body lengths back against the custom
-    /// # `name` section this crate emits.
-    /// ```
-    IndexedElementRead = 33,
-    /// The whole `expr[index] = value` *write* composite: TypedArray element
-    /// store versus ordinary `[[Set]]`. 174,558 bytes per inline site.
-    IndexedElementWrite = 34,
-    /// `ToPrimitive(value)` with no hint — the `@@toPrimitive` / `valueOf` /
-    /// `toString` hook chain plus the Array / Arguments / Function arms.
-    ///
-    /// Measured, on this tree, 2026-08-09, with `lila build wasm` +
-    /// `LILA_WASM_DUMP` and the code-section/`name`-section reader described
-    /// on [`Self::IndexedElementRead`]:
-    ///
-    /// | probe function body | bytes |
-    /// |---|---|
-    /// | `var A = k.split('-'); return A.length;` | 14,754 |
-    /// | ... plus `var x = ''; x = A[0];` (static index) | 14,911 |
-    /// | ... plus `var x = ''; x = A[i];` (dynamic key) | 87,101 |
-    /// | ... plus a second `y = A[j];` | 159,811 |
-    ///
-    /// So one dynamic-key site costs `(159,811 - 14,754) / 2 = 72,528` bytes,
-    /// and a `+` on two operands of unknown kind costs `140,144 / 2 = 70,072`
-    /// bytes per operand — the same composite, reached through ToPropertyKey in
-    /// the first case and directly in the second.
-    ///
-    /// The table above is measured. The attribution of
-    /// `js::canonicalizeLanguageTag#f46` (3,615,449 bytes, 154 locals) to this
-    /// composite is **a prediction, not a measurement**, and is recorded here
-    /// with its falsifier so it cannot harden into folklore the way the
-    /// [`Self::IndexedElementRead`] claim retracted above did.
-    ///
-    /// Predicted cause: five independent call-count ratios against the one-site
-    /// probe agree on ~49 copies of this composite in that one body —
-    /// `object_define_data 7130/144.5`, `string_equality 6352/130`,
-    /// `plain_object_alloc 3565/72.5`, `function_call 1177/24`,
-    /// `array_alloc 1225/26`. 49 x 72,347 is 98.0% of the body.
-    ///
-    /// **Falsifier:** the post-split size of `js::canonicalizeLanguageTag#f46`,
-    /// read exactly as the table above was read. Predicted under 250,000 bytes.
-    /// **Above 500,000 the attribution is wrong** and the residual must be
-    /// re-attributed before anyone claims the split worked. That measurement has
-    /// not been taken — no compiler ran in the session that wrote this.
-    ///
-    /// **Known blind spot of the ratio method:** a call-count ratio cannot
-    /// separate a composite from the composites emitted *adjacent to it at the
-    /// same sites*, because they scale together. That is precisely how batch 2
-    /// misattributed these same 49 sites to [`Self::IndexedElementRead`]. The
-    /// ratios are therefore evidence that ~49 *sites* dominate the body, and
-    /// only weak evidence about which composite at those sites owns the bytes.
-    ValueToPrimitiveDefault = 35,
-    /// `ToPrimitive(value, number)`. Separate body rather than a runtime hint
-    /// parameter: the hook order differs (`valueOf` before `toString`), so a
-    /// shared body would have to branch on a value the call site already knows
-    /// at compile time.
-    ValueToPrimitiveNumber = 36,
-    /// `ToPrimitive(value, string)` — `toString` before `valueOf`.
-    ValueToPrimitiveString = 37,
-    /// `ToPropertyKey(value)`: ToPrimitive with the string hint, then the
-    /// symbol-marker/`ToString` split. Reached by every computed member access
-    /// whose key is not statically known to be a String or a Symbol.
-    ValueToPropertyKey = 38,
-    /// The full prototype-aware `[[HasProperty]]` dispatch. Its JS-shaped ABI
-    /// receives target payload/tag in 0/1, property-key payload/tag in 2/3 and
-    /// the trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
-    /// Returns a Boolean or the standard abrupt completion tuple.
-    ObjectHasProperty = 39,
-    /// Object Environment Record HasBinding for [[IsWithEnvironment]] = true.
-    /// Receives binding object payload/tag in 0/1, String name in 2/3, and
-    /// trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
-    /// Returns a Boolean or the standard abrupt completion tuple.
-    WithEnvironmentHasBinding = 40,
-    /// Pure runtime Pattern compiler; parameters/results use a private ABI.
-    RegExpCompiler = 41,
-    /// Sparse array index bookkeeping. Params 0..3 are array payload,
-    /// index, value payload and value tag; params 4..6 are unused. This internal
-    /// mutation neither invokes JavaScript nor changes the caller completion.
-    ArrayAppendPresentIndex = 42,
-    /// Graph-owned operations reserve indices in every artifact; a graphless
-    /// artifact has unreachable bodies and no caller edges to these slots.
-    ModuleEvaluate = 43,
-    ModuleReady = 44,
-    ModuleGather = 45,
-    ModuleExecute = 46,
-    ModuleFulfilled = 47,
-    ModuleRejected = 48,
-    ModuleDeferredImport = 49,
-    /// Allocates the fresh native error object every runtime-thrown error
-    /// starts from: an ordinary object with [[ErrorData]] and the given
-    /// [[Prototype]], then own `name` and `message` data properties
-    /// (writable, non-enumerable, configurable).
-    ///
-    /// Private ABI on the JS function shape: 0=prototype Object payload,
-    /// 1=`name` String payload, 2=`message` String payload; 3..6 unused.
-    /// Results are the error payload, the Object tag and a Normal completion.
-    /// It invokes no JavaScript and cannot throw, so the caller keeps its own
-    /// completion state and only then publishes the Throw.
-    ///
-    /// Outlined because the composite is emitted once per operation that can
-    /// throw. Measured with `LILA_WASM_DUMP` on
-    /// `wasm_ordinary_property_logical_assignment_reference.js`: inline, the
-    /// script body reached 5,487,494 bytes and Cranelift rejected it (`Code
-    /// for function is too large`). About 1,600 inline error objects owned
-    /// most of it — in the main export every append also carries the
-    /// bootstrap-only `%Array.prototype%` define arm — so one global
-    /// identifier read (ReferenceError plus TDZ error) cost 4,100 bytes there.
-    RuntimeErrorObject = 50,
-    /// Only helper whose emission is conditional today. Keep conditional
-    /// helpers last; `conditional_helpers_are_last` is a compile-time check.
-    JsonStringifyValue = 51,
+pub(crate) enum ProgramHook {
+    /// `new Function(...)` and its generator/async siblings.
+    PreparedDynamicFunction,
+    /// Indirect eval, `$262.evalScript` and `ShadowRealm.prototype.evaluate`.
+    PreparedScript,
+    /// `ShadowRealm.prototype.importValue`.
+    RealmModuleImport,
+    /// The promise job that resumes a module body.
+    ModuleBodyReaction,
+    /// RegExp construction from a source/flags pair the program spelled out.
+    RegExpProgramCandidate,
+}
+
+impl ProgramHook {
+    pub(crate) const ALL: [Self; 5] = [
+        Self::PreparedDynamicFunction,
+        Self::PreparedScript,
+        Self::RealmModuleImport,
+        Self::ModuleBodyReaction,
+        Self::RegExpProgramCandidate,
+    ];
+    pub(crate) const fn helper(self) -> RuntimeHelperId {
+        match self {
+            Self::PreparedDynamicFunction => RuntimeHelperId::PreparedDynamicFunction,
+            Self::PreparedScript => RuntimeHelperId::PreparedScript,
+            Self::RealmModuleImport => RuntimeHelperId::RealmModuleImport,
+            Self::ModuleBodyReaction => RuntimeHelperId::ModuleBodyReaction,
+            Self::RegExpProgramCandidate => RuntimeHelperId::RegExpProgramCandidate,
+        }
+    }
+}
+
+impl HelperOwner {
+    const fn region(self) -> HelperRegion {
+        match self {
+            Self::Runtime => HelperRegion::Runtime,
+            Self::Program | Self::Hook(_) => HelperRegion::Program,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelperRegion {
+    Runtime,
+    Program,
+}
+
+/// The first index of each helper region. Only `FunctionIndexLayout` mints it
+/// and only this owner performs helper-index arithmetic; callers retain the plan.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RuntimeHelperFunctionBase {
+    runtime_first: u32,
+    program_first: u32,
+}
+impl RuntimeHelperFunctionBase {
+    pub(crate) const fn at(runtime_first: u32, program_first: u32) -> Self {
+        Self {
+            runtime_first,
+            program_first,
+        }
+    }
+}
+
+/// How a call reaches its helper body.
+pub(crate) enum HelperRoute {
+    Direct(RuntimeHelperFunctionBase),
+    Hook,
+}
+
+/// Proof that the generated code tested a hook global for null on the path
+/// that holds this value. Minted only by
+/// `FunctionBuilder::emit_program_hook_dispatch`.
+pub(crate) struct InstalledHook {
+    hook: ProgramHook,
+}
+impl InstalledHook {
+    pub(crate) const fn mint(hook: ProgramHook) -> Self {
+        Self { hook }
+    }
+}
+
+pub(crate) trait HelperArguments: helper_sealed::Arguments {
+    type Result;
+    const ID: RuntimeHelperId;
+    fn emit_call(
+        self,
+        schema: &RuntimeSchema,
+        route: HelperRoute,
+        function: &mut Function,
+    ) -> Self::Result;
+}
+pub(crate) trait HelperParameters: helper_sealed::Parameters + Sized {
+    const ID: RuntimeHelperId;
+    fn acquire(schema: &RuntimeSchema, function: &mut Function) -> Self;
+    fn release(self, function: &mut Function);
+    fn caller_environment(&self) -> Option<&GcLocal<Environment, Nullable>>;
+    fn caller_function_context(&self) -> Option<&GcLocal<FunctionContext>>;
+    fn caller_execution_realm(&self) -> Option<&GcLocal<RealmRecord>>;
+}
+
+pub(crate) struct HelperCompletion {
+    private: (),
+}
+impl HelperCompletion {
+    pub(crate) fn store(self, destination: &CompletionLocals, function: &mut Function) {
+        destination
+            .value()
+            .store_call_result(destination.kind(), destination.target(), function);
+    }
+}
+pub(crate) struct I32HelperResult {
+    private: (),
+}
+impl I32HelperResult {
+    pub(crate) fn store(self, destination: I32Local, function: &mut Function) {
+        destination.store(function);
+    }
+}
+pub(crate) struct I64HelperResult {
+    private: (),
+}
+impl I64HelperResult {
+    pub(crate) fn store(self, destination: I64Local, function: &mut Function) {
+        destination.store(function);
+    }
+}
+/// Only the calendar year owner can project this complete seven-word result.
+#[must_use = "the completed year must initialize its owned calendar record"]
+pub(crate) struct EastAsianYearCallResult {
+    private: (),
+}
+#[must_use = "the selected Umm al-Qura year and packed row must be consumed together"]
+pub(crate) struct UmmAlQuraYearCallResult {
+    private: (),
+}
+#[must_use = "the complete projection must initialize its owned calendar date"]
+pub(crate) struct CalendarDateCallResult {
+    private: (),
+}
+#[must_use = "all three completed ISO fields must be consumed together"]
+pub(crate) struct CalendarIsoDateCallResult {
+    private: (),
+}
+#[must_use = "the balanced calendar year and month must be consumed together"]
+pub(crate) struct CalendarYearMonthCallResult {
+    private: (),
+}
+#[must_use = "the calendar difference must retain all four date duration fields"]
+pub(crate) struct CalendarDifferenceCallResult {
+    private: (),
+}
+pub(crate) struct ReferenceHelperResult<T: GcHeapType, N: GcFieldNullability> {
+    private: std::marker::PhantomData<fn() -> (T, N)>,
+}
+impl<T: GcHeapType, N: GcFieldNullability> ReferenceHelperResult<T, N> {
+    pub(crate) fn bind(
+        self,
+        schema: &RuntimeSchema,
+        slot: GcLocalSlot<T, N>,
+        function: &mut Function,
+    ) -> GcLocal<T, N> {
+        schema.bind_helper_reference(self, slot, function)
+    }
+}
+pub(crate) struct RegExpMatchCallResult {
+    private: (),
+}
+impl RegExpMatchCallResult {
+    pub(crate) fn store(
+        self,
+        found: I32Local,
+        start: I64Local,
+        end: I64Local,
+        status: I32Local,
+        function: &mut Function,
+    ) {
+        status.store(function);
+        end.store(function);
+        start.store(function);
+        found.store(function);
+    }
+}
+pub(crate) struct RegExpCompileCallResult {
+    private: (),
+}
+impl RegExpCompileCallResult {
+    pub(crate) fn bind(
+        self,
+        schema: &RuntimeSchema,
+        program: GcLocalSlot<RegExpProgram, Nullable>,
+        status: I32Local,
+        cursor: I64Local,
+        detail: I64Local,
+        function: &mut Function,
+    ) -> GcLocal<RegExpProgram, Nullable> {
+        detail.store(function);
+        cursor.store(function);
+        status.store(function);
+        schema.bind_regexp_compiler_program(self, program, function)
+    }
+}
+/// A completion followed by one status word. The producer and consumer of each
+/// row own what the status means.
+#[must_use = "the completion and its status must be consumed together"]
+pub(crate) struct StatusCompletionCallResult {
+    private: (),
+}
+impl StatusCompletionCallResult {
+    pub(crate) fn store(
+        self,
+        completion: &CompletionLocals,
+        status: I32Local,
+        function: &mut Function,
+    ) {
+        status.store(function);
+        completion
+            .value()
+            .store_call_result(completion.kind(), completion.target(), function);
+    }
+}
+/// The evaluation completion of a Realm module import and its namespace value.
+#[must_use = "the evaluation and namespace must be consumed together"]
+pub(crate) struct RealmImportCallResult {
+    private: (),
+}
+impl RealmImportCallResult {
+    pub(crate) fn store(
+        self,
+        evaluation: &CompletionLocals,
+        namespace: &ValueLocals,
+        function: &mut Function,
+    ) {
+        namespace.store_value_result(function);
+        evaluation
+            .value()
+            .store_call_result(evaluation.kind(), evaluation.target(), function);
+    }
+}
+pub(crate) struct ModuleGatherCallResult {
+    private: (),
+}
+impl ModuleGatherCallResult {
+    pub(crate) fn bind(
+        self,
+        schema: &RuntimeSchema,
+        modules: GcLocalSlot<ModuleRegistry>,
+        count: I64Local,
+        function: &mut Function,
+    ) -> GcLocal<ModuleRegistry> {
+        count.store(function);
+        schema.bind_gathered_modules(self, modules, function)
+    }
+}
+
+/// Reflect, Math, JSON, Atomics, Temporal and Intl remain rooted across the
+/// initialization/publication boundary. An absent namespace has a null result.
+#[must_use = "all six Realm namespace results must be rooted before publication"]
+pub(crate) struct RealmInitializeIntrinsicsCallResult {
+    private: (),
+}
+impl RealmInitializeIntrinsicsCallResult {
+    pub(crate) fn bind(
+        self,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) -> [GcLocal<OrdinaryObject, Nullable>; 6] {
+        // Bind every stack result before the caller can allocate. Results are
+        // popped in reverse ABI order, then returned in publication order.
+        let mut roots: [GcLocal<OrdinaryObject, Nullable>; 6] = std::array::from_fn(|_| {
+            let slot = schema.reserve_gc_local(function);
+            ReferenceHelperResult {
+                private: std::marker::PhantomData,
+            }
+            .bind(schema, slot, function)
+        });
+        roots.reverse();
+        roots
+    }
+}
+
+macro_rules! helper_field {
+    (@realm $self:ident;) => { None };
+    (@realm $self:ident; caller_execution_realm:(Ref RealmRecord NonNullable) $(,$rest:ident:$shape:tt)*) => { Some(&$self.caller_execution_realm) };
+    (@realm $self:ident; $field:ident:$shape:tt $(,$rest:ident:$rest_shape:tt)*) => {
+        helper_field!(@realm $self; $($rest:$rest_shape),*)
+    };
+    (@context $self:ident;) => { None };
+    (@context $self:ident; caller_function_context:(Ref FunctionContext NonNullable) $(,$rest:ident:$shape:tt)*) => { Some(&$self.caller_function_context) };
+    (@context $self:ident; $field:ident:$shape:tt $(,$rest:ident:$rest_shape:tt)*) => {
+        helper_field!(@context $self; $($rest:$rest_shape),*)
+    };
+    (@caller $self:ident;) => { None };
+    (@caller $self:ident; caller_environment:(Ref Environment Nullable) $(,$rest:ident:$shape:tt)*) => { Some(&$self.caller_environment) };
+    (@caller $self:ident; $field:ident:$shape:tt $(,$rest:ident:$rest_shape:tt)*) => {
+        helper_field!(@caller $self; $($rest:$rest_shape),*)
+    };
+
+    (@argument Value) => { &'a ValueLocals };
+    (@argument OptionalValue) => { Option<&'a ValueLocals> };
+    (@argument Completion) => { &'a CompletionLocals };
+    (@argument Key) => { &'a crate::operations::PropertyKeyLocals };
+    (@argument I32) => { I32Local };
+    (@argument I64) => { I64Local };
+    (@argument (Ref $ty:ident $null:ident)) => { &'a GcLocal<$ty, $null> };
+    (@parameter Value) => { ValueLocals };
+    (@parameter OptionalValue) => { RuntimeHelperOptionalValueParameter };
+    (@parameter Completion) => { CompletionLocals };
+    (@parameter Key) => { crate::operations::PropertyKeyLocals };
+    (@parameter I32) => { I32Local };
+    (@parameter I64) => { I64Local };
+    (@parameter (Ref $ty:ident $null:ident)) => { GcLocal<$ty, $null> };
+    (@abi Value) => { &[AbiType::I32, AbiType::I64, AbiType::EqRef] };
+    (@abi OptionalValue) => { &[AbiType::I32, AbiType::I32, AbiType::I64, AbiType::EqRef] };
+    (@abi Completion) => { &crate::module::COMPLETION_TYPES };
+    (@abi Key) => { helper_field!(@abi Value) };
+    (@abi I32) => { &[AbiType::I32] };
+    (@abi I64) => { &[AbiType::I64] };
+    (@abi (Ref $ty:ident $null:ident)) => { &[AbiType::Gc(GcLayout::$ty, GcNullability::$null)] };
+    (@emit $value:expr, $schema:ident, $function:ident, Value) => { $value.emit($function) };
+    (@emit $value:expr, $schema:ident, $function:ident, OptionalValue) => { RuntimeHelperOptionalValueParameter::emit_argument($value, $function) };
+    (@emit $value:expr, $schema:ident, $function:ident, Completion) => { $value.emit($function) };
+    (@emit $value:expr, $schema:ident, $function:ident, Key) => { $value.value().emit($function) };
+    (@emit $value:expr, $schema:ident, $function:ident, I32) => { $value.load($function) };
+    (@emit $value:expr, $schema:ident, $function:ident, I64) => { $value.load($function) };
+    (@emit $value:expr, $schema:ident, $function:ident, (Ref $ty:ident $null:ident)) => { { $value.load($schema, $function); } };
+    (@acquire $schema:ident, $index:ident, $function:ident, Value) => { $schema.parameter_value($index, $function) };
+    (@acquire $schema:ident, $index:ident, $function:ident, OptionalValue) => {
+        RuntimeHelperOptionalValueParameter {
+            present: $schema.parameter_i32($index, $function),
+            value: $schema.parameter_value($index + 1, $function),
+        }
+    };
+    (@acquire $schema:ident, $index:ident, $function:ident, Completion) => { $schema.parameter_completion($index, $function) };
+    (@acquire $schema:ident, $index:ident, $function:ident, Key) => {
+        crate::operations::PropertyKeyLocals::from_helper_parameter(RuntimeHelperPropertyKeyParameter {
+            value: $schema.parameter_value($index, $function),
+        })
+    };
+    (@acquire $schema:ident, $index:ident, $function:ident, I32) => { $schema.parameter_i32($index, $function) };
+    (@acquire $schema:ident, $index:ident, $function:ident, I64) => { $schema.parameter_i64($index, $function) };
+    (@acquire $schema:ident, $index:ident, $function:ident, (Ref $ty:ident $null:ident)) => { $schema.parameter_gc::<$ty, $null>($index, $function) };
+    (@release $value:expr, $function:ident, Value) => { $value.clear($function) };
+    (@release $value:expr, $function:ident, OptionalValue) => { $value.release($function) };
+    (@release $value:expr, $function:ident, Completion) => { $value.clear($function) };
+    (@release $value:expr, $function:ident, Key) => { $value.clear($function) };
+    (@release $value:expr, $function:ident, I32) => { { let _ = $value; } };
+    (@release $value:expr, $function:ident, I64) => { { let _ = $value; } };
+    (@release $value:expr, $function:ident, (Ref $ty:ident $null:ident)) => { $value.clear($function) };
+    (@reverse_release $self:ident, $function:ident;) => {};
+    (@reverse_release $self:ident, $function:ident; $field:ident:$shape:tt $(,$rest:ident:$rest_shape:tt)*) => {
+        helper_field!(@reverse_release $self, $function; $($rest:$rest_shape),*);
+        helper_field!(@release $self.$field, $function, $shape);
+    };
+    (@result_type Completion) => { HelperCompletion };
+    (@result_type Void) => { () };
+    (@result_type I32) => { I32HelperResult };
+    (@result_type I64) => { I64HelperResult };
+    (@result_type EastAsianYear) => { EastAsianYearCallResult };
+    (@result_type UmmAlQuraYear) => { UmmAlQuraYearCallResult };
+    (@result_type CalendarDate) => { CalendarDateCallResult };
+    (@result_type CalendarIsoDate) => { CalendarIsoDateCallResult };
+    (@result_type CalendarYearMonth) => { CalendarYearMonthCallResult };
+    (@result_type CalendarDifference) => { CalendarDifferenceCallResult };
+    (@result_type (Ref $ty:ident $null:ident)) => { ReferenceHelperResult<$ty, $null> };
+    (@result_type RegExpMatch) => { RegExpMatchCallResult };
+    (@result_type RegExpCompile) => { RegExpCompileCallResult };
+    (@result_type StatusCompletion) => { StatusCompletionCallResult };
+    (@result_type RealmImport) => { RealmImportCallResult };
+    (@result_type ModuleGather) => { ModuleGatherCallResult };
+    (@result_type RealmInitializeIntrinsics) => { RealmInitializeIntrinsicsCallResult };
+    (@result_abi Completion) => { crate::module::COMPLETION_TYPES.to_vec() };
+    (@result_abi Void) => { Vec::new() };
+    (@result_abi I32) => { vec![AbiType::I32] };
+    (@result_abi I64) => { vec![AbiType::I64] };
+    (@result_abi EastAsianYear) => { vec![AbiType::I64; 7] };
+    (@result_abi UmmAlQuraYear) => { vec![AbiType::I64; 2] };
+    (@result_abi CalendarDate) => { vec![AbiType::I64; 8] };
+    (@result_abi CalendarIsoDate) => { vec![AbiType::I64; 3] };
+    (@result_abi CalendarYearMonth) => { vec![AbiType::I64; 2] };
+    (@result_abi CalendarDifference) => { vec![AbiType::I64; 4] };
+    (@result_abi (Ref $ty:ident $null:ident)) => { vec![AbiType::Gc(GcLayout::$ty, GcNullability::$null)] };
+    (@result_abi RegExpMatch) => { vec![AbiType::I32, AbiType::I64, AbiType::I64, AbiType::I32] };
+    (@result_abi RegExpCompile) => { vec![AbiType::Gc(GcLayout::RegExpProgram, GcNullability::Nullable), AbiType::I32, AbiType::I64, AbiType::I64] };
+    (@result_abi StatusCompletion) => { { let mut types = crate::module::COMPLETION_TYPES.to_vec(); types.push(AbiType::I32); types } };
+    (@result_abi RealmImport) => { { let mut types = crate::module::COMPLETION_TYPES.to_vec(); types.extend([AbiType::I32, AbiType::I64, AbiType::EqRef]); types } };
+    (@result_abi ModuleGather) => { vec![AbiType::Gc(GcLayout::ModuleRegistry, GcNullability::NonNullable), AbiType::I64] };
+    (@result_abi RealmInitializeIntrinsics) => { vec![AbiType::Gc(GcLayout::OrdinaryObject, GcNullability::Nullable); 6] };
+    (@result Completion) => { HelperCompletion { private: () } };
+    (@result Void) => { () };
+    (@result I32) => { I32HelperResult { private: () } };
+    (@result I64) => { I64HelperResult { private: () } };
+    (@result EastAsianYear) => { EastAsianYearCallResult { private: () } };
+    (@result UmmAlQuraYear) => { UmmAlQuraYearCallResult { private: () } };
+    (@result CalendarDate) => { CalendarDateCallResult { private: () } };
+    (@result CalendarIsoDate) => { CalendarIsoDateCallResult { private: () } };
+    (@result CalendarYearMonth) => { CalendarYearMonthCallResult { private: () } };
+    (@result CalendarDifference) => { CalendarDifferenceCallResult { private: () } };
+    (@result (Ref $ty:ident $null:ident)) => { ReferenceHelperResult { private: std::marker::PhantomData } };
+    (@result RegExpMatch) => { RegExpMatchCallResult { private: () } };
+    (@result RegExpCompile) => { RegExpCompileCallResult { private: () } };
+    (@result StatusCompletion) => { StatusCompletionCallResult { private: () } };
+    (@result RealmImport) => { RealmImportCallResult { private: () } };
+    (@result ModuleGather) => { ModuleGatherCallResult { private: () } };
+    (@result RealmInitializeIntrinsics) => { RealmInitializeIntrinsicsCallResult { private: () } };
+}
+
+/// One row owns helper identity, exact operand projection, result shape and
+/// registration order. There is no general seven-word helper signature.
+macro_rules! runtime_helper_domain {
+    ($( $id:ident / $arguments:ident / $parameters:ident / $debug:literal {
+        $( $field:ident : $shape:tt ),* $(,)?
+    } => $result:tt; )+) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(u32)]
+        pub(crate) enum RuntimeHelperId { $( $id, )+ }
+        impl RuntimeHelperId {
+            pub(crate) const ALL: &'static [Self] = &[ $(Self::$id),+ ];
+            pub(crate) const fn index(self, base: RuntimeHelperFunctionBase) -> u32 {
+                match self.owner().region() {
+                    HelperRegion::Runtime => base.runtime_first + self.rank_in_region(),
+                    HelperRegion::Program => base.program_first + self.rank_in_region(),
+                }
+            }
+            /// Position among the helpers of the same region, in registration order.
+            const fn rank_in_region(self) -> u32 {
+                let region = self.owner().region();
+                let mut rank = 0;
+                let mut position = 0;
+                while position < self as usize {
+                    if Self::ALL[position].owner().region() as u32 == region as u32 {
+                        rank += 1;
+                    }
+                    position += 1;
+                }
+                rank
+            }
+            pub(crate) const fn type_index(self) -> u32 { StaticSignature::ALL.len() as u32 + self as u32 }
+            pub(crate) const fn debug_name(self) -> &'static str { match self { $(Self::$id => $debug),+ } }
+            pub(crate) fn parameter_types(self) -> Vec<AbiType> {
+                match self { $( Self::$id => {
+                    let mut types = Vec::new(); $(types.extend_from_slice(helper_field!(@abi $shape));)* types
+                }),+ }
+            }
+            pub(crate) fn result_types(self) -> Vec<AbiType> {
+                match self { $(Self::$id => helper_field!(@result_abi $result)),+ }
+            }
+            pub(crate) fn definition(self, layouts: &GcLayoutRegistry) -> crate::module::StaticSignatureDefinition {
+                crate::module::StaticSignatureDefinition::from_abi(self.parameter_types(), self.result_types(), layouts)
+            }
+        }
+        $(
+            pub(crate) struct $arguments<'a> {
+                $( pub(crate) $field: helper_field!(@argument $shape), )*
+                lifetime: std::marker::PhantomData<&'a ()>,
+            }
+            impl<'a> $arguments<'a> {
+                pub(crate) fn new($( $field: helper_field!(@argument $shape) ),*) -> Self {
+                    Self { $( $field, )* lifetime: std::marker::PhantomData }
+                }
+            }
+            impl helper_sealed::Arguments for $arguments<'_> {}
+            impl HelperArguments for $arguments<'_> {
+                type Result = helper_field!(@result_type $result);
+                const ID: RuntimeHelperId = RuntimeHelperId::$id;
+                fn emit_call(self, schema: &RuntimeSchema, route: HelperRoute, function: &mut Function) -> Self::Result {
+                    $(helper_field!(@emit self.$field, schema, function, $shape);)*
+                    Self::ID.emit_invocation(schema, route, function);
+                    helper_field!(@result $result)
+                }
+            }
+            pub(crate) struct $parameters { $( pub(crate) $field: helper_field!(@parameter $shape), )* }
+            impl helper_sealed::Parameters for $parameters {}
+            impl HelperParameters for $parameters {
+                const ID: RuntimeHelperId = RuntimeHelperId::$id;
+                fn acquire(schema: &RuntimeSchema, function: &mut Function) -> Self {
+                    let signature = Self::ID.definition(schema.layouts());
+                    assert_eq!(function.parameter_types(), signature.parameters(), "helper parameter owner mismatch");
+                    let mut index = 0u32;
+                    $(let $field = helper_field!(@acquire schema, index, function, $shape);
+                      index += helper_field!(@abi $shape).len() as u32;)*
+                    debug_assert_eq!(index as usize, signature.parameters().len());
+                    Self { $($field),* }
+                }
+                fn release(self, function: &mut Function) {
+                    helper_field!(@reverse_release self, function; $($field:$shape),*);
+                }
+                fn caller_environment(&self) -> Option<&GcLocal<Environment, Nullable>> {
+                    helper_field!(@caller self; $($field:$shape),*)
+                }
+                fn caller_function_context(&self) -> Option<&GcLocal<FunctionContext>> {
+                    helper_field!(@context self; $($field:$shape),*)
+                }
+                fn caller_execution_realm(&self) -> Option<&GcLocal<RealmRecord>> {
+                    helper_field!(@realm self; $($field:$shape),*)
+                }
+            }
+        )+
+    };
+}
+
+runtime_helper_domain! {
+    TransientByteAlloc / TransientByteAllocArguments / TransientByteAllocParameters / "transient_byte_alloc" { size:I64 } => I64;
+    ArrayIndexedPublish / ArrayIndexedPublishArguments / ArrayIndexedPublishParameters / "array_indexed_publish" { storage:(Ref ArrayIndexStorage NonNullable),index:I64,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
+    ArrayIndexedDelete / ArrayIndexedDeleteArguments / ArrayIndexedDeleteParameters / "array_indexed_delete" { storage:(Ref ArrayIndexStorage NonNullable),index:I64 } => Void;
+    ObjectRead / ObjectReadArguments / ObjectReadParameters / "object_read" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectWrite / ObjectWriteArguments / ObjectWriteParameters / "object_write" { target:Value,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectDefineData / ObjectDefineDataArguments / ObjectDefineDataParameters / "object_define_data" { target:Value,key:Key,value:Value,writable:I32,enumerable:I32,configurable:I32,caller_environment:(Ref Environment Nullable) } => Completion;
+    OrdinaryPropertyAppend / OrdinaryPropertyAppendArguments / OrdinaryPropertyAppendParameters / "ordinary_property_append" { object:(Ref OrdinaryObject NonNullable),key:Key,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
+    ObjectHeaderProjection / ObjectHeaderProjectionArguments / ObjectHeaderProjectionParameters / "object_header_projection" { value:Value } => (Ref OrdinaryObject NonNullable);
+    OrdinaryObjectAllocate / OrdinaryObjectAllocateArguments / OrdinaryObjectAllocateParameters / "ordinary_object_allocate" { prototype:Value,immutable_prototype:I32 } => (Ref OrdinaryObject NonNullable);
+    ValueToObject / ValueToObjectArguments / ValueToObjectParameters / "value_to_object" { realm:(Ref RealmRecord NonNullable),input:Value } => Completion;
+    FunctionMetadataPublish / FunctionMetadataPublishArguments / FunctionMetadataPublishParameters / "function_metadata_publish" { callable:(Ref FunctionObject NonNullable),length_bits:I64,name:(Ref StringValue NonNullable),configurable:I32,has_caller:I32,create_prototype:I32,constructor_back_reference:I32,prototype_parent:Value } => Void;
+    RealmInitializeIntrinsics / RealmInitializeIntrinsicsArguments / RealmInitializeIntrinsicsParameters / "realm_initialize_intrinsics" { realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => RealmInitializeIntrinsics;
+    ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    ProxyConstruct / ProxyConstructArguments / ProxyConstructParameters / "proxy_construct" { callee:Value,new_target:Value,arguments:(Ref ValueArray NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    StringEquality / StringEqualityArguments / StringEqualityParameters / "string_equality" { left:(Ref StringValue NonNullable),right:(Ref StringValue NonNullable),ascii_fold:I32 } => I32;
+    NumberToString / NumberToStringArguments / NumberToStringParameters / "number_to_string" { bits:I64 } => (Ref StringValue NonNullable);
+    StringToNumber / StringToNumberArguments / StringToNumberParameters / "string_to_number" { input:(Ref StringValue NonNullable) } => I64;
+    ValueToString / ValueToStringArguments / ValueToStringParameters / "value_to_string" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToNumber / ValueToNumberArguments / ValueToNumberParameters / "value_to_number" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToNumeric / ValueToNumericArguments / ValueToNumericParameters / "value_to_numeric" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectGetPrototypeOf / ObjectGetPrototypeOfArguments / ObjectGetPrototypeOfParameters / "object_get_prototype_of" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectIsExtensible / ObjectIsExtensibleArguments / ObjectIsExtensibleParameters / "object_is_extensible" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectPreventExtensions / ObjectPreventExtensionsArguments / ObjectPreventExtensionsParameters / "object_prevent_extensions" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectReadProxy / ObjectReadProxyArguments / ObjectReadProxyParameters / "object_read_proxy" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
+    RegExpMatcher / RegExpMatcherArguments / RegExpMatcherParameters / "regexp_matcher" { program:(Ref RegExpProgram NonNullable),input:(Ref StringValue NonNullable),start:I64,flags:I32,scratch:I64 } => RegExpMatch;
+    FunctionCall / FunctionCallArguments / FunctionCallParameters / "function_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    DynamicPropertyRead / DynamicPropertyReadArguments / DynamicPropertyReadParameters / "dynamic_property_read" { target:Value,receiver:Value,key:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    OrdinarySetDataOnReceiver / OrdinarySetDataOnReceiverArguments / OrdinarySetDataOnReceiverParameters / "ordinary_set_data_on_receiver" { receiver:Value,key:Key,value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    OrdinarySet / OrdinarySetArguments / OrdinarySetParameters / "ordinary_set" { target:Value,receiver:Value,key:Key,value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    DecimalToBinary64 / DecimalToBinary64Arguments / DecimalToBinary64Parameters / "decimal_to_binary64" { input:(Ref StringValue NonNullable) } => I64;
+    BigIntArithmetic / BigIntArithmeticArguments / BigIntArithmeticParameters / "bigint_arithmetic" { left:Value,right:Value,operation:I32 } => Completion;
+    TemporalCalendarIsoDateProbe / TemporalCalendarIsoDateProbeArguments / TemporalCalendarIsoDateProbeParameters / "temporal_calendar_iso_date_probe" { input:(Ref StringValue NonNullable),rewrite:I32,caller_environment:(Ref Environment Nullable) } => Completion;
+    TemporalCalendarIdentifier / TemporalCalendarIdentifierArguments / TemporalCalendarIdentifierParameters / "temporal_calendar_identifier" { input:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    TemporalZonedDateTimeConvert / TemporalZonedDateTimeConvertArguments / TemporalZonedDateTimeConvertParameters / "temporal_zoned_date_time_convert" { input:Value,options:Value,caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    TemporalPlainDateConvert / TemporalPlainDateConvertArguments / TemporalPlainDateConvertParameters / "temporal_plain_date_convert" { input:Value,overflow_options:OptionalValue,caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    TemporalChineseYear / TemporalChineseYearArguments / TemporalChineseYearParameters / "temporal_chinese_year" { year:I64 } => EastAsianYear;
+    TemporalDangiYear / TemporalDangiYearArguments / TemporalDangiYearParameters / "temporal_dangi_year" { year:I64 } => EastAsianYear;
+    TemporalUmmAlQuraYear / TemporalUmmAlQuraYearArguments / TemporalUmmAlQuraYearParameters / "temporal_umalqura_year" { year:I64 } => I64;
+    TemporalUmmAlQuraEpoch / TemporalUmmAlQuraEpochArguments / TemporalUmmAlQuraEpochParameters / "temporal_umalqura_epoch" { epoch:I64 } => UmmAlQuraYear;
+    TemporalCalendarProjectDate / TemporalCalendarProjectDateArguments / TemporalCalendarProjectDateParameters / "temporal_calendar_project_date" { calendar:I64,year:I64,month:I64,day:I64 } => CalendarDate;
+    TemporalCalendarFieldsToIso / TemporalCalendarFieldsToIsoArguments / TemporalCalendarFieldsToIsoParameters / "temporal_calendar_fields_to_iso" { calendar:I64,year:I64,month:I64,day:I64 } => CalendarIsoDate;
+    TemporalCalendarDaysInMonth / TemporalCalendarDaysInMonthArguments / TemporalCalendarDaysInMonthParameters / "temporal_calendar_days_in_month" { calendar:I64,year:I64,month:I64 } => I64;
+    TemporalCalendarBalanceYearMonth / TemporalCalendarBalanceYearMonthArguments / TemporalCalendarBalanceYearMonthParameters / "temporal_calendar_balance_year_month" { calendar:I64,year:I64,month:I64 } => CalendarYearMonth;
+    TemporalCalendarDifferenceDate / TemporalCalendarDifferenceDateArguments / TemporalCalendarDifferenceDateParameters / "temporal_calendar_difference_date" { calendar:I64,left_year:I64,left_month:I64,left_day:I64,right_year:I64,right_month:I64,right_day:I64,largest:I64 } => CalendarDifference;
+    IndexedElementRead / IndexedElementReadArguments / IndexedElementReadParameters / "indexed_element_read" { target:Value,index:I64,caller_environment:(Ref Environment Nullable) } => Completion;
+    IndexedElementWrite / IndexedElementWriteArguments / IndexedElementWriteParameters / "indexed_element_write" { target:Value,index:I64,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToPrimitiveDefault / ValueToPrimitiveDefaultArguments / ValueToPrimitiveDefaultParameters / "value_to_primitive_default" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToPrimitiveNumber / ValueToPrimitiveNumberArguments / ValueToPrimitiveNumberParameters / "value_to_primitive_number" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToPrimitiveString / ValueToPrimitiveStringArguments / ValueToPrimitiveStringParameters / "value_to_primitive_string" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToPropertyKey / ValueToPropertyKeyArguments / ValueToPropertyKeyParameters / "value_to_property_key" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectHasProperty / ObjectHasPropertyArguments / ObjectHasPropertyParameters / "object_has_property" { target:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
+    WithEnvironmentHasBinding / WithEnvironmentHasBindingArguments / WithEnvironmentHasBindingParameters / "with_environment_has_binding" { target:Value,name:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    RegExpCompiler / RegExpCompilerArguments / RegExpCompilerParameters / "regexp_compiler" { source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable) } => RegExpCompile;
+    ModuleInitialize / ModuleInitializeArguments / ModuleInitializeParameters / "module_initialize" { realm:(Ref RealmRecord NonNullable) } => Completion;
+    ModuleEvaluate / ModuleEvaluateArguments / ModuleEvaluateParameters / "module_evaluate" { module:(Ref ModuleRecord NonNullable) } => Completion;
+    ModuleReady / ModuleReadyArguments / ModuleReadyParameters / "module_ready" { module:(Ref ModuleRecord NonNullable) } => I32;
+    ModuleGather / ModuleGatherArguments / ModuleGatherParameters / "module_gather" { module:(Ref ModuleRecord NonNullable) } => ModuleGather;
+    ModuleExecute / ModuleExecuteArguments / ModuleExecuteParameters / "module_execute" { module:(Ref ModuleRecord NonNullable) } => Completion;
+    ModuleFulfilled / ModuleFulfilledArguments / ModuleFulfilledParameters / "module_fulfilled" { module:(Ref ModuleRecord NonNullable),value:Value } => Completion;
+    ModuleRejected / ModuleRejectedArguments / ModuleRejectedParameters / "module_rejected" { module:(Ref ModuleRecord NonNullable),reason:Value } => Completion;
+    ModuleDeferredImport / ModuleDeferredImportArguments / ModuleDeferredImportParameters / "module_deferred_import" { module:(Ref ModuleRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    PreparedDynamicFunction / PreparedDynamicFunctionArguments / PreparedDynamicFunctionParameters / "prepared_dynamic_function" { kind:I32,new_target:Value,sources:(Ref ValueArray NonNullable),caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => StatusCompletion;
+    PreparedScript / PreparedScriptArguments / PreparedScriptParameters / "prepared_script" { kind:I32,source:(Ref StringValue NonNullable),realm:(Ref RealmRecord NonNullable) } => StatusCompletion;
+    RealmModuleImport / RealmModuleImportArguments / RealmModuleImportParameters / "realm_module_import" { realm:(Ref RealmRecord NonNullable),specifier:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => RealmImport;
+    ModuleBodyReaction / ModuleBodyReactionArguments / ModuleBodyReactionParameters / "module_body_reaction" { module:(Ref ModuleRecord NonNullable),rejected:I32,argument:Value } => Void;
+    RegExpProgramCandidate / RegExpProgramCandidateArguments / RegExpProgramCandidateParameters / "regexp_program_candidate" { source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable) } => RegExpCompile;
+    RuntimeErrorObject / RuntimeErrorObjectArguments / RuntimeErrorObjectParameters / "runtime_error_object" { prototype:Value,message:(Ref StringValue NonNullable) } => (Ref NativeErrorObject NonNullable);
+    PooledStringsInitialize / PooledStringsInitializeArguments / PooledStringsInitializeParameters / "pooled_strings_initialize" { program_strings:I32 } => Void;
+    ObjectSetPrototypeOf / ObjectSetPrototypeOfArguments / ObjectSetPrototypeOfParameters / "object_set_prototype_of" { target:Value,prototype:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectDelete / ObjectDeleteArguments / ObjectDeleteParameters / "object_delete" { target:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncGeneratorStartBody / AsyncGeneratorStartBodyArguments / AsyncGeneratorStartBodyParameters / "async_generator_start_body" { activation:(Ref AsyncGeneratorActivation NonNullable),pending:Completion,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncGeneratorDrainQueue / AsyncGeneratorDrainQueueArguments / AsyncGeneratorDrainQueueParameters / "async_generator_drain_queue" { activation:(Ref AsyncGeneratorActivation NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    PromiseDrainJobs / PromiseDrainJobsArguments / PromiseDrainJobsParameters / "promise_drain_jobs" { pending:Completion,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncAwaitReactions / AsyncAwaitReactionsArguments / AsyncAwaitReactionsParameters / "async_await_reactions" { activation:(Ref AsyncActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncGeneratorAwaitReactions / AsyncGeneratorAwaitReactionsArguments / AsyncGeneratorAwaitReactionsParameters / "async_generator_await_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncGeneratorYieldReactions / AsyncGeneratorYieldReactionsArguments / AsyncGeneratorYieldReactionsParameters / "async_generator_yield_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncGeneratorYieldReturnReactions / AsyncGeneratorYieldReturnReactionsArguments / AsyncGeneratorYieldReturnReactionsParameters / "async_generator_yield_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    AsyncGeneratorAwaitReturnReactions / AsyncGeneratorAwaitReturnReactionsArguments / AsyncGeneratorAwaitReturnReactionsParameters / "async_generator_await_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    GlobalIdentifierReadSloppy / GlobalIdentifierReadSloppyArguments / GlobalIdentifierReadSloppyParameters / "global_identifier_read_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    GlobalIdentifierReadStrict / GlobalIdentifierReadStrictArguments / GlobalIdentifierReadStrictParameters / "global_identifier_read_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    GlobalIdentifierTypeofSloppy / GlobalIdentifierTypeofSloppyArguments / GlobalIdentifierTypeofSloppyParameters / "global_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    GlobalIdentifierTypeofStrict / GlobalIdentifierTypeofStrictArguments / GlobalIdentifierTypeofStrictParameters / "global_identifier_typeof_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    PrivateElementAdd / PrivateElementAddArguments / PrivateElementAddParameters / "private_element_add" { receiver:Value,element:(Ref PrivateElement NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
+    PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
+    JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable) } => Completion;
 }
 
 impl RuntimeHelperId {
-    /// Every helper, in emission order. Asserted below to be exactly the
-    /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 52] = [
-        Self::HeapAlloc,
-        Self::ObjectAppendDataProperty,
-        Self::ObjectAppendAccessorProperty,
-        Self::FunctionObjectAlloc,
-        Self::PlainObjectAlloc,
-        Self::ArrayAlloc,
-        Self::ObjectRead,
-        Self::ObjectWrite,
-        Self::ObjectDefineData,
-        Self::ProxyCall,
-        Self::ProxyConstruct,
-        Self::StringEquality,
-        Self::NumberToString,
-        Self::StringToNumber,
-        Self::ValueToString,
-        Self::ValueToNumber,
-        Self::ValueToNumeric,
-        Self::ObjectGetPrototypeOf,
-        Self::ObjectIsExtensible,
-        Self::ObjectPreventExtensions,
-        Self::ObjectReadProxy,
-        Self::RegExpMatcher,
-        Self::FunctionCall,
-        Self::DynamicPropertyRead,
-        Self::OrdinarySetDataOnReceiver,
-        Self::OrdinarySetDataOnReceiverWithFallback,
-        Self::ArrayWrite,
-        Self::OrdinarySet,
-        Self::OrdinarySetWithoutReceiverFallback,
-        Self::DecimalToBinary64,
-        Self::BigIntArithmetic,
-        Self::TemporalCalendarIsoDateProbe,
-        Self::TemporalCalendarIdentifier,
-        Self::IndexedElementRead,
-        Self::IndexedElementWrite,
-        Self::ValueToPrimitiveDefault,
-        Self::ValueToPrimitiveNumber,
-        Self::ValueToPrimitiveString,
-        Self::ValueToPropertyKey,
-        Self::ObjectHasProperty,
-        Self::WithEnvironmentHasBinding,
-        Self::RegExpCompiler,
-        Self::ArrayAppendPresentIndex,
-        Self::ModuleEvaluate,
-        Self::ModuleReady,
-        Self::ModuleGather,
-        Self::ModuleExecute,
-        Self::ModuleFulfilled,
-        Self::ModuleRejected,
-        Self::ModuleDeferredImport,
-        Self::RuntimeErrorObject,
-        Self::JsonStringifyValue,
-    ];
-
-    /// The helper that implements `ToPrimitive` for `hint`.
-    ///
-    /// Exhaustive over the closed [`ToPrimitiveHint`] domain with no `_` arm: a
-    /// fourth hint cannot compile until it names the body that serves it. This
-    /// exists so the hint stays a *compile-time* choice of callee. Passing the
-    /// hint to one shared helper as a bare `i64` would make three bodies whose
-    /// hook order genuinely differs indistinguishable at the call site and move
-    /// a wrong-hint bug from `cargo check` to a Test262 run.
+    pub(crate) const fn for_east_asian_year(
+        calendar: crate::data::TemporalEastAsianCalendar,
+    ) -> Self {
+        match calendar {
+            crate::data::TemporalEastAsianCalendar::Chinese => Self::TemporalChineseYear,
+            crate::data::TemporalEastAsianCalendar::Dangi => Self::TemporalDangiYear,
+        }
+    }
     pub(crate) const fn helper_for(hint: ToPrimitiveHint) -> Self {
         match hint {
             ToPrimitiveHint::Default => Self::ValueToPrimitiveDefault,
@@ -482,265 +918,265 @@ impl RuntimeHelperId {
             ToPrimitiveHint::String => Self::ValueToPrimitiveString,
         }
     }
-
-    /// The Wasm function index of this helper, given the index of the first
-    /// helper (`heap_alloc_function_index`).
-    ///
-    /// This is the *only* way to turn a helper into an index. The 27 accessors
-    /// on `FunctionBuilder` used to spell `base + 6` .. `base + 32` by hand,
-    /// which is exactly the arithmetic that silently rebinds every call site
-    /// when a helper is inserted.
-    pub(crate) const fn index(self, base: u32) -> u32 {
-        base + self as u32
-    }
-
-    /// The Wasm type index this helper's signature is declared with, matching
-    /// the entry the function section writes for it.
-    pub(crate) const fn type_index(self) -> u32 {
+    pub(crate) const fn owner(self) -> HelperOwner {
         match self {
-            Self::HeapAlloc => HEAP_ALLOC_TYPE_INDEX,
-            Self::ObjectAppendDataProperty => OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX,
-            Self::ObjectAppendAccessorProperty => OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX,
-            Self::FunctionObjectAlloc => FUNCTION_OBJECT_ALLOC_TYPE_INDEX,
-            Self::PlainObjectAlloc => PLAIN_OBJECT_ALLOC_TYPE_INDEX,
-            Self::ArrayAlloc => ARRAY_ALLOC_TYPE_INDEX,
-            // Internal heap mutations take seven i64 params and return
-            // nothing, which is the accessor-append signature.
-            Self::ObjectDefineData | Self::ArrayAppendPresentIndex => {
-                OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX
+            Self::TransientByteAlloc => HelperOwner::Runtime,
+            Self::ArrayIndexedPublish => HelperOwner::Runtime,
+            Self::ArrayIndexedDelete => HelperOwner::Runtime,
+            Self::ObjectRead => HelperOwner::Runtime,
+            Self::ObjectWrite => HelperOwner::Runtime,
+            Self::ObjectDefineData => HelperOwner::Runtime,
+            Self::OrdinaryPropertyAppend => HelperOwner::Runtime,
+            Self::ObjectHeaderProjection => HelperOwner::Runtime,
+            Self::OrdinaryObjectAllocate => HelperOwner::Runtime,
+            Self::ValueToObject => HelperOwner::Runtime,
+            Self::FunctionMetadataPublish => HelperOwner::Runtime,
+            Self::RealmInitializeIntrinsics => HelperOwner::Runtime,
+            Self::ProxyCall => HelperOwner::Runtime,
+            Self::ProxyConstruct => HelperOwner::Runtime,
+            Self::StringEquality => HelperOwner::Runtime,
+            Self::NumberToString => HelperOwner::Runtime,
+            Self::StringToNumber => HelperOwner::Runtime,
+            Self::ValueToString => HelperOwner::Runtime,
+            Self::ValueToNumber => HelperOwner::Runtime,
+            Self::ValueToNumeric => HelperOwner::Runtime,
+            Self::ObjectGetPrototypeOf => HelperOwner::Runtime,
+            Self::ObjectIsExtensible => HelperOwner::Runtime,
+            Self::ObjectPreventExtensions => HelperOwner::Runtime,
+            Self::ObjectReadProxy => HelperOwner::Runtime,
+            Self::RegExpMatcher => HelperOwner::Runtime,
+            Self::FunctionCall => HelperOwner::Runtime,
+            Self::DynamicPropertyRead => HelperOwner::Runtime,
+            Self::OrdinarySetDataOnReceiver => HelperOwner::Runtime,
+            Self::OrdinarySet => HelperOwner::Runtime,
+            Self::DecimalToBinary64 => HelperOwner::Runtime,
+            Self::BigIntArithmetic => HelperOwner::Runtime,
+            Self::TemporalCalendarIsoDateProbe => HelperOwner::Runtime,
+            Self::TemporalCalendarIdentifier => HelperOwner::Runtime,
+            Self::TemporalZonedDateTimeConvert => HelperOwner::Runtime,
+            Self::TemporalPlainDateConvert => HelperOwner::Runtime,
+            Self::TemporalChineseYear => HelperOwner::Runtime,
+            Self::TemporalDangiYear => HelperOwner::Runtime,
+            Self::TemporalUmmAlQuraYear => HelperOwner::Runtime,
+            Self::TemporalUmmAlQuraEpoch => HelperOwner::Runtime,
+            Self::TemporalCalendarProjectDate => HelperOwner::Runtime,
+            Self::TemporalCalendarFieldsToIso => HelperOwner::Runtime,
+            Self::TemporalCalendarDaysInMonth => HelperOwner::Runtime,
+            Self::TemporalCalendarBalanceYearMonth => HelperOwner::Runtime,
+            Self::TemporalCalendarDifferenceDate => HelperOwner::Runtime,
+            Self::IndexedElementRead => HelperOwner::Runtime,
+            Self::IndexedElementWrite => HelperOwner::Runtime,
+            Self::ValueToPrimitiveDefault => HelperOwner::Runtime,
+            Self::ValueToPrimitiveNumber => HelperOwner::Runtime,
+            Self::ValueToPrimitiveString => HelperOwner::Runtime,
+            Self::ValueToPropertyKey => HelperOwner::Runtime,
+            Self::ObjectHasProperty => HelperOwner::Runtime,
+            Self::WithEnvironmentHasBinding => HelperOwner::Runtime,
+            Self::RegExpCompiler => HelperOwner::Runtime,
+            Self::ModuleInitialize => HelperOwner::Program,
+            Self::ModuleEvaluate => HelperOwner::Program,
+            Self::ModuleReady => HelperOwner::Program,
+            Self::ModuleGather => HelperOwner::Program,
+            Self::ModuleExecute => HelperOwner::Program,
+            Self::ModuleFulfilled => HelperOwner::Program,
+            Self::ModuleRejected => HelperOwner::Program,
+            Self::ModuleDeferredImport => HelperOwner::Program,
+            Self::PreparedDynamicFunction => {
+                HelperOwner::Hook(ProgramHook::PreparedDynamicFunction)
             }
-            Self::ObjectRead
-            | Self::ObjectWrite
-            | Self::ProxyCall
-            | Self::ProxyConstruct
-            | Self::StringEquality
-            | Self::NumberToString
-            | Self::StringToNumber
-            | Self::ValueToString
-            | Self::ValueToNumber
-            | Self::ValueToNumeric
-            | Self::ObjectGetPrototypeOf
-            | Self::ObjectIsExtensible
-            | Self::ObjectPreventExtensions
-            | Self::ObjectReadProxy
-            | Self::RegExpMatcher
-            | Self::RegExpCompiler
-            | Self::FunctionCall
-            | Self::DynamicPropertyRead
-            | Self::OrdinarySetDataOnReceiver
-            | Self::OrdinarySetDataOnReceiverWithFallback
-            | Self::ArrayWrite
-            | Self::OrdinarySet
-            | Self::OrdinarySetWithoutReceiverFallback
-            | Self::DecimalToBinary64
-            | Self::BigIntArithmetic
-            | Self::TemporalCalendarIsoDateProbe
-            | Self::TemporalCalendarIdentifier
-            // Read: 0=target payload, 1=target tag, 2=index. Write:
-            // 0=target payload, 1=target tag, 2=index, 3=key payload,
-            // 4=value payload, 5=value tag, 6=caller strictness. Both fit the
-            // seven-i64/four-i64 shape, so neither needs a new Wasm type.
-            | Self::IndexedElementRead
-            | Self::IndexedElementWrite
-            // ToPrimitive/ToPropertyKey: 0=value payload, 1=value tag, 2..6
-            // unused. Results are the standard
-            // `(payload, tag, completion, completion_aux)` tuple, so neither
-            // needs a new Wasm type either.
-            | Self::ValueToPrimitiveDefault
-            | Self::ValueToPrimitiveNumber
-            | Self::ValueToPrimitiveString
-            | Self::ValueToPropertyKey
-            | Self::ObjectHasProperty
-            | Self::WithEnvironmentHasBinding
-            | Self::ModuleEvaluate
-            | Self::ModuleReady
-            | Self::ModuleGather
-            | Self::ModuleExecute
-            | Self::ModuleFulfilled
-            | Self::ModuleRejected
-            | Self::ModuleDeferredImport
-            // 0=prototype payload, 1=name payload, 2=message payload; see the
-            // variant for the full private ABI.
-            | Self::RuntimeErrorObject
-            | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
+            Self::PreparedScript => HelperOwner::Hook(ProgramHook::PreparedScript),
+            Self::RealmModuleImport => HelperOwner::Hook(ProgramHook::RealmModuleImport),
+            Self::ModuleBodyReaction => HelperOwner::Hook(ProgramHook::ModuleBodyReaction),
+            Self::RegExpProgramCandidate => HelperOwner::Hook(ProgramHook::RegExpProgramCandidate),
+            Self::RuntimeErrorObject => HelperOwner::Runtime,
+            Self::PooledStringsInitialize => HelperOwner::Runtime,
+            Self::ObjectSetPrototypeOf => HelperOwner::Runtime,
+            Self::ObjectDelete => HelperOwner::Runtime,
+            Self::AsyncGeneratorStartBody => HelperOwner::Runtime,
+            Self::AsyncGeneratorDrainQueue => HelperOwner::Runtime,
+            Self::PromiseDrainJobs => HelperOwner::Runtime,
+            Self::AsyncAwaitReactions => HelperOwner::Runtime,
+            Self::AsyncGeneratorAwaitReactions => HelperOwner::Runtime,
+            Self::AsyncGeneratorYieldReactions => HelperOwner::Runtime,
+            Self::AsyncGeneratorYieldReturnReactions => HelperOwner::Runtime,
+            Self::AsyncGeneratorAwaitReturnReactions => HelperOwner::Runtime,
+            Self::GlobalIdentifierReadSloppy => HelperOwner::Runtime,
+            Self::GlobalIdentifierReadStrict => HelperOwner::Runtime,
+            Self::GlobalIdentifierTypeofSloppy => HelperOwner::Runtime,
+            Self::GlobalIdentifierTypeofStrict => HelperOwner::Runtime,
+            Self::PrivateElementAdd => HelperOwner::Runtime,
+            Self::PrivateFieldDefine => HelperOwner::Runtime,
+            Self::JsonStringifyValue => HelperOwner::Runtime,
         }
     }
-
-    /// Whether this helper's body is written into this module at all.
-    ///
-    /// Exhaustive with no `_` arm: a new helper cannot compile until it says
-    /// whether it is unconditional or what makes it conditional.
     pub(crate) const fn is_emitted(self, emission: RuntimeHelperEmission) -> bool {
         match self {
-            Self::HeapAlloc
-            | Self::ObjectAppendDataProperty
-            | Self::ObjectAppendAccessorProperty
-            | Self::FunctionObjectAlloc
-            | Self::PlainObjectAlloc
-            | Self::ArrayAlloc
-            | Self::ObjectRead
-            | Self::ObjectWrite
-            | Self::ObjectDefineData
-            | Self::ProxyCall
-            | Self::ProxyConstruct
-            | Self::StringEquality
-            | Self::NumberToString
-            | Self::StringToNumber
-            | Self::ValueToString
-            | Self::ValueToNumber
-            | Self::ValueToNumeric
-            | Self::ObjectGetPrototypeOf
-            | Self::ObjectIsExtensible
-            | Self::ObjectPreventExtensions
-            | Self::ObjectReadProxy
-            | Self::RegExpMatcher
-            | Self::RegExpCompiler
-            | Self::ArrayAppendPresentIndex
-            | Self::FunctionCall
-            | Self::DynamicPropertyRead
-            | Self::OrdinarySetDataOnReceiver
-            | Self::OrdinarySetDataOnReceiverWithFallback
-            | Self::ArrayWrite
-            | Self::OrdinarySet
-            | Self::OrdinarySetWithoutReceiverFallback
-            | Self::DecimalToBinary64
-            | Self::BigIntArithmetic
-            | Self::TemporalCalendarIsoDateProbe
-            | Self::TemporalCalendarIdentifier
-            | Self::IndexedElementRead
-            | Self::IndexedElementWrite
-            | Self::ValueToPrimitiveDefault
-            | Self::ValueToPrimitiveNumber
-            | Self::ValueToPrimitiveString
-            | Self::ValueToPropertyKey
-            | Self::ObjectHasProperty
-            | Self::ModuleEvaluate
-            | Self::ModuleReady
-            | Self::ModuleGather
-            | Self::ModuleExecute
-            | Self::ModuleFulfilled
-            | Self::ModuleRejected
-            | Self::ModuleDeferredImport
-            | Self::WithEnvironmentHasBinding
-            | Self::RuntimeErrorObject => true,
+            Self::TransientByteAlloc => true,
+            Self::ArrayIndexedPublish => true,
+            Self::ArrayIndexedDelete => true,
+            Self::ObjectRead => true,
+            Self::ObjectWrite => true,
+            Self::ObjectDefineData => true,
+            Self::OrdinaryPropertyAppend => true,
+            Self::ObjectHeaderProjection => true,
+            Self::OrdinaryObjectAllocate => true,
+            Self::ValueToObject => true,
+            Self::FunctionMetadataPublish => true,
+            Self::RealmInitializeIntrinsics => true,
+            Self::ProxyCall => true,
+            Self::ProxyConstruct => true,
+            Self::StringEquality => true,
+            Self::NumberToString => true,
+            Self::StringToNumber => true,
+            Self::ValueToString => true,
+            Self::ValueToNumber => true,
+            Self::ValueToNumeric => true,
+            Self::ObjectGetPrototypeOf => true,
+            Self::ObjectIsExtensible => true,
+            Self::ObjectPreventExtensions => true,
+            Self::ObjectReadProxy => true,
+            Self::RegExpMatcher => true,
+            Self::FunctionCall => true,
+            Self::DynamicPropertyRead => true,
+            Self::OrdinarySetDataOnReceiver => true,
+            Self::OrdinarySet => true,
+            Self::DecimalToBinary64 => true,
+            Self::BigIntArithmetic => true,
+            Self::TemporalCalendarIsoDateProbe => true,
+            Self::TemporalCalendarIdentifier => true,
+            Self::TemporalZonedDateTimeConvert => true,
+            Self::TemporalPlainDateConvert => true,
+            Self::TemporalChineseYear => true,
+            Self::TemporalDangiYear => true,
+            Self::TemporalUmmAlQuraYear => true,
+            Self::TemporalUmmAlQuraEpoch => true,
+            Self::TemporalCalendarProjectDate => true,
+            Self::TemporalCalendarFieldsToIso => true,
+            Self::TemporalCalendarDaysInMonth => true,
+            Self::TemporalCalendarBalanceYearMonth => true,
+            Self::TemporalCalendarDifferenceDate => true,
+            Self::IndexedElementRead => true,
+            Self::IndexedElementWrite => true,
+            Self::ValueToPrimitiveDefault => true,
+            Self::ValueToPrimitiveNumber => true,
+            Self::ValueToPrimitiveString => true,
+            Self::ValueToPropertyKey => true,
+            Self::ObjectHasProperty => true,
+            Self::WithEnvironmentHasBinding => true,
+            Self::GlobalIdentifierReadSloppy => true,
+            Self::GlobalIdentifierReadStrict => true,
+            Self::GlobalIdentifierTypeofSloppy => true,
+            Self::GlobalIdentifierTypeofStrict => true,
+            Self::PrivateElementAdd => true,
+            Self::PrivateFieldDefine => true,
+            Self::RegExpCompiler => true,
+            Self::ModuleInitialize => true,
+            Self::ModuleEvaluate => true,
+            Self::ModuleReady => true,
+            Self::ModuleGather => true,
+            Self::ModuleExecute => true,
+            Self::ModuleFulfilled => true,
+            Self::ModuleRejected => true,
+            Self::ModuleDeferredImport => true,
+            Self::PreparedDynamicFunction => true,
+            Self::PreparedScript => true,
+            Self::RealmModuleImport => true,
+            Self::ModuleBodyReaction => true,
+            Self::RegExpProgramCandidate => true,
+            Self::RuntimeErrorObject => true,
+            Self::PooledStringsInitialize => true,
+            Self::ObjectSetPrototypeOf => true,
+            Self::ObjectDelete => true,
+            Self::AsyncGeneratorStartBody => true,
+            Self::AsyncGeneratorDrainQueue => true,
+            Self::PromiseDrainJobs => true,
+            Self::AsyncAwaitReactions => true,
+            Self::AsyncGeneratorAwaitReactions => true,
+            Self::AsyncGeneratorYieldReactions => true,
+            Self::AsyncGeneratorYieldReturnReactions => true,
+            Self::AsyncGeneratorAwaitReturnReactions => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
-
-    /// Derived from [`Self::is_emitted`] rather than stated separately, so the
-    /// two can never disagree: a helper is conditional exactly when some
-    /// emission context omits it.
+    /// Whether the body is generated from the program and so sits after
+    /// `main`.
+    pub(crate) const fn is_program_owned(self) -> bool {
+        matches!(self.owner().region(), HelperRegion::Program)
+    }
+    /// Emits the call instruction for this helper's declared route.
+    ///
+    /// A hook is reached only through its global and a program-owned helper
+    /// only by `call`, so a mismatched route is a compiler bug, not input.
+    pub(crate) fn emit_invocation(
+        self,
+        schema: &RuntimeSchema,
+        route: HelperRoute,
+        function: &mut Function,
+    ) {
+        match (self.owner(), route) {
+            (HelperOwner::Runtime | HelperOwner::Program, HelperRoute::Direct(base)) => {
+                function.instruction(&Instruction::Call(self.index(base)));
+            }
+            (HelperOwner::Hook(hook), HelperRoute::Hook) => {
+                function.instruction(&Instruction::GlobalGet(schema.program_hook_global(hook)));
+                function.instruction(&Instruction::CallRef(self.type_index()));
+            }
+            (HelperOwner::Hook(_), HelperRoute::Direct(_)) => panic!(
+                "program hook `{}` must be called through its hook global",
+                self.debug_name()
+            ),
+            (HelperOwner::Runtime | HelperOwner::Program, HelperRoute::Hook) => {
+                panic!("helper `{}` is not a program hook", self.debug_name())
+            }
+        }
+    }
     pub(crate) const fn is_conditional(self) -> bool {
         !self.is_emitted(RuntimeHelperEmission::NONE)
     }
-
-    /// Stable symbol fragment used for the Wasm `name` section and for the
-    /// emitted-size report.
-    pub(crate) const fn debug_name(self) -> &'static str {
-        match self {
-            Self::HeapAlloc => "heap_alloc",
-            Self::ObjectAppendDataProperty => "object_append_data_property",
-            Self::ObjectAppendAccessorProperty => "object_append_accessor_property",
-            Self::FunctionObjectAlloc => "function_object_alloc",
-            Self::PlainObjectAlloc => "plain_object_alloc",
-            Self::ArrayAlloc => "array_alloc",
-            Self::ObjectRead => "object_read",
-            Self::ObjectWrite => "object_write",
-            Self::ObjectDefineData => "object_define_data",
-            Self::ProxyCall => "proxy_call",
-            Self::ProxyConstruct => "proxy_construct",
-            Self::StringEquality => "string_equality",
-            Self::NumberToString => "number_to_string",
-            Self::StringToNumber => "string_to_number",
-            Self::ValueToString => "value_to_string",
-            Self::ValueToNumber => "value_to_number",
-            Self::ValueToNumeric => "value_to_numeric",
-            Self::ObjectGetPrototypeOf => "object_get_prototype_of",
-            Self::ObjectIsExtensible => "object_is_extensible",
-            Self::ObjectPreventExtensions => "object_prevent_extensions",
-            Self::ObjectReadProxy => "object_read_proxy",
-            Self::RegExpMatcher => "regexp_matcher",
-            Self::RegExpCompiler => "regexp_compiler",
-            Self::ArrayAppendPresentIndex => "array_append_present_index",
-            Self::FunctionCall => "function_call",
-            Self::DynamicPropertyRead => "dynamic_property_read",
-            Self::OrdinarySetDataOnReceiver => "ordinary_set_data_on_receiver",
-            Self::OrdinarySetDataOnReceiverWithFallback => {
-                "ordinary_set_data_on_receiver_with_fallback"
-            }
-            Self::ArrayWrite => "array_write",
-            Self::OrdinarySet => "ordinary_set",
-            Self::OrdinarySetWithoutReceiverFallback => "ordinary_set_without_receiver_fallback",
-            Self::DecimalToBinary64 => "decimal_to_binary64",
-            Self::BigIntArithmetic => "bigint_arithmetic",
-            Self::TemporalCalendarIsoDateProbe => "temporal_calendar_iso_date_probe",
-            Self::TemporalCalendarIdentifier => "temporal_calendar_identifier",
-            Self::IndexedElementRead => "indexed_element_read",
-            Self::IndexedElementWrite => "indexed_element_write",
-            Self::ValueToPrimitiveDefault => "value_to_primitive_default",
-            Self::ValueToPrimitiveNumber => "value_to_primitive_number",
-            Self::ValueToPrimitiveString => "value_to_primitive_string",
-            Self::ValueToPropertyKey => "value_to_property_key",
-            Self::ObjectHasProperty => "object_has_property",
-            Self::WithEnvironmentHasBinding => "with_environment_has_binding",
-            Self::ModuleEvaluate => "module_evaluate",
-            Self::ModuleReady => "module_ready",
-            Self::ModuleGather => "module_gather",
-            Self::ModuleExecute => "module_execute",
-            Self::ModuleFulfilled => "module_fulfilled",
-            Self::ModuleRejected => "module_rejected",
-            Self::ModuleDeferredImport => "module_deferred_import",
-            Self::RuntimeErrorObject => "runtime_error_object",
-            Self::JsonStringifyValue => "json_stringify_value",
-        }
-    }
-
-    /// `ALL` must be the declaration order, because `index()` derives the Wasm
-    /// function index from `self as u32` while the function and code sections
-    /// are generated by walking `ALL`.
-    const fn all_is_declaration_ordered() -> bool {
-        let mut position = 0;
-        while position < Self::ALL.len() {
-            if Self::ALL[position] as u32 != position as u32 {
-                return false;
-            }
-            position += 1;
-        }
-        true
-    }
-
-    /// `index()` is `base + self as u32`, which is only the real Wasm index
-    /// when no emitted helper is preceded by a skipped one. Keeping every
-    /// conditional helper at the end of the list is what makes that true, and
-    /// this is the check that used to be the comment "their fixed offsets never
-    /// shift".
     const fn conditional_helpers_are_last() -> bool {
-        let mut position = 0;
-        let mut seen_conditional = false;
-        while position < Self::ALL.len() {
-            let helper = Self::ALL[position];
-            if helper.is_conditional() {
-                seen_conditional = true;
-            } else if seen_conditional {
+        let mut index = 0;
+        let mut omitted = false;
+        while index < Self::ALL.len() {
+            if Self::ALL[index].is_conditional() {
+                omitted = true;
+            } else if omitted {
                 return false;
             }
-            position += 1;
+            index += 1;
         }
         true
     }
 }
+const _: () = assert!(RuntimeHelperId::conditional_helpers_are_last());
 
-const _: () = assert!(
-    RuntimeHelperId::all_is_declaration_ordered(),
-    "RuntimeHelperId::ALL must list every helper exactly once, in declaration order"
-);
-
-const _: () = assert!(
-    RuntimeHelperId::conditional_helpers_are_last(),
-    "an unconditionally emitted runtime helper must not follow a conditional one: \
-     RuntimeHelperId::index() would hand out an index that shifts when the \
-     conditional helper is skipped"
-);
+impl RuntimeSchema {
+    pub(crate) fn call_helper<A: HelperArguments>(
+        &self,
+        arguments: A,
+        base: RuntimeHelperFunctionBase,
+        function: &mut Function,
+    ) -> A::Result {
+        arguments.emit_call(self, HelperRoute::Direct(base), function)
+    }
+    /// Calls a program hook through its global. The token proves the caller
+    /// branched on the hook being installed.
+    pub(crate) fn call_hook<A: HelperArguments>(
+        &self,
+        hook: &InstalledHook,
+        arguments: A,
+        function: &mut Function,
+    ) -> A::Result {
+        assert_eq!(
+            hook.hook.helper(),
+            A::ID,
+            "hook token must match its helper"
+        );
+        arguments.emit_call(self, HelperRoute::Hook, function)
+    }
+    pub(crate) fn helper_parameters<P: HelperParameters>(&self, function: &mut Function) -> P {
+        P::acquire(self, function)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -778,15 +1214,42 @@ mod tests {
             vec!["generic-error", "current-function-realm-range-error"]
         );
         for failure in RegExpMatcherFailure::ALL {
-            assert!(!failure.message().is_empty());
+            assert!(failure
+                .message()
+                .catalog_text()
+                .is_some_and(|text| !text.is_empty()));
         }
     }
 
     #[test]
     fn indexes_are_dense_from_the_base() {
-        for (position, helper) in RuntimeHelperId::ALL.iter().enumerate() {
-            assert_eq!(helper.index(100), 100 + position as u32);
+        let base = RuntimeHelperFunctionBase::at(100, 1000);
+        let mut runtime = 0;
+        let mut program = 0;
+        for helper in RuntimeHelperId::ALL {
+            match helper.owner() {
+                HelperOwner::Runtime => {
+                    assert_eq!(helper.index(base), 100 + runtime);
+                    runtime += 1;
+                }
+                HelperOwner::Program | HelperOwner::Hook(_) => {
+                    assert_eq!(helper.index(base), 1000 + program);
+                    program += 1;
+                }
+            }
         }
+    }
+
+    #[test]
+    fn every_hook_names_the_helper_that_names_it() {
+        for hook in ProgramHook::ALL {
+            assert_eq!(hook.helper().owner(), HelperOwner::Hook(hook));
+        }
+        let hooked = RuntimeHelperId::ALL
+            .iter()
+            .filter(|helper| matches!(helper.owner(), HelperOwner::Hook(_)))
+            .count();
+        assert_eq!(hooked, ProgramHook::ALL.len());
     }
 
     #[test]
@@ -810,26 +1273,6 @@ mod tests {
             .filter(|helper| helper.is_conditional())
             .collect::<Vec<_>>();
         assert_eq!(conditional, vec![RuntimeHelperId::JsonStringifyValue]);
-    }
-
-    #[test]
-    fn emitted_count_matches_the_counted_truth() {
-        // 51 reserved helpers include the seven graph-owned module operations;
-        // JSON.stringify adds the only optional helper.
-        let without_json = RuntimeHelperId::ALL
-            .iter()
-            .filter(|helper| helper.is_emitted(RuntimeHelperEmission::NONE))
-            .count();
-        let with_json = RuntimeHelperId::ALL
-            .iter()
-            .filter(|helper| {
-                helper.is_emitted(
-                    RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, true),
-                )
-            })
-            .count();
-        assert_eq!(without_json, 51);
-        assert_eq!(with_json, 52);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in
@@ -863,72 +1306,6 @@ mod tests {
                  emission fact to gate on"
             );
         }
-    }
-
-    /// Only `FunctionBuilder::begin_helper_body` may build a helper body.
-    ///
-    /// A `FunctionBuilder` body is a `Function` with one `i64` local per
-    /// `local_count()`. Exactly three places in the crate build one:
-    /// `FunctionBuilder::compile` (user functions), `compile_builtin`
-    /// (standard/host builtin bodies), and `begin_helper_body` — and only the
-    /// last is a helper. `begin_helper_body` is what derives, from the
-    /// [`RuntimeHelperId`] it is handed, the clearing of that helper's own
-    /// inline seam.
-    ///
-    /// Nothing in the type system can forbid a fourth site: `Function` is
-    /// `code_sink::Function` and anyone in the crate may construct one. But the
-    /// failure mode
-    /// of a new `compile_x_helper` that copies the constructor instead of
-    /// calling `begin_helper_body` is invisible to every cheap check — the
-    /// helper's body reaches its own seam and emits `call $itself`, which
-    /// type-checks in Rust, encodes to valid Wasm, links, and validates,
-    /// diverging only when a case that reaches it is executed under the full
-    /// suite. So the ban is enforced here instead, at rung 1 rather than at
-    /// rung 5.
-    ///
-    /// The needle is assembled at run time rather than written out, so that
-    /// this file does not match itself.
-    #[test]
-    fn only_three_places_build_a_function_builder_body() {
-        let needle = format!(
-            "Function::new_with_locals_types(std::iter::repeat_n({},{}))",
-            "ValType::I64", "self.local_count()"
-        );
-        let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut sites: Vec<String> = Vec::new();
-        let mut pending = vec![source_root.clone()];
-        while let Some(directory) = pending.pop() {
-            for entry in std::fs::read_dir(&directory).expect("crate `src` directory is readable") {
-                let path = entry.expect("readable directory entry").path();
-                if path.is_dir() {
-                    pending.push(path);
-                    continue;
-                }
-                if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                    continue;
-                }
-                let text = std::fs::read_to_string(&path).expect("source file is readable");
-                let dense: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-                let relative = path
-                    .strip_prefix(&source_root)
-                    .expect("scanned path is under `src`")
-                    .display()
-                    .to_string();
-                sites.extend(std::iter::repeat_n(
-                    relative,
-                    dense.matches(&needle).count(),
-                ));
-            }
-        }
-        sites.sort();
-        assert_eq!(
-            sites,
-            vec!["emit.rs".to_string(); 3],
-            "a `FunctionBuilder` body was built outside `compile`, `compile_builtin` and \
-             `begin_helper_body`. If it is a helper body, call `begin_helper_body` so the \
-             helper's own inline seam is cleared from its id; if it is not, this assertion \
-             needs updating together with an explanation of what the fourth body shape is."
-        );
     }
 
     /// `NONE` is the input `is_conditional` is defined against, so "no fact

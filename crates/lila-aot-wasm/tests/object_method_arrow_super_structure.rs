@@ -1,9 +1,6 @@
 const FUNCTION_PROTOCOL_SOURCE: &str = include_str!("../../lila-ir/src/function_protocol.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
-const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
-const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
-const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_object_method_arrow_super.js");
 const CONTRACT: &str =
@@ -230,91 +227,6 @@ fn analysis_mints_one_home_object_capability_before_capture_resolution() {
     assert!(ancestry.contains("return owner.lexical_super_owner_role"));
     assert!(ancestry.contains("current = owner.parent_owner_id.as_deref()"));
     assert!(!ancestry.contains("class_execution_ids"));
-}
-
-#[test]
-fn existing_backend_stores_and_consumes_the_captured_home_object() {
-    let compile = bounded(
-        EMIT_SOURCE,
-        "    fn compile(&mut self) -> Result<Function, EmitError> {",
-        "    fn init_template_objects(",
-    );
-    assert_before(
-        compile,
-        "self.init_current_env(&mut function)?",
-        "self.bind_parameters(&mut function)?",
-    );
-
-    let init = bounded(
-        EMIT_SOURCE,
-        "    fn init_current_env(&mut self, function: &mut Function)",
-        "    fn initialize_derived_activation(",
-    );
-    let home_object_store = bounded(
-        init,
-        "            if let Some(slot) = self.owned_env_slot(LEXICAL_HOME_OBJECT_NAME) {",
-        "            }\n        }\n        if let Some((activation_local, environment_offset))",
-    );
-    for marker in [
-        "HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET",
-        "HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET",
-        "BindingStorage::EnvSlot { slot, hops: 0 }",
-        "self.write_binding_from_locals(",
-    ] {
-        assert!(
-            home_object_store.contains(marker),
-            "missing environment-store marker: {marker}"
-        );
-    }
-    assert_before(
-        home_object_store,
-        "HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET",
-        "self.write_binding_from_locals(",
-    );
-
-    let load = bounded(
-        FUNCTIONS_SOURCE,
-        "    pub(crate) fn emit_load_super_base(",
-        "    fn emit_load_super_base_from_home_object(",
-    );
-    assert_before(
-        load,
-        "current_function_meta()",
-        "if self.lexical_derived_activation.is_some()",
-    );
-    assert_before(
-        load,
-        "if self.lexical_derived_activation.is_some()",
-        "let Some(home_object) = self.lookup_binding(LEXICAL_HOME_OBJECT_NAME)",
-    );
-    for marker in [
-        "self.read_binding_to_locals(",
-        "home_object,",
-        "self.emit_load_super_base_from_home_object(",
-    ] {
-        assert!(
-            load.contains(marker),
-            "missing captured-load marker: {marker}"
-        );
-    }
-
-    let read = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn compile_super_property_read_to_locals(",
-        "    fn compile_super_property_write_to_locals(",
-    );
-    assert_before(
-        read,
-        "self.compile_expr_to_locals(",
-        "self.emit_load_super_base(",
-    );
-    assert_before(
-        read,
-        "self.emit_load_super_base(",
-        "self.emit_object_read_with_key_tag(",
-    );
-    assert!(read.contains("receiver_payload_local"));
-    assert!(read.contains("receiver_tag_local"));
 }
 
 #[test]

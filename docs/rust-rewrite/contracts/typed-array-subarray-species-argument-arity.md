@@ -1,7 +1,25 @@
 # TypedArray `subarray` species argument-vector arity
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+The actual owner is builtins/binary_data/typed_array.rs. A tracking source with omitted or explicit undefined end builds the two-element nonnull GC ValueArray [buffer, offset]; every other source builds [buffer, offset, count]. One actual array length supplies argc and Arguments construction. No separate count/header carrier or post-construction arity patch remains. The source shape and historical focused receipt below remain useful evidence of the obligation, not execution evidence for the GC rewrite.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: focused-verified for the checkpoint-13 Wasm-AOT two- versus
 three-argument construction boundary on 2026-08-25.
+
+
+The current 2026-10-03 dry species batch retains the complete chosen argv header
+and callee count, with two arguments for a tracking source when end is omitted or
+explicitly undefined, and three otherwise. Construction moves to the shared
+Proxy-aware species factory and its validated result owner. All twelve immutable
+defining-Realm defaults replace the earlier global selection. Historical
+verification below does not establish execution of this batch. See
+[shared species ownership](typed-array-species-create-ownership.md).
 
 ## Specification boundary
 
@@ -141,7 +159,8 @@ buffer-state validation, Number/BigInt content-type validation, or result
 publication. Resizable-buffer growth, shrinkage, detachment and out-of-bounds
 behavior remain owned by the existing subarray buffer-witness contract.
 
-The nullish-species default constructor still comes from entry globals rather
-than the executing builtin's Realm. This checkpoint does not retire a Test262
+The nullish-species default at that checkpoint came from entry globals. The
+current dry species batch replaces it with immutable defining-Realm identity;
+its execution remains unverified. This checkpoint does not retire a Test262
 rewrite, refresh aggregate or published status counts, complete the subarray
 tree, or complete TypedArray or T17.

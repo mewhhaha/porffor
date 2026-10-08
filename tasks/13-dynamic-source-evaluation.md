@@ -1,12 +1,56 @@
 # T13 — Dynamic source evaluation: `eval`, `Function` and realm evaluation
 
-**Status:** Finite prepared Function-family sources and direct/indirect eval and realm Scripts implemented; unmatched runtime source remains typed Wasm-AOT debt, with the repair-cohort replay verified
+## ShadowRealm and retained finite-source parsing — 2026-10-07 dry source
+
+Finite ShadowRealm evaluation now has its own source kind, native entry and
+receiver-Realm dispatch, with fresh eval lexical environments and separate
+source-syntax versus execution failure handling. A compilation-local lowering
+session retains parsed syntax and failures across module-discovery retries;
+nested and aliased importValue requests close before artifact cache identity.
+The accepted IR is reused for emission. Workspace types, prepared-source cache
+controls and the native finite-evaluation lifetime control pass. Optional
+forwarding and finite computed-key discovery pass the complete workspace and IR
+checkpoint; the optional-alias native cohort passes both modes in 364.18 seconds.
+Its queue was deliberately stopped during the second case after 466 seconds
+(exit 143), leaving seven cases incomplete or unstarted. Shared Realm
+initialization now passes `tasks-realm-bootstrap1` in 210 seconds: source guards,
+the all-feature/all-target workspace check (60.36 seconds; Cargo: 59.02) and
+all 16 focused AOT controls
+(six helper unit, ten integration), with none failed or ignored. The validated
+optional artifact's main/initializer/ShadowRealm bodies are 534,595/662,558/24,632
+bytes; all bodies stay below 1 MiB and both callers share the helper. Earlier
+IR/cache/catalog and native results keep their preceding-source scope.
+`tasks-dry-closure-native2` received an unexpected SIGTERM at 188 seconds
+(exit 143) during its first strict compile; sloppy execution passed, but no
+function completed. Accounting recorded 3.8 GiB peak without an OOM termination
+entry. `tasks-dry-closure-native3` passed all six queued ShadowRealm gates,
+including finite-source validation, unmatched-source rejection and the nested
+module-source catalog. The overall run then received SIGTERM after 5,153 seconds:
+30 functions passed, four failed and 19 remained incomplete or unstarted. Service
+accounting reported 4 GiB peak without an OOM termination entry. Global-reference
+and class-identity repairs are written; their joined checkpoint and the remaining
+native queue are pending under the same limits. These results retain their source
+revision and do not close broader acceptance.
+Arbitrary unavailable source remains a typed runtime capability gap.
+See the [finite-source contract](../docs/rust-rewrite/contracts/shadowrealm-finite-evaluate.md).
+
+**Status:** In progress — finite source and shared-initializer type/AOT checks pass; the expanded native run and broader acceptance remain pending, with unmatched runtime source an explicit Wasm-AOT capability gap.
 
 **Parallel group:** Feature lane; architecture decision recorded
 **Depends on:** T03, T06, T08, T09, T12  
 **Blocks:** Honest accounting for dynamic-code Test262 cases and parts of T24/T26
 
 ## Current repository state
+
+The 2026-10-03 dry T13/T06 implementation distinguishes retained parsed units
+and sites from fresh finite prepared eval, Realm Script and Function
+executions. Lazy template caches belong to those actual executions. Functions,
+escaping closures, class elements and suspended functions retain the owner
+through their existing immutable contexts. Repeated calls reuse that owner;
+separate prepared executions allocate fresh owners. Compilation, regression
+sources and the historical tagged-template cache cohort remain pending.
+Unmatched dynamic source retains the explicit AOT policy gap. See the
+[template ownership contract](../docs/rust-rewrite/contracts/template-site-source-ownership.md).
 
 The September 2026 implementation compiles nonempty prepared sources through
 the ordinary parser, early errors, spec IR, lowering and Wasm code generation.
@@ -26,6 +70,18 @@ separation, escaped arrows and permitted `this`, `new.target`, super and private
 context. Replaced, foreign, bound or proxied eval calls retain ordinary call
 semantics. See [prepared direct eval](../docs/rust-rewrite/contracts/prepared-direct-eval.md)
 and [caller Environment Records](../docs/rust-rewrite/contracts/direct-eval-environment-records.md).
+
+The 2026-09-29 for-in replay exposed two strict prepared-eval failures:
+`S12.6.4_A3.1.js` and `S12.6.4_A4.1.js` could not resolve the declared loop
+variable. Owner analysis now collects `var` for-in bindings before allocating
+the strict eval environment, including destructuring names. The added
+`aot_direct_eval_environment` regressions retain both exact pinned sources in
+both Script modes and check local hoisting, escaped closure cells and isolation
+from the caller. Strict direct and indirect eval initialize their planned owned
+`var` cells before body execution, including zero-iteration heads; lexical cells
+retain TDZ. All 17 tests in that engine target pass, including four executions
+of the unchanged pinned sources. The complete for-in replay and broad workspace
+verification remain pending.
 
 Indirect eval and realm Scripts use the target realm's global environment and
 intrinsics. Runtime declaration instantiation validates conflicts and descriptor
@@ -57,6 +113,15 @@ the [September repair notes](../docs/rust-rewrite/observed-later-failure-repairs
 They cover bounded BMP-generated eval sources and stateful Function parameter
 source conversion. This partial cohort does not establish full conformance or
 close general dynamic-source discovery.
+
+On 2026-09-28 the `resizableArrayBufferUtils.js` static-subclass
+substitution was deleted: the prepared Function-source machinery already
+compiles the helper's finite `new Function('return class My' + type + ...)`
+candidates, so all 188 vendored consumers now materialize the exact helper
+bytes. Exact `lila test262 run` replay of all 188 cases is unchanged versus
+the substituted baseline: 185 pass `2/2` sloppy/strict executions and the
+same 3 staging cases report typed `Unsupported`. The token-aware inventory
+now assigns 0 observations to T13.
 
 ## Historical observations before prepared-source implementation
 

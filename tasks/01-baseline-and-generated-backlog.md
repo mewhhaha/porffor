@@ -1,12 +1,55 @@
 # T01 — Reproducible baseline and generated failure backlog
 
-**Status:** In progress — tooling landed; current-pin publication remains
+## Mandatory compiler provenance — 2026-10-04 dry source
+
+Current execution snapshots use schema 8 with mandatory checked build-source
+fingerprint/scheme, source revision and executing-image SHA-256. Version and
+compiler binding share one owner. Missing, null or malformed identity rejects
+current evidence; legacy versions 4–7 remain explicitly unbound history and
+cannot resume, join a current aggregate, publish or acquire an invented proof.
+
+Writers and resume require the actual running compiler. Every aggregate child
+must carry the same producer as its parent. Verified/progress/backlog summaries
+retain that identity; read-only schema-8 comparisons can compare different
+compiler builds while preserving each side's producer. Suite pins, exact case
+identity, matrix coverage, outcome classifications and complete evidence remain
+independent mandatory obligations.
+
+The CLI exposes `compiler-identity` without creating a Realm. Publication JSON,
+text and future generated README retain the verified producer. The publication
+session's schema-3 manifest keeps observed checkout/source/suite/configuration
+separate from the native embedded build fingerprint, binds the reported image
+to observed executable bytes, and requires native checkpoint identity before
+rewriting its progress high-water mark. Old observed sidecars do not authorize
+adoption of unbound snapshots.
+
+Meaningful Engine, harness, CLI and driver controls are authored. Compilation,
+controls, emitted Wasm and pinned acceptance remain unverified. All remaining
+task source precedes the next checkpoint under a confirmed 4096 MiB aggregate
+kernel cap, zero swap and serial execution. No task closes, historical artifact
+changes or status count refresh occurs. See the
+[compiler provenance contract](../docs/rust-rewrite/contracts/snapshot-compiler-provenance.md).
+
+
+**Status:** In progress — historical baseline and backlog retained; fresh compiler publication remains
 
 **Parallel group:** Bootstrap  
 **Depends on:** None  
 **Blocks:** Reliable prioritization and T26 closure
 
 ## Current repository state
+
+The retained version-7 Wasm-AOT baseline
+`current-pin-wasm-aot-20260907-c5115bf03-2x1-12g` records `87,641/102,043`
+passing executions and `14,402` failures under suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`. Its generated
+[failure backlog](../test262/backlog/aa55200d1310384c5cf69ea95b2a2ecba457007b/wasm-aot.json)
+is checked in, and its
+[retained status artifact](../test262/snapshots/baseline-12g/published-status-wasm-aot.json)
+records a `2026-09-14` refresh. The outcomes are `9,212` Bug, `957` Crash and
+`4,233` NotImplemented. These describe the historical compiler baseline;
+subsequent repairs and focused replays have not produced a fresh complete
+compiler aggregate or refreshed the canonical README publication pair.
 
 Deterministic backlog generation, ownership mapping, snapshot comparison and
 pin-mismatch tests exist in `lila-test262`, with CLI entry points for
@@ -35,8 +78,8 @@ valid frontmatter combinations, and its consuming exhaustive projection emits
 the exact one-mode plan or the ordered sloppy-then-strict pair. The execution
 identity structure guard pins the private capability-free declaration, complete
 ownership census, flag-to-plan table and ordered mode projection. This is a
-source-equivalent discovery invariant and does not refresh the missing
-current-pin backlog. The strengthened structure target passes `4/4`, and the
+source-equivalent discovery invariant and does not refresh the historical
+backlog for the current compiler. The strengthened structure target passes `4/4`, and the
 exact flag-plan unit witness passes `1/1`. Independent review confirmed the
 capability closure, flag binding/tuple order, six rows and ordered expansion.
 The coordinated workspace checkpoint passes `cargo fmt --all -- --check`,
@@ -68,12 +111,11 @@ passes `4/4`, the exact deterministic-backlog witness passes `1/1`,
 `cargo check -p lila-test262 --quiet` passes with existing warnings, and the
 scoped rustfmt and diff checks are clean.
 
-One provenance field remains deliberately outside the current snapshot schema:
-snapshots record the Lila producer/schema, backend, pins, matrix strategy and
-manifest hashes, but not the compiler source commit or executable digest. Until
-a separately designed schema migration makes those fields mandatory, record
-`git rev-parse HEAD` and `sha256sum "$LILA_BIN"` alongside the publication log;
-do not add optional metadata that older writers can silently omit.
+The retained version-7 baseline has no native compiler binding. The dry schema-8
+migration above introduces mandatory checked compiler provenance for newly
+produced evidence; it cannot attest or upgrade that historical baseline. The
+historical backlog/status bytes remain retained evidence, while current backlog,
+resume and publication require fresh compiler-bound snapshots.
 
 The generated README status block has a separate repository provenance gate.
 Only a co-change to the publisher's exact canonical output pair,
@@ -83,10 +125,18 @@ change. Node checkpoints and aggregate snapshots are inputs to verification,
 not proof that the publisher produced the README text; focused, fake-suite and
 `spec-exec` artifacts are likewise never publication authority.
 
-This task is not complete because the
-README still reports that the current pinned Wasm-AOT aggregate has not been
-fully republished, and there is no checked-in current-pin generated Wasm-AOT
-backlog artifact.
+This task is not complete because the current compiler still needs a complete
+verified Wasm-AOT aggregate, regenerated failure backlog and canonical
+publication. The retained baseline and nested status artifact do not authorize
+hand-editing the generated README block or inferring new full-suite totals from
+focused repairs.
+
+The vendored suite is committed inside the Lila repository. Its pin is the
+suite directory's Git content tree, rather than the enclosing checkout HEAD.
+The native pin helper already derives that tree identity and accepts an older
+enclosing-commit pin only after proving identical suite content. Unrelated
+compiler commits therefore do not change the suite pin; they still require
+separate compiler provenance and new execution evidence.
 
 The low-RAM publication wrapper now prints the checkout commit and executable
 SHA-256 into the publication transcript and checks both between CLI invocations.
@@ -96,9 +146,9 @@ positive completion is required before delegating to the existing Rust publisher
 The nonempty driver contract inventory runs in read-only CI; these fake-CLI
 orchestration tests are not compiler or Test262 conformance evidence. See
 [the driver contract](../docs/rust-rewrite/reproducible-publication-driver.md).
-This does not bind older checkpoints to a compiler or introduce optional
-snapshot provenance metadata. Current-pin publication and the separately
-designed mandatory provenance schema remain open.
+The schema-3 supervisor now also consumes the mandatory native compiler binding.
+This does not bind older checkpoints to a compiler. Current-pin publication and
+execution acceptance of the dry schema migration remain open.
 
 ## Exact comparison inputs — 2026-09-06
 
@@ -109,7 +159,7 @@ shared loader still validates current schema, pins, the complete matrix and node
 evidence; status/backlog discovery retains its existing unique-name fallback.
 Explicitly comparing a snapshot with itself remains supported.
 
-The retained `snapshot_comparison_identity` integration target exercises missing
+The retained `snapshot_comparison_identity_tests` library test family exercises missing
 inputs, explicit self-comparison, an actual added pass and regression, discovery
 fallback and incomplete/corrupt named candidates. Its compile-negative fixture
 matrices use the Wasm-AOT front end without enabling the oracle; these are harness
@@ -118,16 +168,19 @@ contracts, not pinned real-suite conformance counts. See
 
 Next batch: build and record one unchanged compiler, finish the complete
 current-pin Wasm-AOT matrix through the guarded publication driver, verify and
-publish its canonical artifacts, and generate the failure backlog. Compare only
+publish its canonical artifacts, and regenerate the failure backlog for that
+compiler. Compare only
 explicitly named compatible snapshots; do not invent a missing historical
-baseline. Mandatory cross-invocation compiler provenance still requires its
-separate schema design. T01 and T26 remain open.
+baseline. The dry mandatory provenance migration still requires its combined
+compiler and execution acceptance. T01 and T26 remain open.
 
 ## Objective
 
 Produce a complete, reproducible view of the current pinned Test262 state for the `wasm-aot` product backend, then generate a machine-readable backlog that assigns every non-passing case to a semantic family and task ID. A `spec-exec` oracle snapshot may be produced alongside it for differential triage, but it is diagnostic data only — it is never the baseline that tasks burn down and never product status.
 
-The current README explicitly says the last complete real-suite publication is stale for the current pin. This task replaces inference and hand-maintained lists with verified artifacts.
+The generated README block remains historical. The retained complete real-suite
+baseline and generated backlog supply earlier failure evidence; this task must
+refresh both with a fixed current compiler before publishing new totals.
 
 ## Deliverables
 

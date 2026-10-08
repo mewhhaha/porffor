@@ -112,7 +112,7 @@ fn owned_eval_loop_heads_keep_their_declared_storage() {
             .filter(|unit| match unit.kind {
                 PreparedScriptKind::DirectEval(_) => direct,
                 PreparedScriptKind::IndirectEval => !direct,
-                PreparedScriptKind::RealmScript => false,
+                PreparedScriptKind::RealmScript | PreparedScriptKind::ShadowRealmEvaluate => false,
             });
         let unit = units
             .next()
@@ -222,7 +222,7 @@ fn owned_classic_for_heads_keep_their_declared_storage() {
             .find(|unit| match unit.kind {
                 PreparedScriptKind::DirectEval(_) => direct,
                 PreparedScriptKind::IndirectEval => !direct,
-                PreparedScriptKind::RealmScript => false,
+                PreparedScriptKind::RealmScript | PreparedScriptKind::ShadowRealmEvaluate => false,
             })
             .expect("prepared eval unit of the intended kind");
         let statement = unit

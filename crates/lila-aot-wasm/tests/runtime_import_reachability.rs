@@ -75,7 +75,11 @@ fn runtime_free_ir_does_not_introduce_intl_or_clock_imports() {
     ] {
         let (bytes, debug_dump) = artifact(source);
         let imports = imported_functions(&bytes);
-        for forbidden in ["lila_host.intl_call", "lila_host.wall_clock_millis"] {
+        for forbidden in [
+            "lila_host.intl_call",
+            "lila_host.system_time_zone",
+            "lila_host.wall_clock_millis",
+        ] {
             assert!(
                 !imports.iter().any(|name| name == forbidden),
                 "{source}: {imports:?}"

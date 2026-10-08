@@ -9,8 +9,12 @@ use super::{
     raw,
 };
 
+mod records;
 mod validation;
-pub(super) use validation::validate;
+pub(super) use records::{Geography, ZoneNames};
+#[cfg(test)]
+#[path = "tests/offset_patterns.rs"]
+mod offset_pattern_tests;
 
 pub(super) enum Snapshot {
     Named {
@@ -142,7 +146,15 @@ pub(super) fn format(
         .binary_search_by(|zone| zone.identifier.as_str().cmp(canonical))
         .map_err(|_| invalid("validated zone alias target missing"))?;
     let zone = &profile.geography.zones[index];
-    let translated = &locale.zones.zones[index];
+    // Selected projections prune the localized pool, so geography positions do
+    // not index it; both lists are identifier-sorted.
+    let translated = locale
+        .zones
+        .zones
+        .binary_search_by(|translated| translated.identifier.as_str().cmp(canonical))
+        .ok()
+        .map(|index| &locale.zones.zones[index])
+        .ok_or_else(|| invalid("localized zone names missing for selected zone"))?;
     let period = zone
         .periods
         .partition_point(|period| period.0 <= epoch.get())
@@ -151,15 +163,22 @@ pub(super) fn format(
         .filter(|period| epoch.get() < period.1);
     let metazone = period
         .map(|period| {
-            profile
+            let geography = profile
                 .geography
                 .metazones
                 .binary_search_by(|meta| meta.identifier.cmp(&period.2))
+                .map_err(|_| invalid("validated metazone period target missing"))?;
+            let localized = locale
+                .zones
+                .metazones
+                .binary_search_by(|meta| meta.identifier.cmp(&period.2))
+                .map_err(|_| invalid("localized metazone names missing for selected period"))?;
+            Ok::<_, DateTimeFormatError>((geography, localized))
         })
-        .transpose()
-        .map_err(|_| invalid("validated metazone period target missing"))?;
+        .transpose()?;
     let has_daylight = has_daylight(&translated.names)
-        || metazone.is_some_and(|index| has_daylight(&locale.zones.metazones[index].names));
+        || metazone
+            .is_some_and(|(_, localized)| has_daylight(&locale.zones.metazones[localized].names));
     if let Some(name) = selected_name(
         width_names(&translated.names, width),
         kind,
@@ -168,10 +187,10 @@ pub(super) fn format(
     ) {
         return Ok(name.to_owned());
     }
-    if let Some(index) = metazone {
-        let meta = &profile.geography.metazones[index];
+    if let Some((geography, localized)) = metazone {
+        let meta = &profile.geography.metazones[geography];
         if let Some(name) = selected_name(
-            width_names(&locale.zones.metazones[index].names, width),
+            width_names(&locale.zones.metazones[localized].names, width),
             kind,
             has_daylight,
             transition.standard_time_stability(),
@@ -220,7 +239,7 @@ fn offset_name(
     let hour = absolute / 3600;
     let minute = absolute / 60 % 60;
     let second = absolute % 60;
-    let mut result = if offset < 0 { "-" } else { "+" }.to_owned();
+    let mut result = locale.zones.offset_sign(offset < 0).to_owned();
     result.push_str(&super::render::positional(
         profile,
         locale,

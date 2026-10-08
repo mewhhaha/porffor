@@ -22,6 +22,39 @@ fn run_boolean(source: &str) {
 }
 
 #[test]
+fn pinned_for_in_eval_declarations_have_local_cells_in_strict_callers() {
+    const STA: &str = include_str!("../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../test262/vendor/test262/harness/assert.js");
+    for source in [
+        include_str!(
+            "../../../test262/vendor/test262/test/language/statements/for-in/S12.6.4_A3.1.js"
+        ),
+        include_str!(
+            "../../../test262/vendor/test262/test/language/statements/for-in/S12.6.4_A4.1.js"
+        ),
+    ] {
+        for prelude in ["", "'use strict';\n"] {
+            run_boolean(&format!("{prelude}{STA}\n{ASSERT}\n{source}\ntrue;"));
+        }
+    }
+}
+
+#[test]
+fn strict_eval_for_in_cells_are_hoisted_and_shared_with_escaping_closures() {
+    run_boolean(
+        r#"
+var outside = 'outside';
+var read = eval('"use strict"; for (var outside in { first: 1, last: 2 }) {} (() => outside);');
+var empty = eval('"use strict"; var before = emptyCell; for (var emptyCell in null) {} before === undefined && emptyCell === undefined;');
+var destructured = eval('"use strict"; for (var [letter] in { a: 1 }) {} (() => letter);');
+var indirect = (0, eval)('"use strict"; var before = indirectCell; for (var indirectCell in null) {} before === undefined && indirectCell === undefined;');
+var isolated = typeof emptyCell === 'undefined' && typeof letter === 'undefined' && typeof indirectCell === 'undefined';
+read() === 'last' && outside === 'outside' && empty && destructured() === 'a' && indirect && isolated;
+"#,
+    );
+}
+
+#[test]
 fn direct_eval_shares_caller_closure_and_lexical_cells() {
     run_boolean(
         r#"

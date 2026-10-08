@@ -1,10 +1,35 @@
 use crate::native_error::NativeErrorKind;
 use crate::StandardBuiltinId;
 
+pub const SHADOW_REALM_NAME: &str = "ShadowRealm";
+pub const SHADOW_REALM_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId)] = &[
+    ("evaluate", StandardBuiltinId::ShadowRealmPrototypeEvaluate),
+    (
+        "importValue",
+        StandardBuiltinId::ShadowRealmPrototypeImportValue,
+    ),
+];
+
 pub(crate) const SCRIPT_OWNER_ID: &str = "$script";
 pub(crate) const MAX_STATIC_ARRAY_SHAPE_INDEX: usize = 1_000_000;
 pub(crate) const MAX_ARRAY_INDEX: f64 = 4_294_967_294.0;
 pub const JS_STRING_SURROGATE_SENTINEL: char = '\u{F0000}';
+
+/// Lossless internal StringPool spelling of an ECMAScript UTF-16 string.
+pub fn encode_js_string_utf16(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied())
+        .map(|decoded| match decoded {
+            Ok(ch) if ch == JS_STRING_SURROGATE_SENTINEL => {
+                format!("{JS_STRING_SURROGATE_SENTINEL}{JS_STRING_SURROGATE_SENTINEL}")
+            }
+            Ok(ch) => ch.to_string(),
+            Err(error) => format!(
+                "{JS_STRING_SURROGATE_SENTINEL}{:04X}",
+                error.unpaired_surrogate()
+            ),
+        })
+        .collect()
+}
 /// Source-unspellable capture of a direct eval caller execution context.
 pub const DIRECT_EVAL_EXECUTION_CONTEXT_NAME: &str = "\0direct.eval.context";
 pub const LEXICAL_THIS_NAME: &str = "$this";
@@ -132,12 +157,32 @@ pub const INTL_NAME: &str = "Intl";
 pub const INTL_LOCALE_NAME: &str = "Locale";
 pub const INTL_DATE_TIME_FORMAT_NAME: &str = "DateTimeFormat";
 pub const INTL_NUMBER_FORMAT_NAME: &str = "NumberFormat";
+pub const INTL_PLURAL_RULES_NAME: &str = "PluralRules";
+pub const INTL_LIST_FORMAT_NAME: &str = "ListFormat";
+pub const INTL_COLLATOR_NAME: &str = "Collator";
+pub const INTL_DISPLAY_NAMES_NAME: &str = "DisplayNames";
+pub const INTL_RELATIVE_TIME_FORMAT_NAME: &str = "RelativeTimeFormat";
+pub const INTL_SEGMENTER_NAME: &str = "Segmenter";
+pub const INTL_DURATION_FORMAT_NAME: &str = "DurationFormat";
+
+/// Ordinary methods on the Intl namespace, in entry/created-Realm property order.
+/// The IR shape and both installers consume this exact list.
+pub const INTL_NAMESPACE_METHODS: &[(&str, StandardBuiltinId)] = &[
+    (
+        "getCanonicalLocales",
+        StandardBuiltinId::IntlGetCanonicalLocales,
+    ),
+    (
+        "supportedValuesOf",
+        StandardBuiltinId::IntlSupportedValuesOf,
+    ),
+];
 
 /// The `Intl` namespace object's constructor-valued members, in **installation
 /// order** — `Object.getOwnPropertyNames(Intl)` reports this order, so it is
 /// observable and both the IR shape and the emitter must walk it.
 ///
-/// This slice is the single declaration of "what is on `Intl`". Before it
+/// This slice is the single declaration of constructor members on `Intl`. Before it
 /// existed, `ScriptLowerer::intl_object_value_info` and
 /// `FunctionBuilder::init_intl_object` were two hand-maintained lists of the
 /// same set, and they had already drifted: `DateTimeFormat` was in the shape and
@@ -145,10 +190,9 @@ pub const INTL_NUMBER_FORMAT_NAME: &str = "NumberFormat";
 /// while `Object.getOwnPropertyDescriptor(Intl, "DateTimeFormat")` saw nothing.
 /// That is `intl402/DateTimeFormat/prop-desc.js`.
 ///
-/// `getCanonicalLocales` and `Symbol.toStringTag` are deliberately not here:
-/// they are not constructor globals, so they have no
-/// `standard_builtin_constructor_global_index` to load and are installed
-/// directly by their own code on both sides.
+/// Namespace methods have their separate shared list above; Symbol.toStringTag
+/// is installed as a primitive data property.
+
 pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
     (
         INTL_DATE_TIME_FORMAT_NAME,
@@ -158,6 +202,34 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
     (
         INTL_NUMBER_FORMAT_NAME,
         StandardBuiltinId::IntlNumberFormatConstructor,
+    ),
+    (
+        INTL_PLURAL_RULES_NAME,
+        StandardBuiltinId::IntlPluralRulesConstructor,
+    ),
+    (
+        INTL_LIST_FORMAT_NAME,
+        StandardBuiltinId::IntlListFormatConstructor,
+    ),
+    (
+        INTL_COLLATOR_NAME,
+        StandardBuiltinId::IntlCollatorConstructor,
+    ),
+    (
+        INTL_DISPLAY_NAMES_NAME,
+        StandardBuiltinId::IntlDisplayNamesConstructor,
+    ),
+    (
+        INTL_RELATIVE_TIME_FORMAT_NAME,
+        StandardBuiltinId::IntlRelativeTimeFormatConstructor,
+    ),
+    (
+        INTL_SEGMENTER_NAME,
+        StandardBuiltinId::IntlSegmenterConstructor,
+    ),
+    (
+        INTL_DURATION_FORMAT_NAME,
+        StandardBuiltinId::IntlDurationFormatConstructor,
     ),
 ];
 
@@ -210,6 +282,12 @@ pub const TEMPORAL_NOW_NAMESPACE_MEMBERS: &[(&str, StandardBuiltinId)] = &[
         "zonedDateTimeISO",
         StandardBuiltinId::TemporalNowZonedDateTimeIso,
     ),
+    (
+        "plainDateTimeISO",
+        StandardBuiltinId::TemporalNowPlainDateTimeIso,
+    ),
+    ("plainDateISO", StandardBuiltinId::TemporalNowPlainDateIso),
+    ("plainTimeISO", StandardBuiltinId::TemporalNowPlainTimeIso),
 ];
 
 /// The `Temporal.ZonedDateTime.prototype` DATA-PROPERTY METHODS, as ONE table.
@@ -314,6 +392,26 @@ pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId
     (
         "startOfDay",
         StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay,
+    ),
+    (
+        "toPlainTime",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime,
+    ),
+    (
+        "toLocaleString",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString,
+    ),
+    (
+        "toJSON",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToJson,
+    ),
+    (
+        "valueOf",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf,
+    ),
+    (
+        "withPlainTime",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime,
     ),
 ];
 
@@ -1250,6 +1348,7 @@ pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.until";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.since";
+pub const BUILTIN_INTL_SUPPORTED_VALUES_OF_FUNCTION_ID: &str = "$builtin.Intl.supportedValuesOf";
 pub const BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID: &str =
     "$builtin.Intl.getCanonicalLocales";
 pub const BUILTIN_INTL_LOCALE_FUNCTION_ID: &str = "$builtin.Intl.Locale";
@@ -1268,6 +1367,24 @@ pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION
     "$builtin.Intl.DateTimeFormat.prototype.formatRangeToParts";
 pub const BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID: &str =
     "$builtin.Intl.DateTimeFormat.boundFormat";
+pub const BUILTIN_INTL_PLURAL_RULES_FUNCTION_ID: &str = "$builtin.Intl.PluralRules";
+pub const BUILTIN_INTL_PLURAL_RULES_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.supportedLocalesOf";
+pub const BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.prototype.resolvedOptions";
+pub const BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.prototype.select";
+pub const BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_RANGE_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.prototype.selectRange";
+pub const BUILTIN_INTL_LIST_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.ListFormat";
+pub const BUILTIN_INTL_LIST_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.ListFormat.supportedLocalesOf";
+pub const BUILTIN_INTL_LIST_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.ListFormat.prototype.resolvedOptions";
+pub const BUILTIN_INTL_LIST_FORMAT_PROTOTYPE_FORMAT_FUNCTION_ID: &str =
+    "$builtin.Intl.ListFormat.prototype.format";
+pub const BUILTIN_INTL_LIST_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.ListFormat.prototype.formatToParts";
 pub const BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.NumberFormat";
 pub const BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
     "$builtin.Intl.NumberFormat.supportedLocalesOf";
@@ -1623,7 +1740,6 @@ pub const BUILTIN_URI_ERROR_FUNCTION_ID: &str = "$builtin.URIError";
 pub const BUILTIN_REFERENCE_ERROR_FUNCTION_ID: &str = "$builtin.ReferenceError";
 pub const BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID: &str = "$builtin.Error.prototype.toString";
 pub const BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID: &str = "$builtin.%ThrowTypeError%";
-pub const BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID: &str = "$builtin.[[BoundFunctionInvoke]]";
 pub const BUILTIN_ESCAPE_FUNCTION_ID: &str = "$builtin.escape";
 pub const BUILTIN_UNESCAPE_FUNCTION_ID: &str = "$builtin.unescape";
 pub const BUILTIN_ENCODE_URI_FUNCTION_ID: &str = "$builtin.encodeURI";
@@ -1631,8 +1747,53 @@ pub const BUILTIN_ENCODE_URI_COMPONENT_FUNCTION_ID: &str = "$builtin.encodeURICo
 pub const BUILTIN_DECODE_URI_FUNCTION_ID: &str = "$builtin.decodeURI";
 pub const BUILTIN_DECODE_URI_COMPONENT_FUNCTION_ID: &str = "$builtin.decodeURIComponent";
 pub const LILA_GENERATOR_THROW_SLOT: &str = "$LilaGeneratorThrow";
-pub const LILA_ITERATOR_FROM_WRAPPER_SLOT: &str = "$LilaIteratorFromWrapper";
-pub const LILA_YIELD_STAR_GENERATOR_SLOT: &str = "$LilaYieldStarGenerator";
-pub const LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT: &str = "$LilaYieldStarReturnNonObject";
-pub const LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT: &str = "$LilaYieldStarThrowNonObject";
-pub const DATE_VALUE_SLOT: &str = "$DateValue";
+
+pub const BUILTIN_INTL_COLLATOR_FUNCTION_ID: &str = "$builtin.Intl.Collator";
+pub const BUILTIN_INTL_COLLATOR_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.Collator.supportedLocalesOf";
+pub const BUILTIN_INTL_COLLATOR_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.Collator.prototype.resolvedOptions";
+pub const BUILTIN_INTL_COLLATOR_PROTOTYPE_COMPARE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Collator.prototype.compare.get";
+pub const BUILTIN_INTL_COLLATOR_BOUND_COMPARE_FUNCTION_ID: &str = "$builtin.Intl.Collator.Compare";
+
+pub const BUILTIN_INTL_DISPLAY_NAMES_FUNCTION_ID: &str = "$builtin.Intl.DisplayNames";
+pub const BUILTIN_INTL_DISPLAY_NAMES_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.DisplayNames.supportedLocalesOf";
+pub const BUILTIN_INTL_DISPLAY_NAMES_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.DisplayNames.prototype.resolvedOptions";
+pub const BUILTIN_INTL_DISPLAY_NAMES_PROTOTYPE_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.DisplayNames.prototype.of";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.RelativeTimeFormat";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.supportedLocalesOf";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.prototype.resolvedOptions";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.prototype.format";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.prototype.formatToParts";
+
+pub const BUILTIN_INTL_SEGMENTER_FUNCTION_ID: &str = "$builtin.Intl.Segmenter";
+pub const BUILTIN_INTL_SEGMENTER_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.Segmenter.supportedLocalesOf";
+pub const BUILTIN_INTL_SEGMENTER_PROTOTYPE_SEGMENT_FUNCTION_ID: &str =
+    "$builtin.Intl.Segmenter.prototype.segment";
+pub const BUILTIN_INTL_SEGMENTER_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.Segmenter.prototype.resolvedOptions";
+pub const BUILTIN_INTL_SEGMENTS_PROTOTYPE_CONTAINING_FUNCTION_ID: &str =
+    "$builtin.%IntlSegmentsPrototype%.containing";
+pub const BUILTIN_INTL_SEGMENTS_PROTOTYPE_ITERATOR_FUNCTION_ID: &str =
+    "$builtin.%IntlSegmentsPrototype%[Symbol.iterator]";
+pub const BUILTIN_INTL_SEGMENT_ITERATOR_PROTOTYPE_NEXT_FUNCTION_ID: &str =
+    "$builtin.%IntlSegmentIteratorPrototype%.next";
+
+pub const BUILTIN_INTL_DURATION_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.DurationFormat";
+pub const BUILTIN_INTL_DURATION_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.DurationFormat.supportedLocalesOf";
+pub const BUILTIN_INTL_DURATION_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.DurationFormat.prototype.resolvedOptions";
+pub const BUILTIN_INTL_DURATION_FORMAT_PROTOTYPE_FORMAT_FUNCTION_ID: &str =
+    "$builtin.Intl.DurationFormat.prototype.format";
+pub const BUILTIN_INTL_DURATION_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.DurationFormat.prototype.formatToParts";

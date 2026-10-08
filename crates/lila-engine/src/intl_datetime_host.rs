@@ -1,4 +1,3 @@
-use super::intl_host_request::CopiedIntlHostRequest;
 use super::*;
 use lila_intl::{
     DateTimeFormatError, DateTimeFormatRequest, DateTimeLocaleRequest, DateTimeLocaleResult,
@@ -50,17 +49,14 @@ date_time_host_operation!(
 );
 
 pub(super) fn call<O>(
-    mut caller: WasmtimeCaller<'_, WasmHostState>,
-    request_wire: i64,
-    result_wire: i64,
-) -> wasmtime::Result<i64>
+    kernel: &IntlKernel<EmbeddedIntlProvider>,
+    payload: &[u8],
+) -> wasmtime::Result<Option<Vec<u8>>>
 where
     O: DateTimeHostOperation,
     EmbeddedIntlProvider: IntlOperationProvider<O>,
 {
-    let kernel = Arc::clone(&caller.data().intl_kernel);
-    let copied = CopiedIntlHostRequest::read(&mut caller, request_wire, result_wire)?;
-    let request = O::decode_request(copied.bytes()).map_err(|error| {
+    let request = O::decode_request(payload).map_err(|error| {
         wasmtime::Error::msg(format!(
             "invalid Intl {} request: {error}",
             O::HOST_OP.name()
@@ -75,12 +71,14 @@ where
     let response = match operation.execute(request) {
         Ok(response) => response,
         Err(DateTimeFormatError::UnavailableFormat | DateTimeFormatError::InputKindMismatch) => {
-            return Ok(IntlHostCallOutcome::Rejected.wire());
+            return Ok(None);
         }
         Err(
             error @ (DateTimeFormatError::InvalidRequest(_)
             | DateTimeFormatError::InvalidPlan(_)
-            | DateTimeFormatError::InvalidProfile(_)),
+            | DateTimeFormatError::InvalidProfile(_)
+            | DateTimeFormatError::UnavailableTimeZone(_)
+            | DateTimeFormatError::UnavailableService(_)),
         ) => {
             return Err(wasmtime::Error::msg(format!(
                 "Intl {} failed: {error}",
@@ -94,7 +92,7 @@ where
             O::HOST_OP.name()
         ))
     })?;
-    copied.write(&mut caller, &bytes)
+    Ok(Some(bytes))
 }
 
 #[cfg(test)]
@@ -118,41 +116,21 @@ mod tests {
         }
     }
 
-    fn overlapping_round_trip<O>(probe: &mut IntlHostProbe, bytes: &[u8]) -> Vec<u8>
-    where
-        O: DateTimeHostOperation,
-    {
-        probe.memory.write(&mut probe.store, 128, bytes).unwrap();
-        let before = probe.memory.data(&probe.store).to_vec();
-        let request = IntlHostReadSpan::new(128, bytes.len().try_into().unwrap());
-        let query = probe
-            .invoke(O::HOST_OP, request, IntlHostWriteSpan::new(128, 0))
-            .unwrap();
-        let Some(IntlHostCallOutcome::RequiredCapacity(required)) =
-            IntlHostCallOutcome::from_wire(query)
-        else {
-            panic!("unexpected capacity result {query}");
-        };
-        assert_eq!(probe.memory.data(&probe.store), before);
-        assert_eq!(
-            probe
-                .invoke(O::HOST_OP, request, IntlHostWriteSpan::new(128, required))
-                .unwrap(),
-            i64::from(required),
-        );
-        probe.memory.data(&probe.store)[128..128 + required as usize].to_vec()
+    fn gc_response<O: DateTimeHostOperation>(probe: &mut IntlHostProbe, bytes: &[u8]) -> Vec<u8> {
+        probe
+            .invoke(O::HOST_OP, bytes)
+            .unwrap()
+            .expect("accepted Intl request")
     }
 
     #[test]
-    fn every_date_time_operation_owns_requests_before_overlapping_response_writes() {
+    fn every_date_time_operation_returns_an_owned_gc_response() {
         let mut probe = IntlHostProbe::new();
-        let bytes = overlapping_round_trip::<ResolveDateTimeLocale>(
-            &mut probe,
-            &resolve_request().encode().unwrap(),
-        );
+        let bytes =
+            gc_response::<ResolveDateTimeLocale>(&mut probe, &resolve_request().encode().unwrap());
         let locale = DateTimeLocaleResult::decode(&bytes).unwrap();
         assert_eq!(locale.locale.as_str(), "en-US");
-        let bytes = overlapping_round_trip::<SupportedDateTimeLocales>(
+        let bytes = gc_response::<SupportedDateTimeLocales>(
             &mut probe,
             &DateTimeSupportedLocalesRequest {
                 requested: vec![
@@ -170,7 +148,7 @@ mod tests {
                 .locales,
             vec![CanonicalLocaleId::from_data("en-US").unwrap()]
         );
-        let bytes = overlapping_round_trip::<SelectDateTimeFormat>(
+        let bytes = gc_response::<SelectDateTimeFormat>(
             &mut probe,
             &DateTimePlanRequest {
                 locale,
@@ -190,7 +168,7 @@ mod tests {
         let input = DateTimeInput::Exact(
             DateTimeExactInput::new(DateTimeValueKind::Instant, -1, 999_999_999).unwrap(),
         );
-        let bytes = overlapping_round_trip::<FormatDateTimeParts>(
+        let bytes = gc_response::<FormatDateTimeParts>(
             &mut probe,
             &DateTimeFormatRequest {
                 plan: plan.clone(),
@@ -201,7 +179,7 @@ mod tests {
         );
         let parts = DateTimeParts::decode(&bytes).unwrap();
         assert_eq!(parts.to_formatted_string(), "1969");
-        let bytes = overlapping_round_trip::<FormatDateTimeRangeParts>(
+        let bytes = gc_response::<FormatDateTimeRangeParts>(
             &mut probe,
             &DateTimeRangeRequest {
                 plan,
@@ -220,30 +198,17 @@ mod tests {
     }
 
     #[test]
-    fn malformed_date_time_messages_trap_without_writing_result_memory() {
+    fn malformed_date_time_messages_trap_at_the_gc_boundary() {
         let mut probe = IntlHostProbe::new();
         let valid = resolve_request().encode().unwrap();
         for bytes in [&valid[..valid.len() - 1], &[]] {
-            probe.memory.write(&mut probe.store, 128, bytes).unwrap();
-            let before = probe.memory.data(&probe.store).to_vec();
             assert!(probe
-                .invoke(
-                    IntlHostOp::ResolveDateTimeLocale,
-                    IntlHostReadSpan::new(128, bytes.len() as u32),
-                    IntlHostWriteSpan::new(128, 1024)
-                )
+                .invoke(IntlHostOp::ResolveDateTimeLocale, &bytes)
                 .is_err());
-            assert_eq!(probe.memory.data(&probe.store), before);
         }
-        probe.memory.write(&mut probe.store, 128, &valid).unwrap();
-        let before = probe.memory.data(&probe.store).to_vec();
+
         assert!(probe
-            .invoke(
-                IntlHostOp::SelectDateTimeFormat,
-                IntlHostReadSpan::new(128, valid.len() as u32),
-                IntlHostWriteSpan::new(128, 1024)
-            )
+            .invoke(IntlHostOp::SelectDateTimeFormat, &valid)
             .is_err());
-        assert_eq!(probe.memory.data(&probe.store), before);
     }
 }

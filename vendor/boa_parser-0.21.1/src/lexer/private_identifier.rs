@@ -1,6 +1,8 @@
 //! Boa's lexing for ECMAScript private identifiers (#foo, #myvar, etc.).
 
-use crate::lexer::{Cursor, Error, Token, TokenKind, Tokenizer, identifier::Identifier};
+use crate::lexer::{
+    Cursor, Error, Token, TokenKind, Tokenizer, identifier::Identifier, is_identifier_start,
+};
 use crate::source::ReadChar;
 use boa_ast::PositionGroup;
 use boa_interner::Interner;
@@ -58,7 +60,7 @@ impl<R> Tokenizer<R> for PrivateIdentifier {
                     cursor.pos_group(),
                 ))
             }
-            _ if Identifier::is_identifier_start(c as u32) => {
+            _ if is_identifier_start(c as u32) => {
                 let (name, _) = Identifier::take_identifier_name(cursor, start_pos, c)?;
                 Ok(Token::new_by_position_group(
                     TokenKind::PrivateIdentifier(interner.get_or_intern(name.as_str())),

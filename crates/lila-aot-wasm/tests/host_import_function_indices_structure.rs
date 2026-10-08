@@ -2,12 +2,12 @@ use std::fs;
 use std::path::Path;
 
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
-const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
+const EMIT_SOURCE: &str = include_str!("../src/emit/module_assembly.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/host-import-function-indices-authority.md");
 const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
-const ROLES: [(&str, &str, &str, &str); 8] = [
+const ROLES: [(&str, &str, &str, &str); 29] = [
     (
         "NumberPowImportFunctionIndex",
         "number_pow",
@@ -55,6 +55,132 @@ const ROLES: [(&str, &str, &str, &str); 8] = [
         "random_f64",
         "random_f64_import_function_index",
         "random_f64_import_function_index",
+    ),
+    (
+        "MathAcosImportFunctionIndex",
+        "math_acos",
+        "math_acos_import_function_index",
+        "math_acos_import_function_index",
+    ),
+    (
+        "MathAcoshImportFunctionIndex",
+        "math_acosh",
+        "math_acosh_import_function_index",
+        "math_acosh_import_function_index",
+    ),
+    (
+        "MathAsinImportFunctionIndex",
+        "math_asin",
+        "math_asin_import_function_index",
+        "math_asin_import_function_index",
+    ),
+    (
+        "MathAsinhImportFunctionIndex",
+        "math_asinh",
+        "math_asinh_import_function_index",
+        "math_asinh_import_function_index",
+    ),
+    (
+        "MathAtanImportFunctionIndex",
+        "math_atan",
+        "math_atan_import_function_index",
+        "math_atan_import_function_index",
+    ),
+    (
+        "MathAtanhImportFunctionIndex",
+        "math_atanh",
+        "math_atanh_import_function_index",
+        "math_atanh_import_function_index",
+    ),
+    (
+        "MathCbrtImportFunctionIndex",
+        "math_cbrt",
+        "math_cbrt_import_function_index",
+        "math_cbrt_import_function_index",
+    ),
+    (
+        "MathCosImportFunctionIndex",
+        "math_cos",
+        "math_cos_import_function_index",
+        "math_cos_import_function_index",
+    ),
+    (
+        "MathCoshImportFunctionIndex",
+        "math_cosh",
+        "math_cosh_import_function_index",
+        "math_cosh_import_function_index",
+    ),
+    (
+        "MathExpImportFunctionIndex",
+        "math_exp",
+        "math_exp_import_function_index",
+        "math_exp_import_function_index",
+    ),
+    (
+        "MathExpm1ImportFunctionIndex",
+        "math_expm1",
+        "math_expm1_import_function_index",
+        "math_expm1_import_function_index",
+    ),
+    (
+        "MathLogImportFunctionIndex",
+        "math_log",
+        "math_log_import_function_index",
+        "math_log_import_function_index",
+    ),
+    (
+        "MathLog10ImportFunctionIndex",
+        "math_log10",
+        "math_log10_import_function_index",
+        "math_log10_import_function_index",
+    ),
+    (
+        "MathLog1pImportFunctionIndex",
+        "math_log1p",
+        "math_log1p_import_function_index",
+        "math_log1p_import_function_index",
+    ),
+    (
+        "MathLog2ImportFunctionIndex",
+        "math_log2",
+        "math_log2_import_function_index",
+        "math_log2_import_function_index",
+    ),
+    (
+        "MathSinImportFunctionIndex",
+        "math_sin",
+        "math_sin_import_function_index",
+        "math_sin_import_function_index",
+    ),
+    (
+        "MathSinhImportFunctionIndex",
+        "math_sinh",
+        "math_sinh_import_function_index",
+        "math_sinh_import_function_index",
+    ),
+    (
+        "MathTanImportFunctionIndex",
+        "math_tan",
+        "math_tan_import_function_index",
+        "math_tan_import_function_index",
+    ),
+    (
+        "MathTanhImportFunctionIndex",
+        "math_tanh",
+        "math_tanh_import_function_index",
+        "math_tanh_import_function_index",
+    ),
+    (
+        "MathAtan2ImportFunctionIndex",
+        "math_atan2",
+        "math_atan2_import_function_index",
+        "math_atan2_import_function_index",
+    ),
+    (
+        "SystemTimeZoneImportFunctionIndex",
+        "system_time_zone",
+        "system_time_zone_import_function_index",
+        "system_time_zone_import_function_index",
     ),
 ];
 
@@ -258,7 +384,7 @@ fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
 }
 
 #[test]
-fn authority_has_eight_optional_and_one_required_private_non_derived_roles() {
+fn authority_has_twenty_nine_optional_and_one_required_private_non_derived_roles() {
     let lexical_probe = rust_code(
         r###"
         // HostImportFunctionIndices
@@ -291,10 +417,10 @@ fn authority_has_eight_optional_and_one_required_private_non_derived_roles() {
     }
     assert!(domain
         .normalized
-        .contains("pub(crate)structRejectDynamicSourceImportFunctionIndex(u32);"));
+        .contains("pub(crate)structRejectRuntimeSemanticsImportFunctionIndex(u32);"));
     assert!(domain
         .normalized
-        .contains("reject_dynamic_source:RejectDynamicSourceImportFunctionIndex,"));
+        .contains("reject_runtime_semantics:RejectRuntimeSemanticsImportFunctionIndex,"));
     assert!(domain
         .normalized
         .contains("#[must_use]pub(crate)structHostImportFunctionIndices{"));
@@ -314,7 +440,7 @@ fn role_and_authority_census_is_closed_over_product_sources() {
         5
     );
     assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "RejectDynamicSourceImportFunctionIndex"),
+        count_identifier_in_rust_sources(&source_root, "RejectRuntimeSemanticsImportFunctionIndex"),
         5,
     );
     for (role, _, _, _) in ROLES {
@@ -350,7 +476,12 @@ fn sole_producer_builds_every_typed_role_and_registry_stores_authority_intact() 
         );
     }
 
-    assert_eq!(producer.normalized.matches("RejectDynamicSourceImportFunctionIndex::new(reject_dynamic_source_import_function_index)").count(), 1);
+    assert_eq!(
+        producer.normalized.replace(",)", ")").matches(
+            "RejectRuntimeSemanticsImportFunctionIndex::new(reject_runtime_semantics_import_function_index)"
+        ).count(),
+        1,
+    );
 
     let registry = rust_code(bounded(
         PLANNING_SOURCE,
@@ -394,18 +525,21 @@ fn named_registry_getters_are_the_only_raw_index_projections() {
             "{getter} projection"
         );
     }
-    assert_eq!(getters.normalized.matches("map(|index|index.0)").count(), 8);
+    assert_eq!(
+        getters.normalized.matches("map(|index|index.0)").count(),
+        29
+    );
     assert_eq!(
         getters
             .normalized
-            .matches("self.host_import_function_indices.reject_dynamic_source.0")
+            .matches("self.host_import_function_indices.reject_runtime_semantics.0")
             .count(),
         1
     );
     assert_eq!(
         planning
             .normalized
-            .matches("pub(crate)fnreject_dynamic_source_import_function_index(&self)->u32{")
+            .matches("pub(crate)fnreject_runtime_semantics_import_function_index(&self)->u32{")
             .count(),
         1
     );

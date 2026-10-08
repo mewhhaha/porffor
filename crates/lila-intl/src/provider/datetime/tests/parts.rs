@@ -15,13 +15,10 @@ fn independent_modern_fields_keep_local_order_names_and_related_year_parts() {
             .unwrap();
         assert_eq!(selected.components, date_components(), "{locale}");
         let parts = provider()
-            .format_parts(
-                DateTimeFormatRequest {
-                    plan: selected.plan,
-                    input: date(2020, 1, 25),
-                },
-                zones(),
-            )
+            .format_parts(DateTimeFormatRequest {
+                plan: selected.plan,
+                input: date(2020, 1, 25),
+            })
             .unwrap();
         assert_eq!(parts.to_formatted_string(), expected, "{locale}");
         if locale == "zh-Hans-CN" {
@@ -145,13 +142,10 @@ fn selected_widths_preserve_locale_padding_and_honor_two_digit_requests() {
         Some(DateTimeNumericWidth::TwoDigit)
     );
     let parts = provider()
-        .format_parts(
-            DateTimeFormatRequest {
-                plan: result.plan,
-                input,
-            },
-            zones(),
-        )
+        .format_parts(DateTimeFormatRequest {
+            plan: result.plan,
+            input,
+        })
         .unwrap();
     assert_eq!(parts.to_formatted_string(), "2:03:09 PM");
     let fields = DateTimeComponents {
@@ -354,7 +348,13 @@ fn context_free_midnight_uses_the_general_period_and_preserves_exact_noon() {
         (PeriodKind::NoonMidnight, 43_200, "noon"),
         (PeriodKind::Flexible, 0, "in the morning"),
     ] {
-        let prepared = render::prepare(&selected, instant(seconds, 0), zones()).unwrap();
+        let prepared = render::prepare(
+            &selected,
+            instant(seconds, 0),
+            zones(),
+            &provider().calendars,
+        )
+        .unwrap();
         let pattern = Pattern::single(Field::DayPeriod {
             kind,
             width: NameWidth::Abbreviated,

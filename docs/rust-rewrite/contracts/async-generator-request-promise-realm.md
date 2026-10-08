@@ -1,5 +1,21 @@
 # Async-generator request Promise Realm
 
+## Current whole GC source — 2026-10-05
+
+Native AsyncIterator disposal now consumes complete values and whole completions,
+canonical defining-Realm Promise capability and immutable Realm function creation.
+Return Get, empty argument List Call and synchronous PromiseResolve failures reject
+the outer capability; the sole fulfillment callback captures nothing and returns
+undefined. Its earlier two-handler raw state/offset publication below is retired.
+See [GC async iterator disposal](gc-async-iterator-disposal.md).
+
+The request-Promise Realm structure target retains its meaningful CLI fixture
+witness; raw-offset, parser-token and exact source-count mirrors are retired.
+Every earlier command/result below keeps its historical scope. New controls and
+all atomic source are uncompiled/unrun. Whole-task source and final composition
+must finish before capped serial verification; no acceptance/count update.
+
+
 Status: implemented; extended to foreign AsyncIterator asyncDispose during the observed-failure repair batch.
 
 ## Ownership boundary

@@ -1,212 +1,280 @@
 use super::*;
+use crate::functions::RealmFunctionMaterializationContext;
 
-/// The inseparable Realm-owned fields installed on an escaping Promise
-/// algorithm closure before that function can be exposed to user code.
-///
-/// The context is deliberately non-`Copy`, with private fields. Its
-/// factories prove either the active Promise builtin's defining Realm or the
-/// Promise record's stored Realm, then derive every header field from the same
-/// intrinsic table.
-#[must_use = "Promise internal function Realm context must be explicitly released"]
-pub(crate) struct PromiseInternalFunctionMaterializationContext {
-    realm_local: u32,
-    function_prototype_local: u32,
-    type_error_prototype_local: u32,
-    range_error_prototype_local: u32,
+/// Realm and prototype are selected together before any closure escapes.
+#[must_use = "the owned Realm context must be released"]
+pub(crate) struct PromiseInternalFunctionMaterializationContext(
+    RealmFunctionMaterializationContext,
+);
+impl PromiseInternalFunctionMaterializationContext {
+    pub(super) fn realm(&self) -> &GcLocal<RealmRecord> {
+        self.0.realm()
+    }
+    pub(super) fn materialization(&self) -> &RealmFunctionMaterializationContext {
+        &self.0
+    }
 }
 
-impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn emit_promise_internal_function_materialization_context_from_realm(
-        &mut self,
-        realm_local: u32,
-        function: &mut Function,
-    ) -> PromiseInternalFunctionMaterializationContext {
-        let function_prototype_local = self.reserve_temp_local();
-        let type_error_prototype_local = self.reserve_temp_local();
-        let range_error_prototype_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        for (offset, prototype_local) in [
-            (
-                HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
-                function_prototype_local,
+/// Each algorithm entry admits only its actual immutable capture family.
+/// An element callback cannot accidentally publish a resolving context.
+pub(super) enum PromiseInternalFunction<'a> {
+    Resolve(&'a GcLocal<PromiseResolvingContext>),
+    Reject(&'a GcLocal<PromiseResolvingContext>),
+    CapabilityExecutor(&'a GcLocal<PromiseCapabilityExecutorContext>),
+    AllElement(&'a GcLocal<PromiseElementContext>),
+    SettledFulfillElement(&'a GcLocal<PromiseElementContext>),
+    SettledRejectElement(&'a GcLocal<PromiseElementContext>),
+    AnyRejectElement(&'a GcLocal<PromiseElementContext>),
+    AllKeyedElement(&'a GcLocal<PromiseKeyedElementContext>),
+    SettledFulfillKeyedElement(&'a GcLocal<PromiseKeyedElementContext>),
+    SettledRejectKeyedElement(&'a GcLocal<PromiseKeyedElementContext>),
+    ThenFinally(&'a GcLocal<PromiseFinallyContext>),
+    CatchFinally(&'a GcLocal<PromiseFinallyContext>),
+    ValueThunk(&'a GcLocal<PromiseFinallyValueContext>),
+    Thrower(&'a GcLocal<PromiseFinallyValueContext>),
+}
+impl<'a> PromiseInternalFunction<'a> {
+    fn publication(self) -> (StandardBuiltinId, BuiltinClosurePayload<'a>) {
+        match self {
+            Self::Resolve(value) => (
+                StandardBuiltinId::PromiseResolveFunction,
+                BuiltinClosurePayload::PromiseResolving(value),
             ),
-            (
-                HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
-                type_error_prototype_local,
+            Self::Reject(value) => (
+                StandardBuiltinId::PromiseRejectFunction,
+                BuiltinClosurePayload::PromiseResolving(value),
             ),
-            (
-                HEAP_REALM_INTRINSICS_RANGE_ERROR_PROTOTYPE_OFFSET,
-                range_error_prototype_local,
+            Self::CapabilityExecutor(value) => (
+                StandardBuiltinId::PromiseCapabilityExecutor,
+                BuiltinClosurePayload::PromiseCapabilityExecutor(value),
             ),
-        ] {
-            self.load_i64_to_local_from_offset(intrinsics_local, offset, prototype_local, function);
-            function.instruction(&Instruction::LocalGet(prototype_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-        }
-
-        self.release_temp_local(intrinsics_local);
-        PromiseInternalFunctionMaterializationContext {
-            realm_local,
-            function_prototype_local,
-            type_error_prototype_local,
-            range_error_prototype_local,
+            Self::AllElement(value) => (
+                StandardBuiltinId::PromiseAllResolveElement,
+                BuiltinClosurePayload::PromiseElement(value),
+            ),
+            Self::SettledFulfillElement(value) => (
+                StandardBuiltinId::PromiseAllSettledResolveElement,
+                BuiltinClosurePayload::PromiseElement(value),
+            ),
+            Self::SettledRejectElement(value) => (
+                StandardBuiltinId::PromiseAllSettledRejectElement,
+                BuiltinClosurePayload::PromiseElement(value),
+            ),
+            Self::AnyRejectElement(value) => (
+                StandardBuiltinId::PromiseAnyRejectElement,
+                BuiltinClosurePayload::PromiseElement(value),
+            ),
+            Self::AllKeyedElement(value) => (
+                StandardBuiltinId::PromiseAllKeyedResolveElement,
+                BuiltinClosurePayload::PromiseKeyedElement(value),
+            ),
+            Self::SettledFulfillKeyedElement(value) => (
+                StandardBuiltinId::PromiseAllSettledKeyedResolveElement,
+                BuiltinClosurePayload::PromiseKeyedElement(value),
+            ),
+            Self::SettledRejectKeyedElement(value) => (
+                StandardBuiltinId::PromiseAllSettledKeyedRejectElement,
+                BuiltinClosurePayload::PromiseKeyedElement(value),
+            ),
+            Self::ThenFinally(value) => (
+                StandardBuiltinId::PromiseThenFinally,
+                BuiltinClosurePayload::PromiseFinally(value),
+            ),
+            Self::CatchFinally(value) => (
+                StandardBuiltinId::PromiseCatchFinally,
+                BuiltinClosurePayload::PromiseFinally(value),
+            ),
+            Self::ValueThunk(value) => (
+                StandardBuiltinId::PromiseValueThunk,
+                BuiltinClosurePayload::PromiseFinallyValue(value),
+            ),
+            Self::Thrower(value) => (
+                StandardBuiltinId::PromiseThrower,
+                BuiltinClosurePayload::PromiseFinallyValue(value),
+            ),
         }
     }
+}
 
+impl FunctionBuilder<'_> {
+    pub(crate) fn emit_promise_internal_function_materialization_context_from_realm(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> PromiseInternalFunctionMaterializationContext {
+        PromiseInternalFunctionMaterializationContext(
+            self.emit_realm_function_materialization_context_from_realm(realm, function),
+        )
+    }
     pub(crate) fn emit_current_function_promise_internal_function_materialization_context(
         &mut self,
         function: &mut Function,
     ) -> PromiseInternalFunctionMaterializationContext {
-        let realm_local = self.reserve_temp_local();
-        let active_function_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(active_function_local));
-        self.load_i64_to_local_from_offset(
-            active_function_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        self.release_temp_local(active_function_local);
-        self.emit_promise_internal_function_materialization_context_from_realm(
-            realm_local,
-            function,
-        )
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let context = self
+            .emit_promise_internal_function_materialization_context_from_realm(&realm, function);
+        realm.clear(function);
+        context
     }
-
     pub(super) fn emit_promise_record_internal_function_materialization_context(
         &mut self,
-        promise_record_local: u32,
+        promise: &GcLocal<PromiseObject>,
         function: &mut Function,
     ) -> PromiseInternalFunctionMaterializationContext {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            HEAP_PROMISE_REALM_OFFSET,
-            realm_local,
+        let schema = self.runtime_schema();
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::REALM)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        self.emit_promise_internal_function_materialization_context_from_realm(
-            realm_local,
-            function,
-        )
+        let context = self
+            .emit_promise_internal_function_materialization_context_from_realm(&realm, function);
+        realm.clear(function);
+        context
     }
-
-    pub(crate) fn emit_promise_internal_function_value(
+    pub(super) fn emit_promise_internal_function_value(
         &mut self,
-        meta: &WasmFunctionMeta,
+        entry: PromiseInternalFunction<'_>,
         context: &PromiseInternalFunctionMaterializationContext,
-        closure_context_local: u32,
-        function_object_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_function_value_payload(meta, function)?;
-        function.instruction(&Instruction::LocalSet(function_object_local));
-        self.emit_store_function_defining_realm(
-            function_object_local,
-            context.realm_local,
+    ) -> Result<GcLocal<FunctionObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let (builtin, payload) = entry.publication();
+        let meta = self
+            .functions
+            .get(&builtin.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "missing Promise algorithm entry {}",
+                    builtin.debug_name()
+                ))
+            })?;
+        let capture = schema
+            .reserve_gc_local::<BuiltinClosureCapture, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<BuiltinClosureCapture>()
+                    .publish(payload, schema, function)
+                    .nullable(),
+                function,
+            );
+        let result = schema.reserve_gc_local(function).initialize(
+            self.emit_function_value_payload_in_realm_with_capture(
+                &meta, &context.0, &capture, function,
+            )?,
             function,
         );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_PROTOTYPE_OFFSET,
-            context.function_prototype_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            function_object_local,
-            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Function.tag() as u64,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            context.type_error_prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
-            context.range_error_prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-            closure_context_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            function_object_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            function_object_local,
-            function,
-        );
-        Ok(())
+        capture.clear(function);
+        Ok(result)
     }
-
-    pub(crate) fn emit_load_promise_internal_function_context(
-        &mut self,
-        context_local: u32,
-        function: &mut Function,
-    ) {
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-            context_local,
-            function,
-        );
-    }
-
-    pub(super) fn emit_load_promise_internal_function_realm_intrinsics(
+    fn emit_load_promise_internal_function_capture(
         &self,
-        context: &PromiseInternalFunctionMaterializationContext,
-        intrinsics_local: u32,
+        kind: BuiltinClosureCaptureKind,
         function: &mut Function,
-    ) {
-        self.load_i64_to_local_from_offset(
-            context.realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
+    ) -> GcLocal<BuiltinClosureCapture> {
+        let schema = self.runtime_schema();
+        let context = self
+            .body_entry_locals()
+            .expect("Promise algorithm has an ordinary entry")
+            .function_context()
+            .expect("Promise algorithm context");
+        let capture = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<FunctionContext>()
+                .field(FunctionContextSchema::BUILTIN_CAPTURE)
+                .read(context, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
+        let actual = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<BuiltinClosureCapture>()
+            .field(BuiltinClosureCaptureSchema::KIND)
+            .read(&capture, schema, function)
+            .store(actual, function);
+        actual.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(kind)));
+        function.instruction(&Instruction::I32Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(actual, function);
+        capture
     }
-
     pub(crate) fn release_promise_internal_function_materialization_context(
         &mut self,
         context: PromiseInternalFunctionMaterializationContext,
+        function: &mut Function,
     ) {
-        self.release_temp_local(context.range_error_prototype_local);
-        self.release_temp_local(context.type_error_prototype_local);
-        self.release_temp_local(context.function_prototype_local);
-        self.release_temp_local(context.realm_local);
+        self.release_realm_function_materialization_context(context.0, function);
     }
 }
+
+macro_rules! captured_promise_context {
+    ($method:ident, $kind:ident, $field:ident, $ty:ident) => {
+        impl FunctionBuilder<'_> {
+            pub(super) fn $method(&self, function: &mut Function) -> GcLocal<$ty> {
+                let schema = self.runtime_schema();
+                let capture = self.emit_load_promise_internal_function_capture(
+                    BuiltinClosureCaptureKind::$kind,
+                    function,
+                );
+                let context = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<BuiltinClosureCapture>()
+                        .field(BuiltinClosureCaptureSchema::$field)
+                        .read(&capture, schema, function)
+                        .reference()
+                        .require_non_null(function),
+                    function,
+                );
+                capture.clear(function);
+                context
+            }
+        }
+    };
+}
+captured_promise_context!(
+    emit_promise_resolving_context,
+    PromiseResolving,
+    RESOLVING,
+    PromiseResolvingContext
+);
+captured_promise_context!(
+    emit_promise_capability_executor_context,
+    PromiseCapabilityExecutor,
+    CAPABILITY_EXECUTOR,
+    PromiseCapabilityExecutorContext
+);
+captured_promise_context!(
+    emit_promise_element_context,
+    PromiseElement,
+    ELEMENT,
+    PromiseElementContext
+);
+captured_promise_context!(
+    emit_promise_keyed_element_context,
+    PromiseKeyedElement,
+    KEYED_ELEMENT,
+    PromiseKeyedElementContext
+);
+captured_promise_context!(
+    emit_promise_finally_context,
+    PromiseFinally,
+    FINALLY,
+    PromiseFinallyContext
+);
+captured_promise_context!(
+    emit_promise_finally_value_context,
+    PromiseFinallyValue,
+    FINALLY_VALUE,
+    PromiseFinallyValueContext
+);

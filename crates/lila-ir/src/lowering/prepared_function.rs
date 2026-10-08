@@ -1,5 +1,5 @@
 use super::*;
-use lila_front::{prepare_dynamic_function, FunctionParseKind, ParseDiagnosticKind};
+use lila_front::{FunctionParseKind, ParseDiagnosticKind};
 
 pub(super) fn compile_dynamic_function_sources(
     program: &mut ProgramIr,
@@ -14,7 +14,10 @@ pub(super) fn compile_dynamic_function_sources(
             DynamicFunctionKind::Async => FunctionParseKind::Async,
             DynamicFunctionKind::AsyncGenerator => FunctionParseKind::AsyncGenerator,
         };
-        let parsed = match prepare_dynamic_function(parser_kind, &source.arguments) {
+        let parsed = match allocations
+            .prepared_sources
+            .parse_function(source.kind, &source.arguments)
+        {
             Ok(parsed) => parsed,
             Err(error) => {
                 match error.diagnostic().kind() {

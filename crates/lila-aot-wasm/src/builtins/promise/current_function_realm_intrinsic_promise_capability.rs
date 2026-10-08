@@ -1,74 +1,49 @@
 use super::*;
 
-/// The canonical `%Promise%` constructor loaded from the executing function's
-/// defining Realm.
-///
-/// The private, non-copyable local can only be consumed by intrinsic Promise
-/// capability allocation, so a request method cannot pair the constructor with
-/// another Realm or an arbitrary representation tag.
-#[must_use = "intrinsic Promise constructor must be consumed by capability allocation"]
+/// Canonical constructor and defining Realm are acquired together and consumed
+/// by capability publication. User values cannot fabricate this authority.
+#[must_use = "intrinsic constructor is consumed by capability allocation"]
 pub(crate) struct CurrentFunctionRealmIntrinsicPromiseConstructor {
-    constructor_payload_local: u32,
+    constructor: ValueLocals,
+    context: PromiseInternalFunctionMaterializationContext,
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(crate) fn emit_current_function_realm_intrinsic_promise_constructor(
         &mut self,
         function: &mut Function,
     ) -> CurrentFunctionRealmIntrinsicPromiseConstructor {
-        let constructor_payload_local = self.reserve_temp_local();
-        let realm_context =
+        let schema = self.runtime_schema();
+        let context =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        let intrinsics_local = self.reserve_temp_local();
-        self.emit_load_promise_internal_function_realm_intrinsics(
-            &realm_context,
-            intrinsics_local,
+        let constructor = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            context.realm(),
+            NonArrayRealmIntrinsicSlot::PromiseConstructor,
+            &constructor,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
-            constructor_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_promise_internal_function_materialization_context(realm_context);
         CurrentFunctionRealmIntrinsicPromiseConstructor {
-            constructor_payload_local,
+            constructor,
+            context,
         }
     }
 
     pub(crate) fn emit_new_current_function_realm_intrinsic_promise_capability(
         &mut self,
         constructor: CurrentFunctionRealmIntrinsicPromiseConstructor,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let constructor_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        let executor_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
+    ) -> Result<GcLocal<PromiseCapability>, EmitError> {
         let result = self.emit_new_promise_capability(
-            &executor_context,
-            constructor.constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
+            &constructor.context,
+            &constructor.constructor,
             function,
         );
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.release_temp_local(constructor_tag_local);
-        self.release_temp_local(constructor.constructor_payload_local);
+        constructor.constructor.clear(function);
+        self.release_promise_internal_function_materialization_context(
+            constructor.context,
+            function,
+        );
         result
     }
 }

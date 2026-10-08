@@ -1,199 +1,187 @@
 use super::*;
+use crate::gc_types::{
+    BuiltinClosureCapture, BuiltinClosurePayload, Environment, FunctionObject, GcLocal, GcOperand,
+    GcStackReference, Nullable, PrivateEnvironment, ProxyObject, ProxyRevocationContext,
+    RealmRecord, TemplateSource, ValueArray, ValueLocals,
+};
 
-enum ProxyCreationRealmIntrinsic {
-    ObjectPrototype,
-    FunctionPrototype,
-    TypeErrorPrototype,
+/// All identities are loaded from one defining Realm before creation starts.
+#[must_use]
+pub(crate) struct ProxyCreationExecutionRealm {
+    realm: GcLocal<RealmRecord>,
+    object_prototype: ValueLocals,
+    function_prototype: ValueLocals,
+    type_error_prototype: ValueLocals,
 }
 
-impl ProxyCreationRealmIntrinsic {
-    const fn offset(self) -> u64 {
-        match self {
-            Self::ObjectPrototype => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            Self::FunctionPrototype => HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
-            Self::TypeErrorPrototype => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
-        }
+impl ProxyCreationExecutionRealm {
+    pub(crate) fn realm(&self) -> &GcLocal<RealmRecord> {
+        &self.realm
+    }
+    pub(crate) fn object_prototype(&self) -> &ValueLocals {
+        &self.object_prototype
+    }
+    pub(crate) fn function_prototype(&self) -> &ValueLocals {
+        &self.function_prototype
     }
 }
 
-/// The Realm-owned identities created or thrown by the Proxy constructor
-/// algorithms.
-///
-/// Its fields stay private to the `functions` module. Proxy creation can only
-/// consume the complete set, so an allocation cannot pair one Realm's record
-/// with another Realm's Object or Function prototype.
-#[must_use = "Proxy creation execution Realm must be explicitly released"]
-pub(crate) struct ProxyCreationExecutionRealm {
-    pub(super) realm_local: u32,
-    pub(super) object_prototype_local: u32,
-    pub(super) function_prototype_local: u32,
-    type_error_prototype_local: u32,
-}
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(crate) fn emit_proxy_creation_execution_realm(
         &mut self,
         function: &mut Function,
     ) -> ProxyCreationExecutionRealm {
-        let realm_local = self.reserve_temp_local();
-        let object_prototype_local = self.reserve_temp_local();
-        let function_prototype_local = self.reserve_temp_local();
-        let type_error_prototype_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-        let active_function_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::GlobalGet(PROXY_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(active_function_local));
-        self.load_i64_to_local_from_offset(
-            active_function_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        for (intrinsic, prototype_local) in [
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let object_prototype = schema.reserve_value_local(function);
+        let function_prototype = schema.reserve_value_local(function);
+        let type_error_prototype = schema.reserve_value_local(function);
+        for (slot, value) in [
             (
-                ProxyCreationRealmIntrinsic::ObjectPrototype,
-                object_prototype_local,
+                NonArrayRealmIntrinsicSlot::ObjectPrototype,
+                &object_prototype,
             ),
             (
-                ProxyCreationRealmIntrinsic::FunctionPrototype,
-                function_prototype_local,
+                NonArrayRealmIntrinsicSlot::FunctionPrototype,
+                &function_prototype,
             ),
             (
-                ProxyCreationRealmIntrinsic::TypeErrorPrototype,
-                type_error_prototype_local,
+                NonArrayRealmIntrinsicSlot::TypeErrorPrototype,
+                &type_error_prototype,
             ),
         ] {
-            self.load_i64_to_local_from_offset(
-                intrinsics_local,
-                intrinsic.offset(),
-                prototype_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(prototype_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
+            self.emit_load_non_array_realm_intrinsic(&realm, slot, value, function);
         }
-
-        self.release_temp_local(active_function_local);
-        self.release_temp_local(intrinsics_local);
         ProxyCreationExecutionRealm {
-            realm_local,
-            object_prototype_local,
-            function_prototype_local,
-            type_error_prototype_local,
+            realm,
+            object_prototype,
+            function_prototype,
+            type_error_prototype,
         }
     }
 
     pub(crate) fn emit_throw_proxy_creation_type_error(
         &mut self,
         realm: &ProxyCreationExecutionRealm,
-        message: &str,
+        message: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_throw_runtime_error_with_prototype_local(
-            TYPE_ERROR_NAME,
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        self.emit_throw_runtime_error_with_prototype(
+            NativeErrorKind::TypeError,
             message,
-            realm.type_error_prototype_local,
-            self.result_local,
-            self.result_tag_local,
+            &realm.type_error_prototype,
+            &result,
             function,
-        )
+        )?;
+        self.completion().copy_from(&result, function);
+        result.clear(function);
+        Ok(())
     }
 
     pub(crate) fn emit_alloc_proxy_revocable_result_object(
         &mut self,
         realm: &ProxyCreationExecutionRealm,
-        result_payload_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_alloc_plain_object_with_prototype(
-            Some(realm.object_prototype_local),
-            None,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        Ok(())
+    ) -> Result<GcStackReference<crate::gc_types::OrdinaryObject>, EmitError> {
+        self.emit_alloc_plain_object_with_prototype(Some(&realm.object_prototype), function)
     }
 
+    /// A revoker is a native callable with its own captured Proxy. This value
+    /// is independent of caller this and can be cleared exactly once by the body.
     pub(crate) fn emit_proxy_revoke_target_function(
         &mut self,
         realm: &ProxyCreationExecutionRealm,
-        target_payload_local: u32,
+        proxy: &GcLocal<ProxyObject>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let meta = self
+    ) -> Result<GcStackReference<FunctionObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let mut meta = self
             .functions
             .get(&StandardBuiltinId::ProxyRevoke.function_id())
             .cloned()
             .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `[[ProxyRevoke]]`",
-                )
+                EmitError::unsupported("compiler invariant: missing Proxy revoker entry")
             })?;
-        self.emit_function_value_payload(&meta, function)?;
-        function.instruction(&Instruction::LocalSet(target_payload_local));
-        self.emit_store_function_defining_realm(target_payload_local, realm.realm_local, function);
-        self.store_i64_local_at_offset(
-            target_payload_local,
-            HEAP_PROTOTYPE_OFFSET,
-            realm.function_prototype_local,
+        meta.name.clear();
+        meta.length = 0;
+        meta.strict = true;
+        meta.length_name_configurable = true;
+        meta.to_string_value = "function () { [native code] }".into();
+        let revocation = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ProxyRevocationContext>()
+                .construct((GcOperand::nullable_reference(proxy, schema),), function),
             function,
         );
-        self.store_i64_const_at_offset(
-            target_payload_local,
-            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Function.tag() as u64,
+        let capture = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<BuiltinClosureCapture>().publish(
+                BuiltinClosurePayload::ProxyRevocation(&revocation),
+                schema,
+                function,
+            ),
             function,
         );
-        self.store_i64_local_at_offset(
-            target_payload_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            realm.type_error_prototype_local,
+        let captured = schema
+            .reserve_gc_local::<BuiltinClosureCapture, Nullable>(function)
+            .initialize(capture.load(schema, function).nullable(), function);
+        let lexical = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize_null(schema, function);
+        let private = schema
+            .reserve_gc_local::<PrivateEnvironment, Nullable>(function)
+            .initialize_null(schema, function);
+        let field_keys = schema
+            .reserve_gc_local::<ValueArray, Nullable>(function)
+            .initialize_null(schema, function);
+        let instance_private_methods = schema
+            .reserve_gc_local::<crate::gc_types::PrivateElementTable, Nullable>(function)
+            .initialize_null(schema, function);
+        let template = schema
+            .reserve_gc_local::<TemplateSource, Nullable>(function)
+            .initialize_null(schema, function);
+        let home = schema.reserve_value_local(function);
+        home.set_undefined(function);
+        let published = self.emit_complete_function_record(
+            &meta,
+            FunctionAllocationInputs {
+                realm: &realm.realm,
+                lexical_environment: &lexical,
+                private_environment: &private,
+                home_object: &home,
+                field_keys: &field_keys,
+                instance_private_methods: &instance_private_methods,
+                template_source: &template,
+                builtin_capture: &captured,
+                internal_prototype: &realm.function_prototype,
+                typed_array_element_kind: None,
+            },
+            FunctionPrototypeMaterialization::BootstrapSupplied,
             function,
-        );
-        self.store_i64_local_at_offset(
-            target_payload_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            target_payload_local,
-            function,
-        );
-        Ok(())
+        )?;
+        home.clear(function);
+        template.clear(function);
+        instance_private_methods.clear(function);
+        field_keys.clear(function);
+        private.clear(function);
+        lexical.clear(function);
+        captured.clear(function);
+        capture.clear(function);
+        revocation.clear(function);
+        Ok(published)
     }
 
     pub(crate) fn release_proxy_creation_execution_realm(
         &mut self,
         realm: ProxyCreationExecutionRealm,
+        function: &mut Function,
     ) {
-        self.release_temp_local(realm.type_error_prototype_local);
-        self.release_temp_local(realm.function_prototype_local);
-        self.release_temp_local(realm.object_prototype_local);
-        self.release_temp_local(realm.realm_local);
+        realm.type_error_prototype.clear(function);
+        realm.function_prototype.clear(function);
+        realm.object_prototype.clear(function);
+        realm.realm.clear(function);
     }
 }

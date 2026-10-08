@@ -1,5 +1,42 @@
 # Differential backend-execution ownership
 
+## Current worker authority — 2026-10-07 joined source
+
+Replay now requires a selected `DifferentialWorkerRunner`. Each fresh child
+owns JavaScript admission, Realm construction and the sole `execute_case`
+backend producer. The supervisor admits a private non-cloneable
+`CompletedWorkerAttempt` only after a bound header, complete ordered journal,
+process-group retirement and successful staging cleanup. It owns worker
+failure publication and retains validated incomplete print prefixes and
+available compiler provenance. No parent raw backend executor remains.
+
+WorkerFailure precedes the existing output, disposition and completion
+comparisons; matching failures stay red and receive no mismatch signature.
+The Debug-only backend envelope remains inside the worker. Its closed result
+now distinguishes scalar completion, rooted graph completion and Engine
+failure. The single consuming projection has nine exhaustive protocol/result
+routes, including explicit refusal of a scalar result for v7 and a graph result
+for v1–v6. The scalar and graph producers converge on the same actual backend
+identity and captured-hook transcript checks before the one envelope is minted.
+
+The shared transport retires the child and finishes staging cleanup before it
+returns retained evidence. The supervisor decodes that evidence, gives process
+and cleanup failures precedence, and only then admits a completed observation.
+Graph terminals additionally require the exact requested limits. The affected
+ownership guards are updated for these physical owners; their new source is
+unrun pending the joined checkpoint. See the [worker lifecycle](differential-worker-lifecycle.md).
+
+The guard pins the complete `CompletedWorkerAttempt` declaration and consuming
+accessor, the Wasm-then-oracle replay move, all nine closed projection routes,
+and the connected terminal count/domain/requested-limit condition before
+`JournalTail::Completed` is published. It accepts the formatter's trailing
+commas while retaining the original ownership and feature boundaries.
+
+## Historical envelope checkpoint
+
+The following census and passes describe the earlier in-process ownership
+checkpoint, not the current worker source or its acceptance.
+
 `BackendExecution` is the private, owned result of running one differential
 backend. It couples backend identity, the captured-output observation and the
 closed `BackendExecutionResult` payload that is later projected into the public
@@ -27,7 +64,9 @@ protocol-specific typed comparison.
 The Rust-lexical structure guard pins the production-only 7/12 census, both
 Debug-only declarations, every result producer, the complete replay and
 execution producer, the borrow/move sequence, the sole projection route and
-full normalized fingerprints for each relevant body.
+full normalized fingerprints for each relevant body. V4's Script/Module goal
+selection and exhaustive comparison/projection rows update those existing
+guards without granting another authority or projection capability.
 
 ## Focused evidence
 
@@ -41,12 +80,15 @@ cargo test -p lila-test262 differential::tests::v3_matches_primitive_completion_
 cargo test -p lila-test262 differential::tests::v3_backend_failures_are_always_red -- --exact --test-threads=1
 ```
 
-The structure target passes `6/6`, the neighboring output-policy target remains
-`4/4`, and all four exact semantic witnesses pass `1/1`. The feature-gated
+At the earlier ownership checkpoint, the structure target passed `6/6`, the
+neighboring output-policy target passed `4/4`, and all four exact semantic
+witnesses passed `1/1`. These results belong to that source. Current v4 guard
+updates are authored; compilation and execution remain pending. The feature-gated
 two-backend foundation replay remains part of the broader T25 checkpoint rather
 than this capability-only focused gate.
 
-This capability-only migration changes no corpus or report wire bytes, case
+The earlier capability-only migration changed no corpus or report wire bytes, case
 fingerprints, mismatch signatures, output rules, verdicts, backend execution or
 comparison order. It does not add an observation dimension, module replay,
-oracle, reducer or semantic-equivalence claim.
+oracle, reducer or semantic-equivalence claim. The additive v4 graph replay
+adapter consumes the same ownership chain and observation dimensions.

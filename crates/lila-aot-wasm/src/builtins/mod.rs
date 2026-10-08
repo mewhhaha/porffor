@@ -1,31 +1,54 @@
 mod array;
 mod array_from_async;
 mod async_disposable_stack;
+pub(crate) use async_disposable_stack::AsyncDisposableStackDisposeCompletionKind;
 mod async_iterator;
 mod atomics;
 mod bigint;
 mod binary_data;
-pub(crate) use binary_data::{TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse};
 mod boolean;
 mod bootstrap;
+pub(crate) use bootstrap::{created_realm_global_bindings, BootstrapRealm};
 mod collections;
+mod data_view_access;
 mod date;
 mod decimal;
 mod disposable_stack;
 mod errors;
-mod finalization_registry;
 mod function;
-pub(crate) use function::append_empty_dynamic_function_bodies;
+mod runtime_semantics;
+mod shadow_realm;
+pub(crate) use function::{
+    append_empty_dynamic_function_bodies, is_empty_dynamic_function_body,
+    is_empty_dynamic_function_id,
+};
 mod global_numeric;
 mod host;
 mod intl;
+mod intl_collator;
 mod intl_datetimeformat;
+mod intl_displaynames;
+mod intl_durationformat;
+mod intl_listformat;
+mod intl_number;
+mod intl_provider_wire;
+mod intl_relativetime;
+mod intl_segmenter;
+pub(crate) use intl_collator::intl_collator_pool_strings;
+pub(crate) use intl_displaynames::intl_display_names_pool_strings;
+pub(crate) use intl_durationformat::intl_durationformat_pool_strings;
+pub(crate) use intl_listformat::intl_list_format_pool_strings;
+pub(crate) use intl_relativetime::intl_relative_time_pool_strings;
+pub(crate) use intl_segmenter::intl_segmenter_pool_strings;
 mod intl_numberformat;
+mod intl_pluralrules;
+mod intl_supported_values;
 pub(crate) use intl_datetimeformat::intl_date_time_format_pool_strings;
 pub(crate) use intl_numberformat::intl_number_format_pool_strings;
+pub(crate) use intl_pluralrules::intl_plural_rules_pool_strings;
 mod iterators;
-pub(crate) use iterators::ArrayIteratorKind;
 mod json;
+pub(crate) use json::{JsonParseFrameState, JsonReviverFrameState, JsonReviverPropertyRole};
 mod math;
 mod number;
 mod object;
@@ -37,17 +60,18 @@ mod proxy;
 mod reflect;
 mod regexp;
 mod standard;
-pub(crate) use standard::ActiveStandardBuiltinFunction;
 mod string;
+mod system_time_zone;
 pub(crate) use string::StringNormalizationForm;
 mod symbol;
 mod temporal;
+/// Shared zoned option spellings and diagnostics are also the pool authority.
+pub(crate) use temporal::ZonedDateTimeOptionKey;
+mod temporal_calendar_arithmetic;
 mod temporal_duration;
 mod temporal_duration_methods;
+mod temporal_duration_relative;
 mod temporal_instant;
-/// The unvalidated epoch-nanosecond local pair, re-exported for `date.rs`:
-/// `Date.prototype.toTemporalInstant` shares the millisecond widening.
-pub(crate) use temporal_instant::UnvalidatedEpochNanoseconds;
 mod temporal_options;
 mod temporal_plain_date;
 /// The calendar table, re-exported for `data.rs`: the string pool derives the
@@ -60,13 +84,7 @@ mod temporal_plain_date;
 /// without a second edit anywhere — and a *calendar* added with a complete
 /// `eras()` is interned without an edit here at all.
 pub(crate) use temporal_plain_date::TemporalCalendarId;
-/// The `DifferenceTemporal*` guard messages, re-exported for `data.rs` for the
-/// same reason as the calendar table: the string pool derives them by walking
-/// `TemporalDifferenceGuard::ALL -> message()`, gated on
-/// `emitting_builtins()`, instead of repeating the five literals. A message
-/// spelled at an emitter and not interned is a *compile-time panic* in every
-/// full bootstrap (`string ... must exist in pool`), which is how batch 6 took
-/// 24 `lila-aot-wasm --lib` tests down with two new `&str` literals.
+/// Difference guards select messages from the shared runtime-error catalog.
 pub(crate) use temporal_plain_date::TemporalDifferenceGuard;
 mod temporal_difference;
 mod temporal_plain_date_methods;
@@ -78,6 +96,8 @@ mod temporal_plain_time;
 mod temporal_plain_time_methods;
 mod temporal_plain_year_month;
 mod temporal_plain_year_month_methods;
+mod temporal_zone_provider;
+mod temporal_zoned_arithmetic;
 mod temporal_zoned_date_time_day;
 /// `Temporal.ZonedDateTime.prototype.{add,subtract,until,since,withCalendar}`.
 ///
@@ -97,4 +117,4 @@ mod uint8array_base64_encode;
 mod uint8array_codecs;
 mod uint8array_hex;
 mod uri;
-mod weak_ref;
+mod weak_unavailable;

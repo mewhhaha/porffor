@@ -1,12 +1,110 @@
 # T20 — Number, BigInt, Math and JSON
 
-**Status:** In progress — exact core BigInt operators and broad numeric/JSON support exist; full closure remains
+## Current source position — 2026-10-07
+
+The reviewed numeric conversion, formatting, BigInt and JSON paths have current
+production owners, including the acquired-call and coercion-order repairs. This
+bounded audit found no additional coherent source gap in those owners. Task-wide
+native behavior, numeric boundary/resource checks, full pinned trees and
+performance acceptance remain pending; historical checkpoints below do not
+establish complete current conformance.
+
+## Primitive call evaluation and mutable methods — 2026-10-07 dry source
+
+Primitive constructor, parseFloat, Symbol and Number/Boolean/String method
+shortcuts no longer erase argument, receiver or computed-key evaluation.
+Writable Object, String and Math static methods and propertyIsEnumerable now
+share the acquired-property call path. Symbol evaluates every argument before
+description conversion, including an effectful undefined description. Safe
+single-argument intrinsic Number/String/Boolean conversions retain their full
+operand IR; spread calls use the ordinary argument owner.
+
+Number formatting uses the real native algorithms; the sparse source-value
+tables and their duplicate range checks are removed. This also removes the
+incorrect fractional-radix rejection, tiny-exponential approximation and wide
+integer truncation in those tables. Remaining coercion metadata checks binding
+identity for Number/Boolean and undefined/NaN/Infinity. Oversized radix strings
+decline unary constant folding and reach runtime conversion.
+
+Five IR controls and four paired Engine cohorts cover argument and receiver
+effects, getters, abrupt conversion, spreading, shadowed names, mutable methods,
+numeric formatting boundaries and the retained property Get. Two older controls
+now require the acquired call instead of a folded literal. Tests and compilation
+remain deferred to the joined verification batch; no conformance closure is
+claimed.
+
+## Numeric native caller effects — 2026-10-04 dry source
+
+The existing native effect authority now marks exactly 62 reviewed Number,
+BigInt, coercing global predicate, Math and Atomics entries as synchronously
+invoking user code. A consumed const requires those effects and preserves the
+eight reviewed noncoercing entries. Native algorithms, ordinals, installers,
+normal-result facts, locale and randomness effects retain their actual owners.
+Existing acquired-callee/full-argument analysis therefore invalidates captured
+kind, shape and element facts after numeric hooks while retaining scalar normal
+result knowledge. Host parseInt/parseFloat already consume this effect policy.
+
+Six meaningful IR controls and three paired finite Engine cohorts are authored
+for conversion order, complete operands, direct/candidate calls, cached iteration,
+formatter/locale options, Atomics preparation, abrupt cutoffs and borrowed native
+error Realms. Normal wait/waitAsync timeouts and notify counts are zero. Existing
+object-binding and unrelated controls are retained byte-exact around the new
+numeric insertion. Wider catalog/algorithms and full-task acceptance remain open.
+Compilation, execution, guards and pinned acceptance remain unverified; finish
+all remaining task source before the confirmed 4096 MiB capped serial checkpoint.
+See the [numeric effect contract](../docs/rust-rewrite/contracts/numeric-native-caller-effects.md).
+
+**Status:** In progress — reviewed numeric/BigInt/Math/JSON source is authored; task-wide native, pinned-suite and numeric boundary/resource/performance acceptance remain pending.
 
 **Parallel group:** Feature lane; split internally by Number, BigInt, Math and JSON  
 **Depends on:** T04, T05, T10, T18  
 **Blocks:** Numeric and JSON portions of T22-T23/T26
 
 ## Current repository state
+
+The 2026-10-04 remaining invocation source retires both ordinary-property and
+non-property literal builtin folds. Number.isFinite/isNaN/isSafeInteger now
+retain the actual acquired callee, supplied first/ignored arguments and real
+spread through native invocation. Their type-only algorithms stay unchanged;
+argument evaluation cannot disappear merely because a result is predictable.
+The sole host folding function and Annex B-only helpers retire together while
+the independent static RegExp owner remains consumed and denies dead helpers.
+
+Meaningful actual lowering and three paired Engine cohorts are authored with
+factory/iterator/forwarding retirement. They remain type/runtime unverified;
+full T20/pinned acceptance follows the full-task source pass and capped
+sequential verification. See the
+[contract](../docs/rust-rewrite/contracts/remaining-invocation-reference-ownership.md).
+
+The 2026-10-03 dry JSON.stringify preparation repair selects callable replacers
+before IsArray, snapshots array-replacer length once, then uses ordinary
+inherited and Proxy-aware Get for each index. The shared toJSON owner covers
+Object, Array, Function and Arguments through ordinary property lookup,
+retaining the existing primitive BigInt Realm path. Authored regressions cover
+mutation, exact receiver/key identity, hook order and arbitrary abrupt values.
+Independent source review is complete; compilation and execution remain pending.
+See the [JSON preparation contract](../docs/rust-rewrite/contracts/json-stringify-preparation-get.md).
+
+All ordinary JSON.parse calls now use the emitted parser and the sole canonical
+reviver traversal. The static IR, parser/materializer and both static/fallback
+walkers are deleted with all producers and visitors. Enter follows the current
+replacement value, including Function and Arguments descendants; actual callback
+holder information retains unknown callable effects. Private Object metadata
+maps have null prototypes, so new live keys cannot invoke inherited hooks on
+hidden parse records. Seven semantic sources and maintained IR/frame checks are
+authored or updated. Independent source review is complete; compilation, Wasm
+validation and execution remain pending. See the
+[reviver contract](../docs/rust-rewrite/contracts/json-reviver-frame.md).
+
+Shared primitive BigInt errors now use the existing exhaustive numeric Realm
+policy. Rejected Number/other primitives select intrinsic TypeError and invalid
+Strings select intrinsic SyntaxError in the executing builtin's defining Realm.
+Source fallback, ToPrimitive and NumberToBigInt behavior remain unchanged. Two
+borrowed-Realm sources are authored; compilation and runtime verification remain
+pending. See the [conversion Realm contract](../docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md).
+
+The historical static-reviver checkpoints below describe the deleted predecessor;
+they do not verify the current canonical path or this dry source batch.
 
 Number operators/conversions, Math builtins, JSON parsing/stringification and
 inline/heap BigInt representations have extensive Wasm implementations and
@@ -175,8 +273,8 @@ JSON reviver frame protocol now has a theory source of
 truth at `docs/rust-rewrite/contracts/json-reviver-frame.md`. Its dynamic frame
 stores closed typed states and an explicit nested-versus-root property role;
 exhaustive emission gives every valid wire word a semantic arm and traps an
-invalid word as an internal invariant violation. The static-specialized and
-dynamic parser paths share the post-call deletion/replacement emitter, so an
+invalid word as an internal invariant violation. At that historical checkpoint, static-specialized and
+dynamic parser paths shared the post-call deletion/replacement emitter, so an
 ordinary empty-string property cannot be mistaken for the synthetic root. A
 registered dynamic-input CLI fixture pins postorder traversal, array-length
 and object-key snapshots, forward mutation, `context.source` SameValue
@@ -402,7 +500,7 @@ hardening.
 Final formatter, diff, module-boundary, task-plan and 240-entry
 shortcut-inventory gates are green.
 
-Batch AN makes the private static-reviver string-or-array-index role a
+Historical Batch AN made the now-retired private static-reviver string-or-array-index role a
 capability-free `JsonStaticPropertyKey`. Its three producers immediately lend
 the temporary identity, and the recursive internalizer borrows the same key
 through materialization, holder lookup and final reviver-result application.
@@ -570,6 +668,29 @@ the exact `5/9/4/2` lifecycle census. The frame-state and unchanged reviver
 structure targets pass `4/4` and `5/5`, shared `cargo xc` passes, and the exact
 dynamic-reviver CLI witness passes `1/1`. This ownership-only move needs no
 Test262 cohort or semantic golden and makes no new JSON behavior claim.
+
+## Global numeric conversion folding — 2026-10-04 dry source
+
+Global `isNaN` and `isFinite` decline literal folding and use the existing emitted
+ToNumber/StringToNumber path. Their former host string parser disagreed with
+ECMAScript nondecimal prefixes and whitespace; array-literal folding also
+bypassed the live array ToPrimitive hooks. Neither actual folding caller had a
+proof that those hooks were unchanged. The unused literal ToNumber folding
+helpers are removed rather than given a second parsing authority. The existing
+Number.isNaN/Number.isFinite type-only folds, RegExp literals and Annex B
+unescape remain in their current owners.
+
+Meaningful IR controls pin actual retained calls and arguments. Engine controls
+call the global builtins directly with literal strings and arrays, covering
+valid/invalid string grammar, hook Get/Call order, number hints, actual receiver
+and fresh literal identities, original abrupt payloads and saved intrinsic
+TypeError even after the public binding is replaced. Ignored extra arguments
+still evaluate before conversion, including their original abrupt payloads.
+All six numeric-prefix
+controls require the exact Wasm AOT Normal Boolean(true) observation in strict
+and sloppy modes. Its combined all-target Rust type check passed in ref77;
+runtime acceptance of this semantic batch remains pending. No full Number,
+Test262 or T20 closure is claimed. See the [conversion contract](../docs/rust-rewrite/contracts/global-numeric-call-coercion-ownership.md).
 
 ## Objective
 

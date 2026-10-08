@@ -146,8 +146,8 @@ impl AccountedInvocationEffects {
                 | ExprIr::CallIndirect { .. }
                 | ExprIr::CallMethod { .. }
                 | ExprIr::Construct { .. }
-                | ExprIr::JsonParseStaticReviver { .. }
                 | ExprIr::OptionalPropertyChain { .. }
+                | ExprIr::DeleteOptionalPropertyChain(_)
         );
         self.attached_to_emitted_call = true;
         assert!(

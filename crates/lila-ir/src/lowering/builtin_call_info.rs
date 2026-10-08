@@ -23,6 +23,14 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FunctionConstructor => Some(Self::empty_dynamic_function_info(
                 DynamicFunctionKind::Ordinary,
             )),
+            StandardBuiltinId::ShadowRealmConstructor => Some(Self::shadow_realm_instance_info()),
+            StandardBuiltinId::ShadowRealmPrototypeImportValue => Some(
+                Self::value_info_from_shape(Some(Self::promise_instance_shape())),
+            ),
+            StandardBuiltinId::ShadowRealmPrototypeEvaluate
+            | StandardBuiltinId::ShadowRealmWrappedFunctionCall
+            | StandardBuiltinId::ShadowRealmImportFulfilled
+            | StandardBuiltinId::ShadowRealmImportRejected => Some(unknown_runtime_value_info()),
             StandardBuiltinId::EvalFunction => {
                 unreachable!(
                     "dynamic-source builtins must consume their resolved disposition before builtin result analysis"
@@ -301,12 +309,7 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: FunctionTargetKnowledge::unknown(),
                 })
             }
-            StandardBuiltinId::FunctionPrototypeBind => {
-                Some(Self::function_value_info_with_constructable(
-                    StandardBuiltinId::BoundFunctionInvoker.function_id(),
-                    true,
-                ))
-            }
+            StandardBuiltinId::FunctionPrototypeBind => Some(ValueInfo::new(ValueKind::Function)),
             StandardBuiltinId::ObjectConstructor => {
                 if let Some(arg) = args.first() {
                     let nullish = KindSet::from_kind(ValueKind::Undefined)
@@ -364,6 +367,7 @@ impl<'a> ScriptLowerer<'a> {
                 if proto.possible_kinds == null_kind {
                     return_analysis!(Self::value_info_from_shape(Some(Box::new(
                         HeapShape::Object(ObjectShape {
+                            provenance: HeapShapeProvenance::Program,
                             prototype: None,
                             properties: BTreeMap::new(),
                             private_brands: BTreeSet::new(),
@@ -389,6 +393,7 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 Some(Self::value_info_from_shape(Some(Box::new(
                     HeapShape::Object(ObjectShape {
+                        provenance: HeapShapeProvenance::Program,
                         prototype: Some(prototype),
                         properties: BTreeMap::new(),
                         private_brands: BTreeSet::new(),
@@ -462,113 +467,117 @@ impl<'a> ScriptLowerer<'a> {
                 Some(result)
             }
             StandardBuiltinId::ObjectGetOwnPropertyDescriptor => {
-                let Some(target) = args.first() else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: Object.getOwnPropertyDescriptor requires object"
-                    ));
-                    return None;
-                };
-                if !target
-                    .possible_kinds
-                    .is_subset_of(Self::object_like_kind_set().union(KindSet::all_runtime_tags()))
-                {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: Object.getOwnPropertyDescriptor requires object"
-                    ));
-                    return None;
-                }
-                if let Some(key_arg) = args.get(1) {
-                    if let ExprIr::String(key) = &key_arg.expr {
-                        let is_species_symbol = key_arg.kind == ValueKind::Symbol
-                            && WellKnownSymbol::from_description(SymbolDescription::new(key))
-                                == Some(WellKnownSymbol::Species);
-                        let species_getter = if is_species_symbol
-                            && target.function_targets.exact_single_target()
-                                == Some(&StandardBuiltinId::ArrayConstructor.function_id())
-                        {
-                            Some(StandardBuiltinId::ArraySpeciesGetter)
-                        } else if is_species_symbol
-                            && target.function_targets.exact_single_target()
-                                == Some(&StandardBuiltinId::ArrayBufferConstructor.function_id())
-                        {
-                            Some(StandardBuiltinId::ArrayBufferSpeciesGetter)
-                        } else if is_species_symbol
-                            && target.function_targets.exact_single_target()
-                                == Some(&StandardBuiltinId::RegExpConstructor.function_id())
-                        {
-                            Some(StandardBuiltinId::RegExpSpeciesGetter)
-                        } else if is_species_symbol
-                            && target.function_targets.exact_single_target()
-                                == Some(&StandardBuiltinId::PromiseConstructor.function_id())
-                        {
-                            Some(StandardBuiltinId::PromiseSpeciesGetter)
-                        } else if is_species_symbol
-                            && target.function_targets.exact_single_target()
-                                == Some(&StandardBuiltinId::MapConstructor.function_id())
-                        {
-                            Some(StandardBuiltinId::MapSpeciesGetter)
-                        } else if is_species_symbol
-                            && target.function_targets.exact_single_target()
-                                == Some(&StandardBuiltinId::SetConstructor.function_id())
-                        {
-                            Some(StandardBuiltinId::SetSpeciesGetter)
-                        } else {
-                            None
+                // Shape-specific results need a proven object target; any other
+                // argument goes through the generic ToObject descriptor call.
+                let proven_target = args.first().filter(|target| {
+                    target.possible_kinds.is_subset_of(
+                        Self::object_like_kind_set().union(KindSet::all_runtime_tags()),
+                    )
+                });
+                if let Some(target) = proven_target {
+                    if let Some(key_arg) = args.get(1) {
+                        let key = match &key_arg.expr {
+                            ExprIr::String(key) => Some(key.clone()),
+                            ExprIr::WellKnownSymbol(symbol) => Some(shape_namespace_key(*symbol)),
+                            _ => None,
                         };
-                        if let Some(species_getter) = species_getter {
-                            return_analysis!(ValueInfo {
-                                kind: ValueKind::Object,
-                                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                heap_shape: Some(Self::property_descriptor_shape(vec![
-                                    ("get", Self::standard_builtin_value_info(species_getter)),
-                                    ("set", ValueInfo::undefined()),
-                                    ("enumerable", Self::boolean_value_info()),
-                                    ("configurable", Self::boolean_value_info()),
-                                ])),
-                                function_targets: FunctionTargetKnowledge::none(),
-                            });
-                        }
-                        if let Some(property) = self.read_own_object_shape_property(target, key) {
-                            let fields = match property {
-                                ObjectShapeProperty::Data(value) => vec![
-                                    ("value", value),
-                                    ("writable", Self::boolean_value_info()),
-                                    ("enumerable", Self::boolean_value_info()),
-                                    ("configurable", Self::boolean_value_info()),
-                                ],
-                                ObjectShapeProperty::Accessor { getter, setter } => vec![
-                                    (
-                                        "get",
-                                        getter
-                                            .map(|accessor| {
-                                                Self::function_value_info_with_constructable(
-                                                    accessor.function_id,
-                                                    false,
-                                                )
-                                            })
-                                            .unwrap_or_else(ValueInfo::undefined),
-                                    ),
-                                    (
-                                        "set",
-                                        setter
-                                            .map(|accessor| {
-                                                Self::function_value_info_with_constructable(
-                                                    accessor.function_id,
-                                                    false,
-                                                )
-                                            })
-                                            .unwrap_or_else(ValueInfo::undefined),
-                                    ),
-                                    ("enumerable", Self::boolean_value_info()),
-                                    ("configurable", Self::boolean_value_info()),
-                                ],
+                        if let Some(key) = key {
+                            let is_species_symbol = matches!(
+                                key_arg.expr,
+                                ExprIr::WellKnownSymbol(WellKnownSymbol::Species)
+                            );
+                            let species_getter = if is_species_symbol
+                                && target.function_targets.exact_single_target()
+                                    == Some(&StandardBuiltinId::ArrayConstructor.function_id())
+                            {
+                                Some(StandardBuiltinId::ArraySpeciesGetter)
+                            } else if is_species_symbol
+                                && target.function_targets.exact_single_target()
+                                    == Some(
+                                        &StandardBuiltinId::ArrayBufferConstructor.function_id(),
+                                    )
+                            {
+                                Some(StandardBuiltinId::ArrayBufferSpeciesGetter)
+                            } else if is_species_symbol
+                                && target.function_targets.exact_single_target()
+                                    == Some(&StandardBuiltinId::RegExpConstructor.function_id())
+                            {
+                                Some(StandardBuiltinId::RegExpSpeciesGetter)
+                            } else if is_species_symbol
+                                && target.function_targets.exact_single_target()
+                                    == Some(&StandardBuiltinId::PromiseConstructor.function_id())
+                            {
+                                Some(StandardBuiltinId::PromiseSpeciesGetter)
+                            } else if is_species_symbol
+                                && target.function_targets.exact_single_target()
+                                    == Some(&StandardBuiltinId::MapConstructor.function_id())
+                            {
+                                Some(StandardBuiltinId::MapSpeciesGetter)
+                            } else if is_species_symbol
+                                && target.function_targets.exact_single_target()
+                                    == Some(&StandardBuiltinId::SetConstructor.function_id())
+                            {
+                                Some(StandardBuiltinId::SetSpeciesGetter)
+                            } else {
+                                None
                             };
-                            return_analysis!(ValueInfo {
-                                kind: ValueKind::Object,
-                                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                                heap_shape: Some(Self::property_descriptor_shape(fields)),
-                                function_targets: FunctionTargetKnowledge::none(),
-                            });
+                            if let Some(species_getter) = species_getter {
+                                return_analysis!(ValueInfo {
+                                    kind: ValueKind::Object,
+                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                                    heap_shape: Some(Self::property_descriptor_shape(vec![
+                                        ("get", Self::standard_builtin_value_info(species_getter)),
+                                        ("set", ValueInfo::undefined()),
+                                        ("enumerable", Self::boolean_value_info()),
+                                        ("configurable", Self::boolean_value_info()),
+                                    ])),
+                                    function_targets: FunctionTargetKnowledge::none(),
+                                });
+                            }
+                            if let Some(property) =
+                                self.read_own_object_shape_property(target, &key)
+                            {
+                                let fields = match property {
+                                    ObjectShapeProperty::Data(value) => vec![
+                                        ("value", value),
+                                        ("writable", Self::boolean_value_info()),
+                                        ("enumerable", Self::boolean_value_info()),
+                                        ("configurable", Self::boolean_value_info()),
+                                    ],
+                                    ObjectShapeProperty::Accessor { getter, setter } => vec![
+                                        (
+                                            "get",
+                                            getter
+                                                .map(|accessor| {
+                                                    Self::function_value_info_with_constructable(
+                                                        accessor.function_id,
+                                                        false,
+                                                    )
+                                                })
+                                                .unwrap_or_else(ValueInfo::undefined),
+                                        ),
+                                        (
+                                            "set",
+                                            setter
+                                                .map(|accessor| {
+                                                    Self::function_value_info_with_constructable(
+                                                        accessor.function_id,
+                                                        false,
+                                                    )
+                                                })
+                                                .unwrap_or_else(ValueInfo::undefined),
+                                        ),
+                                        ("enumerable", Self::boolean_value_info()),
+                                        ("configurable", Self::boolean_value_info()),
+                                    ],
+                                };
+                                return_analysis!(ValueInfo {
+                                    kind: ValueKind::Object,
+                                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                                    heap_shape: Some(Self::property_descriptor_shape(fields)),
+                                    function_targets: FunctionTargetKnowledge::none(),
+                                });
+                            }
                         }
                     }
                 }
@@ -892,32 +901,11 @@ impl<'a> ScriptLowerer<'a> {
                         heap_shape: None,
                         function_targets: FunctionTargetKnowledge::unknown(),
                     });
-                let iterator_lookup_cannot_call_user_code = match base.heap_shape.as_deref() {
-                    None => false,
-                    Some(base_shape) => {
-                        let next_lookup_cannot_call_user_code = !matches!(
-                            read_heap_shape_property(base_shape, "next"),
-                            Some(ObjectShapeProperty::Accessor { .. })
-                        );
-                        match Self::read_well_known_symbol_shape_property(
-                            Some(base_shape),
-                            WellKnownSymbol::Iterator,
-                        ) {
-                            Some(ObjectShapeProperty::Accessor { .. }) => false,
-                            Some(ObjectShapeProperty::Data(method)) => {
-                                !method.possible_kinds.contains(ValueKind::Function)
-                                    && (!method.possible_kinds.intersects(KindSet::NULLISH)
-                                        || next_lookup_cannot_call_user_code)
-                            }
-                            None => next_lookup_cannot_call_user_code,
-                        }
-                    }
-                };
-                let result = self.iterator_from_wrapper_value_info(base);
-                if iterator_lookup_cannot_call_user_code {
-                    return_analysis!(result);
-                }
-                Some(result)
+                // GetIteratorFlattenable can invoke protocol getters/methods;
+                // OrdinaryHasInstance can traverse a Proxy prototype even
+                // when @@iterator and next are proven own data properties.
+                // Keep the builtin's ordinary caller-effect accounting.
+                Some(self.iterator_from_wrapper_value_info(base))
             }
             StandardBuiltinId::IteratorConcat => Some(ValueInfo {
                 kind: ValueKind::Object,
@@ -1021,9 +1009,9 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: FunctionTargetKnowledge::none(),
             }),
             StandardBuiltinId::TypedArrayPrototypeSet => Some(ValueInfo::undefined()),
+            StandardBuiltinId::TypedArrayPrototypeToString => Some(unknown_runtime_value_info()),
             StandardBuiltinId::ArrayPrototypeJoin
             | StandardBuiltinId::ArrayPrototypeToLocaleString
-            | StandardBuiltinId::TypedArrayPrototypeToString
             | StandardBuiltinId::TypedArrayPrototypeJoin
             | StandardBuiltinId::Uint8ArrayPrototypeToBase64
             | StandardBuiltinId::Uint8ArrayPrototypeToHex
@@ -1115,18 +1103,9 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::ArrayPrototypeForEach
             | StandardBuiltinId::TypedArrayPrototypeForEach => Some(ValueInfo::undefined()),
-            StandardBuiltinId::ArrayPrototypeFilter => Some(ValueInfo {
-                kind: ValueKind::Array,
-                possible_kinds: KindSet::from_kind(ValueKind::Array),
-                heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                function_targets: FunctionTargetKnowledge::unknown(),
-            }),
-            StandardBuiltinId::ArrayPrototypeMap => Some(ValueInfo {
-                kind: ValueKind::Array,
-                possible_kinds: KindSet::from_kind(ValueKind::Array),
-                heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                function_targets: FunctionTargetKnowledge::unknown(),
-            }),
+            StandardBuiltinId::ArrayPrototypeFilter | StandardBuiltinId::ArrayPrototypeMap => {
+                Some(Self::unshaped_array_result_info())
+            }
             StandardBuiltinId::TypedArrayPrototypeMap
             | StandardBuiltinId::TypedArrayPrototypeFilter => Some(ValueInfo {
                 kind: ValueKind::Object,
@@ -1156,12 +1135,7 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: FunctionTargetKnowledge::unknown(),
             }),
             StandardBuiltinId::ArrayPrototypeFill | StandardBuiltinId::ArrayPrototypeSort => {
-                Some(ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::unknown(),
-                })
+                Some(Self::unknown_construct_result_info())
             }
             StandardBuiltinId::ArrayPrototypePush => Some(ValueInfo {
                 kind: ValueKind::Number,
@@ -1184,7 +1158,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeIterator => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Self::array_iterator_instance_shape()),
+                heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
             StandardBuiltinId::IteratorConstructor => Some(Self::standard_builtin_value_info(
@@ -1343,8 +1317,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose => Some(
                 Self::value_info_from_shape(Some(Self::promise_instance_shape())),
             ),
-            StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled
-            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected => {
+            StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled => {
                 Some(ValueInfo::undefined())
             }
             StandardBuiltinId::ArrayIteratorIdentity => Some(ValueInfo {
@@ -1359,16 +1332,15 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::SharedArrayBufferConstructor => Some(Self::value_info_from_shape(
                 Some(Self::shared_array_buffer_instance_shape()),
             )),
-            StandardBuiltinId::ArraySpeciesGetter => Some(Self::standard_builtin_value_info(
-                StandardBuiltinId::ArrayConstructor,
-            )),
-            StandardBuiltinId::TypedArraySpeciesGetter => Some(ValueInfo::new(ValueKind::Function)),
-            StandardBuiltinId::ArrayBufferSpeciesGetter => Some(Self::standard_builtin_value_info(
-                StandardBuiltinId::ArrayBufferConstructor,
-            )),
-            StandardBuiltinId::RegExpSpeciesGetter => Some(Self::standard_builtin_value_info(
-                StandardBuiltinId::RegExpConstructor,
-            )),
+            StandardBuiltinId::ArraySpeciesGetter
+            | StandardBuiltinId::TypedArraySpeciesGetter
+            | StandardBuiltinId::ArrayBufferSpeciesGetter
+            | StandardBuiltinId::RegExpSpeciesGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::unknown(),
+            }),
             StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
@@ -1410,19 +1382,9 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::DataViewConstructor => {
-                let Some(buffer) = args.first() else {
-                    self.unsupported_with_message(
-                        "unsupported in lila wasm-aot first slice: DataView requires ArrayBuffer"
-                            .to_string(),
-                    );
-                    return None;
-                };
-                let _ = buffer;
-                Some(Self::value_info_from_shape(Some(
-                    Self::data_view_instance_shape(),
-                )))
-            }
+            StandardBuiltinId::DataViewConstructor => Some(Self::value_info_from_shape(Some(
+                Self::data_view_instance_shape(),
+            ))),
             StandardBuiltinId::DataViewPrototypeBufferGetter => Some(Self::value_info_from_shape(
                 Some(Self::array_buffer_instance_shape()),
             )),
@@ -1447,7 +1409,7 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ValueInfo {
                     kind: ValueKind::Object,
                     possible_kinds: KindSet::from_kind(ValueKind::Object),
-                    heap_shape: Some(Box::new(Self::empty_object_shape())),
+                    heap_shape: None,
                     function_targets: FunctionTargetKnowledge::none(),
                 })
             }
@@ -1550,7 +1512,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::StringPrototypeCharCodeAt => Some(ValueInfo::new(ValueKind::Number)),
             StandardBuiltinId::StringPrototypeIndexOf
             | StandardBuiltinId::StringPrototypeLastIndexOf
-            | StandardBuiltinId::StringPrototypeLocaleCompare => {
+            | StandardBuiltinId::StringPrototypeLocaleCompare
+            | StandardBuiltinId::IntlCollatorBoundCompare => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
             StandardBuiltinId::StringPrototypeCodePointAt => Some(ValueInfo {
@@ -1565,7 +1528,6 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeStartsWith => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            StandardBuiltinId::StringPrototypeMatchAll => Some(ValueInfo::new(ValueKind::Object)),
             StandardBuiltinId::RegExpPrototypeSymbolMatchAll => Some(Self::value_info_from_shape(
                 Some(Self::regexp_string_iterator_instance_shape()),
             )),
@@ -1659,6 +1621,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::RegExpPrototypeTest => Some(ValueInfo::new(ValueKind::Boolean)),
             StandardBuiltinId::StringPrototypeMatch
+            | StandardBuiltinId::StringPrototypeMatchAll
             | StandardBuiltinId::StringPrototypeReplace
             | StandardBuiltinId::StringPrototypeReplaceAll
             | StandardBuiltinId::StringPrototypeSearch
@@ -1940,11 +1903,22 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
+            StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+            | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo => {
+                Some(ValueInfo::new(ValueKind::Object))
+            }
             StandardBuiltinId::IntlLocaleConstructor
             | StandardBuiltinId::IntlLocalePrototypeMaximize
             | StandardBuiltinId::IntlLocalePrototypeMinimize => Some(Self::value_info_from_shape(
                 Some(Self::intl_locale_instance_shape()),
             )),
+            StandardBuiltinId::IntlLocalePrototypeGetTimeZones => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Array)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            }),
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
@@ -1957,26 +1931,61 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
             | StandardBuiltinId::IntlNumberFormatConstructor
-            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => Some(ValueInfo {
+            | StandardBuiltinId::IntlPluralRulesConstructor
+            | StandardBuiltinId::IntlListFormatConstructor
+            | StandardBuiltinId::IntlCollatorConstructor
+            | StandardBuiltinId::IntlDisplayNamesConstructor
+            | StandardBuiltinId::IntlRelativeTimeFormatConstructor
+            | StandardBuiltinId::IntlDurationFormatConstructor
+            | StandardBuiltinId::IntlSegmenterConstructor
+            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions
+            | StandardBuiltinId::IntlListFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlCollatorPrototypeResolvedOptions
+            | StandardBuiltinId::IntlDisplayNamesPrototypeResolvedOptions
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlDurationFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlSegmenterPrototypeSegment
+            | StandardBuiltinId::IntlSegmenterPrototypeResolvedOptions
+            | StandardBuiltinId::IntlSegmentsPrototypeIterator
+            | StandardBuiltinId::IntlSegmentIteratorPrototypeNext => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::IntlGetCanonicalLocales
+            StandardBuiltinId::IntlSupportedValuesOf
+            | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+            | StandardBuiltinId::IntlLocalePrototypeGetCollations
+            | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
+            | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+            | StandardBuiltinId::IntlGetCanonicalLocales
             | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
             | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlPluralRulesSupportedLocalesOf
+            | StandardBuiltinId::IntlListFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlCollatorSupportedLocalesOf
+            | StandardBuiltinId::IntlDisplayNamesSupportedLocalesOf
+            | StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlDurationFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlSegmenterSupportedLocalesOf
+            | StandardBuiltinId::IntlListFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlDurationFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => {
                 Some(ValueInfo::new(ValueKind::Array))
             }
+            StandardBuiltinId::IntlDisplayNamesPrototypeOf
+            | StandardBuiltinId::IntlSegmentsPrototypeContaining => None,
             StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
-            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => {
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlCollatorPrototypeCompareGetter => {
                 Some(ValueInfo::new(ValueKind::Function))
             }
             StandardBuiltinId::IntlLocalePrototypeLanguageGetter
@@ -1985,7 +1994,12 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlDateTimeFormatBoundFormat
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
             | StandardBuiltinId::IntlNumberFormatBoundFormat
-            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => {
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelect
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelectRange
+            | StandardBuiltinId::IntlListFormatPrototypeFormat
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat
+            | StandardBuiltinId::IntlDurationFormatPrototypeFormat => {
                 Some(ValueInfo::new(ValueKind::String))
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => {
@@ -2000,12 +2014,23 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalNowZonedDateTimeIso
             | StandardBuiltinId::TemporalZonedDateTimeConstructor
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
+            | StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso
             | StandardBuiltinId::TemporalZonedDateTimeFrom => Some(Self::value_info_from_shape(
                 Some(Self::temporal_zoned_date_time_instance_shape()),
             )),
+            StandardBuiltinId::TemporalNowPlainDateTimeIso => Some(Self::value_info_from_shape(
+                Some(Self::temporal_plain_date_time_instance_shape()),
+            )),
+            StandardBuiltinId::TemporalNowPlainDateIso => Some(Self::value_info_from_shape(Some(
+                Self::temporal_plain_date_instance_shape(),
+            ))),
+            StandardBuiltinId::TemporalNowPlainTimeIso => Some(Self::value_info_from_shape(Some(
+                Self::temporal_plain_time_instance_shape(),
+            ))),
             StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
                 Some(ValueInfo::new(ValueKind::BigInt))
@@ -2014,9 +2039,17 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString => {
                 Some(ValueInfo::new(ValueKind::String))
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
+            ),
             StandardBuiltinId::TemporalInstantCompare
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimeCompare
@@ -2078,9 +2111,41 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
             ),
-            StandardBuiltinId::RegExpConstructor => Some(Self::value_info_from_shape(Some(
-                Self::regexp_prototype_shape(),
-            ))),
+            StandardBuiltinId::RegExpConstructor => {
+                let object_kinds =
+                    KindSet::HEAP_COERCIBLE_ONLY.union(KindSet::from_kind(ValueKind::Function));
+                if context == BuiltinCallContext::Call
+                    && args
+                        .first()
+                        .is_some_and(|pattern| pattern.possible_kinds.intersects(object_kinds))
+                {
+                    let possible_kinds = args[0]
+                        .possible_kinds
+                        .intersection(object_kinds)
+                        .union(KindSet::from_kind(ValueKind::Object));
+                    // Call may return the pattern object itself. Retain every
+                    // known callable candidate so a later call still observes
+                    // source parameters and prepares finite Function/eval code.
+                    // A fresh RegExp remains possible, so this is never an
+                    // exact callable result or an instance-shape proof.
+                    let mut function_targets = args[0].function_targets.clone();
+                    function_targets.widen_for_possible_replacement();
+                    Some(ValueInfo {
+                        kind: if possible_kinds == KindSet::from_kind(ValueKind::Object) {
+                            ValueKind::Object
+                        } else {
+                            ValueKind::Dynamic
+                        },
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets,
+                    })
+                } else {
+                    Some(Self::value_info_from_shape(Some(
+                        Self::regexp_instance_shape(),
+                    )))
+                }
+            }
             StandardBuiltinId::DateNow
             | StandardBuiltinId::DateParse
             | StandardBuiltinId::DateUtc
@@ -2155,6 +2220,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::AtomicsPause => Some(ValueInfo::new(ValueKind::Undefined)),
             StandardBuiltinId::AtomicsWaitAsync => Some(Self::value_info_from_shape(Some(
                 Box::new(HeapShape::Object(ObjectShape {
+                    provenance: HeapShapeProvenance::Program,
                     prototype: Some(Box::new(Self::empty_object_shape())),
                     properties: BTreeMap::from([
                         (
@@ -2230,24 +2296,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::RegExpPrototypeStickyGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            StandardBuiltinId::BoundFunctionInvoker => {
-                self.observe_unaccounted_invocation_effects(InvocationTargetProvenance::Erased);
-                return Some(
-                    StandardBuiltinCallAnalysis::with_accounted_invocation_effects(
-                        if context == BuiltinCallContext::Construct {
-                            Self::fresh_constructed_instance_info()
-                        } else {
-                            ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: FunctionTargetKnowledge::unknown(),
-                            }
-                        },
-                    ),
-                );
-            }
-            StandardBuiltinId::ThrowTypeError | StandardBuiltinId::TypedArrayConstructor => {
+            StandardBuiltinId::ThrowTypeError
+            | StandardBuiltinId::TypedArrayConstructor
+            | StandardBuiltinId::AbstractModuleSourceConstructor
+            | StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter => {
                 Some(ValueInfo::undefined())
             }
         };
@@ -2262,8 +2314,14 @@ impl<'a> ScriptLowerer<'a> {
             || args
                 .first()
                 .is_none_or(|arg| arg.possible_kinds.is_subset_of(KindSet::NULLISH)));
+        // Literal syntax allocates from this Realm's intrinsic with parser-owned
+        // pattern/flag strings. It never reads the global RegExp binding or
+        // coerces caller values, unlike either form of constructor invocation.
+        let intrinsic_regexp_literal = builtin == StandardBuiltinId::RegExpConstructor
+            && context == BuiltinCallContext::RegExpLiteral;
         if builtin.may_run_user_code_synchronously()
             && !collection_constructor_cannot_call_user_code
+            && !intrinsic_regexp_literal
             && !promise_invocation_policy.bypasses_catalog_invalidation()
         {
             self.invalidate_unknown_user_code_effects();

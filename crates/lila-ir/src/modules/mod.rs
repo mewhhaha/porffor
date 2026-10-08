@@ -6,9 +6,9 @@
 //! `admission` assigns dynamic-only loading failures to import jobs while
 //! preserving static rejection. `graph_build` owns transitive assembly; `graph_resolution` owns
 //! `GetExportedNames` / `ResolveExport`; `graph_evaluation_classification` owns
-//! evaluation-mode classification and unsupported phase policy;
+//! evaluation-mode classification;
 //! `graph_evaluation_order` owns static order/component queries for linking
-//! and retained drivers; canonical execution selects components at runtime.
+//! and graph inspection; canonical execution selects components at runtime.
 //! `graph_async_evaluation` owns async-module
 //! propagation and pending-dependency queries; and `graph_materialization`
 //! owns the evaluation-to-runtime query boundary.
@@ -16,14 +16,14 @@
 //! the per-module bodies into the single `ScriptIr` the backend emits, and
 //! `source` is the lexical scanner it uses to delete module-goal-only syntax
 //! from a unit's text. `default_export_definition` carries exact definition identity
-//! through that merge for NamedEvaluation and declaration instantiation without
+//! through canonical activation assembly for NamedEvaluation and instantiation without
 //! exposing a minted storage name or changing a callable's exact source.
-//! `namespace` owns module namespace exotic objects, deferred namespaces and
-//! module source objects. `dynamic` owns the `import()` component registry.
+//! `namespace` owns module namespace exotic objects and deferred namespaces. `dynamic` owns the `import()` component registry.
 //!
-//! All three module request *phases* link. The evaluation phase is the default;
-//! `import defer` makes a unit's body a thunk its namespace calls on first
-//! touch; `import source` loads and parses a unit without instantiating it.
+//! Evaluation and defer requests use canonical activations. Source requests
+//! load and parse their target, but this loader supplies only ECMAScript Source
+//! Text Module Records: static source bindings fail at linking and dynamic
+//! source jobs reject before dependency loading or evaluation.
 //! `graph_evaluation_classification::classify_evaluation_modes` is the single
 //! authority for which unit gets which treatment.
 //!
@@ -39,6 +39,7 @@ mod entry_evaluation;
 mod evaluation_mode;
 pub(crate) use entry_evaluation::{LinkedModuleEntry, ModuleEntryEvaluationBoundary};
 pub use entry_evaluation::{ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr};
+mod callable_source;
 mod graph;
 mod graph_async_evaluation;
 mod graph_build;
@@ -47,6 +48,8 @@ mod graph_evaluation_order;
 mod graph_materialization;
 mod graph_resolution;
 mod import_phase;
+mod json;
+pub use json::{JsonModuleValueIr, JsonValue};
 mod link;
 mod link_error;
 mod loaded_sources;
@@ -54,7 +57,9 @@ mod module_key;
 mod module_unit;
 mod namespace;
 mod namespace_definition;
+mod realm_request;
 mod record;
+pub use realm_request::{scan_script_realm_module_requests, RealmModuleResolutionIr};
 mod resolved_binding;
 mod source;
 mod synchronous_definition;
@@ -68,14 +73,14 @@ pub use graph::*;
 pub use import_phase::ImportPhaseIr;
 pub use link::*;
 pub use link_error::ModuleLinkErrorIr;
-pub use loaded_sources::{ModuleGraphSources, ModuleSourceIr};
+pub use loaded_sources::{ModuleGraphSources, ModuleKindIr, ModuleSourceIr};
 pub use module_key::{ModuleKey, ANONYMOUS_MODULE_KEY};
 pub use module_unit::ModuleUnitIr;
 pub use namespace::*;
 pub use record::*;
 pub use resolved_binding::{ModuleBindingNameIr, ResolvedBindingIr};
 
-pub(crate) use admission::link_loaded_graph;
+pub(crate) use admission::{link_complete_catalog, link_loaded_graph, GraphAdmission};
 pub(crate) use dynamic::lower_import_call;
 pub(crate) use graph::link;
 pub(crate) use graph_build::build_graph;

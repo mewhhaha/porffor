@@ -1,7 +1,25 @@
 # TypedArray `subarray` buffer witness
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+Subarray requires the real TypedArray brand and retains its nonthrowing source length snapshot, including zero for an out-of-bounds source. Original begin/end coercions precede species construction. The selected original source buffer, element kind, byte offset and tracking state determine the complete argv; the shared Construct owner then validates the actual result's concrete brand, write admission and Number/BigInt content type. Default constructors are saved defining-Realm intrinsics, never public globals.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: focused-verified for the T17 Wasm-AOT source-length and post-species
 result-validation boundaries on 2026-08-25.
+
+
+The current 2026-10-03 dry species batch preserves this non-throwing source
+snapshot and complete tracking/fixed argument vector. The shared private factory
+now performs Proxy-aware Construct and result brand/fresh-view/content acceptance,
+and final publication consumes its result owner. It imposes no minimum-length
+requirement on the buffer argument-vector route. Historical source layout and
+verification below remain scoped to their original checkpoint. See
+[shared species ownership](typed-array-species-create-ownership.md).
 
 ## Specification boundary
 

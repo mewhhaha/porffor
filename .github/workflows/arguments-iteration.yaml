@@ -32,14 +32,7 @@ jobs:
           python3 scripts/tests/test_engine_regression_inventory.py
       - name: Protect adjacent iterator ownership and realm behavior
         run: >-
-          cargo test --locked -p lila-aot-wasm
-          --test for_of_string_iterator_protocol_structure
-          --test direct_sync_for_of_protocol_error_realm_structure
-          --test plain_async_for_of_await_using_structure
-          --test synchronous_using_for_of_structure
-          --test sync_iterator_locals_release_ownership_structure
-          --test sync_iterator_consumer_capability_structure
-          --test math_sum_precise_runtime_structure
+          cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
       - name: Run every compiled Arguments engine regression in a fresh process
         run: >-
           python3 scripts/run_engine_regression_inventory.py aot_arguments_iteration

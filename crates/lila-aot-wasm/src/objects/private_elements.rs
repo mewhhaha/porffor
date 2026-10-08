@@ -1,1011 +1,857 @@
 use super::*;
+use crate::gc_types::{
+    PrivateElement, PrivateElementKind, PrivateElementSchema, PrivateElementTable,
+    PrivateEnvironment, PrivateEnvironmentSchema, PrivateName, PrivateNameTable,
+};
+use crate::runtime_helpers::{
+    HelperParameters, PrivateElementAddArguments, PrivateElementAddParameters,
+    PrivateFieldDefineArguments, PrivateFieldDefineParameters,
+};
 
-/// The five legal private-element heap rows, with their required locals.
-///
-/// Keeping receiver and value presence inside the variant prevents the raw
-/// kind/`Option` Cartesian product described by
-/// `docs/rust-rewrite/contracts/private-element-entry-protocol.md`.
-enum PrivateElementEntryLocals {
-    Brand {
-        receiver: (u32, u32),
-    },
-    Field {
-        receiver: (u32, u32),
-        value: (u32, u32),
-    },
-    SetterDefinition {
-        value: (u32, u32),
-    },
-    MethodDefinition {
-        value: (u32, u32),
-    },
-    GetterDefinition {
-        value: (u32, u32),
-    },
-}
-
-impl PrivateElementEntryLocals {
-    const fn kind(&self) -> PrivateElementHeapKind {
-        match self {
-            Self::Brand { .. } => PrivateElementHeapKind::Brand,
-            Self::Field { .. } => PrivateElementHeapKind::Field,
-            Self::SetterDefinition { .. } => PrivateElementHeapKind::SetterDefinition,
-            Self::MethodDefinition { .. } => PrivateElementHeapKind::MethodDefinition,
-            Self::GetterDefinition { .. } => PrivateElementHeapKind::GetterDefinition,
-        }
-    }
-
-    const fn receiver(&self) -> Option<(u32, u32)> {
-        match self {
-            Self::Brand { receiver } | Self::Field { receiver, .. } => Some(*receiver),
-            Self::SetterDefinition { .. }
-            | Self::MethodDefinition { .. }
-            | Self::GetterDefinition { .. } => None,
-        }
-    }
-
-    const fn value(&self) -> Option<(u32, u32)> {
-        match self {
-            Self::Brand { .. } => None,
-            Self::Field { value, .. }
-            | Self::SetterDefinition { value }
-            | Self::MethodDefinition { value }
-            | Self::GetterDefinition { value } => Some(*value),
-        }
-    }
-}
-
-#[cfg(test)]
-mod private_element_entry_protocol_tests {
-    use super::*;
-
-    #[test]
-    fn private_element_rows_fix_wire_and_storage_projections() {
-        let receiver = (11, 12);
-        let value = (21, 22);
-        let rows = [
-            (
-                PrivateElementEntryLocals::Brand { receiver },
-                PrivateElementHeapKind::Brand,
-                Some(receiver),
-                None,
-            ),
-            (
-                PrivateElementEntryLocals::Field { receiver, value },
-                PrivateElementHeapKind::Field,
-                Some(receiver),
-                Some(value),
-            ),
-            (
-                PrivateElementEntryLocals::SetterDefinition { value },
-                PrivateElementHeapKind::SetterDefinition,
-                None,
-                Some(value),
-            ),
-            (
-                PrivateElementEntryLocals::MethodDefinition { value },
-                PrivateElementHeapKind::MethodDefinition,
-                None,
-                Some(value),
-            ),
-            (
-                PrivateElementEntryLocals::GetterDefinition { value },
-                PrivateElementHeapKind::GetterDefinition,
-                None,
-                Some(value),
-            ),
-        ];
-
-        for (entry, kind, expected_receiver, expected_value) in &rows {
-            assert_eq!(entry.kind(), *kind);
-            assert_eq!(entry.receiver(), *expected_receiver);
-            assert_eq!(entry.value(), *expected_value);
-            assert_eq!(kind.has_receiver(), expected_receiver.is_some());
-            assert_eq!(kind.has_value(), expected_value.is_some());
-        }
-
-        assert_eq!(
-            rows.map(|(_, kind, _, _)| kind.wire_word()),
-            [0, 1, 2, 3, 4]
-        );
-        assert_eq!(
-            [
-                PrivateElementDefinitionKind::Setter,
-                PrivateElementDefinitionKind::Method,
-                PrivateElementDefinitionKind::Getter,
-            ]
-            .map(|kind| kind.heap_kind().wire_word()),
-            [2, 3, 4]
-        );
-    }
+/// Which lexical private name to resolve: a compile-time identity, or the
+/// scope/ordinal pair a shared helper receives as operands.
+enum PrivateNameSelector {
+    Constant(PrivateNameId),
+    Runtime { scope: I64Local, ordinal: I32Local },
 }
 
 impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn emit_current_private_environment_to_local(
-        &mut self,
-        private_environment_local: u32,
-        function: &mut Function,
-    ) {
-        if let Some(active_private_environment_local) =
-            self.active_private_environment_locals.last().copied()
-        {
-            function.instruction(&Instruction::LocalGet(active_private_environment_local));
-            function.instruction(&Instruction::LocalSet(private_environment_local));
-            return;
-        }
-        if let Some(environment) = self.direct_eval_private_environment_param_local() {
-            function.instruction(&Instruction::LocalGet(environment));
-            function.instruction(&Instruction::LocalSet(private_environment_local));
-            return;
-        }
-        if self
-            .current_function_meta()
-            .is_some_and(WasmFunctionMeta::has_function_context)
-        {
-            self.load_i64_to_local_from_offset(
-                self.class_function_context_local,
-                HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
-                private_environment_local,
-                function,
-            );
-            return;
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(private_environment_local));
-    }
-
     pub(crate) fn emit_private_name_token_to_local(
         &mut self,
-        private_name_id: PrivateNameId,
-        token_local: u32,
+        id: PrivateNameId,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if self.active_private_environment_locals.is_empty()
-            && self.direct_eval_private_environment_param_local().is_none()
-            && !self
-                .current_function_meta()
-                .is_some_and(WasmFunctionMeta::has_function_context)
-        {
-            return Err(EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: private name outside class execution context",
-            ));
-        }
-        self.emit_current_private_environment_to_local(token_local, function);
+    ) -> Result<GcLocal<PrivateName>, EmitError> {
+        let schema = self.runtime_schema();
+        let environment = schema.reserve_gc_local(function).initialize(
+            self.current_private_environment().load(schema, function),
+            function,
+        );
+        let result = self.emit_private_name_token_from_environment(id, &environment, function)?;
+        environment.clear(function);
+        Ok(result)
+    }
 
-        let stored_class_scope_local = self.reserve_temp_local();
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(token_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            "TypeError",
-            "private environment is missing its declared name",
-            self.result_local,
-            self.result_tag_local,
+    /// Both source access and instance initialization resolve the same lexical
+    /// private-name identity. The caller supplies its actual captured class
+    /// environment, rather than an integer token or the caller's class scope.
+    pub(crate) fn emit_private_name_token_from_environment(
+        &mut self,
+        id: PrivateNameId,
+        environment: &GcLocal<PrivateEnvironment, Nullable>,
+        function: &mut Function,
+    ) -> Result<GcLocal<PrivateName>, EmitError> {
+        self.emit_private_name_token_resolve(
+            PrivateNameSelector::Constant(id),
+            environment,
+            function,
+        )
+    }
+
+    fn emit_private_name_token_resolve(
+        &mut self,
+        selector: PrivateNameSelector,
+        environment: &GcLocal<PrivateEnvironment, Nullable>,
+        function: &mut Function,
+    ) -> Result<GcLocal<PrivateName>, EmitError> {
+        let schema = self.runtime_schema();
+        let current = schema
+            .reserve_gc_local(function)
+            .initialize(environment.load(schema, function), function);
+        let name = schema
+            .reserve_gc_local::<PrivateName, Nullable>(function)
+            .initialize_null(schema, function);
+        let scope = schema.reserve_i64_local(function);
+        let (target_scope, ordinal) = match selector {
+            PrivateNameSelector::Constant(_) => (None, schema.reserve_i32_local(function)),
+            PrivateNameSelector::Runtime { scope, ordinal } => (Some(scope), ordinal),
+        };
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        name.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        current.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_private_native_error(
+            RuntimeErrorMessage::PRIVATE_ENVIRONMENT_IS_MISSING_ITS_DECLARED_NAME,
             function,
         )?;
-        if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            token_local,
-            HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET,
-            stored_class_scope_local,
+        let owner = schema.reserve_gc_local(function).initialize(
+            current.load(schema, function).require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(stored_class_scope_local));
-        function.instruction(&Instruction::I64Const(private_name_id.class_scope() as i64));
+        schema
+            .struct_type::<PrivateEnvironment>()
+            .field(PrivateEnvironmentSchema::CLASS_SCOPE)
+            .read(&owner, schema, function)
+            .store_i64(scope, function);
+        scope.load(function);
+        match (&selector, target_scope) {
+            (PrivateNameSelector::Constant(id), _) => {
+                function.instruction(&Instruction::I64Const(id.class_scope() as i64));
+            }
+            (PrivateNameSelector::Runtime { .. }, Some(target)) => target.load(function),
+            (PrivateNameSelector::Runtime { .. }, None) => {
+                unreachable!("runtime selector always carries its scope local")
+            }
+        }
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            token_local,
-            HEAP_PRIVATE_ENV_PARENT_OFFSET,
-            token_local,
+        self.open_frame(ControlFrameKind::If, function);
+        let names = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateEnvironment>()
+                .field(PrivateEnvironmentSchema::NAMES)
+                .read(&owner, schema, function)
+                .reference(),
             function,
         );
+        if let PrivateNameSelector::Constant(id) = &selector {
+            function.instruction(&Instruction::I32Const(id.name_ordinal() as i32));
+            ordinal.store(function);
+        }
+        name.replace(
+            schema
+                .array_type::<PrivateNameTable>()
+                .read(&names, ordinal, schema, function)
+                .reference()
+                .nullable(),
+            function,
+        );
+        names.clear(function);
+        function.instruction(&Instruction::Else);
+        current.replace(
+            schema
+                .struct_type::<PrivateEnvironment>()
+                .field(PrivateEnvironmentSchema::PARENT)
+                .read(&owner, schema, function)
+                .reference(),
+            function,
+        );
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        owner.clear(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(token_local));
-        function.instruction(&Instruction::I64Const(
-            (HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET
-                + private_name_id.name_ordinal() as u64 * HEAP_PRIVATE_ENV_SLOT_SIZE)
-                as i64,
-        ));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(token_local));
-        self.release_temp_local(stored_class_scope_local);
+        let result = schema.reserve_gc_local(function).initialize(
+            name.load(schema, function).require_non_null(function),
+            function,
+        );
+        if matches!(selector, PrivateNameSelector::Constant(_)) {
+            schema.release_i32_local(ordinal, function);
+        }
+        schema.release_i64_local(scope, function);
+        name.clear(function);
+        current.clear(function);
+        Ok(result)
+    }
+
+    fn emit_private_native_error(
+        &mut self,
+        message: RuntimeErrorMessage,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let error = self.runtime_schema().reserve_completion(function);
+        self.emit_throw_runtime_error(NativeErrorKind::TypeError, message, &error, function)?;
+        self.completion().copy_from(&error, function);
+        error.clear(function);
+        self.emit_propagate_current_throw(function);
         Ok(())
-    }
-
-    pub(crate) fn emit_private_brand_add(
-        &mut self,
-        receiver_payload_local: u32,
-        receiver_tag_local: u32,
-        token_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_private_element_entry_add(
-            token_local,
-            PrivateElementEntryLocals::Brand {
-                receiver: (receiver_payload_local, receiver_tag_local),
-            },
-            function,
-        )
-    }
-
-    pub(crate) fn emit_private_field_add(
-        &mut self,
-        receiver_payload_local: u32,
-        receiver_tag_local: u32,
-        token_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_private_element_entry_add(
-            token_local,
-            PrivateElementEntryLocals::Field {
-                receiver: (receiver_payload_local, receiver_tag_local),
-                value: (value_payload_local, value_tag_local),
-            },
-            function,
-        )
-    }
-
-    pub(crate) fn emit_private_setter_definition_add(
-        &mut self,
-        token_local: u32,
-        setter_payload_local: u32,
-        setter_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_private_element_entry_add(
-            token_local,
-            PrivateElementEntryLocals::SetterDefinition {
-                value: (setter_payload_local, setter_tag_local),
-            },
-            function,
-        )
-    }
-
-    pub(crate) fn emit_private_method_definition_add(
-        &mut self,
-        token_local: u32,
-        method_payload_local: u32,
-        method_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_private_element_entry_add(
-            token_local,
-            PrivateElementEntryLocals::MethodDefinition {
-                value: (method_payload_local, method_tag_local),
-            },
-            function,
-        )
-    }
-
-    pub(crate) fn emit_private_getter_definition_add(
-        &mut self,
-        token_local: u32,
-        getter_payload_local: u32,
-        getter_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_private_element_entry_add(
-            token_local,
-            PrivateElementEntryLocals::GetterDefinition {
-                value: (getter_payload_local, getter_tag_local),
-            },
-            function,
-        )
-    }
-
-    fn emit_private_element_entry_add(
-        &mut self,
-        token_local: u32,
-        entry: PrivateElementEntryLocals,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let previous_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let kind = entry.kind();
-        let receiver_locals = entry.receiver();
-        let value_locals = entry.value();
-
-        debug_assert_eq!(kind.has_receiver(), receiver_locals.is_some());
-        debug_assert_eq!(kind.has_value(), value_locals.is_some());
-
-        if let Some((receiver_payload_local, receiver_tag_local)) = receiver_locals {
-            let extensible_local = self.reserve_temp_local();
-            self.emit_object_is_extensible_i32(
-                receiver_payload_local,
-                receiver_tag_local,
-                extensible_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(extensible_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error_to_active_handler(
-                TYPE_ERROR_NAME,
-                "private element cannot be installed on non-extensible object",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-            self.release_temp_local(extensible_local);
-
-            let existing_entry_local = self.reserve_temp_local();
-            self.emit_private_element_find(
-                receiver_payload_local,
-                token_local,
-                existing_entry_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(existing_entry_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error_to_active_handler(
-                TYPE_ERROR_NAME,
-                "private element already installed on object",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-            self.release_temp_local(existing_entry_local);
-        }
-
-        self.load_i64_to_local_from_offset(
-            token_local,
-            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
-            previous_local,
-            function,
-        );
-        self.emit_heap_alloc_const(HEAP_PRIVATE_ELEMENT_ENTRY_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET,
-            previous_local,
-            function,
-        );
-        if let Some((receiver_payload_local, _)) = receiver_locals {
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
-                receiver_payload_local,
-                function,
-            );
-        } else {
-            self.store_i64_const_at_offset(
-                entry_local,
-                HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
-                0,
-                function,
-            );
-        }
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
-            token_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-            kind.wire_word(),
-            function,
-        );
-        if let Some((value_payload_local, value_tag_local)) = value_locals {
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-                value_tag_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-                value_payload_local,
-                function,
-            );
-        } else {
-            self.store_i64_const_at_offset(
-                entry_local,
-                HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-                ValueKind::Undefined.tag() as u64,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entry_local,
-                HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-                0,
-                function,
-            );
-        }
-        self.store_i64_local_at_offset(
-            token_local,
-            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
-            entry_local,
-            function,
-        );
-
-        self.release_temp_local(entry_local);
-        self.release_temp_local(previous_local);
-        Ok(())
-    }
-
-    fn emit_private_receiver_kind_guard(kind_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::Brand.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::Field.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_private_definition_kind_guard(kind_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::SetterDefinition.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::MethodDefinition.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::GetterDefinition.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_private_element_find(
         &mut self,
-        receiver_local: u32,
-        token_local: u32,
-        entry_local: u32,
+        receiver: &ValueLocals,
+        name: &GcLocal<PrivateName>,
         function: &mut Function,
-    ) {
-        let stored_receiver_local = self.reserve_temp_local();
-        let stored_token_local = self.reserve_temp_local();
-        let stored_kind_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            token_local,
-            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
-            entry_local,
+    ) -> GcLocal<PrivateElement, Nullable> {
+        let schema = self.runtime_schema();
+        let result = schema
+            .reserve_gc_local::<PrivateElement, Nullable>(function)
+            .initialize_null(schema, function);
+        self.emit_is_heap_object_like_tag_i32(receiver.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_object_header_projection(receiver, function),
             function,
         );
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(entry_local));
-        function.instruction(&Instruction::I64Eqz);
+        let table = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<OrdinaryObject>()
+                .field(OrdinaryObjectSchema::PRIVATE_ELEMENTS)
+                .read(&header, schema, function)
+                .reference(),
+            function,
+        );
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        schema
+            .array_type::<PrivateElementTable>()
+            .length(&table, schema, function);
+        length.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        result.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
-            stored_receiver_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
-            stored_token_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(stored_receiver_local));
-        function.instruction(&Instruction::LocalGet(receiver_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(stored_token_local));
-        function.instruction(&Instruction::LocalGet(token_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-            stored_kind_local,
-            function,
-        );
-        Self::emit_private_receiver_kind_guard(stored_kind_local, function);
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET,
-            entry_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(stored_kind_local);
-        self.release_temp_local(stored_token_local);
-        self.release_temp_local(stored_receiver_local);
-    }
-
-    fn emit_private_element_definition_find(
-        &mut self,
-        token_local: u32,
-        kind: PrivateElementDefinitionKind,
-        entry_local: u32,
-        function: &mut Function,
-    ) {
-        let stored_receiver_local = self.reserve_temp_local();
-        let stored_token_local = self.reserve_temp_local();
-        let stored_kind_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            token_local,
-            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
-            entry_local,
-            function,
-        );
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(entry_local));
-        function.instruction(&Instruction::I64Eqz);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
-            stored_receiver_local,
+        let candidate = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<PrivateElementTable>()
+                .read(&table, index, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
-            stored_token_local,
+        candidate.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let element = schema.reserve_gc_local(function).initialize(
+            candidate.load(schema, function).require_non_null(function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-            stored_kind_local,
+        let stored_name = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateElement>()
+                .field(PrivateElementSchema::NAME)
+                .read(&element, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(stored_token_local));
-        function.instruction(&Instruction::LocalGet(token_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(stored_receiver_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        Self::emit_private_definition_kind_guard(stored_kind_local, function);
-        function.instruction(&Instruction::LocalGet(stored_kind_local));
-        function.instruction(&Instruction::I64Const(kind.heap_kind().wire_word() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::BrIf(2));
+        stored_name.load(schema, function);
+        name.load(schema, function);
+        function.instruction(&Instruction::RefEq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.replace(element.load(schema, function).nullable(), function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET,
-            entry_local,
-            function,
-        );
+        stored_name.clear(function);
+        element.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        candidate.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(stored_kind_local);
-        self.release_temp_local(stored_token_local);
-        self.release_temp_local(stored_receiver_local);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
+        table.clear(function);
+        header.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result
     }
 
     pub(crate) fn emit_private_brand_has_i32(
         &mut self,
-        receiver_local: u32,
-        token_local: u32,
-        result_local: u32,
+        receiver: &ValueLocals,
+        name: &GcLocal<PrivateName>,
+        result: I32Local,
         function: &mut Function,
     ) {
-        let entry_local = self.reserve_temp_local();
-        self.emit_private_element_find(receiver_local, token_local, entry_local, function);
-        function.instruction(&Instruction::LocalGet(entry_local));
-        function.instruction(&Instruction::I64Eqz);
+        let entry = self.emit_private_element_find(receiver, name, function);
+        entry.load(self.runtime_schema(), function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(result_local));
-        self.release_temp_local(entry_local);
+        result.store(function);
+        entry.clear(function);
+    }
+
+    /// Installs one already completed Method/Accessor/Brand row. Private-name
+    /// identity lives on the row; no receiver list is retained by PrivateName.
+    /// The whole PrivateElementAdd algorithm is outlined into one helper so a
+    /// class with thousands of private fields emits only a call per install.
+    pub(crate) fn emit_private_brand_add(
+        &mut self,
+        receiver: &ValueLocals,
+        element: &GcLocal<PrivateElement>,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        // Error construction retains the source caller's execution Realm.
+        let realm = self.emit_execution_realm(function);
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(
+                PrivateElementAddArguments::new(receiver, element, &realm),
+                base,
+                function,
+            )
+            .store(result, function);
+        realm.clear(function);
+        Ok(())
+    }
+
+    pub(crate) fn compile_private_element_add_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::PrivateElementAdd);
+        let parameters = self.helper_parameters::<PrivateElementAddParameters>(&mut function);
+        self.push_scope();
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(&mut function);
+        self.emit_private_element_add_body(
+            &parameters.receiver,
+            &parameters.element,
+            &result,
+            &mut function,
+        )?;
+        self.completion().copy_from(&result, &mut function);
+        result.clear(&mut function);
+        self.pop_scope();
+        self.clear_helper_execution_realm(&mut function);
+        parameters.release(&mut function);
+        self.completion().emit(&mut function);
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    // Module-private so the only caller is the helper compiler above; a second
+    // caller would re-inline the find/append loops at every private field.
+    fn emit_private_element_add_body(
+        &mut self,
+        receiver: &ValueLocals,
+        element: &GcLocal<PrivateElement>,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        result.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_is_heap_object_like_tag_i32(receiver.tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_FIELD_ACCESS_ON_WRONG_OBJECT,
+            result,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let name = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateElement>()
+                .field(PrivateElementSchema::NAME)
+                .read(element, schema, function)
+                .reference(),
+            function,
+        );
+        let previous = self.emit_private_element_find(receiver, &name, function);
+        previous.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_private_element_append(receiver, element, function);
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_ELEMENT_ALREADY_INSTALLED_ON_OBJECT,
+            result,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        previous.clear(function);
+        name.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// One call per private field definition: name resolution, Field row
+    /// construction and PrivateElementAdd all live in the helper body.
+    pub(crate) fn emit_private_field_define(
+        &mut self,
+        receiver: &ValueLocals,
+        private_environment: &GcLocal<PrivateEnvironment, Nullable>,
+        id: PrivateNameId,
+        value: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let scope = schema.reserve_i64_local(function);
+        scope.set_constant(id.class_scope() as i64, function);
+        let ordinal = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(id.name_ordinal() as i32));
+        ordinal.store(function);
+        let realm = self.emit_execution_realm(function);
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(
+                PrivateFieldDefineArguments::new(
+                    receiver,
+                    private_environment,
+                    scope,
+                    ordinal,
+                    value,
+                    &realm,
+                ),
+                base,
+                function,
+            )
+            .store(result, function);
+        realm.clear(function);
+        schema.release_i32_local(ordinal, function);
+        schema.release_i64_local(scope, function);
+        Ok(())
+    }
+
+    pub(crate) fn compile_private_field_define_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::PrivateFieldDefine);
+        let parameters = self.helper_parameters::<PrivateFieldDefineParameters>(&mut function);
+        self.push_scope();
+        let schema = self.runtime_schema();
+        // A missing declared name throws through the helper's own completion.
+        let name = self.emit_private_name_token_resolve(
+            PrivateNameSelector::Runtime {
+                scope: parameters.class_scope,
+                ordinal: parameters.name_ordinal,
+            },
+            &parameters.private_environment,
+            &mut function,
+        )?;
+        let stored = schema.reserve_gc_local(&mut function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&parameters.value, &mut function),
+            &mut function,
+        );
+        let element = schema.reserve_gc_local(&mut function).initialize(
+            schema.struct_type::<PrivateElement>().construct(
+                (
+                    crate::gc_types::GcOperand::reference(&name, schema),
+                    crate::gc_types::GcOperand::constant(PrivateElementKind::Field),
+                    crate::gc_types::GcOperand::nullable_reference(&stored, schema),
+                    crate::gc_types::GcOperand::null(schema),
+                    crate::gc_types::GcOperand::null(schema),
+                    crate::gc_types::GcOperand::null(schema),
+                ),
+                &mut function,
+            ),
+            &mut function,
+        );
+        let result = schema.reserve_completion(&mut function);
+        self.emit_private_element_add_body(&parameters.receiver, &element, &result, &mut function)?;
+        self.completion().copy_from(&result, &mut function);
+        result.clear(&mut function);
+        element.clear(&mut function);
+        stored.clear(&mut function);
+        name.clear(&mut function);
+        self.pop_scope();
+        self.clear_helper_execution_realm(&mut function);
+        parameters.release(&mut function);
+        self.completion().emit(&mut function);
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    fn emit_private_element_append(
+        &self,
+        receiver: &ValueLocals,
+        element: &GcLocal<PrivateElement>,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_object_header_projection(receiver, function),
+            function,
+        );
+        let old = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<OrdinaryObject>()
+                .field(OrdinaryObjectSchema::PRIVATE_ELEMENTS)
+                .read(&header, schema, function)
+                .reference(),
+            function,
+        );
+        let length = schema.reserve_i32_local(function);
+        let new_length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let array = schema.array_type::<PrivateElementTable>();
+        array.length(&old, schema, function);
+        length.store(function);
+        length.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        new_length.store(function);
+        new_length.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        let next = schema.reserve_gc_local(function).initialize(
+            array.filled(
+                crate::gc_types::GcOperand::null(schema),
+                new_length,
+                function,
+            ),
+            function,
+        );
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        let entry = schema.reserve_gc_local(function).initialize(
+            array.read(&old, index, schema, function).reference(),
+            function,
+        );
+        array.write(
+            &next,
+            index,
+            crate::gc_types::GcOperand::reference(&entry, schema),
+            schema,
+            function,
+        );
+        entry.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        array.write(
+            &next,
+            length,
+            crate::gc_types::GcOperand::nullable_reference(element, schema),
+            schema,
+            function,
+        );
+        schema
+            .struct_type::<OrdinaryObject>()
+            .field(OrdinaryObjectSchema::PRIVATE_ELEMENTS)
+            .write(
+                &header,
+                crate::gc_types::GcOperand::reference(&next, schema),
+                schema,
+                function,
+            );
+        next.clear(function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(new_length, function);
+        schema.release_i32_local(length, function);
+        old.clear(function);
+        header.clear(function);
     }
 
     pub(crate) fn compile_private_read_to_locals(
         &mut self,
         target: &TypedExpr,
-        private_name_id: PrivateNameId,
-        payload_local: u32,
-        tag_local: u32,
+        id: PrivateNameId,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(target, target_payload_local, target_tag_local, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-        self.emit_private_read_from_locals(
-            target_payload_local,
-            target_tag_local,
-            private_name_id,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        self.compile_expr_to_value(target, &receiver, function)?;
+        self.emit_private_read_from_locals(&receiver, id, &result, function)?;
+        self.completion().copy_from(&result, function);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        output.copy_from(result.value(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.clear(function);
+        receiver.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
         Ok(())
     }
 
     fn emit_private_read_from_locals(
         &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        private_name_id: PrivateNameId,
-        payload_local: u32,
-        tag_local: u32,
+        receiver: &ValueLocals,
+        id: PrivateNameId,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let brand_token_local = self.reserve_temp_local();
-        let has_brand_local = self.reserve_temp_local();
-        let private_entry_local = self.reserve_temp_local();
-        let private_kind_local = self.reserve_temp_local();
-        let definition_local = self.reserve_temp_local();
-        let getter_payload_local = self.reserve_temp_local();
-        let getter_tag_local = self.reserve_temp_local();
-
-        self.emit_private_brand_guard(
-            target_payload_local,
-            target_tag_local,
-            private_name_id,
-            brand_token_local,
-            has_brand_local,
+        let schema = self.runtime_schema();
+        let name = self.emit_private_name_token_to_local(id, function)?;
+        let entry = self.emit_private_element_find(receiver, &name, function);
+        result.initialize(function);
+        entry.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_FIELD_ACCESS_ON_WRONG_OBJECT,
+            result,
             function,
         )?;
-        self.emit_private_element_find(
-            target_payload_local,
-            brand_token_local,
-            private_entry_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            private_entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-            private_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(private_kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::Field.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            private_entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-            payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            private_entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-            tag_local,
-            function,
-        );
         function.instruction(&Instruction::Else);
-        self.emit_private_element_definition_find(
-            brand_token_local,
-            PrivateElementDefinitionKind::Method,
-            definition_local,
+        let element = schema.reserve_gc_local(function).initialize(
+            entry.load(schema, function).require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(definition_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_private_element_definition_find(
-            brand_token_local,
-            PrivateElementDefinitionKind::Getter,
-            definition_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(definition_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error_to_active_handler(
-            TYPE_ERROR_NAME,
-            "private accessor has no getter",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            definition_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-            getter_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            definition_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-            getter_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::GetterDefinition.wire_word() as i64,
+        let kind = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<PrivateElement>()
+            .field(PrivateElementSchema::KIND)
+            .read(&element, schema, function)
+            .store(kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(
+            crate::gc_types::GcI32Constant::encode(PrivateElementKind::Field),
         ));
-        function.instruction(&Instruction::LocalSet(private_kind_local));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let field = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateElement>()
+                .field(PrivateElementSchema::FIELD_VALUE)
+                .read(&element, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&field, result.value(), schema, function);
+        result.set_normal(result.value(), function);
+        field.clear(function);
         function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            definition_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-            payload_local,
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(
+            crate::gc_types::GcI32Constant::encode(PrivateElementKind::Method),
+        ));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let method = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateElement>()
+                .field(PrivateElementSchema::METHOD)
+                .read(&element, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            definition_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-            tag_local,
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&method, result.value(), schema, function);
+        result.set_normal(result.value(), function);
+        method.clear(function);
+        function.instruction(&Instruction::Else);
+        let getter = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateElement>()
+                .field(PrivateElementSchema::GETTER)
+                .read(&element, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::MethodDefinition.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(private_kind_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(private_kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::GetterDefinition.wire_word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_with_throw_propagation(
-            getter_payload_local,
-            getter_tag_local,
-            Some((target_payload_local, Some(target_tag_local))),
-            &[],
-            payload_local,
-            tag_local,
+        getter.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_ACCESSOR_HAS_NO_GETTER,
+            result,
             function,
         )?;
+        function.instruction(&Instruction::Else);
+        let stored = schema.reserve_gc_local(function).initialize(
+            getter.load(schema, function).require_non_null(function),
+            function,
+        );
+        let callable = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &callable, schema, function);
+        let args = self.emit_pre_evaluated_arg_vector(&[], function);
+        self.emit_function_handle_call_with_argv_inner(
+            &callable,
+            Some(receiver),
+            &args,
+            result,
+            PropagateCallThrow::LeaveInCompletion,
+            function,
+        )?;
+        args.clear(function);
+        callable.clear(function);
+        stored.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(getter_tag_local);
-        self.release_temp_local(getter_payload_local);
-        self.release_temp_local(definition_local);
-        self.release_temp_local(private_kind_local);
-        self.release_temp_local(private_entry_local);
-        self.release_temp_local(has_brand_local);
-        self.release_temp_local(brand_token_local);
+        getter.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        element.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        entry.clear(function);
+        name.clear(function);
         Ok(())
     }
 
     pub(crate) fn compile_private_write_to_locals(
         &mut self,
         target: &TypedExpr,
-        private_name_id: PrivateNameId,
+        id: PrivateNameId,
         value: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(target, target_payload_local, target_tag_local, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-        self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        self.emit_private_write_from_locals(
-            target_payload_local,
-            target_tag_local,
-            private_name_id,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let rhs = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        self.compile_expr_to_value(target, &receiver, function)?;
+        self.compile_expr_to_value(value, &rhs, function)?;
+        self.emit_private_write_from_locals(&receiver, id, &rhs, &result, function)?;
+        self.completion().copy_from(&result, function);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        output.copy_from(&rhs, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.clear(function);
+        rhs.clear(function);
+        receiver.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
         Ok(())
     }
 
     pub(crate) fn emit_private_write_from_locals(
         &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        private_name_id: PrivateNameId,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        receiver: &ValueLocals,
+        id: PrivateNameId,
+        value: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let brand_token_local = self.reserve_temp_local();
-        let has_brand_local = self.reserve_temp_local();
-        let private_entry_local = self.reserve_temp_local();
-        let private_kind_local = self.reserve_temp_local();
-        let setter_definition_local = self.reserve_temp_local();
-        let setter_payload_local = self.reserve_temp_local();
-        let setter_tag_local = self.reserve_temp_local();
-        let setter_result_payload_local = self.reserve_temp_local();
-        let setter_result_tag_local = self.reserve_temp_local();
-
-        self.emit_private_brand_guard(
-            target_payload_local,
-            target_tag_local,
-            private_name_id,
-            brand_token_local,
-            has_brand_local,
+        let schema = self.runtime_schema();
+        let name = self.emit_private_name_token_to_local(id, function)?;
+        let entry = self.emit_private_element_find(receiver, &name, function);
+        result.initialize(function);
+        entry.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_FIELD_ACCESS_ON_WRONG_OBJECT,
+            result,
             function,
         )?;
-        self.emit_private_element_find(
-            target_payload_local,
-            brand_token_local,
-            private_entry_local,
+        function.instruction(&Instruction::Else);
+        let element = schema.reserve_gc_local(function).initialize(
+            entry.load(schema, function).require_non_null(function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            private_entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-            private_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(private_kind_local));
-        function.instruction(&Instruction::I64Const(
-            PrivateElementHeapKind::Field.wire_word() as i64,
+        let kind = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<PrivateElement>()
+            .field(PrivateElementSchema::KIND)
+            .read(&element, schema, function)
+            .store(kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(
+            crate::gc_types::GcI32Constant::encode(PrivateElementKind::Field),
         ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_local_at_offset(
-            private_entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-            value_payload_local,
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(value, function),
             function,
         );
-        self.store_i64_local_at_offset(
-            private_entry_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
+        schema
+            .struct_type::<PrivateElement>()
+            .field(PrivateElementSchema::FIELD_VALUE)
+            .write(
+                &element,
+                crate::gc_types::GcOperand::nullable_reference(&stored, schema),
+                schema,
+                function,
+            );
+        stored.clear(function);
+        result.set_normal(value, function);
         function.instruction(&Instruction::Else);
-        self.emit_private_element_definition_find(
-            brand_token_local,
-            PrivateElementDefinitionKind::Setter,
-            setter_definition_local,
+        let setter = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PrivateElement>()
+                .field(PrivateElementSchema::SETTER)
+                .read(&element, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(setter_definition_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error_to_active_handler(
-            TYPE_ERROR_NAME,
-            "private element has no setter",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            setter_definition_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-            setter_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            setter_definition_local,
-            HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-            setter_tag_local,
-            function,
-        );
-        self.emit_function_handle_call_with_throw_propagation(
-            setter_payload_local,
-            setter_tag_local,
-            Some((target_payload_local, Some(target_tag_local))),
-            &[(value_payload_local, value_tag_local)],
-            setter_result_payload_local,
-            setter_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(setter_result_tag_local);
-        self.release_temp_local(setter_result_payload_local);
-        self.release_temp_local(setter_tag_local);
-        self.release_temp_local(setter_payload_local);
-        self.release_temp_local(setter_definition_local);
-        self.release_temp_local(private_kind_local);
-        self.release_temp_local(private_entry_local);
-        self.release_temp_local(has_brand_local);
-        self.release_temp_local(brand_token_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_private_brand_guard(
-        &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        private_name_id: PrivateNameId,
-        brand_token_local: u32,
-        has_brand_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_private_name_token_to_local(private_name_id, brand_token_local, function)?;
-        self.emit_private_brand_has_i32(
-            target_payload_local,
-            brand_token_local,
-            has_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(has_brand_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
+        setter.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
-            "TypeError",
-            "private field access on wrong object",
-            self.result_local,
-            self.result_tag_local,
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_ELEMENT_HAS_NO_SETTER,
+            result,
             function,
         )?;
-        if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            "TypeError",
-            "private field access on wrong object",
-            self.result_local,
-            self.result_tag_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            setter.load(schema, function).require_non_null(function),
+            function,
+        );
+        let callable = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &callable, schema, function);
+        let args = self.emit_pre_evaluated_arg_vector(&[value], function);
+        self.emit_function_handle_call_with_argv_inner(
+            &callable,
+            Some(receiver),
+            &args,
+            result,
+            PropagateCallThrow::LeaveInCompletion,
             function,
         )?;
-        if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(value, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        args.clear(function);
+        callable.clear(function);
+        stored.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        setter.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        element.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        entry.clear(function);
+        name.clear(function);
         Ok(())
     }
 }

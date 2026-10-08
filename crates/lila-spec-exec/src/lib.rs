@@ -10,7 +10,7 @@ use std::time::{Duration as StdDuration, Instant as StdInstant};
 use boa_engine::builtins::array_buffer::SharedArrayBuffer as RawSharedArrayBuffer;
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::job::SimpleJobExecutor;
-use boa_engine::module::{IdleModuleLoader, Module, ModuleLoader, ModuleRequest, Referrer};
+use boa_engine::module::{Module, ModuleLoader, ModuleRequest, Referrer};
 use boa_engine::native_function::NativeFunction;
 use boa_engine::object::builtins::{
     AlignedVec, JsArrayBuffer, JsPromise, JsSharedArrayBuffer, JsUint8Array,
@@ -23,9 +23,19 @@ use boa_engine::{
     Script, Source,
 };
 use lila_runtime::{
-    HostHooks, HostOutputEvent, ModuleLoadingPolicy, ObservedBigInt, ObservedCompletion,
-    ObservedJsValue, ObservedNumber,
+    EmbeddedModuleGoal, HostHooks, HostOutputEvent, ModuleLoadingPolicy, ObservedBigInt,
+    ObservedCompletion, ObservedJsValue, ObservedNumber,
 };
+
+mod embedded_module_loader;
+mod oracle_exception;
+mod rooted_graph;
+pub use rooted_graph::{
+    observe_module_graph, observe_script_graph, observe_script_graph_with_module_loading_policy,
+    ObservedGraphExecutionOutcome,
+};
+
+use embedded_module_loader::EmbeddedGraphModuleLoader;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleHostConfig {
@@ -53,12 +63,44 @@ pub struct ObservedExecutionOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionError {
     message: String,
+    entry_syntax_rejection: bool,
+    javascript_exception: Option<(
+        lila_runtime::OracleExceptionPhase,
+        lila_runtime::OracleExceptionType,
+    )>,
 }
 
 impl ExecutionError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            entry_syntax_rejection: false,
+            javascript_exception: None,
+        }
+    }
+
+    /// Only an actual entry parser failure can mint this provenance. A
+    /// SyntaxError thrown by user evaluation keeps the ordinary completion.
+    fn entry_parse(error: JsError, context: &mut Context) -> Self {
+        let entry_syntax_rejection = error.as_native().is_some_and(JsNativeError::is_syntax);
+        let mut result = format_js_error(error, context);
+        result.entry_syntax_rejection = entry_syntax_rejection;
+        result
+    }
+
+    pub const fn is_entry_syntax_rejection(&self) -> bool {
+        self.entry_syntax_rejection
+    }
+    pub const fn javascript_exception_phase(&self) -> Option<lila_runtime::OracleExceptionPhase> {
+        match self.javascript_exception {
+            Some((phase, _)) => Some(phase),
+            None => None,
+        }
+    }
+    pub const fn javascript_exception_type(&self) -> Option<lila_runtime::OracleExceptionType> {
+        match self.javascript_exception {
+            Some((_, kind)) => Some(kind),
+            None => None,
         }
     }
 
@@ -84,7 +126,62 @@ thread_local! {
 #[derive(Default)]
 struct HostRealmStore {
     next_id: u64,
-    realms: BTreeMap<u64, Context>,
+    realms: BTreeMap<u64, HostRealmContext>,
+}
+
+/// Embedded Realms share their creating Context's interner and job domain.
+/// Ambient policies retain their existing independent Context ownership.
+#[derive(Clone)]
+enum HostRealmContext {
+    SeparateContext(Rc<RefCell<Context>>),
+    EmbeddedRealm(boa_engine::realm::Realm),
+}
+
+impl HostRealmContext {
+    fn with_context<T>(
+        &self,
+        context: &mut Context,
+        action: impl FnOnce(&mut Context) -> JsResult<T>,
+    ) -> JsResult<T> {
+        match self {
+            Self::SeparateContext(realm) => {
+                let mut realm = realm.try_borrow_mut().map_err(|_| {
+                    oracle_exception::host_failure(
+                        JsNativeError::typ()
+                            .with_message("host realm context is already active")
+                            .into(),
+                        context,
+                    )
+                })?;
+                action(&mut realm)
+            }
+            Self::EmbeddedRealm(realm) => {
+                let old_realm = context.enter_realm(realm.clone());
+                let result = action(context);
+                context.enter_realm(old_realm);
+                result
+            }
+        }
+    }
+
+    fn eval(&self, source: &str, context: &mut Context) -> JsResult<JsValue> {
+        match self {
+            Self::SeparateContext(_) => self.with_context(context, |realm| {
+                let result = realm.eval(Source::from_bytes(source.as_bytes()))?;
+                realm.run_jobs()?;
+                Ok(result)
+            }),
+            Self::EmbeddedRealm(_) => {
+                let result = self.with_context(context, |realm| {
+                    realm.eval(Source::from_bytes(source.as_bytes()))
+                })?;
+                // The creating Context is restored before jobs run. Boa jobs
+                // retain their actual execution Realm and this same interner.
+                context.run_jobs()?;
+                Ok(result)
+            }
+        }
+    }
 }
 
 struct HostRealmScope {
@@ -307,6 +404,7 @@ impl HostOutputEvents {
 }
 
 fn reset_host_realms() {
+    oracle_exception::reset_host_failures();
     HOST_REALMS.with(|store| {
         let mut store = store.borrow_mut();
         store.next_id = 0;
@@ -314,10 +412,15 @@ fn reset_host_realms() {
     });
 }
 
-fn current_host_session() -> JsResult<Arc<HostSession>> {
+fn current_host_session(context: &mut Context) -> JsResult<Arc<HostSession>> {
     CURRENT_HOST_SESSION.with(|session| {
         session.borrow().clone().ok_or_else(|| {
-            JsError::from(JsNativeError::typ().with_message("host session is not initialized"))
+            oracle_exception::host_failure(
+                JsNativeError::typ()
+                    .with_message("host session is not initialized")
+                    .into(),
+                context,
+            )
         })
     })
 }
@@ -351,13 +454,17 @@ fn build_host_context(
     match module_loading_policy {
         ModuleLoadingPolicy::Filesystem => Context::builder()
             .job_executor(Rc::new(SimpleJobExecutor::new()))
+            .module_loader(Rc::new(oracle_exception::AmbientModuleLoader::new()?))
             .can_block(can_block)
             .build(),
         ModuleLoadingPolicy::RejectAll => Context::builder()
             .job_executor(Rc::new(SimpleJobExecutor::new()))
-            .module_loader(Rc::new(IdleModuleLoader))
+            .module_loader(Rc::new(oracle_exception::DisabledModuleLoader))
             .can_block(can_block)
             .build(),
+        ModuleLoadingPolicy::Embedded(graph) => {
+            EmbeddedGraphModuleLoader::context(graph, can_block).map(|(context, _)| context)
+        }
     }
 }
 
@@ -367,6 +474,7 @@ fn run_agent_thread(
     command_rx: Receiver<AgentCommand>,
     ready_tx: Sender<Result<(), String>>,
 ) {
+    reset_host_realms();
     CURRENT_HOST_SESSION.with(|host| {
         *host.borrow_mut() = Some(session.clone());
     });
@@ -379,10 +487,11 @@ fn run_agent_thread(
         });
     });
 
-    let mut context = match build_host_context(true, session.module_loading_policy) {
+    let mut context = match build_host_context(true, session.module_loading_policy.clone()) {
         Ok(context) => context,
         Err(err) => {
             let _ = ready_tx.send(Err(err.to_string()));
+            reset_host_realms();
             CURRENT_AGENT_STATE.with(|state| {
                 *state.borrow_mut() = None;
             });
@@ -424,6 +533,7 @@ fn run_agent_thread(
         }
     }
 
+    reset_host_realms();
     CURRENT_AGENT_STATE.with(|state| {
         *state.borrow_mut() = None;
     });
@@ -545,17 +655,29 @@ pub fn execute_script_with_module_loading_policy(
     argv: &[String],
     can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms =
-        HostRealmScope::legacy(can_block, module_loading_policy, Arc::new(StdoutHostHooks));
-    let mut context = build_host_context(can_block, module_loading_policy)
+    let _host_realms = HostRealmScope::legacy(
+        can_block,
+        module_loading_policy.clone(),
+        Arc::new(StdoutHostHooks),
+    );
+    let mut context = build_host_context(can_block, module_loading_policy.clone())
         .map_err(|err| ExecutionError::new(err.to_string()))?;
     install_host_globals(&mut context, argv)?;
-    context
-        .eval(source_with_name(source, filename))
-        .map_err(|err| format_js_error(err, &mut context))?;
-    context
-        .run_jobs()
-        .map_err(|err| format_js_error(err, &mut context))?;
+    let script = parse_entry_script(source, filename, &module_loading_policy, &mut context)?;
+    script.evaluate(&mut context).map_err(|err| {
+        oracle_exception::thrown(
+            err,
+            lila_runtime::OracleExceptionPhase::Runtime,
+            &mut context,
+        )
+    })?;
+    context.run_jobs().map_err(|err| {
+        oracle_exception::thrown(
+            err,
+            lila_runtime::OracleExceptionPhase::Runtime,
+            &mut context,
+        )
+    })?;
     check_test262_async_done(&mut context)?;
     Ok(ExecutionOutcome {
         note: "spec-exec script completed in Rust host".to_string(),
@@ -588,42 +710,14 @@ pub fn observe_script_with_module_loading_policy(
     can_block: bool,
     host_hooks: Arc<dyn HostHooks>,
 ) -> Result<ObservedExecutionOutcome, ExecutionError> {
-    let host_realms = HostRealmScope::observed(can_block, module_loading_policy, host_hooks);
-    let mut context = build_host_context(can_block, module_loading_policy)
-        .map_err(|err| ExecutionError::new(err.to_string()))?;
-    install_host_globals(&mut context, argv)?;
-    let script = Script::parse(source_with_name(source, filename), None, &mut context)
-        .map_err(|error| format_js_error(error, &mut context))?;
-    let (mut completion, mut note) = match script.evaluate(&mut context) {
-        Ok(value) => (
-            ObservedCompletion::Normal(observe_js_value(&value)),
-            "spec-exec script completed in Rust host".to_string(),
-        ),
-        Err(error) => {
-            let (value, error_note) = observe_js_error(&error, &mut context);
-            (ObservedCompletion::Throw(value), error_note)
-        }
-    };
-
-    // A host checkpoint drains jobs even after top-level abrupt completion.
-    // A queued failure replaces a normal completion, but never the primary
-    // top-level throw whose jobs the checkpoint is draining.
-    if let Err(error) = context.run_jobs() {
-        if matches!(completion, ObservedCompletion::Normal(_)) {
-            let (value, error_note) = observe_js_error(&error, &mut context);
-            completion = ObservedCompletion::Throw(value);
-            note = error_note;
-        }
-    }
-    if matches!(completion, ObservedCompletion::Normal(_)) {
-        check_test262_async_done(&mut context)?;
-    }
-
-    Ok(ObservedExecutionOutcome {
-        completion,
-        output_events: host_realms.finish_output_events(),
-        note,
-    })
+    rooted_graph::observe_script_scalar(
+        source,
+        filename,
+        module_loading_policy,
+        argv,
+        can_block,
+        host_hooks,
+    )
 }
 
 pub fn execute_module(
@@ -640,38 +734,47 @@ pub fn execute_module(
     }
     let _host_realms = HostRealmScope::legacy(
         can_block,
-        host.module_loading_policy,
+        host.module_loading_policy.clone(),
         Arc::new(StdoutHostHooks),
     );
-    let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
-    let loader = Rc::new(Test262ModuleLoader::new(
-        host.module_root.as_deref(),
-        module_path.as_deref(),
-    ));
-    let mut context = Context::builder()
-        .job_executor(Rc::new(SimpleJobExecutor::new()))
-        .module_loader(loader.clone())
-        .can_block(can_block)
-        .build()
-        .map_err(|err| ExecutionError::new(err.to_string()))?;
-    install_host_globals(&mut context, argv)?;
-
-    let module = Module::parse(source_with_name(source, filename), None, &mut context)
-        .map_err(|err| format_js_error(err, &mut context))?;
-    loader.insert(
-        module_path.clone().unwrap_or_else(|| loader.entry_path()),
-        LoadedModuleKind::Source,
-        module.clone(),
-    );
+    let (mut context, module, module_path) =
+        prepare_module_context(source, filename, &host, argv, can_block)?;
     if let Some(prelude) = &host.prelude {
         context
             .eval(source_with_name(prelude, None))
             .map_err(|error| format_js_error(error, &mut context))?;
     }
-    let promise = module.load_link_evaluate(&mut context);
+    // Loading/host/parser rejection is distinct from linking and user evaluation.
+    let loaded = module.load(&mut context);
     context
         .run_jobs()
-        .map_err(|err| format_js_error(err, &mut context))?;
+        .map_err(|error| format_js_error(error, &mut context))?;
+    match loaded.state() {
+        PromiseState::Fulfilled(_) => (),
+        PromiseState::Rejected(value) => {
+            return Err(ExecutionError::new(observe_opaque_throw(&value).1))
+        }
+        PromiseState::Pending => {
+            return Err(ExecutionError::new(
+                "runtime module loading is still pending after host job flush",
+            ))
+        }
+    }
+    module.link(&mut context).map_err(|error| {
+        oracle_exception::thrown(
+            error,
+            lila_runtime::OracleExceptionPhase::Resolution,
+            &mut context,
+        )
+    })?;
+    let promise = module.evaluate(&mut context);
+    context.run_jobs().map_err(|err| {
+        oracle_exception::thrown(
+            err,
+            lila_runtime::OracleExceptionPhase::Runtime,
+            &mut context,
+        )
+    })?;
 
     match promise.state() {
         PromiseState::Fulfilled(_) => {
@@ -686,7 +789,11 @@ pub fn execute_module(
                 ),
             })
         }
-        PromiseState::Rejected(value) => Err(format_opaque_error(value, &mut context)),
+        PromiseState::Rejected(value) => Err(oracle_exception::thrown(
+            JsError::from_opaque(value),
+            lila_runtime::OracleExceptionPhase::Runtime,
+            &mut context,
+        )),
         PromiseState::Pending => Err(ExecutionError::new(
             "runtime module jobs are still pending after host job flush",
         )),
@@ -701,113 +808,109 @@ pub fn observe_module(
     can_block: bool,
     host_hooks: Arc<dyn HostHooks>,
 ) -> Result<ObservedExecutionOutcome, ExecutionError> {
-    if host.module_loading_policy == ModuleLoadingPolicy::RejectAll {
-        return Err(ExecutionError::new(
-            "module loading disabled by host policy",
-        ));
-    }
-    let host_realms = HostRealmScope::observed(can_block, host.module_loading_policy, host_hooks);
-    let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
-    let loader = Rc::new(Test262ModuleLoader::new(
-        host.module_root.as_deref(),
-        module_path.as_deref(),
-    ));
-    let mut context = Context::builder()
-        .job_executor(Rc::new(SimpleJobExecutor::new()))
-        .module_loader(loader.clone())
-        .can_block(can_block)
-        .build()
-        .map_err(|err| ExecutionError::new(err.to_string()))?;
-    install_host_globals(&mut context, argv)?;
+    rooted_graph::observe_module_scalar(source, filename, host, argv, can_block, host_hooks)
+}
 
-    let module = Module::parse(source_with_name(source, filename), None, &mut context)
-        .map_err(|err| format_js_error(err, &mut context))?;
-    loader.insert(
-        module_path.clone().unwrap_or_else(|| loader.entry_path()),
-        LoadedModuleKind::Source,
-        module.clone(),
-    );
-    let load_promise = module.load(&mut context);
-    context
-        .run_jobs()
-        .map_err(|error| format_js_error(error, &mut context))?;
-    match load_promise.state() {
-        PromiseState::Fulfilled(_) => {}
-        PromiseState::Rejected(value) => {
-            return Err(ExecutionError::new(JsError::from_opaque(value).to_string()));
+/// Couple an Embedded root's supplied source/goal/locator to its owner before
+/// any parser or host context can select different source bytes. An omitted
+/// diagnostic filename uses the already declared identity, never a path base.
+fn root_source_name(
+    source: &str,
+    filename: Option<&str>,
+    goal: EmbeddedModuleGoal,
+    policy: &ModuleLoadingPolicy,
+) -> Result<Option<String>, ExecutionError> {
+    match policy {
+        ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll => {
+            Ok(filename.map(str::to_owned))
         }
-        PromiseState::Pending => {
-            return Err(ExecutionError::new(
-                "runtime module loading is still pending after host job flush",
-            ));
-        }
-    }
-    module
-        .link(&mut context)
-        .map_err(|error| format_js_error(error, &mut context))?;
-
-    if let Some(prelude) = &host.prelude {
-        let prelude = Script::parse(source_with_name(prelude, None), None, &mut context)
-            .map_err(|error| format_js_error(error, &mut context))?;
-        if let Err(error) = prelude.evaluate(&mut context) {
-            let (value, note) = observe_js_error(&error, &mut context);
-            // Drain queued jobs without replacing the primary top-level throw.
-            let _ = context.run_jobs();
-            return Ok(ObservedExecutionOutcome {
-                completion: ObservedCompletion::Throw(value),
-                output_events: host_realms.finish_output_events(),
-                note,
-            });
-        }
-    }
-    let promise = module.evaluate(&mut context);
-    let job_throw = context.run_jobs().err().map(|error| {
-        let (value, note) = observe_js_error(&error, &mut context);
-        (ObservedCompletion::Throw(value), note)
-    });
-
-    let normal_note = || {
-        format!(
-            "spec-exec module completed in Rust host{}",
-            module_path
-                .as_deref()
-                .map(|path| format!(" ({})", path.display()))
-                .unwrap_or_default()
-        )
-    };
-
-    let (completion, note) = match promise.state() {
-        PromiseState::Fulfilled(value) => {
-            if let Some(job_throw) = job_throw {
-                job_throw
-            } else {
-                check_test262_async_done(&mut context)?;
-                (
-                    ObservedCompletion::Normal(observe_js_value(&value)),
-                    normal_note(),
-                )
-            }
-        }
-        PromiseState::Rejected(value) => {
-            let (value, note) = observe_opaque_throw(&value);
-            (ObservedCompletion::Throw(value), note)
-        }
-        PromiseState::Pending => {
-            if let Some(job_throw) = job_throw {
-                job_throw
-            } else {
+        ModuleLoadingPolicy::Embedded(graph) => {
+            let entry = graph.entry();
+            if entry.goal() != goal
+                || entry.source() != source
+                || filename.is_some_and(|identity| identity != entry.identity())
+            {
                 return Err(ExecutionError::new(
-                    "runtime module jobs are still pending after host job flush",
+                    "embedded execution source, goal and identity must match the graph entry",
                 ));
             }
+            Ok(Some(entry.identity().to_owned()))
         }
-    };
+    }
+}
 
-    Ok(ObservedExecutionOutcome {
-        completion,
-        output_events: host_realms.finish_output_events(),
-        note,
-    })
+/// The actual Script producer for both public entry consumers owns entry
+/// admission together with parsing, so neither caller separately mints a root
+/// Script whose locator/source disagrees with the shared embedded policy.
+fn parse_entry_script(
+    source: &str,
+    filename: Option<&str>,
+    policy: &ModuleLoadingPolicy,
+    context: &mut Context,
+) -> Result<Script, ExecutionError> {
+    let filename = root_source_name(source, filename, EmbeddedModuleGoal::Script, policy)?;
+    let source = match policy {
+        ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll => source,
+        ModuleLoadingPolicy::Embedded(graph) => graph.entry().source(),
+    };
+    Script::parse(source_with_name(source, filename.as_deref()), None, context)
+        .map_err(|error| ExecutionError::entry_parse(error, context))
+}
+
+/// Both Module entry consumers obtain a parsed/cache-owned root here. The
+/// Embedded arm reads only the validated source owner; its parsed root cannot
+/// be omitted from the loader cache before graph loading or import.meta.
+fn prepare_module_context(
+    source: &str,
+    filename: Option<&str>,
+    host: &ModuleHostConfig,
+    argv: &[String],
+    can_block: bool,
+) -> Result<(Context, Module, Option<PathBuf>), ExecutionError> {
+    match &host.module_loading_policy {
+        ModuleLoadingPolicy::Filesystem => {
+            let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
+            let loader = Rc::new(Test262ModuleLoader::new(
+                host.module_root.as_deref(),
+                module_path.as_deref(),
+            ));
+            let mut context = Context::builder()
+                .job_executor(Rc::new(SimpleJobExecutor::new()))
+                .module_loader(loader.clone())
+                .can_block(can_block)
+                .build()
+                .map_err(|err| ExecutionError::new(err.to_string()))?;
+            install_host_globals(&mut context, argv)?;
+            let module = Module::parse(source_with_name(source, filename), None, &mut context)
+                .map_err(|err| ExecutionError::entry_parse(err, &mut context))?;
+            loader.insert(
+                module_path.clone().unwrap_or_else(|| loader.entry_path()),
+                LoadedModuleKind::Source,
+                module.clone(),
+            );
+            Ok((context, module, module_path))
+        }
+        ModuleLoadingPolicy::RejectAll => Err(ExecutionError::new(
+            "module loading disabled by host policy",
+        )),
+        ModuleLoadingPolicy::Embedded(graph) => {
+            let identity = root_source_name(
+                source,
+                filename,
+                EmbeddedModuleGoal::Module,
+                &host.module_loading_policy,
+            )?
+            .expect("an Embedded root has an immutable declared identity");
+            let (mut context, loader) =
+                EmbeddedGraphModuleLoader::context(Arc::clone(graph), can_block)
+                    .map_err(|err| ExecutionError::new(err.to_string()))?;
+            install_host_globals(&mut context, argv)?;
+            let module = loader
+                .entry_module(&mut context)
+                .map_err(|err| ExecutionError::entry_parse(err, &mut context))?;
+            Ok((context, module, Some(PathBuf::from(identity))))
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -913,99 +1016,102 @@ impl ModuleLoader for Test262ModuleLoader {
         request: ModuleRequest,
         context: &RefCell<&mut Context>,
     ) -> JsResult<Module> {
-        let specifier = request.specifier();
-        let short_path = specifier.to_std_string_escaped();
-        let path = self.resolve_path(referrer, &specifier)?;
-        let kind = Self::request_kind(&request)?;
-        if let Some(module) = self.get(&path, kind) {
-            return Ok(module);
-        }
-
-        let module = match kind {
-            LoadedModuleKind::Source => {
-                let source = std::fs::read_to_string(&path).map_err(|err| {
-                    JsNativeError::typ()
-                        .with_message(format!("could not open file `{short_path}`"))
-                        .with_cause(boa_engine::JsError::from_opaque(
-                            js_string!(err.to_string()).into(),
-                        ))
-                })?;
-                let should_consider_harness = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| !name.contains("_FIXTURE"))
-                    .unwrap_or(true);
-                let inject_harness = should_consider_harness
-                    && (source.contains("assert.")
-                        || source.contains("assert(")
-                        || source.contains("Test262Error"));
-                let source = if inject_harness {
-                    format!("{TEST262_STA_GLOBAL}\n{TEST262_ASSERT_GLOBAL}\n{source}")
-                } else {
-                    source
-                };
-                let path_string = path.to_string_lossy().into_owned();
-                Module::parse(
-                    source_with_name(&source, Some(&path_string)),
-                    None,
-                    &mut context.borrow_mut(),
-                )
-                .map_err(|err| {
-                    JsNativeError::syntax()
-                        .with_message(format!("could not parse module `{short_path}`"))
-                        .with_cause(err)
-                })?
+        let result = (|| {
+            let specifier = request.specifier();
+            let short_path = specifier.to_std_string_escaped();
+            let path = self.resolve_path(referrer, &specifier)?;
+            let kind = Self::request_kind(&request)?;
+            if let Some(module) = self.get(&path, kind) {
+                return Ok(module);
             }
-            LoadedModuleKind::Json => {
-                let source = std::fs::read_to_string(&path).map_err(|err| {
-                    JsNativeError::typ()
-                        .with_message(format!("could not open file `{short_path}`"))
-                        .with_cause(boa_engine::JsError::from_opaque(
-                            js_string!(err.to_string()).into(),
-                        ))
-                })?;
-                Module::parse_json(js_string!(source), &mut context.borrow_mut()).map_err(
-                    |err| {
+
+            let module = match kind {
+                LoadedModuleKind::Source => {
+                    let source = std::fs::read_to_string(&path).map_err(|err| {
+                        JsNativeError::typ()
+                            .with_message(format!("could not open file `{short_path}`"))
+                            .with_cause(boa_engine::JsError::from_opaque(
+                                js_string!(err.to_string()).into(),
+                            ))
+                    })?;
+                    let should_consider_harness = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| !name.contains("_FIXTURE"))
+                        .unwrap_or(true);
+                    let inject_harness = should_consider_harness
+                        && (source.contains("assert.")
+                            || source.contains("assert(")
+                            || source.contains("Test262Error"));
+                    let source = if inject_harness {
+                        format!("{TEST262_STA_GLOBAL}\n{TEST262_ASSERT_GLOBAL}\n{source}")
+                    } else {
+                        source
+                    };
+                    let path_string = path.to_string_lossy().into_owned();
+                    Module::parse(
+                        source_with_name(&source, Some(&path_string)),
+                        None,
+                        &mut context.borrow_mut(),
+                    )
+                    .map_err(|err| {
                         JsNativeError::syntax()
                             .with_message(format!("could not parse module `{short_path}`"))
                             .with_cause(err)
-                    },
-                )?
-            }
-            LoadedModuleKind::Text => {
-                let source = std::fs::read_to_string(&path).map_err(|err| {
-                    JsNativeError::typ()
-                        .with_message(format!("could not open file `{short_path}`"))
-                        .with_cause(boa_engine::JsError::from_opaque(
-                            js_string!(err.to_string()).into(),
-                        ))
-                })?;
-                Module::from_value_as_default(
-                    JsValue::from(js_string!(source)),
-                    &mut context.borrow_mut(),
-                )
-            }
-            LoadedModuleKind::Bytes => {
-                let source = std::fs::read(&path).map_err(|err| {
-                    JsNativeError::typ()
-                        .with_message(format!("could not open file `{short_path}`"))
-                        .with_cause(boa_engine::JsError::from_opaque(
-                            js_string!(err.to_string()).into(),
-                        ))
-                })?;
-                let bytes = AlignedVec::from_iter(0, source);
-                let value = {
-                    let mut context = context.borrow_mut();
-                    let array_buffer =
-                        JsArrayBuffer::from_byte_block_immutable(bytes, &mut context)?;
-                    let array = JsUint8Array::from_array_buffer(array_buffer, &mut context)?;
-                    JsValue::from(array)
-                };
-                Module::from_value_as_default(value, &mut context.borrow_mut())
-            }
-        };
-        self.insert(path, kind, module.clone());
-        Ok(module)
+                    })?
+                }
+                LoadedModuleKind::Json => {
+                    let source = std::fs::read_to_string(&path).map_err(|err| {
+                        JsNativeError::typ()
+                            .with_message(format!("could not open file `{short_path}`"))
+                            .with_cause(boa_engine::JsError::from_opaque(
+                                js_string!(err.to_string()).into(),
+                            ))
+                    })?;
+                    Module::parse_json(js_string!(source), &mut context.borrow_mut()).map_err(
+                        |err| {
+                            JsNativeError::syntax()
+                                .with_message(format!("could not parse module `{short_path}`"))
+                                .with_cause(err)
+                        },
+                    )?
+                }
+                LoadedModuleKind::Text => {
+                    let source = std::fs::read_to_string(&path).map_err(|err| {
+                        JsNativeError::typ()
+                            .with_message(format!("could not open file `{short_path}`"))
+                            .with_cause(boa_engine::JsError::from_opaque(
+                                js_string!(err.to_string()).into(),
+                            ))
+                    })?;
+                    Module::from_value_as_default(
+                        JsValue::from(js_string!(source)),
+                        &mut context.borrow_mut(),
+                    )
+                }
+                LoadedModuleKind::Bytes => {
+                    let source = std::fs::read(&path).map_err(|err| {
+                        JsNativeError::typ()
+                            .with_message(format!("could not open file `{short_path}`"))
+                            .with_cause(boa_engine::JsError::from_opaque(
+                                js_string!(err.to_string()).into(),
+                            ))
+                    })?;
+                    let bytes = AlignedVec::from_iter(0, source);
+                    let value = {
+                        let mut context = context.borrow_mut();
+                        let array_buffer =
+                            JsArrayBuffer::from_byte_block_immutable(bytes, &mut context)?;
+                        let array = JsUint8Array::from_array_buffer(array_buffer, &mut context)?;
+                        JsValue::from(array)
+                    };
+                    Module::from_value_as_default(value, &mut context.borrow_mut())
+                }
+            };
+            self.insert(path, kind, module.clone());
+            Ok(module)
+        })();
+        result.map_err(|error| oracle_exception::host_failure(error, &mut context.borrow_mut()))
     }
 }
 
@@ -2470,9 +2576,12 @@ fn host_print(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRes
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
     if rendered.starts_with("Test262:AsyncTestFailure:") {
-        return Err(JsNativeError::error().with_message(rendered).into());
+        return Err(oracle_exception::host_failure(
+            JsNativeError::error().with_message(rendered).into(),
+            context,
+        ));
     }
-    current_host_session()?.print_line(rendered);
+    current_host_session(context)?.print_line(rendered);
     Ok(JsValue::undefined())
 }
 
@@ -2528,9 +2637,12 @@ fn host_detach_array_buffer(
 
 fn host_agent_start(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     if with_agent_state(|_| ()).is_some() {
-        return Err(JsNativeError::typ()
-            .with_message("nested agent.start is not supported")
-            .into());
+        return Err(oracle_exception::host_failure(
+            JsNativeError::typ()
+                .with_message("nested agent.start is not supported")
+                .into(),
+            context,
+        ));
     }
 
     let source = args
@@ -2539,9 +2651,14 @@ fn host_agent_start(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
         .unwrap_or_else(JsValue::undefined)
         .to_string(context)?
         .to_std_string_escaped();
-    current_host_session()?
+    current_host_session(context)?
         .start_agent(source)
-        .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
+        .map_err(|err| {
+            oracle_exception::host_failure(
+                JsNativeError::error().with_message(err.to_string()).into(),
+                context,
+            )
+        })?;
     Ok(JsValue::undefined())
 }
 
@@ -2551,20 +2668,23 @@ fn host_agent_broadcast(
     context: &mut Context,
 ) -> JsResult<JsValue> {
     if with_agent_state(|_| ()).is_some() {
-        return Err(JsNativeError::typ()
-            .with_message("nested agent.broadcast is not supported")
-            .into());
+        return Err(oracle_exception::host_failure(
+            JsNativeError::typ()
+                .with_message("nested agent.broadcast is not supported")
+                .into(),
+            context,
+        ));
     }
 
     let buffer = JsSharedArrayBuffer::try_from_js(args.get_or_undefined(0), context)?;
-    let sent = current_host_session()?.broadcast(buffer.inner());
+    let sent = current_host_session(context)?.broadcast(buffer.inner());
     Ok((sent as i32).into())
 }
 
 fn host_agent_receive_broadcast(
     _this: &JsValue,
     args: &[JsValue],
-    _context: &mut Context,
+    context: &mut Context,
 ) -> JsResult<JsValue> {
     let callback = args.first().and_then(JsValue::as_callable).ok_or_else(|| {
         JsError::from(
@@ -2576,6 +2696,7 @@ fn host_agent_receive_broadcast(
         state.callback = Some(callback.clone());
         Ok(JsValue::undefined())
     })
+    .map_err(|error| oracle_exception::host_failure(error, context))
 }
 
 fn host_agent_report(
@@ -2590,24 +2711,29 @@ fn host_agent_report(
         .to_string(context)?
         .to_std_string_escaped();
 
-    if with_agent_state_mut(|state| {
-        state.report_tx.send(value.clone()).map_err(|err| {
-            JsError::from(
-                JsNativeError::error().with_message(format!("failed to queue agent report: {err}")),
-            )
-        })?;
-        Ok(JsValue::undefined())
-    })
-    .is_ok()
-    {
-        return Ok(JsValue::undefined());
+    if with_agent_state(|_| ()).is_some() {
+        return with_agent_state_mut(|state| {
+            state.report_tx.send(value.clone()).map_err(|err| {
+                JsError::from(
+                    JsNativeError::error()
+                        .with_message(format!("failed to queue agent report: {err}")),
+                )
+            })?;
+            Ok(JsValue::undefined())
+        })
+        .map_err(|error| oracle_exception::host_failure(error, context));
     }
 
-    current_host_session()?
+    current_host_session(context)?
         .reports_tx
         .send(value)
         .map_err(|err| {
-            JsNativeError::error().with_message(format!("failed to queue report: {err}"))
+            oracle_exception::host_failure(
+                JsNativeError::error()
+                    .with_message(format!("failed to queue report: {err}"))
+                    .into(),
+                context,
+            )
         })?;
     Ok(JsValue::undefined())
 }
@@ -2615,16 +2741,20 @@ fn host_agent_report(
 fn host_agent_get_report(
     _this: &JsValue,
     _args: &[JsValue],
-    _context: &mut Context,
+    context: &mut Context,
 ) -> JsResult<JsValue> {
     if with_agent_state(|_| ()).is_some() {
         return Ok(JsValue::null());
     }
 
-    match current_host_session()?
+    match current_host_session(context)?
         .next_report()
-        .map_err(|err| JsNativeError::error().with_message(err.to_string()))?
-    {
+        .map_err(|err| {
+            oracle_exception::host_failure(
+                JsNativeError::error().with_message(err.to_string()).into(),
+                context,
+            )
+        })? {
         Some(report) => Ok(js_string!(report).into()),
         None => Ok(JsValue::null()),
     }
@@ -2646,14 +2776,18 @@ fn host_agent_sleep(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
 fn host_agent_monotonic_now(
     _this: &JsValue,
     _args: &[JsValue],
-    _context: &mut Context,
+    context: &mut Context,
 ) -> JsResult<JsValue> {
     let millis = if let Some(millis) =
         with_agent_state(|state| state.started_at.elapsed().as_secs_f64() * 1000.0)
     {
         millis
     } else {
-        current_host_session()?.started_at.elapsed().as_secs_f64() * 1000.0
+        current_host_session(context)?
+            .started_at
+            .elapsed()
+            .as_secs_f64()
+            * 1000.0
     };
     Ok(millis.into())
 }
@@ -2679,7 +2813,8 @@ fn host_create_realm(
     _args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let (realm_id, global) = create_host_realm()?;
+    let (realm_id, global) = create_host_realm(context)
+        .map_err(|error| oracle_exception::host_failure(error, context))?;
 
     let eval_script = NativeFunction::from_copy_closure(move |_this, args, context| {
         let source = args
@@ -2688,11 +2823,9 @@ fn host_create_realm(
             .unwrap_or_else(JsValue::undefined)
             .to_string(context)?
             .to_std_string_escaped();
-        with_host_realm(realm_id, |realm| {
-            let result = realm.eval(Source::from_bytes(source.as_bytes()))?;
-            realm.run_jobs()?;
-            Ok(result)
-        })
+        host_realm(realm_id)
+            .map_err(|error| oracle_exception::host_failure(error, context))?
+            .eval(&source, context)
     });
     let get_global = NativeFunction::from_copy_closure(move |_this, args, context| {
         let name = args
@@ -2700,7 +2833,9 @@ fn host_create_realm(
             .cloned()
             .unwrap_or_else(JsValue::undefined)
             .to_string(context)?;
-        with_host_realm(realm_id, |realm| realm.global_object().get(name, realm))
+        with_host_realm(realm_id, context, |realm| {
+            realm.global_object().get(name, realm)
+        })
     });
     let destroy =
         NativeFunction::from_copy_closure(move |_this, _args, _context| Ok(JsValue::undefined()));
@@ -2727,41 +2862,60 @@ fn host_eval_script(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
     Ok(result)
 }
 
-fn create_host_realm() -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
-    let session = current_host_session()?;
-    let mut context = build_host_context(session.can_block, session.module_loading_policy)?;
-    install_host_globals(&mut context, &[])
-        .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
-    let global = context.global_object();
+fn create_host_realm(
+    context: &mut Context,
+) -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
+    let session = current_host_session(context)?;
+    let realm = match &session.module_loading_policy {
+        ModuleLoadingPolicy::Embedded(graph) => HostRealmContext::EmbeddedRealm(
+            EmbeddedGraphModuleLoader::create_realm(graph, context)?,
+        ),
+        ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll => {
+            let context =
+                build_host_context(session.can_block, session.module_loading_policy.clone())?;
+            HostRealmContext::SeparateContext(Rc::new(RefCell::new(context)))
+        }
+    };
+    let global = realm.with_context(context, |realm| {
+        install_host_globals(realm, &[])
+            .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
+        Ok(realm.global_object())
+    })?;
 
-    let (id, global) = HOST_REALMS.with(
-        |store| -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
-            let mut store = store.borrow_mut();
-            let id = store.next_id;
-            store.next_id += 1;
-            store.realms.insert(id, context);
-            Ok((id, global))
-        },
-    )?;
-
-    install_host_realm_eval(id)?;
+    let id = HOST_REALMS.with(|store| {
+        let mut store = store.borrow_mut();
+        let id = store.next_id;
+        store.next_id += 1;
+        store.realms.insert(id, realm);
+        id
+    });
+    install_host_realm_eval(id, context)?;
     Ok((id, global))
 }
 
-fn with_host_realm(
-    realm_id: u64,
-    action: impl FnOnce(&mut Context) -> JsResult<JsValue>,
-) -> JsResult<JsValue> {
-    HOST_REALMS.with(|store| {
-        let mut store = store.borrow_mut();
-        let realm = store.realms.get_mut(&realm_id).ok_or_else(|| {
-            JsNativeError::reference().with_message(format!("unknown host realm id {realm_id}"))
-        })?;
-        action(realm)
-    })
+fn host_realm(realm_id: u64) -> JsResult<HostRealmContext> {
+    // User source can create or enter another Realm. Keep the store borrow
+    // shorter than that user call while retaining the actual owner.
+    HOST_REALMS
+        .with(|store| store.borrow().realms.get(&realm_id).cloned())
+        .ok_or_else(|| {
+            JsNativeError::reference()
+                .with_message(format!("unknown host realm id {realm_id}"))
+                .into()
+        })
 }
 
-fn install_host_realm_eval(realm_id: u64) -> JsResult<()> {
+fn with_host_realm<T>(
+    realm_id: u64,
+    context: &mut Context,
+    action: impl FnOnce(&mut Context) -> JsResult<T>,
+) -> JsResult<T> {
+    host_realm(realm_id)
+        .map_err(|error| oracle_exception::host_failure(error, context))?
+        .with_context(context, action)
+}
+
+fn install_host_realm_eval(realm_id: u64, context: &mut Context) -> JsResult<()> {
     let eval_impl = NativeFunction::from_copy_closure(move |_this, args, context| {
         let source = args
             .first()
@@ -2769,14 +2923,12 @@ fn install_host_realm_eval(realm_id: u64) -> JsResult<()> {
             .unwrap_or_else(JsValue::undefined)
             .to_string(context)?
             .to_std_string_escaped();
-        with_host_realm(realm_id, |realm| {
-            let result = realm.eval(Source::from_bytes(source.as_bytes()))?;
-            realm.run_jobs()?;
-            Ok(result)
-        })
+        host_realm(realm_id)
+            .map_err(|error| oracle_exception::host_failure(error, context))?
+            .eval(&source, context)
     });
 
-    with_host_realm(realm_id, |realm| {
+    with_host_realm(realm_id, context, |realm| {
         realm.register_global_builtin_callable(js_string!("__lilaHostRealmEval"), 1, eval_impl)?;
         realm.eval(Source::from_bytes(
             b"globalThis.eval = function eval(code) { return __lilaHostRealmEval(code); };",
@@ -2788,14 +2940,6 @@ fn install_host_realm_eval(realm_id: u64) -> JsResult<()> {
 
 fn format_js_error(err: impl core::fmt::Display, _context: &mut Context) -> ExecutionError {
     ExecutionError::new(err.to_string())
-}
-
-fn format_opaque_error(value: JsValue, context: &mut Context) -> ExecutionError {
-    let rendered = value
-        .to_string(context)
-        .map(|text| text.to_std_string_escaped())
-        .unwrap_or_else(|_| value.display().to_string());
-    ExecutionError::new(rendered)
 }
 
 fn json_string_array(values: &[String]) -> String {
@@ -3220,7 +3364,8 @@ mod tests {
 
     #[test]
     fn create_realm_requires_an_active_host_session() {
-        let Err(error) = create_host_realm() else {
+        let mut context = Context::default();
+        let Err(error) = create_host_realm(&mut context) else {
             panic!("a realm without a host session must not regain default authority");
         };
         assert!(error

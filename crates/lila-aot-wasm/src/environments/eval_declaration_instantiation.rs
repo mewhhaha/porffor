@@ -1,104 +1,139 @@
-use super::named_environment::{NamedEnvironmentKind, NAMED_BINDING_LEXICAL_CONFLICT_OFFSET};
+use super::named_environment::NamedEnvironmentKind;
 use super::*;
+use crate::gc_types::{FunctionObject, NamedBinding, NamedBindingSchema, StringValue};
 use lila_ir::PreparedScriptUnit;
 
 #[must_use]
 struct ValidatedEvalDeclarationInstantiation<'a> {
     unit: &'a PreparedScriptUnit,
-    variable_environment: u32,
+    variable_environment: GcLocal<Environment, Nullable>,
 }
 
 impl FunctionBuilder<'_> {
+    /// Strict eval owns its variable cells. Initialize every var declaration
+    /// before any body statement, including loop heads that never iterate.
+    /// Lexical declarations keep their TDZ, and closures retain these same
+    /// planned cells when they escape the eval activation.
+    pub(crate) fn emit_initialize_strict_eval_variable_cells(
+        &mut self,
+        unit: &PreparedScriptUnit,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        value.set_undefined(function);
+        for name in &unit.declarations.var_names {
+            let slot = unit
+                .owned_env_bindings
+                .iter()
+                .find(|binding| &binding.name == name)
+                .map(|binding| binding.slot)
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "strict eval var declaration `{name}` lacks its planned owned cell",
+                    ))
+                })?;
+            self.write_env_slot_from_locals(slot, 0, &value, function);
+        }
+        value.clear(function);
+        Ok(())
+    }
+
     pub(crate) fn emit_direct_eval_variable_binding_write(
         &mut self,
         name: &str,
-        variable_environment: u32,
-        value_payload: u32,
-        value_tag: u32,
+        variable_environment: &GcLocal<Environment, Nullable>,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let parent = self.reserve_temp_local();
-        let key = self.reserve_temp_local();
-        let payload = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(value_payload));
-        function.instruction(&Instruction::LocalSet(payload));
-        function.instruction(&Instruction::LocalGet(value_tag));
-        function.instruction(&Instruction::LocalSet(tag));
-        self.load_i64_to_local_from_offset(
-            variable_environment,
-            ENV_PARENT_OFFSET,
-            parent,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(parent));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_global_property_write(name, payload, tag, function)?;
+        let schema = self.runtime_schema();
+        let saved = schema.reserve_value_local(function);
+        saved.copy_from(value, function);
+        let parent = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<Environment>()
+                    .field(EnvironmentSchema::PARENT)
+                    .read(variable_environment, schema, function)
+                    .reference(),
+                function,
+            );
+        parent.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_global_property_write(name, &saved, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::LocalSet(key));
+        let key = schema
+            .reserve_gc_local::<StringValue, NonNullable>(function)
+            .initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
         self.emit_set_named_environment_binding(
             variable_environment,
-            key,
+            &key,
             Strictness::Sloppy,
-            payload,
-            tag,
+            &saved,
             function,
         )?;
+        key.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(tag);
-        self.release_temp_local(payload);
-        self.release_temp_local(key);
-        self.release_temp_local(parent);
+        parent.clear(function);
+        saved.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_eval_variable_environment_to_local(
         &mut self,
-        environment_local: u32,
         function: &mut Function,
-    ) {
-        let parent_local = self.reserve_temp_local();
-        let kind_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_PARENT_OFFSET,
-            parent_local,
+    ) -> GcLocal<Environment, Nullable> {
+        let schema = self.runtime_schema();
+        let environment = self.resolve_env_handle_local(0, function);
+        let parent = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize_null(schema, function);
+        let kind = schema.reserve_i32_local(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        parent.replace(
+            schema
+                .struct_type::<Environment>()
+                .field(EnvironmentSchema::PARENT)
+                .read(&environment, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::I64Eqz);
+        parent.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_RECORD_KIND_OFFSET,
-            kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            NamedEnvironmentKind::Variable.code() as i64,
+        schema
+            .struct_type::<Environment>()
+            .field(EnvironmentSchema::KIND)
+            .read(&environment, schema, function)
+            .store(kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(
+            NamedEnvironmentKind::Variable.code(),
         ));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
+        environment.replace(parent.load(schema, function), function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(kind_local);
-        self.release_temp_local(parent_local);
+        schema.release_i32_local(kind, function);
+        parent.clear(function);
+        environment
     }
 
     pub(crate) fn emit_instantiate_direct_eval_declarations(
         &mut self,
         unit: &PreparedScriptUnit,
-        variable_environment: u32,
+        variable_environment: &GcLocal<Environment, Nullable>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let validated =
@@ -109,37 +144,37 @@ impl FunctionBuilder<'_> {
     fn emit_validate_direct_eval_declarations<'a>(
         &mut self,
         unit: &'a PreparedScriptUnit,
-        variable_environment: u32,
+        variable_environment: &GcLocal<Environment, Nullable>,
         function: &mut Function,
     ) -> Result<ValidatedEvalDeclarationInstantiation<'a>, EmitError> {
-        let key_local = self.reserve_temp_local();
-        let accepted_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let accepted = schema.reserve_i32_local(function);
+        let value = schema.reserve_value_local(function);
         for name in unit.declarations.var_names.iter().chain(
             unit.declarations
                 .functions_in_reverse_order
                 .iter()
                 .map(|declaration| &declaration.name),
         ) {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_eval_variable_name_admission(
-                variable_environment,
-                key_local,
-                accepted_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(accepted_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                "SyntaxError",
-                "eval declaration conflicts with lexical binding",
-                self.result_local,
-                self.result_tag_local,
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+            self.emit_eval_variable_name_admission(variable_environment, &key, accepted, function);
+            key.clear(function);
+            accepted.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_environment_native_error(
+                NativeErrorKind::SyntaxError,
+                RuntimeErrorMessage::EVAL_DECLARATION_CONFLICTS_WITH_LEXICAL_BINDING,
+                &value,
                 function,
             )?;
             self.emit_return_current_completion(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
         for candidate in &unit.declarations.annex_b_candidates {
@@ -153,133 +188,134 @@ impl FunctionBuilder<'_> {
                         hops: 0,
                     },
                 );
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&candidate.name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_eval_variable_name_admission(
-                variable_environment,
-                key_local,
-                accepted_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.write_env_slot_from_locals(
-                candidate.admission.slot,
-                0,
-                accepted_local,
-                tag_local,
-                function,
-            );
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&candidate.name, function)?,
+                    function,
+                );
+            self.emit_eval_variable_name_admission(variable_environment, &key, accepted, function);
+            key.clear(function);
+            value.set_boolean(accepted, function);
+            self.write_env_slot_from_locals(candidate.admission.slot, 0, &value, function);
         }
-        self.release_temp_local(tag_local);
-        self.release_temp_local(accepted_local);
-        self.release_temp_local(key_local);
+        value.clear(function);
+        schema.release_i32_local(accepted, function);
+        let environment = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize(variable_environment.load(schema, function), function);
         Ok(ValidatedEvalDeclarationInstantiation {
             unit,
-            variable_environment,
+            variable_environment: environment,
         })
     }
 
     fn emit_eval_variable_name_admission(
         &mut self,
-        variable_environment: u32,
-        key_local: u32,
-        accepted_local: u32,
+        variable_environment: &GcLocal<Environment, Nullable>,
+        key: &GcLocal<StringValue>,
+        accepted: I32Local,
         function: &mut Function,
     ) {
-        let environment_local = self.reserve_temp_local();
-        let parent_local = self.reserve_temp_local();
-        let kind_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(accepted_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_PARENT_OFFSET,
-            parent_local,
+        let schema = self.runtime_schema();
+        let environment = self.resolve_env_handle_local(0, function);
+        let parent = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize_null(schema, function);
+        let kind = schema.reserve_i32_local(function);
+        let entry = schema
+            .reserve_gc_local::<NamedBinding, Nullable>(function)
+            .initialize_null(schema, function);
+        function.instruction(&Instruction::I32Const(1));
+        accepted.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        parent.replace(
+            schema
+                .struct_type::<Environment>()
+                .field(EnvironmentSchema::PARENT)
+                .read(&environment, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        parent.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
         // The captured VariableEnvironment must be on this lexical chain.
-        function.instruction(&Instruction::LocalGet(environment_local));
-        function.instruction(&Instruction::LocalGet(variable_environment));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        environment.load(schema, function);
+        variable_environment.load(schema, function);
+        function.instruction(&Instruction::RefEq);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_global_lexical_entry_to_local(key_local, entry_local, function);
-        function.instruction(&Instruction::LocalGet(entry_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(accepted_local));
+        self.emit_global_lexical_entry_to_local(key, &entry, function);
+        entry.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        accepted.store(function);
         function.instruction(&Instruction::Br(2));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_RECORD_KIND_OFFSET,
-            kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            NamedEnvironmentKind::WithObject.code() as i64,
+        schema
+            .struct_type::<Environment>()
+            .field(EnvironmentSchema::KIND)
+            .read(&environment, schema, function)
+            .store(kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(
+            NamedEnvironmentKind::WithObject.code(),
         ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            NamedEnvironmentKind::SimpleCatch.code() as i64,
+        function.instruction(&Instruction::I32Ne);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(
+            NamedEnvironmentKind::SimpleCatch.code(),
         ));
-        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_find_own_named_binding(environment_local, key_local, entry_local, function);
-        function.instruction(&Instruction::LocalGet(entry_local));
-        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_find_own_named_binding(&environment, key, &entry, function);
+        entry.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            NAMED_BINDING_LEXICAL_CONFLICT_OFFSET,
-            accepted_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(environment_local));
-        function.instruction(&Instruction::LocalGet(variable_environment));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(accepted_local));
-        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .struct_type::<NamedBinding>()
+            .field(NamedBindingSchema::LEXICAL_CONFLICT)
+            .read(&entry, schema, function)
+            .store(accepted, function);
+        environment.load(schema, function);
+        variable_environment.load(schema, function);
+        function.instruction(&Instruction::RefEq);
         function.instruction(&Instruction::I32Eqz);
+        accepted.load(function);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(accepted_local));
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(0));
+        accepted.store(function);
         function.instruction(&Instruction::Br(4));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(accepted_local));
+        function.instruction(&Instruction::I32Const(1));
+        accepted.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(environment_local));
-        function.instruction(&Instruction::LocalGet(variable_environment));
-        function.instruction(&Instruction::I64Eq);
+        environment.load(schema, function);
+        variable_environment.load(schema, function);
+        function.instruction(&Instruction::RefEq);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
+        environment.replace(parent.load(schema, function), function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(kind_local);
-        self.release_temp_local(parent_local);
-        self.release_temp_local(environment_local);
+        entry.clear(function);
+        schema.release_i32_local(kind, function);
+        parent.clear(function);
+        environment.clear(function);
     }
 
     fn emit_install_direct_eval_declarations(
@@ -291,48 +327,39 @@ impl FunctionBuilder<'_> {
             unit,
             variable_environment,
         } = validated;
-        let parent_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            variable_environment,
-            ENV_PARENT_OFFSET,
-            parent_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let parent = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<Environment>()
+                    .field(EnvironmentSchema::PARENT)
+                    .read(&variable_environment, schema, function)
+                    .reference(),
+                function,
+            );
+        let value = schema.reserve_value_local(function);
+        parent.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_instantiate_global_declaration_plan(unit, function)?;
         function.instruction(&Instruction::Else);
         for candidate in &unit.declarations.annex_b_candidates {
-            self.read_env_slot_to_locals(
-                candidate.admission.slot,
-                0,
-                payload_local,
-                tag_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(payload_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&candidate.name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_create_eval_variable_binding(
-                variable_environment,
-                key_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
+            let initialized =
+                self.read_env_slot_to_locals(candidate.admission.slot, 0, &value, function);
+            schema.release_i32_local(initialized, function);
+            self.compile_truthy_tagged_i32(&value, function)?;
+            self.open_frame(ControlFrameKind::If, function);
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&candidate.name, function)?,
+                    function,
+                );
+            value.set_undefined(function);
+            self.emit_create_eval_variable_binding(&variable_environment, &key, &value, function)?;
+            key.clear(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
         for declaration in unit.declarations.functions_in_reverse_order.iter().rev() {
@@ -346,50 +373,43 @@ impl FunctionBuilder<'_> {
                         declaration.name, declaration.function_id
                     ))
                 })?;
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&declaration.name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_function_value_payload(&meta, function)?;
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_create_eval_variable_binding(
-                variable_environment,
-                key_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&declaration.name, function)?,
+                    function,
+                );
+            let callable = schema
+                .reserve_gc_local::<FunctionObject, NonNullable>(function)
+                .initialize(self.emit_function_value_payload(&meta, function)?, function);
+            value.set_reference(&callable, schema, function);
+            callable.clear(function);
+            self.emit_create_eval_variable_binding(&variable_environment, &key, &value, function)?;
             self.emit_set_named_environment_binding(
-                variable_environment,
-                key_local,
+                &variable_environment,
+                &key,
                 Strictness::Sloppy,
-                payload_local,
-                tag_local,
+                &value,
                 function,
             )?;
+            key.clear(function);
         }
         for name in &unit.declarations.var_names {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_create_eval_variable_binding(
-                variable_environment,
-                key_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+            value.set_undefined(function);
+            self.emit_create_eval_variable_binding(&variable_environment, &key, &value, function)?;
+            key.clear(function);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(parent_local);
+        value.clear(function);
+        parent.clear(function);
+        variable_environment.clear(function);
         Ok(())
     }
 }

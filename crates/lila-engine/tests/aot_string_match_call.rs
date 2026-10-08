@@ -1,5 +1,6 @@
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostSurfacePolicy, RealmBuilder, RunOptions,
+    CompileOptions, Engine, ExecutionBackend, HostSurfacePolicy, ObservedCompletion,
+    ObservedJsValue, ObservedNumber, RealmBuilder, RunOptions,
 };
 
 fn assert_wasm_true(source: &str) {
@@ -209,5 +210,153 @@ receiver = { match: function(a, b) {
 var result = receiver.match(...iterable);
 result && received === receiver && trace === 'iterator;next;next;next;call;';
 "#,
+    );
+}
+
+fn assert_symbol_modes(source: &str, expected: ObservedJsValue) {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    for directive in ["", "'use strict';\n"] {
+        let source = format!("{directive}{source}");
+        let observed = Engine::new(RealmBuilder::new().build())
+            .observe_script(
+                &source,
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    ..CompileOptions::default()
+                },
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("String symbol-method controls execute through Wasm AOT");
+        assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
+        assert_eq!(
+            observed.completion,
+            ObservedCompletion::Normal(expected.clone()),
+            "{source}"
+        );
+        assert!(observed.output_events.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn all_six_symbol_hooks_preserve_proxy_arguments_bypasses_and_abrupt_identity() {
+    assert_symbol_modes(
+        include_str!("../../lila-cli/tests/fixtures/wasm_string_symbol_hooks.js"),
+        ObservedJsValue::Number(ObservedNumber::from_f64(262.0)),
+    );
+}
+
+#[test]
+fn match_all_gets_the_original_once_then_invokes_the_created_receiver() {
+    assert_symbol_modes(
+        include_str!("../../lila-cli/tests/fixtures/wasm_string_match_all_flags_single_read.js"),
+        ObservedJsValue::Boolean(true),
+    );
+}
+
+#[test]
+fn borrowed_string_hooks_and_created_invokes_use_saved_defining_realm_intrinsics() {
+    assert_symbol_modes(
+        r#"
+const other = __lilaCreateRealm().global;
+const LocalObject = Object, ForeignObject = other.Object;
+const ForeignError = other.Error;
+const marker = new ForeignError('string-symbol-marker');
+const localTypeErrorPrototype = TypeError.prototype;
+const foreignTypeErrorPrototype = other.TypeError.prototype;
+const localRegExpPrototype = RegExp.prototype;
+const foreignRegExpPrototype = other.RegExp.prototype;
+const names = ['match', 'matchAll', 'replace', 'replaceAll', 'search', 'split'];
+const symbols = [Symbol.match, Symbol.matchAll, Symbol.replace, Symbol.replace, Symbol.search, Symbol.split];
+const localMethods = names.map(name => String.prototype[name]);
+const foreignMethods = names.map(name => other.String.prototype[name]);
+const createdIndexes = [0, 1, 4];
+function expectTypeError(action, prototype) {
+  try { action(); } catch (error) {
+    if (Object.getPrototypeOf(error) !== prototype) throw 'String native error Realm';
+    return;
+  }
+  throw 'missing String TypeError';
+}
+function expectMarker(action) {
+  let prior = 'before', finallyRuns = 0;
+  try {
+    try { prior = action(); } finally { finallyRuns++; }
+    throw 'missing String original marker';
+  } catch (error) {
+    if (error !== marker || Object.getPrototypeOf(error) !== ForeignError.prototype) throw 'String original abrupt identity';
+  }
+  if (prior !== 'before' || finallyRuns !== 1) throw 'String abrupt prior assignment';
+}
+globalThis.TypeError = function() { throw 'mutable local TypeError'; };
+other.TypeError = function() { throw 'mutable foreign TypeError'; };
+globalThis.RegExp = function() { throw 'mutable local RegExp'; };
+other.RegExp = function() { throw 'mutable foreign RegExp'; };
+let directCases = 0, createdCases = 0;
+for (let direction = 0; direction < 2; direction++) {
+  const methods = direction === 0 ? foreignMethods : localMethods;
+  const errorPrototype = direction === 0 ? foreignTypeErrorPrototype : localTypeErrorPrototype;
+  const regexpPrototype = direction === 0 ? foreignRegExpPrototype : localRegExpPrototype;
+  const ObjectConstructor = direction === 0 ? LocalObject : ForeignObject;
+  for (let index = 0; index < methods.length; index++) {
+    const method = methods[index], symbol = symbols[index];
+    const receiver = new ObjectConstructor();
+    receiver.toString = function() { throw 'noncallable hook must precede receiver conversion'; };
+    const pattern = new ObjectConstructor();
+    if (index !== 0) pattern[Symbol.match] = false;
+    Object.defineProperty(pattern, symbol, { value: 0 });
+    expectTypeError(() => method.call(receiver, pattern, {}), errorPrototype);
+    let hookGets = 0;
+    const nullishPattern = {};
+    Object.defineProperty(nullishPattern, symbol, { get() { hookGets++; throw 'hook after null receiver'; } });
+    expectTypeError(() => method.call(null, nullishPattern, {}), errorPrototype);
+    if (hookGets !== 0) throw 'RequireObjectCoercible before original hook';
+    directCases++;
+  }
+  for (let position = 0; position < createdIndexes.length; position++) {
+    const index = createdIndexes[position], method = methods[index], symbol = symbols[index];
+    const saved = Object.getOwnPropertyDescriptor(regexpPrototype, symbol);
+    let gets = 0, calls = 0, conversions = 0, createdReceiver;
+    const result = {}, target = function() { throw 'created Proxy target'; };
+    const hook = new Proxy(target, { apply(actualTarget, receiver, args) {
+      calls++;
+      if (actualTarget !== target || receiver !== createdReceiver ||
+          Object.getPrototypeOf(receiver) !== regexpPrototype || receiver.source !== 'b' ||
+          receiver.flags !== (index === 1 ? 'g' : '') || args.length !== 1 || args[0] !== 'abc') {
+        throw 'borrowed created RegExp Reference';
+      }
+      return result;
+    }});
+    Object.defineProperty(regexpPrototype, symbol, { configurable: true, get() {
+      gets++;
+      createdReceiver = this;
+      return hook;
+    }});
+    const receiver = new ObjectConstructor();
+    receiver.toString = function() { conversions++; return 'abc'; };
+    try {
+      if (method.call(receiver, 'b') !== result || gets !== 1 || calls !== 1 || conversions !== 1) {
+        throw 'borrowed created Proxy observation';
+      }
+      for (let missing = 0; missing < 2; missing++) {
+        Object.defineProperty(regexpPrototype, symbol, { configurable: true, value: missing === 0 ? null : undefined });
+        expectTypeError(() => method.call('abc', 'b'), errorPrototype);
+      }
+      Object.defineProperty(regexpPrototype, symbol, { configurable: true, get() { throw marker; } });
+      expectMarker(() => method.call('abc', 'b'));
+      Object.defineProperty(regexpPrototype, symbol, { configurable: true,
+        value: new Proxy(function() {}, { apply() { throw marker; } }) });
+      expectMarker(() => method.call('abc', 'b'));
+      createdCases++;
+    } finally { Object.defineProperty(regexpPrototype, symbol, saved); }
+  }
+}
+if (directCases !== 12 || createdCases !== 6) throw 'paired String Realm cohorts';
+true;
+"#,
+        ObservedJsValue::Boolean(true),
     );
 }

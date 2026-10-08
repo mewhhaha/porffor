@@ -1,4 +1,5 @@
 //! Typed NumberFormat operation inputs after JavaScript observations.
+use std::sync::Arc;
 
 use crate::number_format::numeric::{
     normalize_numeric_input, NumberRange, NumericNormalizationError, ObservedNumericInput,
@@ -30,6 +31,7 @@ pub struct NumberSupportedLocalesResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NumberFormatOperationError {
+    UnavailableService(crate::IntlService),
     Kernel(NumberFormatKernelError),
     Numeric(NumericNormalizationError),
     NaNRangeEndpoint,
@@ -47,6 +49,7 @@ impl From<NumericNormalizationError> for NumberFormatOperationError {
 impl fmt::Display for NumberFormatOperationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnavailableService(service) => crate::UnavailableIntlService(*service).fmt(f),
             Self::Kernel(error) => error.fmt(f),
             Self::Numeric(error) => error.fmt(f),
             Self::NaNRangeEndpoint => f.write_str("NumberFormat range endpoint is NaN"),
@@ -57,9 +60,10 @@ impl std::error::Error for NumberFormatOperationError {}
 
 pub fn format_number_parts_operation(
     request: NumberFormatRequest,
-    profiles: &NumberProfiles,
+    profiles: &Arc<NumberProfiles>,
     limits: &PartitionLimits,
 ) -> Result<ScalarNumberPartition, NumberFormatOperationError> {
+    request.configuration.locale.ensure_profiles(profiles)?;
     let value = normalize_numeric_input(request.input, &limits.numeric())?;
     Ok(partition_number(
         &request.configuration,
@@ -70,9 +74,10 @@ pub fn format_number_parts_operation(
 }
 pub fn format_number_range_parts_operation(
     request: NumberRangeFormatRequest,
-    profiles: &NumberProfiles,
+    profiles: &Arc<NumberProfiles>,
     limits: &PartitionLimits,
 ) -> Result<RangeNumberPartition, NumberFormatOperationError> {
+    request.configuration.locale.ensure_profiles(profiles)?;
     // Both source-level conversions have already completed. Normalization is
     // pure and retains string/BigInt precision before excluding NaN endpoints.
     let start = normalize_numeric_input(request.start, &limits.numeric())?;

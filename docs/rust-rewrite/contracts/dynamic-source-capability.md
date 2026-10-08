@@ -82,9 +82,12 @@ source constancy, or a particular missing lexical environment. Its explicit
 numeric ABI is `Eval=0`, `RealmEvalScript=1`, and ordinary/generator/async/async-
 generator Function construction `=2/3/4/5`.
 
-The mandatory `lila_host.reject_dynamic_source(i64) -> ()` import receives only
-that operation code. The Wasmtime binding validates it and returns a typed host
-error. Engine execution extracts this error before generic trap formatting;
+The mandatory `lila_host.reject_runtime_semantics(i64) -> ()` import receives the
+closed `RuntimeSemanticRejection` wire domain. It is the sole numeric authority:
+`DynamicSource(operation)` retains codes 0–5 above; `Gap(TemporalNamedTimeZone)`
+uses code 6 and belongs to T22; `Gap(RegExpRuntimePatternCompilation)` uses code 7
+and belongs to T19. The unary ABI and mandatory function index are unchanged. The Wasmtime binding rejects unassigned codes and returns a typed
+host error for a valid reason. Engine execution extracts this error before generic trap formatting;
 Test262 classifies the typed reason as Unsupported before JavaScript negative
 expectations. `EngineError::runtime_dynamic_source_operations()` returns every
 distinct rejection retained from the root and its workers. A nonempty execution
@@ -95,7 +98,8 @@ including a worker-start compilation diagnostic combined with another worker's
 runtime rejection. A compile diagnostic does not fabricate a runtime operation.
 
 `WasmExecutionFailureKind` separates a root JavaScript exception from dynamic
-source rejection, concurrent failures, Wasm traps and execution timeouts. A
+source rejection, compiler semantic gaps, concurrent failures, Wasm traps and
+execution timeouts. A
 runtime-negative Wasm test must observe the root JavaScript exception. Aggregates
 containing real failures remain Bug or Crash even when their detail also contains
 an unsupported source operation. Root and worker failures are combined after the

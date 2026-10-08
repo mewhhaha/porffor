@@ -1,0 +1,64 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/computed-exact-attributes",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "script",
+      "identity": "entry.js",
+      "source": "var specifier = 'target';\nvar blue = { with: { flavor: 'blue', kind: 'probe' } };\nvar red = { with: { kind: 'probe', flavor: 'red' } };\nconst first = import(specifier, blue), repeated = import(specifier, blue), second = import(specifier, red);\nif (first === repeated) throw 'fresh import promises';\nPromise.all([first, repeated, second, import(specifier).then(() => { throw 'undeclared empty attributes'; }, error => error instanceof TypeError)]).then(values => {\n if (values[0] !== values[1] || values[0] === values[2] || values[0].value !== 1 || values[2].value !== 2 || !values[3]) throw 'exact attributes';\n print('embedded-attributes:1,2');\n});\n262;\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "blue.js",
+        "source": "export const value = 1;",
+        "meta_url": "lila://blue.js"
+      },
+      {
+        "identity": "red.js",
+        "source": "export const value = 2;",
+        "meta_url": "lila://red.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "script",
+          "identity": "entry.js"
+        },
+        "specifier": "target",
+        "attributes": [
+          [
+            "kind",
+            "probe"
+          ],
+          [
+            "flavor",
+            "blue"
+          ]
+        ],
+        "target": "blue.js"
+      },
+      {
+        "referrer": {
+          "kind": "script",
+          "identity": "entry.js"
+        },
+        "specifier": "target",
+        "attributes": [
+          [
+            "flavor",
+            "red"
+          ],
+          [
+            "kind",
+            "probe"
+          ]
+        ],
+        "target": "red.js"
+      }
+    ]
+  }
+}

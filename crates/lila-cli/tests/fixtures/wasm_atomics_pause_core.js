@@ -31,25 +31,18 @@ assertSame(Atomics.pause(0), undefined, "zero");
 assertSame(Atomics.pause(-0), undefined, "negative zero");
 assertSame(Atomics.pause(9007199254740991), undefined, "max safe integer");
 
-assertTypeError(function () { Atomics.pause(true); }, "true");
-assertTypeError(function () { Atomics.pause(false); }, "false");
-assertTypeError(function () { Atomics.pause(null); }, "null");
-assertTypeError(function () { Atomics.pause(42.42); }, "fraction");
-assertTypeError(function () { Atomics.pause(-42.42); }, "negative fraction");
-assertTypeError(function () { Atomics.pause(NaN); }, "NaN");
-assertTypeError(function () { Atomics.pause(Infinity); }, "Infinity");
-assertTypeError(function () { Atomics.pause("42"); }, "string");
-assertTypeError(function () { Atomics.pause(42n); }, "BigInt");
-assertTypeError(function () { Atomics.pause({}); }, "object");
-assertTypeError(function () { Atomics.pause([]); }, "array");
-assertTypeError(function () { Atomics.pause(function () {}); }, "function");
-assertTypeError(function () {
-  Atomics.pause({
-    valueOf() {
-      return 42;
-    }
-  });
-}, "valueOf object");
+// ECMA-262 2027 Atomics.pause has no argument validation or coercion.
+var ignored = [true, false, null, 42.42, -42.42, NaN, Infinity, "42", 42n,
+  {}, [], function () {}, Symbol("ignored")];
+for (var i = 0; i < ignored.length; ++i) {
+  assertSame(Atomics.pause(ignored[i]), undefined, "ignored operand " + i);
+}
+var hooks = 0;
+assertSame(Atomics.pause({
+  get [Symbol.toPrimitive]() { ++hooks; throw "unexpected coercion"; },
+  valueOf() { ++hooks; throw "unexpected valueOf"; }
+}), undefined, "object not coerced");
+assertSame(hooks, 0, "no hooks");
 assertTypeError(function () { new Atomics.pause(); }, "constructor");
 
 912;

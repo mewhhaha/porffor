@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DIRECTORY = ROOT / "crates/lila-intl/data/number-cldr-47"
 LEAVES = ROOT / "scripts/intl_numberformat_profile"
 SOURCE = ROOT / "crates/lila-intl/src/number_format"
-GENERATED = ["profiles.json.gz", "profile-provenance.json.gz", "medial-denominator-policy.json", "plural-samples.json", "coverage.json", "profiles.bin", "payload-manifest.json"]
-RUST_GENERATED = ["profiles/fingerprint.rs", "tests/plural_samples.rs"]
+GENERATED = ["profiles.json.gz", "profile-provenance.json.gz", "medial-denominator-policy.json", "plural-samples.json", "ordinal-samples.json", "coverage.json", "profiles.bin", "payload-manifest.json"]
+RUST_GENERATED = ["profiles/fingerprint.rs", "tests/plural_samples.rs", "tests/ordinal_samples.rs"]
 
 
 def unpack(destination):
@@ -60,6 +60,8 @@ def main():
             print(json.dumps({"source_files": len(manifest["files"]), "archive_sha256": manifest["archive_sha256"]}))
             return
         shutil.copytree(LEAVES, scratch / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copyfile(ROOT / "scripts/intl_positional_numbering.py", scratch / "scripts/intl_positional_numbering.py")
+        shutil.copytree(DIRECTORY.parent / "numbering-tols-cldr-48", scratch / "reference/numbering-tols")
         generated = scratch / "work/crates/lila-intl/data/number-cldr-47"
         generated.mkdir(parents=True)
         rust = scratch / "work/crates/lila-intl/src/number_format"

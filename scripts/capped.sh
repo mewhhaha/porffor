@@ -14,7 +14,8 @@
 #   ./scripts/capped.sh cargo test -p lila-engine --lib
 #   ./scripts/capped.sh ./target/release/lila run --execution-backend wasm x.js
 #
-# LILA_CPU_PERCENT overrides the share (default 50).
+# LILA_CPU_PERCENT overrides the share (default 50). Cargo defaults to one
+# job; a requested CARGO_BUILD_JOBS may only narrow the CPU-derived ceiling.
 
 set -eu
 
@@ -31,6 +32,24 @@ case "$percent" in
   [1-9]|[1-9][0-9]|100) ;;
   *) echo "LILA_CPU_PERCENT must be a decimal integer from 1 to 100" >&2; exit 2 ;;
 esac
+
+requested_jobs=${CARGO_BUILD_JOBS:-1}
+case "$requested_jobs" in
+  ''|*[!0-9]*) echo "CARGO_BUILD_JOBS must be a positive integer" >&2; exit 2 ;;
+esac
+if ! [ "$requested_jobs" -ge 1 ] 2>/dev/null || ! [ "$requested_jobs" -le 2147483647 ] 2>/dev/null; then
+  echo "CARGO_BUILD_JOBS must be an integer from 1 to 2147483647" >&2
+  exit 2
+fi
+
+set_cargo_job_cap() {
+  if [ "$requested_jobs" -lt "$allowed" ]; then
+    CARGO_BUILD_JOBS=$requested_jobs
+  else
+    CARGO_BUILD_JOBS=$allowed
+  fi
+  export CARGO_BUILD_JOBS
+}
 
 [ "$#" -gt 0 ] || { echo "usage: ./scripts/capped.sh <command...>" >&2; exit 2; }
 
@@ -72,9 +91,8 @@ $selection
 EOF_SELECTION
 
   # Keep compilation-unit concurrency within the same hard affinity ceiling.
-  CARGO_BUILD_JOBS=$allowed
-  export CARGO_BUILD_JOBS
-  echo "capped: CPUs $cpu_list of $cpus available (${percent}%), CARGO_BUILD_JOBS=$allowed" >&2
+  set_cargo_job_cap
+  echo "capped: CPUs $cpu_list of $cpus available (${percent}%), CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS" >&2
   exec taskset -c "$cpu_list" "$@"
 fi
 
@@ -84,7 +102,6 @@ cpus=$(logical_cpus)
 case "$cpus" in ''|*[!0-9]*|0) cpus=4 ;; esac
 allowed=$(( cpus * percent / 100 ))
 [ "$allowed" -ge 1 ] || allowed=1
-CARGO_BUILD_JOBS=$allowed
-export CARGO_BUILD_JOBS
-echo "capped: taskset unavailable, limiting job counts only (CARGO_BUILD_JOBS=$allowed)" >&2
+set_cargo_job_cap
+echo "capped: taskset unavailable, limiting job counts only (CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS)" >&2
 exec "$@"

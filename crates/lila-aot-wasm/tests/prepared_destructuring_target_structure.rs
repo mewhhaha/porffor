@@ -56,6 +56,7 @@ fn prepared_target_is_one_private_must_use_capability_free_domain() {
         "Binding {",
         "AssignmentIdentifier(",
         "EnvironmentIdentifier {",
+        "WithObjectIdentifier {",
         "Property {",
         "Private {",
         "NestedArray(",
@@ -105,12 +106,16 @@ fn prepared_identifier_write_cannot_spell_an_environment_reference() {
 
     let preparation = bounded(
         CONTROL_FLOW_SOURCE,
-        "            DestructuringTargetIr::AssignmentIdentifier(reference) => {",
-        "            DestructuringTargetIr::AssignmentProperty {",
+        "    fn prepare_destructuring_identifier_reference<'b>(",
+        "    fn put_destructuring_target(",
     );
     assert!(preparation.contains("match reference.write_disposition() {"));
     assert!(!preparation.contains("if let IdentifierWriteDisposition"));
     for (disposition, prepared) in [
+        (
+            "WithObject",
+            "PreparedDestructuringTarget::WithObjectIdentifier",
+        ),
         (
             "Environment",
             "PreparedDestructuringTarget::EnvironmentIdentifier",
@@ -172,6 +177,7 @@ fn preparation_exhaustively_constructs_the_matching_target_variant() {
 
     for variant in [
         "Binding",
+        "ResolvedVarBinding",
         "AssignmentIdentifier",
         "AssignmentProperty",
         "AssignmentPrivate",
@@ -190,6 +196,7 @@ fn preparation_exhaustively_constructs_the_matching_target_variant() {
         "Binding",
         "AssignmentIdentifier",
         "EnvironmentIdentifier",
+        "WithObjectIdentifier",
         "Property",
         "Private",
         "NestedArray",
@@ -224,6 +231,7 @@ fn write_consumes_only_the_prepared_target_without_a_parallel_ir_discriminant() 
         "Binding",
         "AssignmentIdentifier",
         "EnvironmentIdentifier",
+        "WithObjectIdentifier",
         "Property",
         "Private",
         "NestedArray",

@@ -208,6 +208,16 @@ print(trace);
 
 #[test]
 fn unregistered_source_arguments_still_coerce_in_order_and_propagate_abrupt_completion() {
+    let mut expected = vec!["true", "first;second;"];
+    for _ in 0..4 {
+        expected.extend([
+            "true",
+            "first;second;third;",
+            "true",
+            "parameter;body;",
+            "true",
+        ]);
+    }
     assert_function_trace(
         r#"
 var trace = '';
@@ -220,8 +230,42 @@ try {
   );
 } catch (error) { print(error === sentinel); }
 print(trace);
+var abruptSource = Object.create(null);
+abruptSource.toString = function () { trace += 'third;'; throw sentinel; };
+var GeneratorFunction = Object.getPrototypeOf(function* () {}).constructor;
+var AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+var AsyncGeneratorFunction = Object.getPrototypeOf(async function* () {}).constructor;
+Function('x', 'return x;');
+Function('y', 'return y + 1;');
+GeneratorFunction('x', 'return x;');
+GeneratorFunction('y', 'return y + 1;');
+AsyncFunction('x', 'return x;');
+AsyncFunction('y', 'return y + 1;');
+AsyncGeneratorFunction('x', 'return x;');
+AsyncGeneratorFunction('y', 'return y + 1;');
+for (var Constructor of [Function, GeneratorFunction, AsyncFunction, AsyncGeneratorFunction]) {
+  trace = '';
+  try {
+    Reflect.construct(Constructor, [
+      { toString() { trace += 'first;'; return 'x'; } },
+      { toString() { trace += 'second;'; return 'y'; } },
+      abruptSource,
+      { toString() { trace += 'late;'; return ''; } }
+    ]);
+  } catch (error) { print(error === sentinel); }
+  print(trace);
+  try { Reflect.construct(Constructor, [Symbol()]); }
+  catch (error) { print(error instanceof TypeError); }
+  trace = '';
+  var prepared = Reflect.construct(Constructor, [
+    { toString() { trace += 'parameter;'; return 'y'; } },
+    { toString() { trace += 'body;'; return 'return y + 1;'; } }
+  ]);
+  print(trace);
+  print(prepared.toString().includes('return y + 1;'));
+}
 "#,
-        &["true", "first;second;"],
+        &expected,
     );
 }
 

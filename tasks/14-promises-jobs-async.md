@@ -1,5 +1,336 @@
 # T14 — Promise jobs, async functions and async iteration
 
+## ShadowRealm intrinsic import reactions — 2026-10-07 dry source
+
+The native importValue path consumes a fresh defining-Realm intrinsic Promise
+capability and the shared PerformPromiseThen owner, also used by the public
+Promise.prototype.then implementation after its own species selection. Internal
+module awaits consume actual Promise records without rereading public Promise
+properties. Export and rejection continuations retain their Realm and exact
+capture family; namespace objects do not pass through thenable assimilation.
+Coercion/abrupt order, cached failures, mutated Promise properties and cyclic
+TLA controls are authored and unrun. See the
+[ShadowRealm contract](../docs/rust-rewrite/contracts/shadowrealm-implementation-sequence.md).
+
+## Module resource disposal owns implicit Await — 2026-10-07 dry source
+
+The original module scanner now includes `await using` declarations and
+synchronous for-of `await using` heads in HasTLA. Classic-for resource heads
+reach the same lexical-declaration visitor. Nullish resources, unreachable
+declarations and empty iterables retain this syntactic ownership. Nested
+functions and methods keep their own disposal; module-evaluated class names
+still contribute their actual Await expressions.
+
+The existing graph join therefore selects AsyncModuleActivation for a module
+whose only suspension is asynchronous disposal and makes its importers wait for
+the original resource completion. No activation protocol or disposal algorithm
+is added. Record/graph controls and three Engine cohorts cover statement/block/
+classic-for/for-of lifetimes, null disposal timing, importer ordering and exact
+undefined rejection under both promise policies. These controls are authored
+and unrun; compilation and runtime acceptance remain deferred until the whole
+task source batch is ready. The two September 30 top-level `await using`
+failures are historical leads, not refreshed conformance counts.
+
+## Complete plain async classic phases — 2026-10-06 dry source
+
+Plain async For/While/DoWhile now share the complete phase owner and native loop
+with mixed generators. Checked protocol-tagged regions bind every actual phase,
+Await point and whole completion cell. Suspended lexical/pattern heads use the
+original TDZ and per-iteration records; nested branches, finalizers and labelled
+control use the original completion machinery. Old direct-await restrictions
+have positive source and runtime controls. Common resource capabilities now span
+lexical lists, iterator heads, classic heads and CaseBlocks, with original
+registration and finalizer ownership. Compilation and execution are deferred.
+See the [contract](../docs/rust-rewrite/contracts/plain-async-classic-regions.md).
+
+## For-await bodies with Await — 2026-10-04 dry source
+
+Plain async `for await` loops with eager Var/Let/Const identifier binding heads
+now share the completed iterator/body plan with synchronous for-of. A closed
+execution view owns awaited Next and Close, checks successors around the actual
+body span, and keeps retained protocol flags in the real storage census and
+planner. The existing awaited iterator emitter consumes the completed view;
+body resumes cannot repeat next Get/Call or head initialization.
+
+The mandatory body proof preserves local Await/If/Try and completion ownership
+and rejects materialized body/catch environments at every depth. Captured head
+cells remain fresh per iteration. Three finite paired Engine cohorts and actual
+IR controls cover interleaved async/sync fallback, cached next, repeated body and
+finalizer awaits, Continue/Break/Return/Throw, close precedence, abrupt cutoffs and
+native-error Realms. Sync fallback Gets and Awaits terminal value even when done
+is true; true async terminal results omit value.
+
+All current compilation, guards, fixture/runtime and pinned acceptance remain
+unverified. Captured body/catch scopes, suspended operands, pattern/assignment or
+resource heads, nested resumable loops and async-generator composition remain
+explicit source gaps. Finish all task source before capped serial verification;
+no task closure or published count follows. See the
+[for-await contract](../docs/rust-rewrite/contracts/plain-async-for-await-body-continuations.md).
+
+## Nested switch block disposal — 2026-10-04 dry source
+
+The complete plain-async switch batch admits the existing supported nested-block
+`await using` shape: identifier bindings and eager resource initializers. Its
+mandatory source proof runs before any case states are allocated. The private
+case span constructor accepts only an AsyncFunction disposal capability, checks
+the actual suffix from entry, and requires exact checked adjacency through
+dispose, resume and exit. An implicit-only case therefore retains a resumable
+owner even without an explicit Await expression.
+
+Existing acquisition, pending-completion and lexical-environment owners retain
+resources and captured cells through disposal awaits. Matching switch breaks
+route after the selected finalizer completes; fallthrough starts the next case
+only after normal disposal. No emitter, activation, opcode or ABI change is
+introduced. Three finite strict/sloppy WasmAot cohorts cover selection/cells,
+completion/LIFO/finalizer replacement, and errors/rejection/Realms; IR controls
+exercise actual lowerings and reject incorrect capability/state ownership.
+
+The batch passed the ref93 combined all-target Rust type check and remains
+unexecuted. Direct CaseClause/DefaultClause resource
+declarations retain SyntaxError; resource loop heads, suspended initializers,
+for-await and generator/enclosing-loop composition remain outside this owner.
+Full T14/T15 and pinned conformance acceptance remain open. See the
+[contract](../docs/rust-rewrite/contracts/plain-async-switch-continuations.md).
+
+The ref80 `cargo xc --locked --offline` whole-workspace all-target Rust type
+check passed on 2026-10-04, including the local async for-of follow-up and all
+then-integrated invocation/branch owners and test targets. Formatting and
+task-plan checks passed. Emitted Wasm, focused runtime regressions, broad suites
+and full T14/T15 acceptance remain pending. Historical execution receipts below
+retain their original source scope.
+
+## Local async for-of control — 2026-10-04 dry source
+
+Plain async synchronous for-of bodies admit only current-loop unlabelled
+Break/Continue. Source admission and both mandatory resumable body constructors
+consume one neutral closed CurrentLoop/NestedStatement ownership domain. The
+async ownership preflight runs before the existing eager-body shortcut, so a
+foreign loop, switch, label or parameter-initialization branch cannot bypass it.
+Existing eager Try/resource and checked Await/If/Try state handling retain their
+owners; no activation, IteratorRecord or continuation layout is added.
+
+The shared iterator emitter publishes a body-end continue target and retains
+the break target through IteratorClose and completion dispatch. An awaiting
+finalizer selects the actual completion first. Matching Continue clears its
+completion and auxiliary target before iteration cleanup/reset/step, without
+close. Break closes once with existing throw precedence and outer clause
+routing. Three finite strict/sloppy Engine cohorts cover interleaved activations,
+cached next and captured cells, repeated finalizer awaits, replacement by local
+control/Return/Throw/rejection, and all six close protocol routes through
+awaiting outer handlers. The maintained generator source guard follows the
+consumed ownership proof rather than its retired blanket rejection spelling.
+
+This whole source batch passed the ref80 combined all-target Rust type check;
+emitted Wasm and runtime acceptance remain pending. Async generators, for-await, suspended heads
+and foreign or labelled control remain separate domains. Full T14/T15 acceptance
+remains open. See the
+[loop contract](../docs/rust-rewrite/contracts/async-for-of-continuations.md).
+
+## Target-only grouped Property References — 2026-10-04 dry source
+
+Grouped ordinary calls and tags whose optional chain ends in a Property now
+admit suspension in the target before a synchronous tail. The existing checked
+grouped source retains the actual terminal kind and the complete chain; its
+private constructor validates either terminal role through the existing link
+validator. Ordinary optional value admission keeps its link-Await requirement.
+The existing evaluated-base producer retains the resolved target once and
+captures only the terminal Get and raw receiver before outer arguments, spread,
+GetTemplateObject or awaited substitutions. A recursively checked first optional
+Call retains the same original inner receiver.
+
+The existing three paired calls, templates and abrupt fixtures add target
+thenables and mutations, Symbol/Proxy/Get order, strict primitive receivers,
+synchronous Call-to-Property tails, optional first-Call skipping, frozen cached
+templates and original foreign abrupt/finally observations. The two obsolete
+target-only Property refusal rows become positive IR controls with actual
+activation/state and capture-order assertions. This supersedes the target-only
+Property boundary recorded below; private/super, delete, loops, mixed protocols
+and generators retain their existing admission boundaries. Its combined
+all-target Rust type check passed; emitted Wasm and these semantic controls
+remain pending. Full T14 acceptance stays open.
+See the [grouped Reference contract](../docs/rust-rewrite/contracts/grouped-optional-reference-await-ownership.md).
+
+## Generator invocation sibling — 2026-10-04 dry source
+
+The shared suspended-invocation path now consumes a complete checked generator
+chain whose actual terminal link distinguishes Property Reference from Call
+Value. A Property retains its terminal raw receiver across outer Yield; a Call
+result remains receiver-free. This completes the bounded T15 sibling without
+changing the async owner or its admission boundaries. The existing three paired
+generator fixtures are extended with Property, skipping and abrupt controls.
+The integrated batch passed the combined all-target Rust type check; execution
+and full T14/T15 acceptance remain pending. See the
+[grouped yield contract](../docs/rust-rewrite/contracts/grouped-optional-call-value-yield-ownership.md).
+
+## Grouped terminal Call values — 2026-10-03 dry source
+
+One private grouped source owns the actual finite chain and a closed terminal
+Property/Call kind. Mandatory prefix admission validates plain async functions
+outside all loops, with no Yield, before any continuation state is consumed.
+Property mode retains its actual terminal Get and raw receiver. Call mode
+consumes the completed full-tail Value and pins it with an undefined receiver
+before every outer argument or GetTemplateObject/substitution. It also owns
+target-only suspension, including a nested grouped first Call whose original
+method receiver must survive. Existing ordinary value/link-await admission and
+terminal Property Reference boundaries retain their domains.
+
+The existing paired calls, templates and abrupt Engine fixtures now cover
+returned function/tag identity, inner versus outer receivers, spread completion
+before outer Await, unconditional outer evaluation, optional outer skipping,
+cached frozen templates, saved intrinsic error Realms and arbitrary foreign
+abrupt values. Meaningful IR sources cover actual publication, activation/state
+ownership and mandatory preflight. Five superseded refusal inputs are retired;
+delete, private/super, loops, generators and mixed protocols remain explicit.
+The later target-only Property batch supersedes that original refusal.
+Compilation, emitted Wasm and all
+controls are unverified; full T14 acceptance remains open. See the
+[Call Value contract](../docs/rust-rewrite/contracts/grouped-optional-call-value-await-ownership.md).
+
+## Current invocation ownership — 2026-10-03 dry source
+
+Calls, constructors and tags acquire their evaluated callee, original receiver
+and direct-eval capability before staged awaited or yielded arguments. Factory-owned
+argument snapshots retain spread iteration results before suspension. Grouped
+optional property calls/tags publish the chain owner's conditional receiver;
+a terminal Call supplies a Value with an undefined outer receiver;
+nullish and noncallable outer calls still evaluate arguments before rejection.
+The private IR owners, actual emitters and planning/traversal consumers are
+integrated with seventeen await and fourteen yield regression sources. A shared
+Await/Yield invocation owner consumes existing activation bindings and rejects
+unsupported staged shapes before continuation-state consumption. The combined
+all-target Rust type check passed; runtime verification remains pending. Mixed suspension, async-generator
+branches, awaited bodies/other loop heads and super() staging remain separate
+work. Bounded ordinary-generator values now have the separate
+[T15 branch owner](../docs/rust-rewrite/contracts/plain-generator-value-branch-ownership.md). See the
+[invocation contract](../docs/rust-rewrite/contracts/suspended-call-argument-ownership.md).
+
+## 2026-10-03 dry implementation follow-up
+
+Plain async conditional and logical values now reuse the existing If continuation owner
+outside loop bodies and in checked awaited while conditions with eager bodies. One private completed-arm constructor keeps
+its prefix and state range together; private arm scopes preserve the outer fact
+domain while activation slots survive. A consumed result owns both final writes
+and the resumed read. Checked source admission closes the actual expression
+statement mis-hoist and the New/import option omissions. Switch selectors already
+consume these If prefixes. Authored invocation-order, nested value, TDZ and
+abrupt Realm controls passed the combined Rust type check and remain unexecuted;
+unsupported optional
+Reference forms, awaited bodies, other loop heads and
+mixed Await/Yield and async-generator branch owners stay open. Ordinary
+generator values use their dedicated bounded owner. See the
+[conditional expression contract](../docs/rust-rewrite/contracts/conditional-await-expression-ownership.md).
+
+Logical `&&`, `||` and `??` share that same branch/result owner. A consumed left
+owner retains GetValue once and supplies both its condition and skipped value;
+strict null/undefined comparisons preserve non-nullish values without coercion.
+The selected RHS alone suspends. Existing Call/New/tag/property References and
+switch selector prefixes compose with these branches. Four IR controls, three
+paired strict/sloppy sources and a selector/fallthrough control are authored and
+unexecuted. See the [logical expression contract](../docs/rust-rewrite/contracts/logical-await-expression-ownership.md).
+
+Property-only optional values share the same branch/result owner. Checked
+source tails reject private links; Call-bearing tails now have the additional
+context admission described below. Each shorted link guards its
+whole suffix. The original base and each intermediate GetValue remain in
+activation bindings before a later computed key suspends. Raw keys preserve
+the existing property-coercion and ordinary nullish-receiver checks. Outer
+ordinary method/delete References, constructor values and call arguments
+compose. Grouped optional callees/tags with awaited property keys now have
+a consumed terminal Reference mode; the later target-only grouped batch also
+admits awaited bases for callees/tags. Direct delete remains refused.
+Target-only optional values retain the
+synchronous-chain path. If static
+nullish nested keys erase every suspension, an ordinary If commits the result
+without advancing the enclosing state. Five IR controls and three paired
+strict/sloppy semantic sources are authored and unexecuted; see the
+[optional property contract](../docs/rust-rewrite/contracts/optional-property-await-ownership.md).
+
+Grouped ordinary calls and tags now retain the original optional chain
+Reference outside all loops. Each intermediate Get completes before a later
+key suspends, and only the terminal Get publishes callee and raw receiver
+together through the existing capture IR. A closed Call/Construct purpose keeps
+constructors on their value route. Nullish groups skip the entire suffix but
+still evaluate outer arguments or GetTemplateObject/substitutions before the
+shared callability error. Existing private arm scopes, checked joins and erased
+await fallback retain their owners. Six IR controls and three paired semantic
+sources cover two-key child retention, Proxy/Symbol/getter hooks, primitive
+receivers, outer spread/job order, template caching and foreign abrupt identity.
+They passed the combined Rust type check and remain unexecuted. The later
+grouped Call Value owner extends
+terminal Call results used as outer callees/tags. Private/super, delete, loop and
+generator References retain their boundaries; see the
+[grouped Reference contract](../docs/rust-rewrite/contracts/grouped-optional-reference-await-ownership.md).
+
+Optional Property/Call tails now consume a checked plain-async source owner
+outside all loops. The actual first Call captures its original Reference; a
+preceding property supplies the same actual Get and raw receiver to the existing
+capture IR. Every optional nullish guard precedes arguments and skips the entire
+suffix. Selected Calls reuse ordered suspended arguments, spread snapshots and
+the existing call completion owner. Each Call result survives later keys or
+Calls as a Value. Grouped Call/tag acquisition consumes the actual terminal
+kind: a Property keeps its Reference, while a Call supplies a Value. A first
+Call on an awaited grouped target passes the corresponding checked source before
+any continuation state is allocated. Property-only checked while routes and
+target-only synchronous tails remain unchanged. Maintained and new IR controls
+and three paired strict/sloppy Engine sources are authored and unexecuted; see
+the [optional Call contract](../docs/rust-rewrite/contracts/optional-call-await-ownership.md).
+
+Checked awaited while conditions now admit those conditional/logical/property-only
+optional value prefixes. A private context retains the real loop depth while staging,
+restores it before the eager body, and is absent from fresh child activations.
+The condition constructor checks exact recursive arm association and a fresh
+exit; statically erased awaits retain their eager prefix inside each iteration.
+Three paired strict/sloppy semantic sources and constructor/source controls are
+authored and unexecuted. Other loop heads/bodies and logical assignment
+conditions remain explicit gaps; see the [awaited while contract](../docs/rust-rewrite/contracts/plain-async-awaited-while-condition.md).
+
+Awaited logical assignments outside loops now capture declarative identifiers
+or ordinary property References with synchronous LHS operands. The actual Get
+capture owns the normalized key, target and original receiver; only a normal
+selected RHS reaches the consumed Put and result publication. Existing TDZ,
+immutable writes, Set strictness, arbitrary exceptions and intrinsic error Realm
+remain shared. Runtime/with/script-global-object/unresolved identifiers, suspended
+LHS/private/super targets and all loop/generator contexts remain refused. New IR,
+switch and three paired semantic sources are authored and unexecuted; see the
+[logical assignment contract](../docs/rust-rewrite/contracts/logical-assignment-await-reference-ownership.md).
+
+The suspended-selector, conditional, logical, optional-property/Call, grouped
+Reference, while and logical-assignment follow-ups passed the combined
+all-target Rust type check and remain unexecuted. The candidate results in the
+next section describe the earlier eager-selector
+source; they do not verify this implementation or close T14.
+
+## Current candidate verification
+
+The named async-switch IR and paired Engine targets pass in the same-Source
+focused run. All seven IR controls pass with the awaited-discriminant
+test checking the required lexical temporary, matching resume/read
+binding, activation-owned cell, exact states and isolated case awaits.
+The parent IR result with six passes and one failure remains dated history;
+the correction changes no production lowering. No new switch-specific
+pinned packet was authored. Awaited
+selectors, implicit asynchronous disposal/iteration, enclosing-loop
+composition and generator switches retain their explicit boundaries.
+The predecessor 43-stage checkpoint remains dated history; its later broad
+session 30300 is INCOMPLETE rather than still running. General T14 is open.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
 **Status:** In progress — Promise/job machinery is substantial; suspended async closure remains
 
 **Parallel group:** Feature lane  
@@ -7,6 +338,22 @@
 **Blocks:** Async modules in T12, async iterators in T15, Atomics.waitAsync in T17
 
 ## Current repository state
+
+The admitted NEXT batch gives an unconditionally reached awaited `while`
+condition a checked contiguous activation-state owner and consumes a validated
+eager source body before temporarily removing continuation state. Back edges and
+`continue` restart the condition; ordinary completion routes preserve `finally`,
+rejection and captured body environments. Non-loop labelled regions support
+admitted Block/If/Try owners, ordinary awaits and awaited `while` conditions;
+early labelled breaks bypass unentered conditions and advance to the region exit.
+Switch cases/discriminants, implicit disposal/iterator body suspensions and bodies
+without supported continuation owners report Unsupported. Nested functions retain
+independent activations. The actual combined T12/Async/Locale checkpoint passes
+43 stages/1,520 selected Rust tests, fresh CLI and 39 exact pinned files/65 modes,
+then receipt acceptance and 107-path MAIN admission. The separate mandatory broad
+checkpoint remains pending; this narrow result does not satisfy the whole
+Promise/async zero-failure gate. See the [awaited while contract](../docs/rust-rewrite/contracts/plain-async-awaited-while-condition.md)
+and [labelled region contract](../docs/rust-rewrite/contracts/plain-async-labelled-region.md).
 
 The backend has Promise records, reaction/job queues, combinators, async
 activation records and extensive focused real-suite coverage. README notes
@@ -696,3 +1043,93 @@ cargo test -p lila-cli wasm_async --quiet
 ```
 
 Also run async function, `await`, `for-await-of`, async iterator and top-level-await filters, plus intentionally hanging/duplicate `$DONE` harness tests.
+
+
+### 2026-10-02 source-only plain async switch continuation proposal
+
+The isolated T14 proposal is based on the reviewed Locale/GC-wording source and
+keeps the admitted 43-stage/1,520-test, fresh-CLI and 39-file/65-mode checkpoint
+as historical evidence. Its mandatory MAIN broad run is still separate; no pass
+is inherited by this proposal.
+
+A consuming source-admission carrier refuses awaited selectors and implicit
+`await using`/`for await` suspension before any case is lowered. A private checked
+IR owner couples each actual case body to its continuation segment. Eager cases
+receive separate segments whenever a child allocates a continuation, including
+ordinary `try` clauses without an `await`; wholly eager switches retain their
+existing synchronous representation. The Wasm emitter selects once after shared
+CaseBlock instantiation, retains selection in the activation state, reattaches
+the saved environment on resume, and commits switch exit after matching breaks.
+An awaited discriminant is staged before creating that environment. Body await,
+admitted If/Try/Block/label/awaited-while children, fallthrough, finalization and
+nested synchronous `using` use the existing real compiler/emitter paths.
+
+Authored IR and paired Engine controls cover selector order/default placement,
+no-match/early-break exits, nested owners, captured cells/TDZ, rejection identity,
+awaited finalizers and synchronous disposal. They are **UNCOMPILED/UNEXECUTED**.
+Targeted Rust formatting and source-bound inventory checks are separate from
+verification. Full compilation, meaningful runtime regressions, pinned primary
+filters and the mandatory broad checkpoint remain future Root work. Awaited
+selectors, implicit asynchronous disposal/iteration in cases, enclosing-loop
+composition and generator switches still require their own typed owners. This
+proposal does not close the general T14 acceptance criteria or change published
+suite counts. See [the contract](../docs/rust-rewrite/contracts/plain-async-switch-continuations.md).
+
+### 2026-10-03 async switch IR carrier assertion repair
+
+The fresh UTF8 verification attempt retained an actual Root exit1 after all
+eight Locale cases passed: async-switch IR stage51 reported six passed tests
+and one failed assertion that required its discriminant await to be the first
+prefix statement. Inspection of the exact compiled IR confirmed the required
+activation-owned result cell before that await, followed by the switch owner.
+The test-only repair now requires the exact cell/await/switch sequence, the
+same declared, resumed and discriminant-read binding, and its owned environment
+slot. It separately checks discriminant states `0→1`, case states `2→3` and
+following-await states `4→5`, preserving switch entry `1` and exit `4`. Production
+lowering is unchanged. The failed receipt remains historical evidence; focused
+execution and complete verification of the repaired Source are pending.
+
+### 2026-10-03 dry suspended switch selector ownership
+
+Plain async switches now lower stageable case-selector awaits through the
+existing async statement prefix and activation dispatcher. The discriminant
+is evaluated once and stored in an activation-owned binding before CaseBlock
+instantiation. All selectors in that switch have checked selection segments;
+their private constructors validate the actual prefix, ready state and next
+decision state. Exhaustive selector matches require callers to handle both
+eager and resumable forms. An independently derived fallback state precedes
+every body entry, so a first-case match cannot be confused with no match.
+
+The shared lexical environment and its TDZ cells are instantiated before
+selection and reattached on resume. Selectors run in source order until a
+match, while default selection waits for every failed test. Existing body
+segments preserve fallthrough without evaluating later selectors, matching
+breaks, nested awaited finally and rejection propagation. Frame/data/function
+planning, throw inference and source traversals visit each actual prefix;
+saved discriminant and operand cells use the existing activation layout.
+
+Fifteen new Rust regression declarations are authored: three constructor
+ownership controls, two lowering controls and ten paired sloppy/strict AOT
+sources. They cover state gaps/overflow/mixed owners, first-match/fallthrough,
+default/no-match, discriminant identity and scope, retained cells/TDZ, method
+receiver order, rejection and labelled breaks through awaited finalizers.
+The previous awaited-selector refusal becomes a branch-sensitive-selector
+refusal; implicit asynchronous disposal/iteration, enclosing-loop composition
+and generator switch suspension remain explicit dependent work.
+
+Independent source review found that the inherited eager-switch reset pattern
+could erase writes from a failed awaited selector before lowering the next
+test. The correction carries sequential var/global facts, takes default-entry
+facts only after all selectors fail, joins each body with possible fallthrough,
+and includes no-match in the exit join. Mutable scope values and static caches
+are conservatively widened at body and exit joins while retaining the existing
+lexical lifecycle/storage owner. Four additional paired sources cover the
+reported `x = 'abc'` then `x.length` selector, default/no-match writes, direct
+entry versus awaited fallthrough, and skipped lexical value effects. The first
+patch and its blocking source review remain retained; no runtime repair is
+inferred from this source correction.
+
+Formatting and patch checks are source checks only. Compilation, focused
+execution and the combined verification checkpoint remain pending under the
+implementation-first workflow. No runtime pass or published count changes are
+claimed. See [the contract](../docs/rust-rewrite/contracts/plain-async-switch-continuations.md).

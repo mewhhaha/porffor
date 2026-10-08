@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use crate::datetime::*;
+use crate::provider::KeywordAliasData;
 use crate::CanonicalLocaleId;
 
-use super::profile::{invalid, Locale, Profile};
+use super::profile::{invalid, Calendar, Locale, Profile};
 
 fn unicode_extension(identifier: &str) -> (String, BTreeMap<&str, String>) {
     let subtags: Vec<_> = identifier.split('-').collect();
@@ -68,6 +69,7 @@ pub(super) fn supported(
 
 pub(super) fn resolve(
     profile: &Profile,
+    keyword_aliases: &KeywordAliasData,
     request: DateTimeLocaleRequest,
 ) -> Result<DateTimeLocaleResult, DateTimeFormatError> {
     match request.matcher {
@@ -91,6 +93,7 @@ pub(super) fn resolve(
     if let Some(value) = extension
         .get("ca")
         .and_then(|value| DateTimeCalendar::parse(value))
+        .filter(|value| locale.supports_calendar(*value))
     {
         calendar = value;
         additions.insert("ca", value.as_str().to_owned());
@@ -98,7 +101,10 @@ pub(super) fn resolve(
     if let Some(value) = request
         .calendar
         .as_ref()
-        .and_then(|value| DateTimeCalendar::parse(value.as_str()))
+        .map(|value| calendar_option(value, keyword_aliases))
+        .transpose()?
+        .flatten()
+        .filter(|value| locale.supports_calendar(*value))
     {
         if value != calendar {
             additions.remove("ca");
@@ -108,7 +114,7 @@ pub(super) fn resolve(
     let mut numbering = locale.default_numbering.clone();
     if let Some(value) = extension
         .get("nu")
-        .filter(|value| profile.digits.contains_key(*value))
+        .filter(|value| locale.decimal.contains_key(*value))
     {
         numbering = value.clone();
         additions.insert("nu", value.clone());
@@ -117,7 +123,7 @@ pub(super) fn resolve(
         .numbering_system
         .as_ref()
         .map(DateTimeKeyword::as_str)
-        .filter(|value| profile.digits.contains_key(*value))
+        .filter(|value| locale.decimal.contains_key(*value))
     {
         if value != numbering {
             additions.remove("nu");
@@ -169,17 +175,55 @@ pub(super) fn resolve(
     })
 }
 
+/// Option syntax is already checked; use the selected whole-value alias
+/// authority before testing membership in the canonical public calendar domain.
+fn calendar_option(
+    value: &DateTimeKeyword,
+    keyword_aliases: &KeywordAliasData,
+) -> Result<Option<DateTimeCalendar>, DateTimeFormatError> {
+    let source = format!("und-u-ca-{}", value.as_str());
+    let mut locale: icu_locale::Locale = source
+        .parse()
+        .map_err(|_| invalid("syntax-valid calendar keyword did not parse"))?;
+    locale.extensions.unicode.keywords =
+        super::super::keyword_aliases::lossless_unicode_keywords(&source);
+    keyword_aliases.canonicalize_unicode_keywords(&mut locale);
+    let value = locale
+        .extensions
+        .unicode
+        .keywords
+        .get(&icu_locale::extensions::unicode::key!("ca"))
+        .ok_or_else(|| invalid("calendar keyword was lost during canonicalization"))?;
+    Ok(DateTimeCalendar::parse(&value.to_string()))
+}
+
+/// A selected locale and its exact physical calendar record are admitted
+/// together before plan selection; no consumer can index an absent calendar.
+pub(super) struct ValidatedLocaleCalendar<'p> {
+    locale: &'p Locale,
+    calendar: &'p Calendar,
+}
+impl<'p> ValidatedLocaleCalendar<'p> {
+    pub(super) fn locale(&self) -> &'p Locale {
+        self.locale
+    }
+    pub(super) fn calendar(&self) -> &'p Calendar {
+        self.calendar
+    }
+}
+
 pub(super) fn validate<'p>(
     profile: &'p Profile,
     result: &DateTimeLocaleResult,
-) -> Result<&'p Locale, DateTimeFormatError> {
+) -> Result<ValidatedLocaleCalendar<'p>, DateTimeFormatError> {
     let locale = profile
         .locale(result.data_locale.as_str())
         .ok_or(DateTimeFormatError::InvalidPlan("unknown data locale"))?;
     let (base, keywords) = unicode_extension(result.locale.as_str());
     if base != result.data_locale.as_str()
-        || !profile
-            .digits
+        || !locale.supports_calendar(result.calendar)
+        || !locale
+            .decimal
             .contains_key(result.numbering_system.as_str())
     {
         return Err(DateTimeFormatError::InvalidPlan(
@@ -203,5 +247,11 @@ pub(super) fn validate<'p>(
             ));
         }
     }
-    Ok(locale)
+    let calendar =
+        locale
+            .checked_calendar(result.calendar)
+            .ok_or(DateTimeFormatError::InvalidPlan(
+                "absent localized calendar",
+            ))?;
+    Ok(ValidatedLocaleCalendar { locale, calendar })
 }

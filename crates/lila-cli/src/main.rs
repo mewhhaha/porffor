@@ -4,22 +4,34 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lila_engine::{
-    cache_status, configure_compilation_jobs, prune_caches, CompileOptions, Engine,
-    ExecutionBackend, HostHooks, HostSurfacePolicy, RealmBuilder, RunOptions,
+    cache_status, configure_compilation_jobs, prune_caches, CompileOptions, CustomIntlProfile,
+    CustomProfileId, Engine, ExecutionBackend, HostHooks, HostSurfacePolicy,
+    IntlCompilationProfile, RealmBuilder, RunOptions,
 };
 use lila_test262::{
     differential::{
         replay_case, run_generated_arithmetic_campaign, ArithmeticCheckCount,
         ArithmeticExpressionDepth, ArithmeticGenerationPlan, ArithmeticGenerationSeed,
-        ArithmeticReductionLimit, DifferentialCase, DifferentialReport, DifferentialVerdict,
-        GeneratedArithmeticCampaignOutcome, SpecExecOracle,
+        ArithmeticGrammar, ArithmeticReductionLimit, DifferentialReplayInput, DifferentialReport,
+        DifferentialVerdict, DifferentialWorkerRunner, GeneratedArithmeticCampaignOutcome,
+        SpecExecOracle,
     },
-    ArtifactProducer, ConformanceRunVerdict, ConformanceRunner, FailureKind, FailureOrigin,
-    LocalHarnessSource, OutcomeKind, PublicationBackend, RunConfig, SuiteConfig,
+    ArtifactProducer, CompilerProvenance, ConformanceRunVerdict, ConformanceRunner, FailureKind,
+    FailureOrigin, LocalHarnessSource, OutcomeKind, PublicationBackend, RunConfig, SuiteConfig,
     VerifiedAggregateSummary,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
+
+mod differential_corpus;
+mod differential_campaign;
+mod differential_test262;
+mod differential_scenario_pair;
+mod differential_robustness;
+mod intl_data;
+mod fake_suite_publication;
+mod performance;
+use fake_suite_publication::VerifiedFakeSuiteCounts;
 
 #[derive(Debug)]
 struct StdoutHostHooks {
@@ -49,6 +61,7 @@ struct ParsedTest262Args {
 struct ParsedDifferentialReplayArgs {
     case_path: PathBuf,
     oracle: SpecExecOracle,
+    worker_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,12 +70,7 @@ struct ParsedDifferentialGenerateArithmeticArgs {
     plan: ArithmeticGenerationPlan,
     reduction_limit: ArithmeticReductionLimit,
     oracle: SpecExecOracle,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FakeSuiteCounts {
-    wasm_safe_total: usize,
-    full_total: usize,
+    worker_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -113,6 +121,7 @@ struct PublishedRealSuiteStatus {
     backend: String,
     refresh_date: String,
     manifest_hash: u64,
+    compiler_identity: CompilerProvenance,
     passed: usize,
     total: usize,
     failed: usize,
@@ -143,6 +152,23 @@ fn usage() -> &'static str {
     "lila <command> [args]
 
 Commands:
+  intl export --output PATH             export the selected admitted twelve-frame Intl bundle
+  intl inspect --input PATH             re-admit a bundle and print its actual provider identity
+  compiler-identity                     print the embedded build-source and
+                                        executing-image identity as JSON
+  performance report --output-dir PATH --samples 3..100
+      --machine-label LABEL --idle-machine [--gate all|warm-exact|warm-chunk|cold-exact]
+      [--fixture-root PATH] [--baseline report.json]
+                                        retain repeated whole-CLI AOT timings
+                                        for the existing opt-in benchmark corpus
+  performance compile --output-dir PATH --samples 3..100
+      --machine-label LABEL --idle-machine [--fixture-root PATH] [--baseline report.json]
+                                        measure actual prepare/lower/emit/validate stages,
+                                        retain Wasm footprints and per-stage comparisons
+  performance runtime --output-dir PATH --samples 3..100
+      --machine-label LABEL --idle-machine [--fixture-root PATH] [--baseline report.json]
+                                        execute the fixed emitted corpus in fresh Stores,
+                                        retain runtime spans and GC capacity snapshots
   run [--execution-backend wasm|spec] [--module] <file>
                                         compile and run a script through Rust engine path
                                         (default backend: wasm; wasm-aot is the only
@@ -157,21 +183,70 @@ Commands:
                                         legacy global Wasmtime cache
   cache prune [--legacy-wasmtime]       delete Lila caches; optionally delete
                                         the reported legacy Wasmtime cache
-  differential replay <case.json> --oracle spec-exec
+  differential replay <case.json> --oracle spec-exec [--worker-bin PATH]
                                         replay one versioned v1 self-checking,
                                         v2 primitive-completion, or v3
-                                        primitive-plus-print-transcript case
-                                        through Wasm-AOT and the
+                                        primitive-plus-print-transcript case,
+                                        or v4 embedded graph, in separate
+                                        bounded workers through Wasm-AOT and the
                                         explicitly enabled spec-exec oracle;
                                         emit one JSON observation report
+  differential replay-corpus --output-dir PATH --oracle spec-exec
+      [--corpus-root PATH] [--worker-bin PATH]
+                                        replay the entire compiled or selected
+                                        corpus, retain every red/incomplete case
+                                        and write a new aggregate/report directory
+  differential replay-scenario-pair <pair.json> --oracle spec-exec
+      [--worker-bin PATH]                replay both checked metamorphic variants,
+                                        report both actual backend observations
+                                        and their within-backend relation
+  differential seed-test262 --base NAME --candidate NAME
+      --selection failures|newly-green --max-seeds N --output-dir PATH
+  differential replay-test262 --seed PATH --output-report PATH --oracle spec-exec
+      [--worker-bin PATH]                retain exact Test262 harness and mode
+  differential robustness --input PATH --target NAME --seed N --cases N
+                          --timeout-ms N --output-dir PATH --oracle spec-exec
+      targets include encode-uri, encode-uri-component, decode-uri,
+      decode-uri-component, prelude and filesystem-resolver (bounded native JSON)
+  differential replay-robustness <input.json> --oracle spec-exec
+  differential minimize-robustness <input.json> --replays N --output-dir PATH
+                                  --oracle spec-exec [--worker-bin PATH]
+  performance conformance --snapshot NAME --output-dir PATH
+                          [--suite-root PATH] [--snapshot-dir PATH]
+                          [--execution-backend wasm-aot|spec-exec]
+  performance data --bundle PATH [--bundle PATH ...] --output-dir PATH
+  performance check --mode compiler|runtime --baseline PATH --candidate PATH
+                    --policy PATH --output-dir PATH
   differential generate-arithmetic <output.json>
       --seed N --checks N --depth 1|2|3|4 --max-replays N --oracle spec-exec
+      [--grammar integer-bitwise-v2|integer-arithmetic-v1|integer-product-v3]
+      [--worker-bin PATH]
                                         generate one deterministic schema-v1
                                         arithmetic case, replay it, and reduce
-                                        a mismatch before writing the case
+                                        a mismatch before writing the case;
+                                        default grammar: integer-bitwise-v2
+                                        worker defaults to this executable;
+                                        embedding callers select a worker binary
+  differential campaign --output-dir PATH --seed N --cases 1..128
+      --max-replays N --oracle spec-exec [--worker-bin PATH]
+      [--grammar integer-product-v3|integer-bitwise-v2|integer-arithmetic-v1
+        --checks N --depth 1|2|3|4]
+      [--grammar object-probe-v1 --nodes 1..16 --properties 1..16]
+      [--grammar object-mutations-v2 --nodes 1..15 --properties 1..16 --steps 1..64]
+      [--grammar module-graph-v1|module-graph-v2 --modules 1..16 --edges N]
+      [--grammar control-flow-v1 --steps 1..32 --depth 1|2|3|4]
+      [--grammar negative-source-v1 --steps 1..32 --depth 1|2|3|4]
+      [--grammar builtin-stateful-v1|metamorphic-stateful-v1 --steps 1..32]
+      [--grammar builtin-stateful-v2|metamorphic-stateful-v2 --steps 1..32]
+                                        replay deterministic consecutive seeds,
+                                        journal every initial/reduced candidate,
+                                        retain red/incomplete aggregate truth;
+                                        default grammar: integer-product-v3
   types [entrypoint] [output] [options] generate Worker-style TypeScript types
   typegen [entrypoint] [output] [options]
                                         alias for types
+  test262 close-release [--snapshot-dir PATH]
+                                        gate two fresh full pinned Wasm-AOT runs
   test262 sync [--suite-root PATH]
   test262 list [filter] [--suite-root PATH]
   test262 run [filter] [options]
@@ -210,6 +285,18 @@ global options:
                                         test262 --threads)
   --host-surface product|test262        host-global authority (default: product;
                                         test262 is for conformance harnesses)
+  --intl-profile minimal|conformance|custom:ID  pinned Intl image selection for build wasm
+  --intl-manifest PATH                 strict Custom locale/data/service manifest (v1–v6)
+                                        and Wasm run (default: minimal)
+  --intl-list-locales es,he             real List data projection within custom:ID
+  --intl-relative-time-locales fr,pl    real RelativeTime projection within custom:ID
+  --intl-duration-locales fr,sr         real Duration projection within custom:ID
+  --intl-displaynames-locales fr,ja     real DisplayNames projection within custom:ID
+  --intl-number-locales es,pl           coupled NumberFormat/PluralRules projection
+                                        within custom:ID
+  --intl-datetime-locales ar-EG,zh      real DateTimeFormat projection within custom:ID
+  --intl-collator-locales de-CH,sv      real Collator projection within custom:ID
+  --intl-segmenter-locales fi,el        real Segmenter projection within custom:ID
 
 types options:
   --config PATH, -c PATH
@@ -230,15 +317,56 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
         configure_compilation_jobs(jobs)?;
     }
     let host_surface_policy = take_global_host_surface_policy(&mut args)?;
+    let intl_profile = take_global_intl_profile(&mut args)?;
     let mut args = args.into_iter();
     let Some(command) = args.next() else {
+        if intl_profile.is_some() {
+            return Err("--intl-profile requires build wasm, a Wasm run or intl export".into());
+        }
         print!("{}", usage());
         return Ok(());
     };
 
+    if intl_profile.is_some() && !matches!(command.as_str(), "run" | "build" | "intl") {
+        return Err(format!(
+            "--intl-profile is unsupported by {command}; use build wasm, a Wasm run or intl export"
+        ));
+    }
+
     if matches!(command.as_str(), "--help" | "-h" | "help") {
         print!("{}", usage());
         return Ok(());
+    }
+
+    if command == "compiler-identity" {
+        if args.next().is_some() {
+            return Err("compiler-identity does not accept arguments".into());
+        }
+        println!(
+            "{}",
+            serde_json::to_string(&CompilerProvenance::current()?)
+                .map_err(|error| format!("cannot render compiler identity: {error}"))?
+        );
+        return Ok(());
+    }
+
+    if command == "performance" {
+        if host_surface_policy != HostSurfacePolicy::default() {
+            return Err("performance reporting uses the existing default host surface".into());
+        }
+        if intl_profile.is_some() {
+            return Err("performance reporting uses the corpus's default Intl profile".into());
+        }
+        let path = performance::command(args.collect())?;
+        println!("performance report: {}", path.display());
+        return Ok(());
+    }
+
+    if command == "differential" {
+        return handle_differential_command(args.collect());
+    }
+    if command == "intl" {
+        return intl_data::command(args.collect(), intl_profile);
     }
 
     let engine = Engine::new(
@@ -253,6 +381,9 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
                 path,
                 force_module,
             } = parse_run_args(&args.collect::<Vec<_>>())?;
+            if intl_profile.is_some() && backend != ExecutionBackend::WasmAot {
+                return Err("--intl-profile requires the Wasm execution backend".into());
+            }
             let path = path.ok_or_else(|| "run needs a source file".to_string())?;
             let source = read_source(&path)?;
             // Goal selection is the product's only module entry point: `.mjs`
@@ -262,6 +393,7 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
             let options = CompileOptions {
                 filename: Some(path),
                 host_surface_policy,
+                intl_profile: intl_profile.unwrap_or_default(),
                 ..CompileOptions::default()
             };
             let run_options = RunOptions {
@@ -278,11 +410,13 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
         }
         "repl" => Err("Rust REPL shell not implemented yet".to_string()),
         "cache" => handle_cache_command(args.collect()),
-        "differential" => handle_differential_command(args.collect()),
         "build" => {
             let format = args
                 .next()
                 .ok_or_else(|| "build needs target: wasm, c, or native".to_string())?;
+            if intl_profile.is_some() && format != "wasm" {
+                return Err("--intl-profile is supported only by build wasm".into());
+            }
             let path = args
                 .next()
                 .ok_or_else(|| "build needs a source file".to_string())?;
@@ -293,6 +427,7 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
                     CompileOptions {
                         filename: Some(path.clone()),
                         host_surface_policy,
+                        intl_profile: intl_profile.unwrap_or_default(),
                         ..CompileOptions::default()
                     },
                 )
@@ -301,13 +436,28 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
                 "wasm" => engine
                     .emit_wasm(&unit)
                     .map(|artifact| {
+                        // `LILA_WASM_DUMP` receives the program module; a linked
+                        // program's runtime module goes beside it.
                         if let Some(path) = std::env::var_os("LILA_WASM_DUMP") {
                             fs::write(&path, &artifact.bytes).unwrap_or_else(|err| {
                                 panic!("failed to write LILA_WASM_DUMP artifact: {err}");
                             });
+                            if let Some(runtime) = &artifact.runtime {
+                                let mut runtime_path = path.clone();
+                                runtime_path.push(".runtime.wasm");
+                                fs::write(&runtime_path, runtime.bytes()).unwrap_or_else(|err| {
+                                    panic!("failed to write LILA_WASM_DUMP runtime artifact: {err}");
+                                });
+                            }
                         }
                         if std::env::var_os("LILA_WASM_TRACE").is_some() {
                             eprintln!("lila wasm trace: artifact bytes: {}", artifact.bytes.len());
+                            if let Some(runtime) = &artifact.runtime {
+                                eprintln!(
+                                    "lila wasm trace: runtime bytes: {}",
+                                    runtime.bytes().len()
+                                );
+                            }
                         }
                         println!(
                             "built {:?} artifact: {}",
@@ -389,19 +539,30 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
 fn handle_differential_command(args: Vec<String>) -> Result<(), String> {
     let Some(subcommand) = args.first() else {
         return Err(format!(
-            "differential needs a `replay` or `generate-arithmetic` subcommand\n\n{}",
+            "differential needs a `replay`, `replay-corpus`, `replay-scenario-pair`, `seed-test262`, `replay-test262`, `generate-arithmetic`, `campaign`, `robustness`, `replay-robustness` or `minimize-robustness` subcommand\n\n{}",
             usage()
         ));
     };
     match subcommand.as_str() {
         "replay" => {
             let parsed = parse_differential_replay_args(&args[1..])?;
-            let case =
-                DifferentialCase::load(&parsed.case_path).map_err(|error| error.to_string())?;
-            let report = replay_case(&case, parsed.oracle).map_err(|error| error.to_string())?;
-            finish_differential_report(&case, report)
+            let input = DifferentialReplayInput::load(&parsed.case_path)
+                .map_err(|error| error.to_string())?;
+            let runner = differential_worker_runner(parsed.worker_bin)?;
+            let report =
+                replay_case(&input, parsed.oracle, &runner).map_err(|error| error.to_string())?;
+            finish_differential_report(report)
         }
+        "replay-corpus" => differential_corpus::run(&args[1..]),
+        "replay-scenario-pair" => differential_scenario_pair::run(&args[1..]),
+        "seed-test262" => differential_test262::seed(&args[1..]),
+        "replay-test262" => differential_test262::replay(&args[1..]),
+        "robustness" => differential_robustness::run(&args[1..]),
+        "replay-robustness" => differential_robustness::replay(&args[1..]),
+        "minimize-robustness" => differential_robustness::minimize(&args[1..]),
         "generate-arithmetic" => handle_differential_generate_arithmetic(&args[1..]),
+        "campaign" => differential_campaign::run(&args[1..]),
+        "__worker" => handle_differential_worker(&args[1..]),
         _ => Err(format!(
             "unknown differential subcommand: {subcommand}\n\n{}",
             usage()
@@ -409,20 +570,71 @@ fn handle_differential_command(args: Vec<String>) -> Result<(), String> {
     }
 }
 
-fn finish_differential_report(
-    case: &DifferentialCase,
-    report: DifferentialReport,
-) -> Result<(), String> {
+fn differential_worker_runner(
+    worker_bin: Option<PathBuf>,
+) -> Result<DifferentialWorkerRunner, String> {
+    let executable = match worker_bin {
+        Some(executable) => executable,
+        None => std::env::current_exe().map_err(|error| {
+            format!("cannot locate the differential worker executable: {error}")
+        })?,
+    };
+    DifferentialWorkerRunner::new(executable).map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "spec-exec-oracle")]
+fn handle_differential_worker(args: &[String]) -> Result<(), String> {
+    let mut request = None;
+    let mut journal = None;
+    let mut oracle = None;
+    let mut index = 0;
+    while index < args.len() {
+        let option = &args[index];
+        let value = args
+            .get(index + 1)
+            .filter(|value| !value.is_empty() && !value.starts_with('-'))
+            .ok_or_else(|| format!("{option} needs a value"))?;
+        match option.as_str() {
+            "--request" if request.is_none() => request = Some(PathBuf::from(value)),
+            "--journal" if journal.is_none() => journal = Some(PathBuf::from(value)),
+            "--oracle" if oracle.is_none() => oracle = Some(parse_differential_oracle(value)?),
+            "--request" | "--journal" | "--oracle" => {
+                return Err(format!("{option} may only be specified once"));
+            }
+            _ => return Err(format!("unknown differential worker option: {option}")),
+        }
+        index += 2;
+    }
+    let request = request.ok_or_else(|| "differential worker needs --request".to_string())?;
+    let journal = journal.ok_or_else(|| "differential worker needs --journal".to_string())?;
+    let oracle = oracle
+        .ok_or_else(|| "differential worker requires explicit --oracle spec-exec".to_string())?;
+    lila_test262::differential::run_differential_worker(&request, &journal, oracle)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(feature = "spec-exec-oracle"))]
+fn handle_differential_worker(_args: &[String]) -> Result<(), String> {
+    Err(lila_test262::differential::DifferentialError::OracleNotLinked.to_string())
+}
+
+fn finish_differential_report(report: DifferentialReport) -> Result<(), String> {
     let report_json = report.to_pretty_json().map_err(|error| error.to_string())?;
     println!("{report_json}");
 
     match report.verdict() {
         DifferentialVerdict::BothCompleted
         | DifferentialVerdict::PrimitiveCompletionsMatch
-        | DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch => Ok(()),
+        | DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+        | DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch
+        | DifferentialVerdict::RootedCompletionGraphAndPrintTranscriptMatch => Ok(()),
         DifferentialVerdict::BothFailed => Err(format!(
             "differential case {} failed in both backends; see the JSON observations above",
-            case.id().as_str()
+            report.case_id().as_str()
+        )),
+        DifferentialVerdict::WorkerFailure => Err(format!(
+            "differential case {} had a worker failure; see the JSON observations above",
+            report.case_id().as_str()
         )),
         DifferentialVerdict::Mismatch => {
             let signature = report
@@ -433,8 +645,8 @@ fn finish_differential_report(
         }
         DifferentialVerdict::ObservationContractViolated => Err(format!(
             "differential case {} violated its {} contract; see the JSON observations above",
-            case.id().as_str(),
-            case.observation_contract().as_str(),
+            report.case_id().as_str(),
+            report.protocol().observation_contract().as_str(),
         )),
     }
 }
@@ -460,9 +672,14 @@ fn handle_differential_generate_arithmetic(args: &[String]) -> Result<(), String
         }
     }
 
-    let outcome =
-        run_generated_arithmetic_campaign(parsed.plan, parsed.reduction_limit, parsed.oracle)
-            .map_err(|error| error.to_string())?;
+    let runner = differential_worker_runner(parsed.worker_bin)?;
+    let outcome = run_generated_arithmetic_campaign(
+        parsed.plan,
+        parsed.reduction_limit,
+        parsed.oracle,
+        &runner,
+    )
+    .map_err(|error| error.to_string())?;
     let (case, report, persist) = match outcome {
         GeneratedArithmeticCampaignOutcome::Verified { case, report }
         | GeneratedArithmeticCampaignOutcome::ReducedMismatch { case, report, .. } => {
@@ -491,15 +708,27 @@ fn handle_differential_generate_arithmetic(args: &[String]) -> Result<(), String
         })?;
     }
 
-    finish_differential_report(&case, report)
+    finish_differential_report(report)
 }
 
 fn parse_differential_replay_args(args: &[String]) -> Result<ParsedDifferentialReplayArgs, String> {
     let mut case_path = None;
     let mut oracle = None;
+    let mut worker_bin = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--worker-bin" => {
+                if worker_bin.is_some() {
+                    return Err("--worker-bin may only be specified once".to_string());
+                }
+                let value = args
+                    .get(index + 1)
+                    .filter(|value| !value.is_empty() && !value.starts_with('-'))
+                    .ok_or_else(|| "--worker-bin needs an executable path".to_string())?;
+                worker_bin = Some(PathBuf::from(value));
+                index += 2;
+            }
             "--oracle" => {
                 if oracle.is_some() {
                     return Err("--oracle may only be specified once".to_string());
@@ -528,21 +757,38 @@ fn parse_differential_replay_args(args: &[String]) -> Result<ParsedDifferentialR
         "differential replay requires explicit `--oracle spec-exec`; the oracle is never a default"
             .to_string()
     })?;
-    Ok(ParsedDifferentialReplayArgs { case_path, oracle })
+    Ok(ParsedDifferentialReplayArgs {
+        case_path,
+        oracle,
+        worker_bin,
+    })
 }
 
 fn parse_differential_generate_arithmetic_args(
     args: &[String],
 ) -> Result<ParsedDifferentialGenerateArithmeticArgs, String> {
     let mut output_path = None;
+    let mut grammar = None;
     let mut seed = None;
     let mut checks = None;
     let mut depth = None;
     let mut reduction_limit = None;
     let mut oracle = None;
+    let mut worker_bin = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--grammar" => {
+                if grammar.is_some() {
+                    return Err("--grammar may only be specified once".to_string());
+                }
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "--grammar needs a value".to_string())?;
+                grammar =
+                    Some(ArithmeticGrammar::from_name(value).map_err(|error| error.to_string())?);
+                index += 2;
+            }
             "--seed" => {
                 if seed.is_some() {
                     return Err("--seed may only be specified once".to_string());
@@ -607,6 +853,17 @@ fn parse_differential_generate_arithmetic_args(
                     );
                 index += 2;
             }
+            "--worker-bin" => {
+                if worker_bin.is_some() {
+                    return Err("--worker-bin may only be specified once".to_string());
+                }
+                let value = args
+                    .get(index + 1)
+                    .filter(|value| !value.is_empty() && !value.starts_with('-'))
+                    .ok_or_else(|| "--worker-bin needs an executable path".to_string())?;
+                worker_bin = Some(PathBuf::from(value));
+                index += 2;
+            }
             "--oracle" => {
                 if oracle.is_some() {
                     return Err("--oracle may only be specified once".to_string());
@@ -652,9 +909,15 @@ fn parse_differential_generate_arithmetic_args(
 
     Ok(ParsedDifferentialGenerateArithmeticArgs {
         output_path,
-        plan: ArithmeticGenerationPlan::new(seed, checks, depth),
+        plan: ArithmeticGenerationPlan::new(
+            grammar.unwrap_or(ArithmeticGrammar::IntegerBitwiseV2),
+            seed,
+            checks,
+            depth,
+        ),
         reduction_limit,
         oracle,
+        worker_bin,
     })
 }
 
@@ -784,6 +1047,162 @@ fn take_global_host_surface_policy(args: &mut Vec<String>) -> Result<HostSurface
     Ok(policy.unwrap_or_default())
 }
 
+enum IntlLocaleProjectionComponent {
+    List,
+    RelativeTime,
+    DisplayNames,
+    Duration,
+    Number,
+    DateTime,
+    Collator,
+    Segmenter,
+}
+
+impl IntlLocaleProjectionComponent {
+    fn parse(argument: &str) -> Option<Self> {
+        match argument {
+            "--intl-list-locales" => Some(Self::List),
+            "--intl-relative-time-locales" => Some(Self::RelativeTime),
+            "--intl-displaynames-locales" => Some(Self::DisplayNames),
+            "--intl-duration-locales" => Some(Self::Duration),
+            "--intl-number-locales" => Some(Self::Number),
+            "--intl-datetime-locales" => Some(Self::DateTime),
+            "--intl-collator-locales" => Some(Self::Collator),
+            "--intl-segmenter-locales" => Some(Self::Segmenter),
+            _ => None,
+        }
+    }
+}
+
+fn take_global_intl_profile(
+    args: &mut Vec<String>,
+) -> Result<Option<IntlCompilationProfile>, String> {
+    let mut profile = None;
+    let mut manifest = None;
+    let mut list_locales = None;
+    let mut relative_time_locales = None;
+    let mut display_names_locales = None;
+    let mut duration_locales = None;
+    let mut number_locales = None;
+    let mut date_time_locales = None;
+    let mut collator_locales = None;
+    let mut segmenter_locales = None;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--intl-manifest" {
+            if manifest.is_some() { return Err("--intl-manifest may only be specified once".into()); }
+            let value = args.get(index + 1).filter(|value| !value.is_empty() && !value.starts_with("--"))
+                .ok_or_else(|| "--intl-manifest needs a path".to_owned())?;
+            manifest = Some(PathBuf::from(value));
+            args.drain(index..=index + 1);
+            continue;
+        }
+        if let Some(component) = IntlLocaleProjectionComponent::parse(&args[index]) {
+            let flag = args[index].clone();
+            let locales = match component {
+                IntlLocaleProjectionComponent::List => &mut list_locales,
+                IntlLocaleProjectionComponent::RelativeTime => &mut relative_time_locales,
+                IntlLocaleProjectionComponent::DisplayNames => &mut display_names_locales,
+                IntlLocaleProjectionComponent::Duration => &mut duration_locales,
+                IntlLocaleProjectionComponent::Number => &mut number_locales,
+                IntlLocaleProjectionComponent::DateTime => &mut date_time_locales,
+                IntlLocaleProjectionComponent::Collator => &mut collator_locales,
+                IntlLocaleProjectionComponent::Segmenter => &mut segmenter_locales,
+            };
+            if locales.is_some() {
+                return Err(format!("{flag} may only be specified once"));
+            }
+            let value = args
+                .get(index + 1)
+                .filter(|value| !value.starts_with("--"))
+                .ok_or_else(|| format!("{flag} needs a value"))?;
+            *locales = Some(value.split(',').map(str::to_owned).collect::<Vec<_>>());
+            args.drain(index..=index + 1);
+            continue;
+        }
+        if args[index] != "--intl-profile" {
+            index += 1;
+            continue;
+        }
+        if profile.is_some() {
+            return Err("--intl-profile may only be specified once".into());
+        }
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| "--intl-profile needs a value".to_string())?;
+        profile = Some(if value == "minimal" {
+            IntlCompilationProfile::Minimal
+        } else if let Some(id) = value.strip_prefix("custom:") {
+            IntlCompilationProfile::Custom(
+                CustomProfileId::parse(id)
+                    .map_err(|error| format!("invalid --intl-profile Custom identity: {error}"))?,
+            )
+        } else if value == "conformance" {
+            IntlCompilationProfile::Conformance
+        } else {
+            return Err(format!(
+                "unknown --intl-profile value: {value} (expected minimal, conformance or custom:ID)"
+            ));
+        });
+        args.drain(index..=index + 1);
+    }
+    if let Some(path) = manifest {
+        if profile.is_some() || list_locales.is_some() || relative_time_locales.is_some()
+            || display_names_locales.is_some() || duration_locales.is_some() || number_locales.is_some()
+            || date_time_locales.is_some() || collator_locales.is_some() || segmenter_locales.is_some() {
+            return Err("--intl-manifest cannot be combined with --intl-profile or component locale flags".into());
+        }
+        use std::io::Read as _;
+        let file = std::fs::File::open(&path).map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
+        let mut bytes = Vec::new();
+        file.take(CustomIntlProfile::MANIFEST_MAX_BYTES as u64 + 1).read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
+        if bytes.len() > CustomIntlProfile::MANIFEST_MAX_BYTES { return Err("--intl-manifest exceeds 256 KiB".into()); }
+        let json = std::str::from_utf8(&bytes).map_err(|error| format!("--intl-manifest must be UTF-8: {error}"))?;
+        let selection = CustomIntlProfile::from_manifest_json(json)
+            .map_err(|error| format!("invalid --intl-manifest {}: {error}", path.display()))?;
+        return Ok(Some(IntlCompilationProfile::CustomProjection(selection)));
+    }
+    match (profile, list_locales, relative_time_locales, display_names_locales, duration_locales, number_locales, date_time_locales, collator_locales, segmenter_locales) {
+        (profile, None, None, None, None, None, None, None, None) => Ok(profile),
+        (Some(IntlCompilationProfile::Custom(id)), lists, relative_times, display_names, durations, numbers, date_times, collators, segmenters) => {
+            let lists = lists
+                .as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let relative_times = relative_times
+                .as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let display_names = display_names
+                .as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let durations = durations
+                .as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let numbers = numbers
+                .as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let date_times = date_times
+                .as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let collators = collators.as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let segmenters = segmenters.as_ref()
+                .map(|locales| locales.iter().map(String::as_str).collect::<Vec<_>>());
+            let selection = CustomIntlProfile::new(
+                id, lists.as_deref(), relative_times.as_deref(), display_names.as_deref(), durations.as_deref(),
+                numbers.as_deref(), date_times.as_deref(), collators.as_deref(),
+            segmenters.as_deref(),
+)
+            .map_err(|error| format!("invalid --intl-list-locales/--intl-relative-time-locales/--intl-displaynames-locales/--intl-duration-locales/--intl-number-locales/--intl-datetime-locales/--intl-collator-locales/--intl-segmenter-locales selection: {error}"))?;
+            Ok(Some(IntlCompilationProfile::CustomProjection(selection)))
+        }
+        _ => Err(
+            "--intl-list-locales, --intl-relative-time-locales, --intl-displaynames-locales, --intl-duration-locales, --intl-number-locales, --intl-datetime-locales, --intl-collator-locales and --intl-segmenter-locales require --intl-profile custom:ID"
+                .into(),
+        ),
+    }
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -796,33 +1215,22 @@ fn default_readme_path() -> PathBuf {
     repo_root().join("README.md")
 }
 
-fn fake_suite_config() -> SuiteConfig {
+fn fake_suite_config() -> Result<SuiteConfig, String> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("lila-test262")
         .join("tests")
         .join("fixtures")
         .join("fake_test262");
-    SuiteConfig {
-        suite_root: root.join("vendor").join("test262"),
-        local_harness: LocalHarnessSource::File(root.join("harness.js")),
-        snapshot_dir: root.join("snapshots"),
-        case_runner_bin: None,
-        ..SuiteConfig::default()
-    }
-}
-
-fn fake_suite_counts() -> Result<FakeSuiteCounts, String> {
-    let runner = ConformanceRunner::with_config(fake_suite_config());
-    let full_total = runner.discover_suite(None)?.cases.len();
-    let wasm_safe_total = runner
-        .discover_suite(Some("language/wasm/pass"))?
-        .cases
-        .len();
-    Ok(FakeSuiteCounts {
-        wasm_safe_total,
-        full_total,
-    })
+    let mut config = SuiteConfig::default();
+    config.suite_root = root.join("vendor/test262");
+    config.local_harness = LocalHarnessSource::EmbeddedWasmAot;
+    config.snapshot_dir = repo_root().join("target/test262-scratch/publication-fake");
+    config.case_runner_bin = Some(
+        std::env::current_exe()
+            .map_err(|error| format!("cannot select the current Test262 case worker: {error}"))?,
+    );
+    Ok(config)
 }
 
 fn current_utc_date_string() -> Result<String, String> {
@@ -916,7 +1324,7 @@ fn top_target_entries(summary: &VerifiedAggregateSummary) -> Vec<PublishedTarget
 }
 
 fn build_published_status_artifact(
-    fake_counts: &FakeSuiteCounts,
+    fake_counts: &VerifiedFakeSuiteCounts,
     summary: &VerifiedAggregateSummary,
     publication_backend: PublicationBackend,
     refresh_date: &str,
@@ -947,18 +1355,13 @@ fn build_published_status_artifact(
         .unwrap_or(0);
     PublishedStatusArtifact {
         producer: ArtifactProducer::CURRENT,
-        fake_wasm_safe: PublishedStatusCount {
-            passed: fake_counts.wasm_safe_total,
-            total: fake_counts.wasm_safe_total,
-        },
-        fake_full: PublishedStatusCount {
-            passed: fake_counts.full_total,
-            total: fake_counts.full_total,
-        },
+        fake_wasm_safe: fake_counts.wasm_safe().clone(),
+        fake_full: fake_counts.full().clone(),
         real_suite: PublishedRealSuiteStatus {
             backend: publication_backend.as_str().to_string(),
             refresh_date: refresh_date.to_string(),
             manifest_hash: summary.manifest_hash,
+            compiler_identity: summary.compiler_identity.clone(),
             passed: summary.summary.passed,
             total: summary.summary.total,
             failed: summary.summary.failed,
@@ -1019,6 +1422,11 @@ fn render_published_status_text(artifact: &PublishedStatusArtifact) -> String {
     out.push_str(&format!("refresh_date={}\n", real.refresh_date));
     out.push_str(&format!("execution_backend={}\n", real.backend));
     out.push_str(&format!("manifest_hash={}\n", real.manifest_hash));
+    out.push_str(&format!(
+        "compiler_identity={}\n",
+        serde_json::to_string(&real.compiler_identity)
+            .expect("checked compiler identity serializes to JSON")
+    ));
     out.push_str(&format!(
         "pinned: ecma262={} test262={}\n",
         real.pinned_revisions.ecma262, real.pinned_revisions.test262
@@ -1163,7 +1571,7 @@ fn render_current_status_block(artifact: &PublishedStatusArtifact) -> String {
         "not green"
     };
     format!(
-        "## Current Status\n<!-- lila-status:start -->\nRust rewrite status must be read in layers, not one vanity number:\n- Fake wasm-safe Test262 subset: `{}/{}` green\n- Fake full Rust rewrite suite: `{}/{}` green\n- Pinned real Test262 baseline (`{}`, refreshed `{}`): `{}/{}` {} (`{}`)\n- Real Test262 goal: Success={}/{} ({}); burn down NotImplemented={}, Crash={}, Bug={} to zero\n- Pinned revisions: `ecma262={}` `test262={}`\n- Current real outcomes: {}\n- Biggest current real failing kinds: {}\n- Biggest current real failing origins: {}\n- Worst current real matrix targets: {}\n- Published status artifacts: `{}` and `{}`\n\nAs of `{}`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.\n\nStatus refresh commands:\n- `cargo test -p lila-engine --quiet`\n- `cargo test -p lila-cli --quiet`\n- `./target/debug/lila test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`\n- `./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262`\n- `./scripts/publish-real-status-low-ram.sh {} codex-published-real`\n\nWhen counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.\n<!-- lila-status:end -->",
+        "## Current Status\n<!-- lila-status:start -->\nRust rewrite status must be read in layers, not one vanity number:\n- Fake wasm-safe Test262 subset: `{}/{}` green\n- Fake full Rust rewrite suite: `{}/{}` green\n- Pinned real Test262 baseline (`{}`, refreshed `{}`): `{}/{}` {} (`{}`)\n- Real Test262 goal: Success={}/{} ({}); burn down NotImplemented={}, Crash={}, Bug={} to zero\n- Pinned revisions: `ecma262={}` `test262={}`\n- Compiler build fingerprint: `{}`; executing image SHA-256: `{}`\n- Current real outcomes: {}\n- Biggest current real failing kinds: {}\n- Biggest current real failing origins: {}\n- Worst current real matrix targets: {}\n- Published status artifacts: `{}` and `{}`\n\nAs of `{}`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.\n\nStatus refresh commands:\n- `cargo test -p lila-engine --quiet`\n- `cargo test -p lila-cli --quiet`\n- `./target/debug/lila test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`\n- `./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262`\n- `./scripts/publish-real-status-low-ram.sh {} codex-published-real`\n\nWhen counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.\n<!-- lila-status:end -->",
         artifact.fake_wasm_safe.passed,
         artifact.fake_wasm_safe.total,
         artifact.fake_full.passed,
@@ -1182,6 +1590,8 @@ fn render_current_status_block(artifact: &PublishedStatusArtifact) -> String {
         outcome_count(&real.counts_per_outcome, OutcomeKind::Bug),
         real.pinned_revisions.ecma262,
         real.pinned_revisions.test262,
+        real.compiler_identity.identity().source_fingerprint(),
+        real.compiler_identity.identity().executable_sha256(),
         all_count_labels(&real.counts_per_outcome),
         top_nonzero_labels(&real.counts_per_kind, 3),
         top_nonzero_labels(&real.counts_per_origin, 3),
@@ -2614,9 +3024,21 @@ fn require_passing_test262_verdict(
     }
 }
 
+mod conformance_closure;
+
 fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
         return Err(format!("test262 needs a subcommand\n\n{}", usage()));
+    }
+
+    if args[0] == "close-release" {
+        return conformance_closure::run(&args[1..]);
+    }
+
+    if args[0] == "__case-worker" {
+        let parsed = parse_test262_case_worker_args(&args[1..])?;
+        let summary = lila_test262::run_case_worker(parsed.config, parsed.run_config)?;
+        return require_passing_test262_verdict(Test262VerdictCommand::Run, summary.verdict()?);
     }
 
     let subcommand = args[0].clone();
@@ -2794,7 +3216,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                 Err(err) => return Err(err),
             };
             let refresh_date = current_utc_date_string()?;
-            let fake_counts = fake_suite_counts()?;
+            let fake_counts = VerifiedFakeSuiteCounts::measure(fake_suite_config()?)?;
             let artifact = build_published_status_artifact(
                 &fake_counts,
                 &verified,
@@ -2815,6 +3237,11 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("passed: {}", verified.summary.passed);
             println!("failed: {}", verified.summary.failed);
             println!("manifest_hash: {}", verified.manifest_hash);
+            println!(
+                "compiler_identity: {}",
+                serde_json::to_string(&verified.compiler_identity)
+                    .map_err(|error| format!("cannot render compiler identity: {error}"))?
+            );
             println!("pinned_ecma262: {}", verified.pinned_revisions.ecma262);
             println!("pinned_test262: {}", verified.pinned_revisions.test262);
             for entry in &artifact.real_suite.counts_per_kind {
@@ -2912,6 +3339,11 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             );
             println!("remaining_to_green: {}", remaining_to_green);
             println!("manifest_hash: {}", progress.manifest_hash);
+            println!(
+                "compiler_identity: {}",
+                serde_json::to_string(&progress.compiler_identity)
+                    .map_err(|error| format!("cannot render compiler identity: {error}"))?
+            );
             println!("pinned_ecma262: {}", progress.pinned_revisions.ecma262);
             println!("pinned_test262: {}", progress.pinned_revisions.test262);
             println!(
@@ -3038,6 +3470,17 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("execution_backend: {}", execution_backend.as_str());
             println!("base_snapshot: {}", comparison.base_snapshot_name);
             println!("candidate_snapshot: {}", comparison.candidate_snapshot_name);
+            println!(
+                "base_compiler_identity: {}",
+                serde_json::to_string(&comparison.base_compiler_identity)
+                    .map_err(|error| format!("cannot render base compiler identity: {error}"))?
+            );
+            println!(
+                "candidate_compiler_identity: {}",
+                serde_json::to_string(&comparison.candidate_compiler_identity).map_err(
+                    |error| format!("cannot render candidate compiler identity: {error}")
+                )?
+            );
             println!("pinned_ecma262: {}", comparison.pinned_revisions.ecma262);
             println!("pinned_test262: {}", comparison.pinned_revisions.test262);
             println!("base_total: {}", comparison.base_total);
@@ -3085,6 +3528,46 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
         }
         _ => Err(format!("unknown test262 subcommand: {subcommand}")),
     }
+}
+
+fn parse_test262_case_worker_args(args: &[String]) -> Result<ParsedTest262Args, String> {
+    let mut normal = Vec::new();
+    let mut harness = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--case-harness" | "--case-harness-file" => {
+                if harness.is_some() {
+                    return Err("case worker harness may be specified once".into());
+                }
+                let selector = args[index].as_str();
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or("case worker harness requires a value")?;
+                harness = Some(if selector == "--case-harness-file" {
+                    LocalHarnessSource::File(PathBuf::from(value))
+                } else {
+                    match value.as_str() {
+                        "none" => LocalHarnessSource::None,
+                        "spec-exec" => LocalHarnessSource::EmbeddedSpecExec,
+                        "wasm-aot" => LocalHarnessSource::EmbeddedWasmAot,
+                        "wasm-aot-host-only" => LocalHarnessSource::EmbeddedWasmAotHostOnly,
+                        _ => return Err(format!("unknown case worker harness: {value}")),
+                    }
+                });
+            }
+            _ => normal.push(args[index].clone()),
+        }
+        index += 1;
+    }
+    let mut parsed = parse_test262_args(&normal)?;
+    if parsed.matrix_node.is_some() || parsed.readme_path.is_some() {
+        return Err("case worker accepts only one execution, never a matrix or publication".into());
+    }
+    parsed.config.local_harness =
+        harness.ok_or("case worker requires its exact harness selection")?;
+    Ok(parsed)
 }
 
 fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
@@ -3219,24 +3702,13 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
         ExecutionBackend::WasmAot => LocalHarnessSource::EmbeddedWasmAot,
     };
 
-    // In-process execution (wasmtime epoch interruption bounds Wasm-AOT
-    // hangs; see lila-engine's `run_with_wasm_aot_inner` and
-    // `lila_test262::run_case_entry`) is the default: it skips the
-    // per-test process re-exec + prelude reload + fresh wasmtime `Engine`
-    // bootstrap that the child-runner path pays for every single case.
-    // `LILA_TEST262_FORCE_CASE_RUNNER=1` restores the old always-spawn
-    // behavior (real OS-level kill-on-timeout for every backend, including
-    // the SpecExec oracle path which has no in-process timeout bound) for
-    // crash repro / bisecting a host-side panic or process abort.
-    //
-    // `LILA_TEST262_DISABLE_CASE_RUNNER` is set by a spawned child on
-    // itself (see `DISABLE_CASE_RUNNER_ENV` in lila-test262) so a forced
-    // child never tries to spawn a further grandchild.
-    if std::env::var_os("LILA_TEST262_FORCE_CASE_RUNNER").is_some()
-        && std::env::var_os("LILA_TEST262_DISABLE_CASE_RUNNER").is_none()
-    {
-        config.case_runner_bin = std::env::current_exe().ok();
-    }
+    // Every product attempt, including a compile-only negative, runs in the
+    // current executable's exact single-case worker entry. Epoch interruption
+    // remains the inner execution timer; the supervisor owns the whole attempt.
+    config.case_runner_bin = Some(
+        std::env::current_exe()
+            .map_err(|error| format!("cannot select the current Test262 case worker: {error}"))?,
+    );
 
     run_config.filter = filter.clone();
 
@@ -3315,6 +3787,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn manifest_profile_rejects_ambiguous_flags_before_opening_any_input() {
+        for extra in [vec!["--intl-profile", "custom:x"], vec!["--intl-list-locales", "fr"],
+            vec!["--intl-manifest", "another-missing.json"]] {
+            let mut args = vec!["run", "missing-source.js", "--intl-manifest", "missing-manifest.json"]
+                .into_iter().chain(extra).map(str::to_owned).collect();
+            let error = take_global_intl_profile(&mut args).unwrap_err();
+            assert!(error.contains("cannot be combined") || error.contains("only be specified once"));
+            assert!(!error.contains("cannot read"));
+        }
+        assert!(take_global_intl_profile(&mut vec!["--intl-manifest".into()]).is_err());
+    }
+
+    #[test]
     fn global_jobs_are_removed_before_command_parsing() {
         let mut args = vec![
             "run".to_string(),
@@ -3346,6 +3831,1304 @@ mod tests {
             HostSurfacePolicy::Test262
         );
         assert_eq!(test262_args, vec!["run", "script.js"]);
+    }
+
+    #[test]
+    fn intl_profile_parser_retains_explicit_selection_and_rejects_invalid_domains() {
+        let mut absent = vec!["run".to_string(), "case.js".to_string()];
+        assert_eq!(take_global_intl_profile(&mut absent).unwrap(), None);
+        for (label, expected) in [
+            ("minimal", IntlCompilationProfile::Minimal),
+            ("conformance", IntlCompilationProfile::Conformance),
+            (
+                "custom:release_1.0",
+                IntlCompilationProfile::Custom(CustomProfileId::parse("release_1.0").unwrap()),
+            ),
+        ] {
+            let mut args = vec![
+                "build".into(),
+                "wasm".into(),
+                "--intl-profile".into(),
+                label.into(),
+                "case.js".into(),
+            ];
+            assert_eq!(take_global_intl_profile(&mut args).unwrap(), Some(expected));
+            assert_eq!(args, vec!["build", "wasm", "case.js"]);
+        }
+        for label in [
+            "custom:",
+            "custom:a/b",
+            "custom:-start",
+            "unknown",
+        ] {
+            let mut args = vec!["--intl-profile".into(), label.into()];
+            let error = take_global_intl_profile(&mut args).unwrap_err();
+            assert!(
+                error.contains("Intl") || error.contains("--intl-profile"),
+                "{error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec!["--intl-profile".into()]).is_err());
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-profile".into(),
+            "minimal".into(),
+            "--intl-profile".into(),
+            "minimal".into()
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn explicit_intl_profile_is_rejected_before_unsupported_commands_read_source() {
+        for tail in [
+            vec!["inspect", "missing.js"],
+            vec!["compiler-identity"],
+            vec!["cache", "status"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            for profile in ["minimal", "custom:chosen"] {
+                let args = [
+                    vec!["--intl-profile".to_string(), profile.to_string()],
+                    tail.iter().map(|value| (*value).to_string()).collect(),
+                ]
+                .concat();
+                let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+                assert!(error.contains("--intl-profile"), "{error}");
+                assert!(
+                    !error.contains("missing.js"),
+                    "source must not be read: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn list_projection_arguments_are_checked_and_retained_before_source_loading() {
+        for args in [
+            vec![
+                "--intl-list-locales",
+                "es,he",
+                "--intl-profile",
+                "custom:selected",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "he,es",
+            ],
+        ] {
+            let mut args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+            let selection = take_global_intl_profile(&mut args).unwrap().unwrap();
+            assert_eq!(
+                selection,
+                IntlCompilationProfile::CustomProjection(
+                    CustomIntlProfile::new(
+                        CustomProfileId::parse("selected").unwrap(),
+                        Some(&["es", "he"]),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                )
+            );
+            assert_eq!(args, ["build", "wasm", "case.js"]);
+        }
+        for tail in [
+            vec!["--intl-list-locales", "es"],
+            vec!["--intl-list-locales", "es", "--intl-profile", "minimal"],
+            vec![
+                "--intl-list-locales",
+                "",
+                "--intl-profile",
+                "custom:selected",
+            ],
+            vec![
+                "--intl-list-locales",
+                "es,es",
+                "--intl-profile",
+                "custom:selected",
+            ],
+            vec![
+                "--intl-list-locales",
+                "es,he",
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "ar",
+            ],
+            vec!["--intl-list-locales"],
+            vec![
+                "--intl-list-locales",
+                "en--US",
+                "--intl-profile",
+                "custom:selected",
+            ],
+            vec![
+                "--intl-list-locales",
+                "es",
+                "--intl-profile",
+                "custom:selected",
+                "inspect",
+                "missing.js",
+            ],
+            vec![
+                "--intl-list-locales",
+                "es",
+                "--intl-profile",
+                "custom:selected",
+                "run",
+                "--execution-backend",
+                "spec-exec",
+                "missing.js",
+            ],
+        ] {
+            let args = tail.into_iter().map(str::to_owned).collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-"), "{error}");
+            assert!(!error.contains("missing.js"), "{error}");
+        }
+    }
+
+    #[test]
+    fn relative_and_combined_projection_arguments_are_checked_before_source_loading() {
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-profile".into(),
+            "custom:selected".into(),
+            "--intl-relative-time-locales".into(),
+        ])
+        .unwrap_err()
+        .contains("--intl-relative-time-locales needs a value"));
+        for (flags, lists, relatives) in [
+            (
+                vec![
+                    "--intl-relative-time-locales",
+                    "pl,fr",
+                    "--intl-profile",
+                    "custom:selected",
+                ],
+                None,
+                Some(&["fr", "pl"][..]),
+            ),
+            (
+                vec![
+                    "--intl-profile",
+                    "custom:selected",
+                    "--intl-relative-time-locales",
+                    "fr,pl",
+                    "--intl-list-locales",
+                    "he,es",
+                ],
+                Some(&["es", "he"][..]),
+                Some(&["fr", "pl"][..]),
+            ),
+            (
+                vec![
+                    "--intl-list-locales",
+                    "es,he",
+                    "--intl-relative-time-locales",
+                    "pl,fr",
+                    "--intl-profile",
+                    "custom:selected",
+                ],
+                Some(&["es", "he"][..]),
+                Some(&["fr", "pl"][..]),
+            ),
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+            assert_eq!(
+                take_global_intl_profile(&mut args).unwrap().unwrap(),
+                IntlCompilationProfile::CustomProjection(
+                    CustomIntlProfile::new(
+                        CustomProfileId::parse("selected").unwrap(),
+                        lists,
+                        relatives,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                )
+            );
+            assert_eq!(args, ["build", "wasm", "case.js"]);
+        }
+        for flags in [
+            vec!["--intl-relative-time-locales", "fr"],
+            vec![
+                "--intl-relative-time-locales",
+                "fr",
+                "--intl-profile",
+                "minimal",
+            ],
+            vec![
+                "--intl-relative-time-locales",
+                "fr",
+                "--intl-profile",
+                "conformance",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "fr,fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "fr,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "fr",
+                "--intl-relative-time-locales",
+                "pl",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "",
+                "--intl-relative-time-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "es",
+                "--intl-relative-time-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "es",
+                "--intl-relative-time-locales",
+                "fr",
+                "--intl-profile",
+                "custom:other",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be loaded: {error}"
+            );
+        }
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let args = [
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "fr",
+            ]
+            .into_iter()
+            .chain(command)
+            .map(str::to_owned)
+            .collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(!error.contains("missing.js"), "{error}");
+        }
+    }
+
+    #[test]
+    fn display_names_projection_arguments_are_checked_before_source_loading() {
+        for (flags, lists, relatives) in [
+            (
+                vec![
+                    "--intl-displaynames-locales",
+                    "ja,fr",
+                    "--intl-profile",
+                    "custom:selected",
+                ],
+                None,
+                None,
+            ),
+            (
+                vec![
+                    "--intl-profile",
+                    "custom:selected",
+                    "--intl-relative-time-locales",
+                    "pl,fr",
+                    "--intl-displaynames-locales",
+                    "fr,ja",
+                    "--intl-list-locales",
+                    "he,es",
+                ],
+                Some(&["es", "he"][..]),
+                Some(&["fr", "pl"][..]),
+            ),
+            (
+                vec![
+                    "--intl-displaynames-locales",
+                    "ja,fr",
+                    "--intl-list-locales",
+                    "es,he",
+                    "--intl-relative-time-locales",
+                    "fr,pl",
+                    "--intl-profile",
+                    "custom:selected",
+                ],
+                Some(&["es", "he"][..]),
+                Some(&["fr", "pl"][..]),
+            ),
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+            assert_eq!(
+                take_global_intl_profile(&mut args).unwrap().unwrap(),
+                IntlCompilationProfile::CustomProjection(
+                    CustomIntlProfile::new(
+                        CustomProfileId::parse("selected").unwrap(),
+                        lists,
+                        relatives,
+                        Some(&["fr", "ja"]),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                )
+            );
+            assert_eq!(args, ["build", "wasm", "case.js"]);
+        }
+        for flags in [
+            vec!["--intl-displaynames-locales", "fr"],
+            vec![
+                "--intl-profile",
+                "minimal",
+                "--intl-displaynames-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "conformance",
+                "--intl-displaynames-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:bad/id",
+                "--intl-displaynames-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+            ],
+            vec![
+                "--intl-displaynames-locales",
+                "--intl-profile",
+                "custom:selected",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "fr,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "fr,fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "fr",
+                "--intl-displaynames-locales",
+                "ja",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "",
+                "--intl-displaynames-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "",
+                "--intl-displaynames-locales",
+                "fr",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-displaynames-locales".into(),
+            "--intl-profile".into(),
+            "custom:selected".into()
+        ])
+        .unwrap_err()
+        .contains("--intl-displaynames-locales needs a value"));
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let args = [
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "fr",
+            ]
+            .into_iter()
+            .chain(command)
+            .map(str::to_owned)
+            .collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn duration_projection_arguments_compose_all_filters_and_reject_before_source_loading() {
+        for with_other_filters in [false, true] {
+            for reverse in [false, true] {
+                let mut filters = vec![(
+                    "--intl-duration-locales",
+                    if reverse { "sr,fr" } else { "fr,sr" },
+                )];
+                if with_other_filters {
+                    filters.extend([
+                        ("--intl-list-locales", "es,he"),
+                        ("--intl-relative-time-locales", "fr,pl"),
+                        ("--intl-displaynames-locales", "fr,ja"),
+                    ]);
+                }
+                if reverse {
+                    filters.reverse();
+                }
+                let mut args = filters
+                    .into_iter()
+                    .flat_map(|(flag, locales)| [flag.to_owned(), locales.to_owned()])
+                    .collect::<Vec<_>>();
+                if reverse {
+                    args.splice(
+                        0..0,
+                        ["--intl-profile".to_owned(), "custom:selected".to_owned()],
+                    );
+                } else {
+                    args.extend(["--intl-profile".to_owned(), "custom:selected".to_owned()]);
+                }
+                args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+                assert_eq!(
+                    take_global_intl_profile(&mut args).unwrap().unwrap(),
+                    IntlCompilationProfile::CustomProjection(
+                        CustomIntlProfile::new(
+                            CustomProfileId::parse("selected").unwrap(),
+                            with_other_filters.then_some(&["es", "he"][..]),
+                            with_other_filters.then_some(&["fr", "pl"][..]),
+                            with_other_filters.then_some(&["fr", "ja"][..]),
+                            Some(&["fr", "sr"]),
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                        .unwrap()
+                    )
+                );
+                assert_eq!(args, ["build", "wasm", "case.js"]);
+            }
+        }
+        for flags in [
+            vec!["--intl-duration-locales", "fr"],
+            vec!["--intl-profile", "minimal", "--intl-duration-locales", "fr"],
+            vec![
+                "--intl-profile",
+                "conformance",
+                "--intl-duration-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:bad/id",
+                "--intl-duration-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+            ],
+            vec![
+                "--intl-duration-locales",
+                "--intl-profile",
+                "custom:selected",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+                "fr,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+                "fr,fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+                "fr",
+                "--intl-duration-locales",
+                "sr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-list-locales",
+                "",
+                "--intl-duration-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-relative-time-locales",
+                "",
+                "--intl-duration-locales",
+                "fr",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-displaynames-locales",
+                "",
+                "--intl-duration-locales",
+                "fr",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-duration-locales".into(),
+            "--intl-profile".into(),
+            "custom:selected".into()
+        ])
+        .unwrap_err()
+        .contains("--intl-duration-locales needs a value"));
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let args = [
+                "--intl-profile",
+                "custom:selected",
+                "--intl-duration-locales",
+                "fr",
+            ]
+            .into_iter()
+            .chain(command)
+            .map(str::to_owned)
+            .collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn number_projection_arguments_compose_all_filters_and_reject_before_source_loading() {
+        for with_other_filters in [false, true] {
+            for reverse in [false, true] {
+                let mut filters = vec![(
+                    "--intl-number-locales",
+                    if reverse { "pl,es" } else { "es,pl" },
+                )];
+                if with_other_filters {
+                    filters.extend([
+                        ("--intl-list-locales", "es,he"),
+                        ("--intl-relative-time-locales", "fr,pl"),
+                        ("--intl-displaynames-locales", "fr,ja"),
+                        ("--intl-duration-locales", "fr,sr"),
+                    ]);
+                }
+                if reverse {
+                    filters.reverse();
+                }
+                let mut args = filters
+                    .into_iter()
+                    .flat_map(|(flag, locales)| [flag.to_owned(), locales.to_owned()])
+                    .collect::<Vec<_>>();
+                if reverse {
+                    args.splice(
+                        0..0,
+                        ["--intl-profile".to_owned(), "custom:selected".to_owned()],
+                    );
+                } else {
+                    args.extend(["--intl-profile".to_owned(), "custom:selected".to_owned()]);
+                }
+                args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+                assert_eq!(
+                    take_global_intl_profile(&mut args).unwrap().unwrap(),
+                    IntlCompilationProfile::CustomProjection(
+                        CustomIntlProfile::new(
+                            CustomProfileId::parse("selected").unwrap(),
+                            with_other_filters.then_some(&["es", "he"][..]),
+                            with_other_filters.then_some(&["fr", "pl"][..]),
+                            with_other_filters.then_some(&["fr", "ja"][..]),
+                            with_other_filters.then_some(&["fr", "sr"][..]),
+                            Some(&["es", "pl"]),
+                            None,
+                            None,
+                            None,
+                        )
+                        .unwrap()
+                    )
+                );
+                assert_eq!(args, ["build", "wasm", "case.js"]);
+            }
+        }
+        for flags in [
+            vec!["--intl-number-locales", "es"],
+            vec!["--intl-profile", "minimal", "--intl-number-locales", "es"],
+            vec![
+                "--intl-profile",
+                "conformance",
+                "--intl-number-locales",
+                "es",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es,es",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es",
+                "--intl-number-locales",
+                "pl",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es",
+                "--intl-list-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es",
+                "--intl-relative-time-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es",
+                "--intl-displaynames-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es",
+                "--intl-duration-locales",
+                "",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-number-locales".into(),
+            "--intl-profile".into(),
+            "custom:selected".into()
+        ])
+        .unwrap_err()
+        .contains("--intl-number-locales needs a value"));
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let args = [
+                "--intl-profile",
+                "custom:selected",
+                "--intl-number-locales",
+                "es",
+            ]
+            .into_iter()
+            .chain(command)
+            .map(str::to_owned)
+            .collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn datetime_projection_arguments_compose_six_filters_and_reject_before_source_loading() {
+        for with_other_filters in [false, true] {
+            for reverse in [false, true] {
+                let mut filters = vec![(
+                    "--intl-datetime-locales",
+                    if reverse { "zh,ar-EG" } else { "ar-EG,zh" },
+                )];
+                if with_other_filters {
+                    filters.extend([
+                        ("--intl-list-locales", "es,he"),
+                        ("--intl-relative-time-locales", "fr,pl"),
+                        ("--intl-displaynames-locales", "fr,ja"),
+                        ("--intl-duration-locales", "fr,sr"),
+                        ("--intl-number-locales", "es,pl"),
+                    ]);
+                }
+                if reverse {
+                    filters.reverse();
+                }
+                let mut args = filters
+                    .into_iter()
+                    .flat_map(|(flag, locales)| [flag.to_owned(), locales.to_owned()])
+                    .collect::<Vec<_>>();
+                if reverse {
+                    args.splice(0..0, ["--intl-profile".into(), "custom:selected".into()]);
+                } else {
+                    args.extend(["--intl-profile".into(), "custom:selected".into()]);
+                }
+                args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+                assert_eq!(
+                    take_global_intl_profile(&mut args).unwrap().unwrap(),
+                    IntlCompilationProfile::CustomProjection(
+                        CustomIntlProfile::new(
+                            CustomProfileId::parse("selected").unwrap(),
+                            with_other_filters.then_some(&["es", "he"][..]),
+                            with_other_filters.then_some(&["fr", "pl"][..]),
+                            with_other_filters.then_some(&["fr", "ja"][..]),
+                            with_other_filters.then_some(&["fr", "sr"][..]),
+                            with_other_filters.then_some(&["es", "pl"][..]),
+                            Some(&["ar-EG", "zh"]),
+                            None,
+                            None,
+                        )
+                        .unwrap()
+                    )
+                );
+                assert_eq!(args, ["build", "wasm", "case.js"]);
+            }
+        }
+        for flags in [
+            vec!["--intl-datetime-locales", "zh"],
+            vec!["--intl-profile", "minimal", "--intl-datetime-locales", "zh"],
+            vec![
+                "--intl-profile",
+                "conformance",
+                "--intl-datetime-locales",
+                "zh",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "zh,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "zh,zh",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "zh",
+                "--intl-datetime-locales",
+                "ar-EG",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "zh",
+                "--intl-number-locales",
+                "",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-datetime-locales".into(),
+            "--intl-profile".into(),
+            "custom:selected".into()
+        ])
+        .unwrap_err()
+        .contains("--intl-datetime-locales needs a value"));
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let args = [
+                "--intl-profile",
+                "custom:selected",
+                "--intl-datetime-locales",
+                "zh",
+            ]
+            .into_iter()
+            .chain(command)
+            .map(str::to_owned)
+            .collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn segmenter_projection_arguments_compose_eight_filters_and_reject_before_source_loading() {
+        for reverse in [false, true] {
+            let mut flags = vec![
+                ("--intl-list-locales", "es,he"),
+                ("--intl-relative-time-locales", "fr,pl"),
+                ("--intl-displaynames-locales", "fr,ja"),
+                ("--intl-duration-locales", "fr,sr"),
+                ("--intl-number-locales", "es,pl"),
+                ("--intl-datetime-locales", "ar-EG,zh"),
+                ("--intl-collator-locales", "de-CH,sv"),
+                (
+                    "--intl-segmenter-locales",
+                    if reverse { "sv,el" } else { "el,sv" },
+                ),
+            ];
+            if reverse {
+                flags.reverse();
+            }
+            let mut args = flags
+                .into_iter()
+                .flat_map(|(flag, value)| [flag.to_owned(), value.to_owned()])
+                .collect::<Vec<_>>();
+            args.extend([
+                "--intl-profile".into(),
+                "custom:selected".into(),
+                "build".into(),
+                "wasm".into(),
+                "case.js".into(),
+            ]);
+            let selected = take_global_intl_profile(&mut args).unwrap().unwrap();
+            assert_eq!(
+                selected,
+                IntlCompilationProfile::CustomProjection(
+                    CustomIntlProfile::new(
+                        CustomProfileId::parse("selected").unwrap(),
+                        Some(&["es", "he"]),
+                        Some(&["fr", "pl"]),
+                        Some(&["fr", "ja"]),
+                        Some(&["fr", "sr"]),
+                        Some(&["es", "pl"]),
+                        Some(&["ar-EG", "zh"]),
+                        Some(&["de-CH", "sv"]),
+                        Some(&["el", "sv"]),
+                    )
+                    .unwrap()
+                )
+            );
+            assert_eq!(args, ["build", "wasm", "case.js"]);
+        }
+        for flags in [
+            vec!["--intl-segmenter-locales", "sv"],
+            vec![
+                "--intl-profile",
+                "minimal",
+                "--intl-segmenter-locales",
+                "sv",
+            ],
+            vec![
+                "--intl-profile",
+                "conformance",
+                "--intl-segmenter-locales",
+                "sv",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-segmenter-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-segmenter-locales",
+                "sv,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-segmenter-locales",
+                "sv,sv",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-segmenter-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-segmenter-locales",
+                "sv",
+                "--intl-segmenter-locales",
+                "el",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-segmenter-locales".into(),
+            "--intl-profile".into(),
+            "custom:selected".into()
+        ])
+        .unwrap_err()
+        .contains("--intl-segmenter-locales needs a value"));
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let mut args = vec![
+                "--intl-profile".into(),
+                "custom:selected".into(),
+                "--intl-segmenter-locales".into(),
+                "sv".into(),
+            ];
+            args.extend(command.into_iter().map(str::to_owned));
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(!error.contains("missing.js"));
+        }
+    }
+
+    #[test]
+    fn collator_projection_arguments_compose_seven_filters_and_reject_before_source_loading() {
+        for with_other_filters in [false, true] {
+            for reverse in [false, true] {
+                let mut filters = vec![(
+                    "--intl-collator-locales",
+                    if reverse { "sv,de-CH" } else { "de-CH,sv" },
+                )];
+                if with_other_filters {
+                    filters.extend([
+                        ("--intl-list-locales", "es,he"),
+                        ("--intl-relative-time-locales", "fr,pl"),
+                        ("--intl-displaynames-locales", "fr,ja"),
+                        ("--intl-duration-locales", "fr,sr"),
+                        ("--intl-number-locales", "es,pl"),
+                        ("--intl-datetime-locales", "ar-EG,zh"),
+                    ]);
+                }
+                if reverse {
+                    filters.reverse();
+                }
+                let mut args = filters
+                    .into_iter()
+                    .flat_map(|(flag, value)| [flag.to_owned(), value.to_owned()])
+                    .collect::<Vec<_>>();
+                if reverse {
+                    args.splice(0..0, ["--intl-profile".into(), "custom:selected".into()]);
+                } else {
+                    args.extend(["--intl-profile".into(), "custom:selected".into()]);
+                }
+                args.extend(["build".into(), "wasm".into(), "case.js".into()]);
+                assert_eq!(
+                    take_global_intl_profile(&mut args).unwrap().unwrap(),
+                    IntlCompilationProfile::CustomProjection(
+                        CustomIntlProfile::new(
+                            CustomProfileId::parse("selected").unwrap(),
+                            with_other_filters.then_some(&["es", "he"][..]),
+                            with_other_filters.then_some(&["fr", "pl"][..]),
+                            with_other_filters.then_some(&["fr", "ja"][..]),
+                            with_other_filters.then_some(&["fr", "sr"][..]),
+                            with_other_filters.then_some(&["es", "pl"][..]),
+                            with_other_filters.then_some(&["ar-EG", "zh"][..]),
+                            Some(&["de-CH", "sv"]),
+                            None,
+                        )
+                        .unwrap()
+                    )
+                );
+                assert_eq!(args, ["build", "wasm", "case.js"]);
+            }
+        }
+        for flags in [
+            vec!["--intl-collator-locales", "sv"],
+            vec!["--intl-profile", "minimal", "--intl-collator-locales", "sv"],
+            vec![
+                "--intl-profile",
+                "conformance",
+                "--intl-collator-locales",
+                "sv",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "sv,",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "sv,sv",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "en--US",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "sv",
+                "--intl-collator-locales",
+                "de-CH",
+            ],
+            vec![
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "sv",
+                "--intl-datetime-locales",
+                "",
+            ],
+        ] {
+            let mut args = flags.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            args.extend(["build".into(), "wasm".into(), "missing.js".into()]);
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(
+                error.contains("--intl-") || error.contains("Conformance"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
+        assert!(take_global_intl_profile(&mut vec![
+            "--intl-collator-locales".into(),
+            "--intl-profile".into(),
+            "custom:selected".into()
+        ])
+        .unwrap_err()
+        .contains("--intl-collator-locales needs a value"));
+        for command in [
+            vec!["inspect", "missing.js"],
+            vec!["build", "c", "missing.js"],
+            vec!["build", "native", "missing.js"],
+            vec!["run", "--execution-backend", "spec-exec", "missing.js"],
+        ] {
+            let args = [
+                "--intl-profile",
+                "custom:selected",
+                "--intl-collator-locales",
+                "sv",
+            ]
+            .into_iter()
+            .chain(command)
+            .map(str::to_owned)
+            .collect();
+            let error = command_main(args, Arc::new(Mutex::new(Vec::new()))).unwrap_err();
+            assert!(error.contains("--intl-profile"), "{error}");
+            assert!(
+                !error.contains("missing.js"),
+                "source must not be read: {error}"
+            );
+        }
     }
 
     #[test]
@@ -3406,6 +5189,7 @@ mod tests {
 
         assert_eq!(parsed.output_path, PathBuf::from("generated.json"));
         assert_eq!(parsed.plan.seed().get(), 1);
+        assert_eq!(parsed.plan.grammar(), ArithmeticGrammar::IntegerBitwiseV2);
         assert_eq!(parsed.plan.checks().get(), 4);
         assert_eq!(parsed.plan.depth().get(), 2);
         assert_eq!(parsed.reduction_limit.get(), 64);
@@ -3431,6 +5215,88 @@ mod tests {
             error,
             "differential generate-arithmetic requires explicit `--oracle spec-exec`; the oracle is never a default"
         );
+    }
+
+    #[test]
+    fn differential_generate_arithmetic_selects_historical_v1_explicitly() {
+        let parsed = parse_differential_generate_arithmetic_args(
+            &[
+                "generated.json",
+                "--grammar",
+                "integer-arithmetic-v1",
+                "--seed",
+                "1",
+                "--checks",
+                "4",
+                "--depth",
+                "2",
+                "--max-replays",
+                "64",
+                "--oracle",
+                "spec-exec",
+            ]
+            .map(str::to_string),
+        )
+        .expect("the versioned V1 corpus remains explicitly reproducible");
+        assert_eq!(
+            parsed.plan.grammar(),
+            ArithmeticGrammar::IntegerArithmeticV1
+        );
+        assert_eq!(parsed.plan.seed().get(), 1);
+    }
+
+    #[test]
+    fn differential_generate_arithmetic_selects_bounded_product_v3_explicitly() {
+        let parsed = parse_differential_generate_arithmetic_args(
+            &[
+                "product.json",
+                "--grammar",
+                "integer-product-v3",
+                "--seed",
+                "7",
+                "--checks",
+                "32",
+                "--depth",
+                "4",
+                "--max-replays",
+                "64",
+                "--oracle",
+                "spec-exec",
+            ]
+            .map(str::to_string),
+        )
+        .expect("the product grammar uses the same bounded campaign and oracle gate");
+        assert_eq!(parsed.output_path, PathBuf::from("product.json"));
+        assert_eq!(parsed.plan.grammar(), ArithmeticGrammar::IntegerProductV3);
+        assert_eq!(parsed.plan.seed().get(), 7);
+        assert_eq!(parsed.plan.checks().get(), 32);
+        assert_eq!(parsed.plan.depth(), ArithmeticExpressionDepth::Four);
+        assert_eq!(parsed.reduction_limit.get(), 64);
+        assert_eq!(parsed.oracle, SpecExecOracle::explicitly_enabled());
+    }
+
+    #[test]
+    fn differential_generate_arithmetic_rejects_unknown_or_duplicate_grammar() {
+        let unknown = parse_differential_generate_arithmetic_args(&[
+            "--grammar".to_string(),
+            "integer-bitwise-v3".to_string(),
+        ])
+        .expect_err("an unimplemented grammar cannot label a corpus");
+        assert_eq!(
+            unknown,
+            "unknown arithmetic grammar: integer-bitwise-v3 (expected integer-arithmetic-v1, integer-bitwise-v2, or integer-product-v3)"
+        );
+        let duplicate = parse_differential_generate_arithmetic_args(
+            &[
+                "--grammar",
+                "integer-arithmetic-v1",
+                "--grammar",
+                "integer-bitwise-v2",
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("a plan has one grammar");
+        assert_eq!(duplicate, "--grammar may only be specified once");
     }
 
     #[test]
@@ -3468,13 +5334,40 @@ mod tests {
         assert_eq!(parsed.config.timeout_ms, 50);
         // Product default: in-process execution (wasmtime epoch interruption
         // bounds Wasm-AOT hangs), not the child-process case runner. The
-        // child runner is opt-in via `LILA_TEST262_FORCE_CASE_RUNNER=1`.
-        assert!(parsed.config.case_runner_bin.is_none());
+        // Whole-case execution is supervised through the selected CLI image.
+        assert_eq!(
+            parsed.config.case_runner_bin.as_ref(),
+            Some(&std::env::current_exe().unwrap())
+        );
         // Product default: `lila test262 ...` runs Wasm-AOT flag-free.
         assert_eq!(
             parsed.run_config.execution_backend,
             ExecutionBackend::WasmAot
         );
+    }
+
+    #[test]
+    fn exact_case_worker_preserves_harness_and_rejects_duplicate_selection() {
+        let parsed = parse_test262_case_worker_args(&[
+            "raw-script:language/fixture.js".into(),
+            "--threads".into(),
+            "1".into(),
+            "--case-harness-file".into(),
+            "fixture-harness.js".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            parsed.config.local_harness,
+            LocalHarnessSource::File(PathBuf::from("fixture-harness.js"))
+        );
+        assert!(parse_test262_case_worker_args(&[
+            "raw-script:language/fixture.js".into(),
+            "--case-harness".into(),
+            "none".into(),
+            "--case-harness".into(),
+            "wasm-aot".into(),
+        ])
+        .is_err());
     }
 
     #[test]

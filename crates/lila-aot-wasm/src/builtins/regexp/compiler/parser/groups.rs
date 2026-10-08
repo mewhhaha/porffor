@@ -7,9 +7,9 @@ impl FunctionBuilder<'_> {
         parser: &ParserLocals,
         function: &mut Function,
     ) {
-        let inside_class = self.reserve_temp_local();
-        let next = self.reserve_temp_local();
-        let marker = self.reserve_temp_local();
+        let inside_class = self.runtime_schema().reserve_i64_local(function);
+        let next = self.runtime_schema().reserve_i64_local(function);
+        let marker = self.runtime_schema().reserve_i64_local(function);
         for local in [
             inside_class,
             parser.total_capture_count,
@@ -20,14 +20,14 @@ impl FunctionBuilder<'_> {
         }
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(compiler.cursor));
-        function.instruction(&Instruction::LocalGet(compiler.unit_count));
+        compiler.cursor.load(function);
+        compiler.unit_count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
         peek(compiler, function, compiler.cursor, 0, parser.unit);
         eq(function, parser.unit, b'\\' as u64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_increment_local(compiler.cursor, 2, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 2, function);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
         for (unit, value) in [(b'[', 1), (b']', 0)] {
@@ -52,20 +52,21 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_increment_local(parser.total_capture_count, 1, function);
+        self.emit_regexp_scratch_increment(parser.total_capture_count, 1, function);
         set(function, parser.has_named_capture, 1);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_increment_local(parser.total_capture_count, 1, function);
+        self.emit_regexp_scratch_increment(parser.total_capture_count, 1, function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(marker);
-        self.release_temp_local(next);
-        self.release_temp_local(inside_class);
+        self.runtime_schema().release_i64_local(marker, function);
+        self.runtime_schema().release_i64_local(next, function);
+        self.runtime_schema()
+            .release_i64_local(inside_class, function);
     }
 
     pub(super) fn emit_regexp_parser_new_sequence(
@@ -97,8 +98,8 @@ impl FunctionBuilder<'_> {
         parser: &ParserLocals,
         function: &mut Function,
     ) {
-        let kind = self.reserve_temp_local();
-        let marker = self.reserve_temp_local();
+        let kind = self.runtime_schema().reserve_i64_local(function);
+        let marker = self.runtime_schema().reserve_i64_local(function);
         self.emit_regexp_parser_new_node(
             compiler,
             NodeKind::Capture,
@@ -109,11 +110,11 @@ impl FunctionBuilder<'_> {
         );
         self.emit_regexp_parser_append(compiler, parser.sequence, parser.term, function);
         set(function, kind, NodeKind::Capture as u64);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         peek(compiler, function, compiler.cursor, 0, marker);
         eq(function, marker, b'?' as u64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         peek(compiler, function, compiler.cursor, 0, marker);
         set(function, kind, 0);
         for (unit, group) in [
@@ -133,17 +134,24 @@ impl FunctionBuilder<'_> {
         eq(function, marker, b'!' as u64);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_compile_failure(
-            compiler,
-            CompileFailure::Unsupported(CompileCapability::Lookbehind),
-            function,
-        );
+        for (unit, group) in [
+            (b'=', NodeKind::PositiveLookbehind),
+            (b'!', NodeKind::NegativeLookbehind),
+        ] {
+            eq(function, marker, unit as u64);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            set(function, kind, group as u64);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         function.instruction(&Instruction::Else);
-        self.emit_regexp_compile_failure(
-            compiler,
-            CompileFailure::Unsupported(CompileCapability::NamedGroups),
-            function,
-        );
+        let payload = self.runtime_schema().reserve_i64_local(function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
+        self.emit_regexp_parser_name(compiler, payload, function);
+        self.emit_regexp_scratch_increment(compiler.capture_count, 1, function);
+        self.emit_regexp_append_capture_name(compiler, parser.term, payload, function);
+        set(function, kind, NodeKind::Capture as u64);
+        self.runtime_schema().release_i64_local(payload, function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         eq(function, kind, 0);
@@ -151,9 +159,9 @@ impl FunctionBuilder<'_> {
         self.emit_regexp_parser_modifier_prefix(compiler, &parser.modifiers, function);
         set(function, kind, NodeKind::NonCapture as u64);
         function.instruction(&Instruction::End);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         function.instruction(&Instruction::Else);
-        self.emit_increment_local(compiler.capture_count, 1, function);
+        self.emit_regexp_scratch_increment(compiler.capture_count, 1, function);
         function.instruction(&Instruction::End);
         store(function, parser.address, NodeWord::Kind as u64, kind);
         for (word, local) in parser.modifiers.words() {
@@ -161,8 +169,8 @@ impl FunctionBuilder<'_> {
         }
         copy(function, parser.group, parser.term);
         self.emit_regexp_parser_new_sequence(compiler, parser, function);
-        self.release_temp_local(marker);
-        self.release_temp_local(kind);
+        self.runtime_schema().release_i64_local(marker, function);
+        self.runtime_schema().release_i64_local(kind, function);
     }
 
     pub(super) fn emit_regexp_parser_finish_sequence(
@@ -171,34 +179,34 @@ impl FunctionBuilder<'_> {
         parser: &ParserLocals,
         function: &mut Function,
     ) {
-        let flags = self.reserve_temp_local();
-        let address = self.reserve_temp_local();
+        let flags = self.runtime_schema().reserve_i64_local(function);
+        let address = self.runtime_schema().reserve_i64_local(function);
         self.emit_regexp_node_address(compiler, parser.sequence, address, function);
-        function.instruction(&Instruction::LocalGet(compiler.capture_count));
+        compiler.capture_count.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(flags));
+        flags.store(function);
         store(function, address, NodeWord::CaptureEnd as u64, flags);
         load(function, address, NodeWord::Flags as u64, flags);
         self.emit_regexp_node_address(compiler, parser.group, address, function);
-        function.instruction(&Instruction::LocalGet(address));
+        address.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(address));
+        address.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64Load(MemArg {
             offset: NodeWord::Flags as u64,
             align: 3,
             memory_index: 0,
         }));
-        function.instruction(&Instruction::LocalGet(flags));
+        flags.load(function);
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Store(MemArg {
             offset: NodeWord::Flags as u64,
             align: 3,
             memory_index: 0,
         }));
-        self.release_temp_local(address);
-        self.release_temp_local(flags);
+        self.runtime_schema().release_i64_local(address, function);
+        self.runtime_schema().release_i64_local(flags, function);
     }
 
     pub(super) fn emit_regexp_parser_finish_group(
@@ -207,24 +215,31 @@ impl FunctionBuilder<'_> {
         parser: &ParserLocals,
         function: &mut Function,
     ) {
-        let kind = self.reserve_temp_local();
-        let capture = self.reserve_temp_local();
+        let kind = self.runtime_schema().reserve_i64_local(function);
+        let capture = self.runtime_schema().reserve_i64_local(function);
         self.emit_regexp_parser_finish_sequence(compiler, parser, function);
         self.emit_regexp_node_address(compiler, parser.group, parser.address, function);
         load(function, parser.address, NodeWord::Kind as u64, kind);
-        function.instruction(&Instruction::LocalGet(compiler.capture_count));
+        compiler.capture_count.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture));
+        capture.store(function);
         store(
             function,
             parser.address,
             NodeWord::CaptureEnd as u64,
             capture,
         );
-        eq(function, kind, NodeKind::PositiveLookahead as u64);
-        eq(function, kind, NodeKind::NegativeLookahead as u64);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Const(0));
+        for assertion in [
+            NodeKind::PositiveLookahead,
+            NodeKind::NegativeLookahead,
+            NodeKind::PositiveLookbehind,
+            NodeKind::NegativeLookbehind,
+        ] {
+            eq(function, kind, assertion as u64);
+            function.instruction(&Instruction::I32Or);
+        }
         function.instruction(&Instruction::If(BlockType::Empty));
         store_const(
             function,
@@ -233,8 +248,8 @@ impl FunctionBuilder<'_> {
             NODE_ATOM_NULLABLE,
         );
         function.instruction(&Instruction::End);
-        self.release_temp_local(capture);
-        self.release_temp_local(kind);
+        self.runtime_schema().release_i64_local(capture, function);
+        self.runtime_schema().release_i64_local(kind, function);
     }
 
     pub(super) fn emit_regexp_parser_finish_term(
@@ -243,16 +258,16 @@ impl FunctionBuilder<'_> {
         parser: &ParserLocals,
         function: &mut Function,
     ) {
-        let minimum = self.reserve_temp_local();
-        let flags = self.reserve_temp_local();
-        let capture = self.reserve_temp_local();
+        let minimum = self.runtime_schema().reserve_i64_local(function);
+        let flags = self.runtime_schema().reserve_i64_local(function);
+        let capture = self.runtime_schema().reserve_i64_local(function);
         self.emit_regexp_node_address(compiler, parser.term, parser.address, function);
         load(function, parser.address, NodeWord::Minimum as u64, minimum);
         load(function, parser.address, NodeWord::Flags as u64, flags);
-        function.instruction(&Instruction::LocalGet(compiler.capture_count));
+        compiler.capture_count.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture));
+        capture.store(function);
         store(
             function,
             parser.address,
@@ -261,7 +276,7 @@ impl FunctionBuilder<'_> {
         );
         eq(function, minimum, 0);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(flags));
+        flags.load(function);
         function.instruction(&Instruction::I64Const(NODE_ATOM_NULLABLE as i64));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
@@ -270,8 +285,8 @@ impl FunctionBuilder<'_> {
         self.emit_regexp_node_address(compiler, parser.sequence, parser.address, function);
         store_const(function, parser.address, NodeWord::Flags as u64, 0);
         function.instruction(&Instruction::End);
-        self.release_temp_local(capture);
-        self.release_temp_local(flags);
-        self.release_temp_local(minimum);
+        self.runtime_schema().release_i64_local(capture, function);
+        self.runtime_schema().release_i64_local(flags, function);
+        self.runtime_schema().release_i64_local(minimum, function);
     }
 }

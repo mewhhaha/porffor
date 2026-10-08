@@ -227,6 +227,12 @@ impl ScriptLowerer<'_> {
                             .function_id()
                             .to_string(),
                     ),
+                    Some("evaluate") => {
+                        Some(StandardBuiltinId::ShadowRealmPrototypeEvaluate.function_id())
+                    }
+                    Some("importValue") => {
+                        Some(StandardBuiltinId::ShadowRealmPrototypeImportValue.function_id())
+                    }
                     _ => None,
                 };
                 candidates.extend(evaluator.map(FiniteSourceValue::Function));

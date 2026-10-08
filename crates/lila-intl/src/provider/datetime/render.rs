@@ -11,6 +11,8 @@ use super::{
 };
 
 mod fields;
+#[cfg(test)]
+mod tests;
 
 pub(super) struct PreparedInput {
     pub(super) fields: calendar::Fields,
@@ -21,6 +23,7 @@ pub(super) fn prepare(
     plan: &ValidatedPlan<'_>,
     input: DateTimeInput,
     named: &NamedTimeZones,
+    calendars: &calendar::CalendarKernels,
 ) -> Result<PreparedInput, DateTimeFormatError> {
     let (iso, zone) = match input {
         DateTimeInput::Plain(value) => (value.iso(), Snapshot::Plain),
@@ -36,9 +39,21 @@ pub(super) fn prepare(
                     let epoch = TimeZoneEpochSeconds::new(value.epoch_seconds()).map_err(|_| {
                         DateTimeFormatError::InvalidRequest("invalid exact epoch seconds")
                     })?;
-                    let transition = named
-                        .transition(&identity, epoch)
-                        .map_err(|error| invalid(error.to_string()))?;
+                    let transition =
+                        named
+                            .transition(&identity, epoch)
+                            .map_err(|error| match error {
+                                crate::NamedTimeZoneDataError::UnavailableService(service) => {
+                                    DateTimeFormatError::UnavailableService(service)
+                                }
+                                crate::NamedTimeZoneDataError::UnavailableIdentifier(name) => {
+                                    DateTimeFormatError::UnavailableTimeZone(name)
+                                }
+                                error @ (crate::NamedTimeZoneDataError::UnknownIdentifier(_)
+                                | crate::NamedTimeZoneDataError::InvalidProviderData(_)) => {
+                                    invalid(error.to_string())
+                                }
+                            })?;
                     (
                         transition.offset_seconds(),
                         Snapshot::Named {
@@ -56,7 +71,7 @@ pub(super) fn prepare(
         }
     };
     Ok(PreparedInput {
-        fields: calendar::convert(plan.calendar_kind, iso)?,
+        fields: calendar::convert(plan.calendar_kind, iso, calendars)?,
         zone,
     })
 }
@@ -66,9 +81,10 @@ pub(super) fn format(
     plan: &ValidatedPlan<'_>,
     input: DateTimeInput,
     named: &NamedTimeZones,
+    calendars: &calendar::CalendarKernels,
 ) -> Result<DateTimeParts, DateTimeFormatError> {
     let selected = plan.format(input.kind())?;
-    let prepared = prepare(plan, input, named)?;
+    let prepared = prepare(plan, input, named, calendars)?;
     pattern(profile, plan, &selected.pattern, &prepared)
 }
 

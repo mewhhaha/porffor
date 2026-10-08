@@ -1,37 +1,38 @@
-# Dynamic-import dispatcher references have one projection owner
+# Dynamic-import calls share one dispatcher authority
 
-The source rewriter has two distinct dispatcher-name authorities:
+At 2026-09-29, Module and Script entries use the same canonical import-job
+dispatcher. `rewrite_dynamic_import_calls(unit, source)` performs the lexical
+scan, checks the recorded call count for each phase, and projects each site
+through `dispatcher_name(unit, phase)`. The phase projection is exhaustive.
 
-- `ModuleLocal` selects the dispatcher declared in the merged module wrapper;
-- `ScriptEntryExport` selects the outer binding through which a Script entry
-  reaches that wrapper-owned dispatcher.
+The eager Script wrapper, exported dispatcher bindings and alternate public
+rewriter are deleted. The former two-variant dispatcher-reference domain and
+its dedicated structure test are deleted with that alternate authority; there
+is no remaining Boolean, string selector or single-variant witness to maintain.
+Source-phase Script graphs stop at explicit Unsupported admission. Source-phase
+Module graphs retain their separately documented driver.
 
-`DynamicImportDispatcherReference` is the private, non-`Clone`, non-`Copy`
-domain for that decision. The module and Script public rewriters are its two
-producers. They hand it by value to `rewrite_calls`, whose one exhaustive
-consuming projection selects the name at each discovered call site. A source
-with no call sites may drop the unused authority at the established early
-return; any source that is rewritten consumes it before publishing a name.
+Source-record constructors validate identifiers from the retained AST before
+rewriting. The private linker prefix is explicitly unsupported for identifier
+bindings and references, including nested parameters and escaped identifiers.
+Property names, comments and string data remain ordinary source. Script records
+retain an empty module environment and stay outside the Module-key map even
+when their URL is loaded separately as a Module.
 
-The domain has six lexical mentions in Rust production sources: its
-declaration, owned parameter, two producers and two consumer arms. Each variant
-therefore has exactly one producer and one consumer. Removing incidental debug,
-clone, copy and equality capabilities makes a preliminary observation followed
-by the naming projection a Rust move error. Adding a third dispatcher location
-requires an explicit producer and projection arm before the crate builds.
-
-The lexical structure regression ignores Rust comments and string, byte, C,
-raw and character literals. It pins the attribute-free declaration, complete
-source census, both public wrappers, sole exhaustive match and the full rewrite
-body fingerprint:
+Focused refresh commands for this batch are:
 
 ```sh
-cargo test -p lila-ir --test dynamic_import_dispatcher_reference_structure -- --test-threads=1
+cargo test -p lila-ir --lib modules::dynamic::tests -- --test-threads=1
+cargo test -p lila-ir --lib modules::admission::tests -- --test-threads=1
+cargo test -p lila-ir --test import_phase_structure -- --test-threads=1
 ```
 
-The structure target passes `4/4`. The exact module-local and
-Script-entry-export rewrite units each pass `1/1`.
-
-This is source-equivalent ownership hardening. It changes no rewritten source,
-module graph, import phase, dispatcher spelling or emitted Wasm, and it makes no
-broader module-linking or Test262 conformance claim.
+The phase-aware Script rewrite regression uses a retained Script parse product.
+Admission regressions cover independent valid closures, direct versus dependency
+rejection timing metadata, all-rejected targets, projected entry indices, host
+contradictions, same-URL Script/Module ownership and private identifier hazards.
+Central all-target compilation passes. Full IR verification passes 1,555 tests
+across 97 groups, with one ignored documentation example. The thirteen Script
+import tests and 95 neighboring module tests pass. Broad workspace and pinned
+Test262 verification remain pending. This changes Script import-job behavior
+and makes no broader module-linking or Test262 conformance claim.

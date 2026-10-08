@@ -1,6 +1,23 @@
 # Canonical async Module-entry lifecycle
 
-Module-entry graphs without source-phase requests use private compiled activations.
+Current source implementation, 2026-10-03: successful Module and Script graphs
+use the same private compiled module activations for TLA, deferred requests and
+cycles. Script roots keep ordinary Script completion and start module evaluation
+through import jobs. Source-only JavaScript targets load and parse, then static
+source bindings/forwarded exports fail linking and dynamic `import.source`
+rejects before loading target dependencies or evaluation. No fabricated source
+cell or retained product driver remains. See the
+[source-phase rejection contract](source-text-module-source-phase-rejection.md).
+Executable acceptance of this retirement is pending.
+
+The 2026-10-07 dry continuation makes implicit Await from top-level resource
+management part of `ModuleBodyScan`'s HasTLA result. Lexical `await using` and
+synchronous `for (await using ... of ...)` heads use the same async activation
+and dependency lifecycle, including null resources and zero loop iterations.
+Nested function bodies retain their own Await classification. Record and graph
+controls plus the native `implicit_module_await_waits_for_statement_block_and_loop_disposal`
+regression are authored; this continuation did not compile or execute them.
+
 The graph contains source function identities, local HasTLA kinds and original
 ordered Evaluation/Defer requests. All environments exist before any import is
 installed; all units instantiate before source evaluation. Top-level declarations
@@ -89,8 +106,9 @@ even by a fully synchronous graph. No private operation is a product export.
 
 The [entry completion owner](module-entry-completion.md) consumes the root capability
 independently of unhandled-rejection policy. Pending entry at supported host-work
-quiescence remains IncompleteModuleEvaluation. Source-phase and Script-entry graphs
-retain their separate explicit capability boundaries.
+quiescence remains IncompleteModuleEvaluation. Script roots have no Module entry
+completion boundary; their import targets use the same canonical lifecycle.
+Source-only JavaScript targets retain the post-load/parse rejection boundary.
 
 ## Verification boundary
 
@@ -103,9 +121,10 @@ siblings and async resource lifetime. `module_async_runtime_tests` exports priva
 operations only in copied test artifacts to check effect-free instantiation, pending
 body promises, corrupt states, reentrant Evaluate and graphless size/reachability.
 
-The unchanged six audited async-defer failures and all 147 previously passing module
-executions are required integration checks. Staged source and formatting checks do
-not establish execution success or update the published full-suite baseline.
+The earlier audit recorded six async-defer failures and 147 passing module
+executions. Those historical outcomes remain integration controls; they are not
+fresh results for the source-phase retirement. Staged source and formatting
+checks do not establish execution success or update the published full-suite baseline.
 
 The concurrent-import regression starts both imports before awaiting either and
 checks distinct import promises and the exact `undefined` rejection. A separate

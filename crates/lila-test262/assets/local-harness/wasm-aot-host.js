@@ -9,19 +9,9 @@ function __lilaUnsupportedHost(name) {
   throw name + ' unsupported in wasm-aot host harness';
 }
 
-class AbstractModuleSource {
-  constructor() {
-    throw new TypeError();
-  }
-
-  get [Symbol.toStringTag]() {
-    return undefined;
-  }
-}
-
 var $262 = {
   global: undefined,
-  AbstractModuleSource: AbstractModuleSource,
+  AbstractModuleSource: __lilaGetAbstractModuleSource(),
   // Must be a real [[IsHTMLDDA]] exotic object, not an ordinary function that
   // returns null: the annexB `emulates-undefined` tests observe ToBoolean,
   // `typeof`, IsLooselyEqual and the absence of an own `prototype` property.
@@ -47,11 +37,12 @@ var $262 = {
     start: function (source) {
       return __lilaAgentStart(source);
     },
-    broadcast: function (sab) {
-      return __lilaAgentBroadcast(sab);
+    broadcast: function (sab, id) {
+      return __lilaAgentBroadcast(sab, id);
     },
     receiveBroadcast: function (callback) {
-      return callback(__lilaAgentReceiveBroadcast());
+      var message = __lilaAgentReceiveBroadcast();
+      return callback(message[0], message[1]);
     },
     report: function (value) {
       return __lilaAgentReport(value);

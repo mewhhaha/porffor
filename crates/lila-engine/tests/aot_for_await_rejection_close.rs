@@ -1,6 +1,6 @@
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, ObservedCompletion, RealmBuilder,
-    RunOptions,
+    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
+    ObservedCompletion, ObservedJsValue, ObservedNumber, RealmBuilder, RunOptions,
 };
 
 fn assert_wasm_lines(source: &str, expected: &[&str]) {
@@ -108,5 +108,61 @@ void 0;
             "primitive:true:2",
             "done:true:2",
         ],
+    );
+}
+
+fn assert_body_await_modes(source: &str, expected: &str) {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    for directive in ["", "'use strict';\n"] {
+        let source = format!("{directive}{source}");
+        let outcome = Engine::new(RealmBuilder::new().build())
+            .observe_script(
+                &source,
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    ..CompileOptions::default()
+                },
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("for-await body Await fixture compiles and executes through Wasm AOT");
+        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(262.0))),
+            "{source}"
+        );
+        assert_eq!(
+            outcome.output_events,
+            vec![HostOutputEvent::PrintLine(expected.into())],
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn awaited_next_and_body_keep_cached_methods_and_iteration_cells() {
+    assert_body_await_modes(
+        include_str!("fixtures/for_await_body_await/next_and_body.js"),
+        "for-await-next-body:ok",
+    );
+}
+
+#[test]
+fn body_control_waits_for_finalizers_and_closes_once() {
+    assert_body_await_modes(
+        include_str!("fixtures/for_await_body_await/control_and_close.js"),
+        "for-await-control-close:ok",
+    );
+}
+
+#[test]
+fn body_and_protocol_failures_keep_original_values_and_execution_realms() {
+    assert_body_await_modes(
+        include_str!("fixtures/for_await_body_await/abrupt_and_realms.js"),
+        "for-await-abrupt-realms:ok",
     );
 }

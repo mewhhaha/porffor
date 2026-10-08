@@ -120,7 +120,7 @@ emission_sites! {
     /// `FunctionBuilder::compile_for_of_iterator` (`control_flow.rs:6874`).
     SyncForOfIterator => "compile_for_of_iterator",
     /// `FunctionBuilder::compile_async_function_for_of_iterator`.
-    ResumableSyncForOfIterator => "compile_async_function_for_of_iterator",
+    ResumableSyncForOfIterator => "compile_resumable_sync_for_of_iterator",
     /// `FunctionBuilder::compile_async_for_of_iterator` (`control_flow.rs:5577`).
     AsyncForOfIterator => "compile_async_for_of_iterator",
     /// `FunctionBuilder::compile_array_destructure_from_value_locals`
@@ -445,7 +445,7 @@ iterator_witnesses! {
     /// (`control_flow.rs`) is exactly `¬LoopContinues`.
     SYNC_ITERATOR_PROTOCOL => IteratorProtocolWitness::emitted_by(EmissionSite::SyncForOfIterator),
 
-    /// `StatementIr::AsyncFunctionForOfIterator`, the activation-backed
+    /// `StatementIr::{AsyncFunctionForOfIterator, GeneratorForOfIterator}`, the activation-backed
     /// synchronous iterator walk used when an ordinary `for-of` body awaits.
     RESUMABLE_SYNC_ITERATOR_PROTOCOL => IteratorProtocolWitness::emitted_by(
         EmissionSite::ResumableSyncForOfIterator,

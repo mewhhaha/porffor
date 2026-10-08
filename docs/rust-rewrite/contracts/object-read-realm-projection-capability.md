@@ -3,6 +3,12 @@
 Status: the original projection was focused-verified on 2026-08-27; the
 Proxy-dispatch extension was focused-verified on 2026-08-29.
 
+The current typed whole-value Get route and private physical owner are described
+in [Shared object-operation runtime helpers](object-operation-runtime-helpers.md).
+That source-written repair forwards the caller Environment directly through the
+existing registered rows; ObjectReadProxy forwards to ObjectRead. The older
+projection vocabulary and results below record their historical checkpoints.
+
 ## Scope
 
 This contract owns the two internal projections from

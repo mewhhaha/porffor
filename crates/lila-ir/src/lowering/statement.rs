@@ -1,3 +1,5 @@
+mod expression;
+
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
@@ -5,226 +7,8 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(boundary) = self.lower_module_instantiation_boundary(statement) {
             return boundary;
         }
-        match statement {
-            Statement::Expression(Expression::Await(await_expression))
-                if self.current_async_resume_state.is_some() =>
-            {
-                self.lower_linear_async_await(await_expression.target(), AsyncResumeModeIr::Ignore)
-            }
-            Statement::Expression(Expression::Assign(assignment))
-                if self.current_async_resume_state.is_some()
-                    && assignment.op() == AssignOp::Assign
-                    && !matches!(
-                        assignment.lhs(),
-                        AssignTarget::Access(PropertyAccess::Simple(_))
-                    )
-                    && matches!(assignment.rhs(), Expression::Await(_)) =>
-            {
-                let Expression::Await(await_expression) = assignment.rhs() else {
-                    unreachable!()
-                };
-                let AssignTarget::Identifier(identifier) = assignment.lhs() else {
-                    self.unsupported("async await assignment target");
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                };
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                let mode = if let Some(binding) = self.lookup_binding(&name) {
-                    AsyncResumeModeIr::AssignIdentifier(binding.storage_name)
-                } else {
-                    if self.uses_runtime_identifier_environment()
-                        || !self.with_environment_chain.is_empty()
-                    {
-                        self.unsupported(
-                            "suspended assignment through a runtime identifier environment",
-                        );
-                        return (StatementIr::Empty, ValueKind::Undefined);
-                    }
-                    AsyncResumeModeIr::AssignGlobal {
-                        name,
-                        strictness: self.reference_strictness(),
-                    }
-                };
-                self.lower_linear_async_await(await_expression.target(), mode)
-            }
-            Statement::Expression(Expression::Yield(yield_expression))
-                if self.current_resumable_plan.is_some()
-                    && yield_expression.target().is_some_and(|target| {
-                        contains(target, ContainsSymbol::AwaitExpression)
-                    }) =>
-            {
-                let saved = self.async_expression_prefix.replace(Vec::new());
-                let (yield_statement, kind) = self.lower_linear_generator_yield(
-                    yield_expression.target(),
-                    yield_expression.delegate(),
-                    GeneratorResumeModeIr::Ignore,
-                );
-                let mut statements = std::mem::replace(&mut self.async_expression_prefix, saved)
-                    .expect("async-generator expression lowering must retain its statement prefix");
-                statements.push(yield_statement);
-                (StatementIr::LexicalBlock(statements), kind)
-            }
-            Statement::Expression(expression)
-                if self.current_async_resume_state.is_some()
-                    && contains(expression, ContainsSymbol::AwaitExpression) =>
-            {
-                if contains_async_property_assignment(expression) {
-                    let Some((mut statements, value)) =
-                        self.lower_async_prefixed_expression(expression)
-                    else {
-                        self.unsupported("conditionally reached or mixed suspension in async property assignment");
-                        return (StatementIr::Empty, ValueKind::Undefined);
-                    };
-                    statements.push(StatementIr::Expression(value));
-                    return (StatementIr::LexicalBlock(statements), ValueKind::Undefined);
-                }
-                // An expression statement discards its value and has always
-                // hoisted every `await` it contains, including ones only some
-                // paths reach, so it keeps that reach here. That hoist is
-                // wrong for `f(cond && await p)` — the suspension happens even
-                // when `cond` is falsy — and fixing it needs a resumable
-                // branch rather than a flat prefix, so it stays a known
-                // mis-evaluation instead of becoming a new refusal.
-                let saved = self.async_expression_prefix.replace(Vec::new());
-                let value = self.lower_expression(expression);
-                let mut statements = std::mem::replace(&mut self.async_expression_prefix, saved)
-                    .expect("async expression lowering must retain its statement prefix");
-                statements.push(StatementIr::Expression(value));
-                (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
-            }
-            Statement::Expression(Expression::Assign(assignment))
-                if self.current_generator_resume_state.is_some()
-                    && assignment.op() == AssignOp::Assign
-                    && matches!(assignment.rhs(), Expression::TemplateLiteral(template) if contains(template, ContainsSymbol::YieldExpression)) =>
-            {
-                let AssignTarget::Identifier(identifier) = assignment.lhs() else {
-                    self.unsupported("generator template assignment target");
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                };
-                let Expression::TemplateLiteral(template) = assignment.rhs() else {
-                    unreachable!()
-                };
-                let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-                let Some(statements) =
-                    self.lower_generator_template_assignment(target_name, template)
-                else {
-                    self.unsupported("generator template interpolation suspension");
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                };
-                (StatementIr::LexicalBlock(statements), ValueKind::String)
-            }
-            Statement::Expression(expression)
-                if self.current_generator_resume_state.is_some()
-                    && !matches!(expression, Expression::Yield(_))
-                    && !matches!(
-                        expression,
-                        Expression::Assign(assignment)
-                            if assignment.op() == AssignOp::Assign
-                                && matches!(assignment.rhs(), Expression::Yield(_))
-                                && !contains(assignment.lhs(), ContainsSymbol::YieldExpression)
-                    )
-                    && contains(expression, ContainsSymbol::YieldExpression) =>
-            {
-                let Some(mut statements) = self.lower_discarded_generator_expression(expression)
-                else {
-                    self.unsupported("discarded generator expression suspension");
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                };
-                if statements.len() == 1 {
-                    return (statements.remove(0), ValueKind::Undefined);
-                }
-                (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
-            }
-            Statement::Expression(Expression::Yield(yield_expression))
-                if self.current_generator_resume_state.is_some()
-                    && yield_expression.target().is_some_and(|target| {
-                        contains(target, ContainsSymbol::YieldExpression)
-                    }) =>
-            {
-                let Some((mut statements, value)) = yield_expression
-                    .target()
-                    .and_then(|target| self.lower_staged_generator_expression(target))
-                else {
-                    self.unsupported("generator expression suspension");
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                };
-                let (yield_statement, kind) = self.lower_linear_generator_yield_value(
-                    value,
-                    yield_expression.delegate(),
-                    GeneratorResumeModeIr::Ignore,
-                );
-                statements.push(yield_statement);
-                (StatementIr::LexicalBlock(statements), kind)
-            }
-            Statement::Expression(Expression::Yield(yield_expression))
-                if self.current_generator_resume_state.is_some() =>
-            {
-                self.lower_linear_generator_yield(
-                    yield_expression.target(),
-                    yield_expression.delegate(),
-                    GeneratorResumeModeIr::Ignore,
-                )
-            }
-            Statement::Expression(Expression::Assign(assignment))
-                if self.current_generator_resume_state.is_some()
-                    && assignment.op() == AssignOp::Assign
-                    && matches!(assignment.rhs(), Expression::Yield(_)) =>
-            {
-                let Expression::Yield(yield_expression) = assignment.rhs() else {
-                    unreachable!()
-                };
-                let resume_mode = match assignment.lhs() {
-                    AssignTarget::Identifier(identifier) => {
-                        let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                        if let Some(binding) = self.lookup_binding(&name) {
-                            GeneratorResumeModeIr::AssignIdentifier(binding.storage_name)
-                        } else {
-                            if self.uses_runtime_identifier_environment()
-                                || !self.with_environment_chain.is_empty()
-                            {
-                                self.unsupported(
-                                    "suspended assignment through a runtime identifier environment",
-                                );
-                                return (StatementIr::Empty, ValueKind::Undefined);
-                            }
-                            GeneratorResumeModeIr::AssignGlobal {
-                                name,
-                                strictness: self.reference_strictness(),
-                            }
-                        }
-                    }
-                    AssignTarget::Access(PropertyAccess::Simple(access)) => {
-                        self.record_caller_flow_invalidation();
-                        let (plan, key, _) = self.lower_ordinary_property_reference_plan(access);
-                        self.update_written_shape(
-                            access.target(),
-                            &key,
-                            &ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: FunctionTargetKnowledge::unknown(),
-                            },
-                        );
-                        GeneratorResumeModeIr::AssignProperty(plan.suspended_assignment())
-                    }
-                    AssignTarget::Access(PropertyAccess::Private(_) | PropertyAccess::Super(_))
-                    | AssignTarget::Pattern(_)
-                    | AssignTarget::WebCompatCall(_) => {
-                        self.unsupported("generator yield assignment target");
-                        return (StatementIr::Empty, ValueKind::Undefined);
-                    }
-                };
-                self.lower_linear_generator_yield(
-                    yield_expression.target(),
-                    yield_expression.delegate(),
-                    resume_mode,
-                )
-            }
-            Statement::Expression(expression) => {
-                let lowered = self.lower_expression(expression);
-                let kind = lowered.kind;
-                (StatementIr::Expression(lowered), kind)
-            }
+        let mut lowered = match statement {
+            Statement::Expression(expression) => self.lower_expression_statement(expression),
             Statement::Empty => (StatementIr::Empty, ValueKind::Undefined),
             Statement::Block(block) => {
                 // The Block's declarative Environment Record (14.3.1.2 step 1)
@@ -249,27 +33,37 @@ impl<'a> ScriptLowerer<'a> {
                         [Some(if_statement.body()), if_statement.else_node()],
                     ) =>
             {
-                self.lower_with_async_head_prefix(|this| this.lower_if_statement(if_statement))
+                self.lower_with_async_head_prefix(if_statement.cond(), |this| {
+                    this.lower_if_statement(if_statement)
+                })
             }
             Statement::If(if_statement) => self.lower_if_statement(if_statement),
             Statement::WhileLoop(while_loop) => self.lower_while_loop(while_loop),
             Statement::DoWhileLoop(do_while) => self.lower_do_while_loop(do_while),
             Statement::ForLoop(for_loop) => self.lower_for_loop(for_loop),
             Statement::ForOfLoop(for_of)
-                if self.head_await_is_stageable(for_of.iterable(), [Some(for_of.body())])
+                if !self
+                    .analysis
+                    .complete_for_of_owners
+                    .contains_key(&(for_of as *const ForOfLoop as usize))
+                    && self.head_await_is_stageable(for_of.iterable(), [Some(for_of.body())])
                     && !contains(for_of.initializer(), ContainsSymbol::AwaitExpression) =>
             {
-                self.lower_with_async_head_prefix(|this| this.lower_for_of_loop(for_of))
+                self.lower_with_async_head_prefix(for_of.iterable(), |this| {
+                    this.lower_for_of_loop(for_of)
+                })
             }
             Statement::ForOfLoop(for_of) => self.lower_for_of_loop(for_of),
             Statement::Switch(switch)
-                if self.head_await_is_stageable(switch.val(), [])
+                if self.plain_async_entry_state().is_none()
+                    && self.async_generator_entry_state().is_none()
+                    && self.head_await_is_stageable(switch.val(), [])
                     && !switch
                         .cases()
                         .iter()
                         .any(|case| contains(case, ContainsSymbol::AwaitExpression)) =>
             {
-                self.lower_with_async_head_prefix(|this| this.lower_switch(switch))
+                self.lower_with_async_head_prefix(switch.val(), |this| this.lower_switch(switch))
             }
             Statement::Switch(switch) => self.lower_switch(switch),
             Statement::Labelled(labelled) => self.lower_labelled(labelled),
@@ -277,20 +71,100 @@ impl<'a> ScriptLowerer<'a> {
             Statement::Continue(cont) => self.lower_continue(cont),
             Statement::Debugger => (StatementIr::Debugger, ValueKind::Undefined),
             Statement::Throw(throw) if self.head_await_is_stageable(throw.target(), []) => {
-                self.lower_with_async_head_prefix(|this| this.lower_throw(throw))
+                self.lower_with_async_head_prefix(throw.target(), |this| this.lower_throw(throw))
             }
             Statement::Throw(throw) => self.lower_throw(throw),
             Statement::Try(try_statement) => self.lower_try(try_statement),
             Statement::Var(var) => self.lower_var_statement(var),
             Statement::Return(ret) => self.lower_return(ret),
             Statement::ForInLoop(for_in)
-                if self.head_await_is_stageable(for_in.target(), [Some(for_in.body())])
+                if !matches!(
+                    self.analysis.for_in_continuation_owners
+                        [&(for_in as *const boa_ast::statement::iteration::ForInLoop as usize)],
+                    crate::analysis::ForInContinuationOwner::CompleteWhole(_)
+                ) && self.head_await_is_stageable(for_in.target(), [Some(for_in.body())])
                     && !contains(for_in.initializer(), ContainsSymbol::AwaitExpression) =>
             {
-                self.lower_with_async_head_prefix(|this| this.lower_for_in_loop(for_in))
+                self.lower_with_async_head_prefix(for_in.target(), |this| {
+                    this.lower_for_in_loop(for_in)
+                })
             }
             Statement::ForInLoop(for_in) => self.lower_for_in_loop(for_in),
             Statement::With(with) => self.lower_with_statement(with),
+        };
+        if self.ordinary_generator_switch_depth > 0
+            || self.ordinary_generator_region_depth > 0
+            || self.ordinary_generator_for_in_depth > 0
+            || self.plain_async_for_in_depth > 0
+            || self.plain_async_for_of_depth > 0
+            || self.plain_async_classic_depth > 0
+            || self.plain_async_resource_depth > 0
+            || self.mixed_async_generator_region_depth > 0
+        {
+            if let Some(source) = CheckedEmptyStatementCompletionSource::from_statement(statement) {
+                lowered.0 = StatementIr::EmptyStatementCompletion(Box::new(
+                    EmptyStatementCompletionIr::new(source, lowered.0),
+                ));
+            }
         }
+        // Existing ordinary/direct-await loop dispatchers do not own an async
+        // switch's case-selection segment. This also catches an eager try that
+        // allocates child states without any source Await expression.
+        let complete_async_classic = matches!(&lowered.0, StatementIr::AsyncGeneratorLoop(plan)
+            if plan.execution() == ResumableRegionProtocolIr::Async);
+        let complete_async_iterator = matches!(&lowered.0,StatementIr::AsyncGeneratorForOf(plan)
+            if plan.execution()==ResumableRegionProtocolIr::Async);
+        let complete_async_for_in = matches!(&lowered.0,StatementIr::AsyncGeneratorForIn(plan)
+            if plan.execution()==ResumableRegionProtocolIr::Async);
+        if matches!(
+            statement,
+            Statement::WhileLoop(_)
+                | Statement::DoWhileLoop(_)
+                | Statement::ForLoop(_)
+                | Statement::ForOfLoop(_)
+                | Statement::ForInLoop(_)
+        ) && !complete_async_for_in
+            && !complete_async_classic
+            && !complete_async_iterator
+            && crate::ir::statement_contains_async_switch(&lowered.0)
+        {
+            self.unsupported(
+                "async switch inside an enclosing loop requires a composed loop owner",
+            );
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        if matches!(
+            statement,
+            Statement::WhileLoop(_)
+                | Statement::DoWhileLoop(_)
+                | Statement::ForLoop(_)
+                | Statement::ForOfLoop(_)
+                | Statement::ForInLoop(_)
+        ) && !complete_async_for_in
+            && !complete_async_classic
+            && !complete_async_iterator
+            && crate::ir::statement_contains_async_with(&lowered.0)
+        {
+            self.unsupported("async with inside an enclosing loop requires a composed loop owner");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        if matches!(
+            statement,
+            Statement::WhileLoop(_)
+                | Statement::DoWhileLoop(_)
+                | Statement::ForLoop(_)
+                | Statement::ForOfLoop(_)
+                | Statement::ForInLoop(_)
+        ) && !complete_async_for_in
+            && !complete_async_classic
+            && !complete_async_iterator
+            && crate::ir::statement_contains_async_for_in(&lowered.0)
+        {
+            self.unsupported(
+                "async for-in inside an enclosing loop requires a composed loop owner",
+            );
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        lowered
     }
 }

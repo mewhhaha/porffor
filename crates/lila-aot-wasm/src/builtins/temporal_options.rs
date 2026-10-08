@@ -13,6 +13,8 @@
 //! calendarName 0..=3, units 0..=9 with `auto` 10, unset -1 and invalid -2,
 //! rounding modes 0..=8, offset 0..=3.
 
+use crate::gc_types::*;
+
 /// A Temporal unit. Declaration order *is* code order: a smaller code names a
 /// *larger* unit, which is why `Ord` is not derived — the derived order would
 /// read backwards against the domain. Comparisons go through
@@ -442,9 +444,9 @@ pub(crate) trait StringValuedOption: Copy + 'static {
 /// `Read` carries the only local pair the conversion may observe. `Omit`
 /// carries no placeholder locals, so an internal conversion cannot
 /// accidentally read a dummy or unrelated options value.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum TemporalConversionOverflowOptions {
-    Read { payload_local: u32, tag_local: u32 },
+#[derive(Clone, Copy)]
+pub(super) enum TemporalConversionOverflowOptions<'a> {
+    Read(&'a ValueLocals),
     Omit,
 }
 

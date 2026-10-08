@@ -27,7 +27,7 @@ jobs:
       - name: Check formatting and semantic ownership guards
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_species_create_operation_evidence_structure --test array_concat_algorithm_owner_structure --test concat_typed_array_witness_structure
+          cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
 
       - name: Execute the complete nonempty engine regression inventory
         shell: bash
@@ -91,7 +91,7 @@ jobs:
       - name: Check formatting and direct/generic ownership
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p lila-aot-wasm --test typed_array_to_locale_string_witness_structure --test to_locale_string_invocation_structure --test array_callback_iteration_structure --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_map_algorithm_owner_structure --test array_filter_algorithm_owner_structure --test array_every_algorithm_owner_structure --test array_some_algorithm_owner_structure
+          cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
       - name: Execute the complete new engine regression inventory
         run: python3 scripts/run_engine_regression_inventory.py aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
       - name: Retain the existing CLI fixture

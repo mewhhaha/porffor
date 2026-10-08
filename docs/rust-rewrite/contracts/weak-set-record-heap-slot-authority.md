@@ -1,5 +1,26 @@
 # WeakSet-record heap-slot identity authority
 
+Current dry source — 2026-10-05: the raw-offset source-mirror target below
+is retired from the atomic semantic GC draft. It checked passive layout
+spelling, offsets and source occurrence counts. The current GC authoring uses
+typed registry fields and complete semantic value owners; these earlier
+mirrors cannot verify that representation or its behavior. Historical source
+descriptions, commands and results below retain their original scope.
+
+The full GC source cutover, remaining Temporal and AsyncDisposableStack
+authoring, compiler checks and runtime verification remain pending. See the
+[current value/heap architecture](../value-heap-gc.md). Weak reachability retains
+its explicit [unavailable facility boundary](weak-unavailable-runtime-boundary.md).
+No verification or conformance result is inferred from this retirement.
+
+Current source — 2026-10-03: actual weak operations follow the
+[unavailable facility boundary](weak-unavailable-runtime-boundary.md). Active
+strong-retaining weak producers are retired. Installed intrinsic publication
+and earlier JavaScript validation remain observable; passive layout/edge rows
+are inventory only. Producer, valid-instance and verification descriptions
+below retain their earlier source scope and do not verify the current batch.
+Real weak reachability and semantic GC remain open; current controls are unexecuted.
+
 ## Closed layout identities
 
 The passive WeakSet record layout contains exactly four capability-free

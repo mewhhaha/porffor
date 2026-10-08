@@ -1,84 +1,8 @@
-use core::{cmp::Ordering, num::NonZeroU64};
-
 use super::numeric::{PluralOperand, PluralOperands, RoundedDecimal};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub(super) enum CardinalCategory {
-    Zero,
-    One,
-    Two,
-    Few,
-    Many,
-    Other,
-}
-
-impl CardinalCategory {
-    pub const ALL: [Self; 6] = [
-        Self::Zero,
-        Self::One,
-        Self::Two,
-        Self::Few,
-        Self::Many,
-        Self::Other,
-    ];
-
-    pub const fn index(self) -> usize {
-        self as usize
-    }
-
-    pub fn decode(value: u8) -> Option<Self> {
-        Self::ALL.get(usize::from(value)).copied()
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct OperandRelation {
-    pub operand: PluralOperand,
-    pub modulus: Option<NonZeroU64>,
-    pub integer_only: bool,
-    pub negate: bool,
-    pub ranges: Box<[(u64, u64)]>,
-}
-
-impl OperandRelation {
-    fn matches(&self, operands: PluralOperands<'_>) -> bool {
-        let mut operand = operands.operand(self.operand);
-        if let Some(modulus) = self.modulus {
-            operand = operand.modulo(modulus);
-        }
-        let included = (!self.integer_only || operand.is_integer())
-            && self.ranges.iter().any(|&(lower, upper)| {
-                operand.compare_integer(lower) != Ordering::Less
-                    && operand.compare_integer(upper) != Ordering::Greater
-            });
-        included != self.negate
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct CategoryRule {
-    pub category: CardinalCategory,
-    pub alternatives: Box<[Box<[OperandRelation]>]>,
-}
-
-#[derive(Debug)]
-pub(super) struct CardinalRules(pub Box<[CategoryRule]>);
-
-impl CardinalRules {
-    pub fn select(&self, operands: PluralOperands<'_>) -> CardinalCategory {
-        for rule in &self.0 {
-            if rule.alternatives.iter().any(|conjunction| {
-                conjunction
-                    .iter()
-                    .all(|relation| relation.matches(operands))
-            }) {
-                return rule.category;
-            }
-        }
-        CardinalCategory::Other
-    }
-}
+pub(super) use crate::plural_rules::rules::{
+    CategoryRule, OperandRelation, PluralCategory as CardinalCategory, PluralRules as CardinalRules,
+};
+use core::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PluralSelectionPurpose {

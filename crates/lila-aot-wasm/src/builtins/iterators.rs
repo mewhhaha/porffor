@@ -1,1469 +1,1060 @@
+//! Native iterator records retain typed GC slots and whole completions.
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
-use crate::emit::NumericErrorRealmSource;
 use crate::functions::NonArrayRealmIntrinsicSlot;
+use crate::gc_types::{
+    ArrayIterationKind, ArrayIteratorObject, ArrayIteratorObjectSchema, CodeUnitArray,
+    CompletionLocals, GcI32Constant, GcLocal, GcNullability, GcOperand, GcStackReference, I32Local,
+    I64Local, OrdinaryObject, RealmRecord, RegExpStringIteratorObject,
+    RegExpStringIteratorObjectSchema, StoredValue, StringConstruction, StringIteratorObject,
+    StringIteratorObjectSchema, StringValue, StringValueSchema, TypedArrayIteratorObject,
+    TypedArrayIteratorObjectSchema, TypedArrayObject, ValueLocals,
+};
+use crate::objects::PropertyKeyLocals;
 
+mod from;
 mod prototype_accessors;
-
+mod symbol_dispose;
 pub(crate) use prototype_accessors::IteratorPrototypeWeirdSetter;
 
-macro_rules! array_iterator_kind_domain {
-    ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
-        pub(crate) enum $name {
-            $($variant),+
-        }
-
-        impl $name {
-            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
-
-            pub(crate) const fn word(&self) -> u64 {
-                match self {
-                    $(Self::$variant => $word),+
-                }
-            }
-        }
-
-        const _: () = {
-            let all = $name::ALL;
-            let mut left = 0;
-            while left < all.len() {
-                let mut right = left + 1;
-                while right < all.len() {
-                    assert!(all[left].word() != all[right].word());
-                    right += 1;
-                }
-                left += 1;
-            }
-        };
-    };
-}
-
-array_iterator_kind_domain!(ArrayIteratorKind {
-    Key = 1,
-    Value = 0,
-    KeyAndValue = 2,
-});
-
-impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn emit_string_iterator_create_from_local(
+impl FunctionBuilder<'_> {
+    fn emit_native_iterator_header(
         &mut self,
-        string_payload_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        slot: NonArrayRealmIntrinsicSlot,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        self.emit_running_realm_iterator_intrinsic(
-            RunningRealmIteratorIntrinsic::StringIteratorPrototype,
-            prototype_local,
+    ) -> Result<GcLocal<OrdinaryObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm(function);
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(&realm, slot, &prototype, function);
+        let header = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(string_tag_local));
-        self.emit_object_define_local_data(
-            object_local,
-            "$StringIterator.string",
-            string_payload_local,
-            string_tag_local,
-            function,
-        )?;
-        self.emit_object_define_number_data_from_i64_const(
-            object_local,
-            "$StringIterator.index",
-            0,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(string_tag_local);
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(object_local);
+        prototype.clear(function);
+        realm.clear(function);
+        Ok(header)
+    }
+
+    fn emit_native_iterator_abrupt_exit(
+        &mut self,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        function: &mut Function,
+    ) {
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        output.copy_from(pending, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_native_iterator_error_if(
+        &mut self,
+        message: RuntimeErrorMessage,
+        result: &CompletionLocals,
+        exit: ControlTarget,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(message, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
+    }
+
+    fn emit_iterator_named_key(
+        &mut self,
+        name: &str,
+        function: &mut Function,
+    ) -> Result<PropertyKeyLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let text = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(name, function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_string(schema, &text, function);
+        text.clear(function);
+        Ok(key)
+    }
+
+    pub(crate) fn emit_string_iterator_create_from_local(
+        &mut self,
+        input: &GcLocal<StringValue>,
+        function: &mut Function,
+    ) -> Result<GcStackReference<StringIteratorObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let header = self.emit_native_iterator_header(
+            NonArrayRealmIntrinsicSlot::StringIteratorPrototype,
+            function,
+        )?;
+        let result = schema.struct_type::<StringIteratorObject>().construct(
+            (
+                GcOperand::reference(&header, schema),
+                GcOperand::reference(input, schema),
+                GcOperand::i64(0),
+                GcOperand::boolean(false),
+            ),
+            function,
+        );
+        header.clear(function);
+        Ok(result)
     }
 
     pub(crate) fn emit_array_iterator_create_from_locals(
         &mut self,
-        receiver_payload_local: u32,
-        receiver_tag_local: u32,
-        kind: &ArrayIteratorKind,
-        payload_local: u32,
-        tag_local: u32,
+        object: &ValueLocals,
+        kind: ArrayIterationKind,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        self.emit_running_realm_iterator_intrinsic(
-            RunningRealmIteratorIntrinsic::ArrayIteratorPrototype,
-            prototype_local,
+    ) -> Result<GcStackReference<ArrayIteratorObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let header = self.emit_native_iterator_header(
+            NonArrayRealmIntrinsicSlot::ArrayIteratorPrototype,
+            function,
+        )?;
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(object, function),
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.emit_object_define_local_data(
-            object_local,
-            "$ArrayIterator.array",
-            receiver_payload_local,
-            receiver_tag_local,
+        let result = schema.struct_type::<ArrayIteratorObject>().construct(
+            (
+                GcOperand::reference(&header, schema),
+                GcOperand::reference(&stored, schema),
+                GcOperand::i64(0),
+                GcOperand::boolean(false),
+                GcOperand::constant(kind),
+            ),
             function,
-        )?;
-        self.emit_object_define_number_data_from_i64_const(
-            object_local,
-            "$ArrayIterator.index",
-            0,
-            function,
-        )?;
-        self.emit_object_define_bool_data(object_local, "$ArrayIterator.done", false, function)?;
-        self.emit_object_define_number_data_from_i64_const(
-            object_local,
-            "$ArrayIterator.kind",
-            kind.word(),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(object_local);
-        Ok(())
+        );
+        stored.clear(function);
+        header.clear(function);
+        Ok(result)
     }
 
     pub(crate) fn emit_typed_array_iterator_create_from_locals(
         &mut self,
-        typed_array_payload_local: u32,
-        kind: &ArrayIteratorKind,
-        payload_local: u32,
-        tag_local: u32,
+        object: &GcLocal<TypedArrayObject>,
+        kind: ArrayIterationKind,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_record_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-
-        self.emit_running_realm_iterator_intrinsic(
-            RunningRealmIteratorIntrinsic::ArrayIteratorPrototype,
-            prototype_local,
-            function,
-        );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(iterator_payload_local));
-        self.emit_heap_alloc_const(HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(iterator_record_local));
-        self.store_i64_local_at_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET,
-            typed_array_payload_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
-            kind.word(),
-            function,
-        );
-        self.store_i64_const_at_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            iterator_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY_ITERATOR,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            iterator_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            BOXED_PRIMITIVE_KIND_NONE,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            iterator_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            ValueKind::Object.tag() as u64,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            iterator_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            iterator_record_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(iterator_payload_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(iterator_record_local);
-        self.release_temp_local(iterator_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_typed_array_iterator_next_from_locals(
-        &mut self,
-        this_payload_local: u32,
-        this_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let iterator_brand_local = self.reserve_temp_local();
-        let iterator_record_local = self.reserve_temp_local();
-        let typed_array_payload_local = self.reserve_temp_local();
-        let typed_array_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let kind_local = self.reserve_temp_local();
-        let done_local = self.reserve_temp_local();
-        let buffer_payload_local = self.reserve_temp_local();
-        let byte_offset_local = self.reserve_temp_local();
-        let byte_length_local = self.reserve_temp_local();
-        let bytes_per_element_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let entry_array_local = self.reserve_temp_local();
-        let entry_index_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_brand_local));
-        function.instruction(&Instruction::LocalGet(this_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            this_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            iterator_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(iterator_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY_ITERATOR as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
+    ) -> Result<GcStackReference<TypedArrayIteratorObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let header = self.emit_native_iterator_header(
+            NonArrayRealmIntrinsicSlot::ArrayIteratorPrototype,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            this_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            iterator_record_local,
+        let result = schema.struct_type::<TypedArrayIteratorObject>().construct(
+            (
+                GcOperand::reference(&header, schema),
+                GcOperand::nullable_reference(object, schema),
+                GcOperand::i64(0),
+                GcOperand::boolean(false),
+                GcOperand::constant(kind),
+            ),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
-            done_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(done_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_iterator_result_object_from_locals(
-            value_payload_local,
-            value_tag_local,
-            true,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET,
-            typed_array_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(typed_array_tag_local));
-        self.load_i64_to_local_from_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
-            kind_local,
-            function,
-        );
-        self.emit_load_typed_array_private_state(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            byte_length_local,
-            bytes_per_element_local,
-            function,
-        );
-        let typed_array_view = TypedArrayViewLocals::new(
-            typed_array_payload_local,
-            buffer_payload_local,
-            byte_offset_local,
-            byte_length_local,
-            bytes_per_element_local,
-        );
-        self.emit_typed_array_witness(
-            &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
-            1,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_iterator_result_object_from_locals(
-            value_payload_local,
-            value_tag_local,
-            true,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        for kind in ArrayIteratorKind::ALL {
-            function.instruction(&Instruction::LocalGet(kind_local));
-            function.instruction(&Instruction::I64Const(kind.word() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            match kind {
-                ArrayIteratorKind::Key => {
-                    function.instruction(&Instruction::LocalGet(index_local));
-                    function.instruction(&Instruction::F64ConvertI64U);
-                    function.instruction(&Instruction::I64ReinterpretF64);
-                    function.instruction(&Instruction::LocalSet(value_payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(value_tag_local));
-                }
-                ArrayIteratorKind::Value => {
-                    self.emit_typed_array_or_object_index_read_from_locals(
-                        typed_array_payload_local,
-                        typed_array_tag_local,
-                        index_local,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                }
-                ArrayIteratorKind::KeyAndValue => {
-                    self.emit_typed_array_or_object_index_read_from_locals(
-                        typed_array_payload_local,
-                        typed_array_tag_local,
-                        index_local,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::I64Const(2));
-                    function.instruction(&Instruction::LocalSet(entry_index_local));
-                    self.emit_alloc_array_payload_with_length(
-                        entry_index_local,
-                        entry_array_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(index_local));
-                    function.instruction(&Instruction::F64ConvertI64U);
-                    function.instruction(&Instruction::I64ReinterpretF64);
-                    function.instruction(&Instruction::LocalSet(index_payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(index_tag_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(entry_index_local));
-                    self.emit_array_write(
-                        entry_array_local,
-                        entry_index_local,
-                        index_payload_local,
-                        index_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(entry_index_local));
-                    self.emit_array_write(
-                        entry_array_local,
-                        entry_index_local,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(entry_array_local));
-                    function.instruction(&Instruction::LocalSet(value_payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(value_tag_local));
-                }
-            }
-            function.instruction(&Instruction::Br(1));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.store_i64_local_at_offset(
-            iterator_record_local,
-            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        self.emit_iterator_result_object_from_locals(
-            value_payload_local,
-            value_tag_local,
-            false,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(entry_index_local);
-        self.release_temp_local(entry_array_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(length_local);
-        self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(byte_length_local);
-        self.release_temp_local(byte_offset_local);
-        self.release_temp_local(buffer_payload_local);
-        self.release_temp_local(done_local);
-        self.release_temp_local(kind_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(typed_array_tag_local);
-        self.release_temp_local(typed_array_payload_local);
-        self.release_temp_local(iterator_record_local);
-        self.release_temp_local(iterator_brand_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_iterator_result_object_from_locals(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        done: bool,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        self.emit_running_realm_iterator_intrinsic(
-            RunningRealmIteratorIntrinsic::ObjectPrototype,
-            prototype_local,
-            function,
-        );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.emit_object_define_local_data_with_flags(
-            object_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(i64::from(done)));
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.emit_object_define_local_data_with_flags(
-            object_local,
-            "done",
-            done_payload_local,
-            done_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(object_local);
-        Ok(())
-    }
-
-    /// Loads `intrinsic` from the running execution context's Realm into
-    /// `result_local`: the Realm CreateArrayIterator, CreateRegExpStringIterator,
-    /// the String iterator constructor and CreateIteratorResultObject allocate
-    /// in. It is the only place in this module that reads `current_env_local`.
-    ///
-    /// Which Wasm state names that Realm depends on what `current_env_local`
-    /// means in this body, so the Realm record is selected by an exhaustive
-    /// projection of the body's [`NumericErrorRealmSource`] rather than by
-    /// reading `current_env_local` as a function object everywhere. That read
-    /// is what trapped in the main export: the promise-job drain completes
-    /// async generator steps there (AsyncGeneratorCompleteStep), where
-    /// `current_env_local` is the script's lexical environment, so the load at
-    /// `HEAP_FUNCTION_DEFINING_REALM_OFFSET` read a binding slot and the
-    /// intrinsics walk that followed left linear memory.
-    ///
-    /// The walk reuses `result_local` for the Realm and intrinsics records, so
-    /// it needs no temp local beyond the caller's.
-    fn emit_running_realm_iterator_intrinsic(
-        &mut self,
-        intrinsic: RunningRealmIteratorIntrinsic,
-        result_local: u32,
-        function: &mut Function,
-    ) {
-        match self.numeric_error_realm_source() {
-            // A standard builtin's environment is its own self-backed function
-            // object; a numeric-conversion helper receives that same trusted
-            // value or zero through ABI parameter 6. Either way it is the
-            // active function, whose Realm is the running Realm.
-            NumericErrorRealmSource::StandardBuiltinEnvironment
-            | NumericErrorRealmSource::NumericConversionHelperArgument => {
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::LocalSet(result_local));
-                function.instruction(&Instruction::LocalGet(result_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::Else);
-                self.load_i64_to_local_from_offset(
-                    result_local,
-                    HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-                    result_local,
-                    function,
-                );
-                function.instruction(&Instruction::End);
-            }
-            // Main, user, host and ordinary helper bodies carry a lexical
-            // environment (or none) that is never a function object. The
-            // current Realm record is the running Realm there: the promise-job
-            // drain installs each job's Realm (HostEnqueuePromiseJob's `realm`)
-            // before running it and restores the checkpoint Realm after.
-            NumericErrorRealmSource::GlobalFallback => {
-                function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(result_local));
-            }
-        }
-        for offset in [
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsic.realm_slot().offset(),
-        ] {
-            function.instruction(&Instruction::LocalGet(result_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            self.load_i64_to_local_from_offset(result_local, offset, result_local, function);
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(
-            intrinsic.entry_realm_global_index(),
-        ));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
-    }
-
-    pub(crate) fn emit_string_iterator_next_from_locals(
-        &mut self,
-        this_payload_local: u32,
-        this_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let slot_present_local = self.reserve_temp_local();
-        let string_payload_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let string_offset_local = self.reserve_temp_local();
-        let string_length_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let codepoint_local = self.reserve_temp_local();
-        let advance_local = self.reserve_temp_local();
-        let next_index_local = self.reserve_temp_local();
-        let next_byte_local = self.reserve_temp_local();
-        let next_codepoint_local = self.reserve_temp_local();
-        let next_advance_local = self.reserve_temp_local();
-        let temp_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$StringIterator.string"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            string_payload_local,
-            string_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(string_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$StringIterator.index"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            index_payload_local,
-            index_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(index_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncSatF64U);
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            string_offset_local,
-            string_length_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(string_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_iterator_result_object_from_locals(
-            value_payload_local,
-            value_tag_local,
-            true,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-
-        self.emit_load_string_byte(string_offset_local, index_local, byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            string_offset_local,
-            index_local,
-            string_length_local,
-            byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(next_index_local));
-        self.emit_is_high_surrogate_i32(codepoint_local, function);
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::LocalGet(string_length_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(
-            string_offset_local,
-            next_index_local,
-            next_byte_local,
-            function,
-        );
-        self.emit_decode_utf8_scalar_at_index(
-            string_offset_local,
-            next_index_local,
-            string_length_local,
-            next_byte_local,
-            next_codepoint_local,
-            next_advance_local,
-            temp_local,
-            function,
-        );
-        self.emit_is_low_surrogate_i32(next_codepoint_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::LocalGet(next_advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(next_index_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_object_write(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            index_payload_local,
-            index_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(advance_local));
-        self.emit_string_slice_payload_from_locals(
-            string_payload_local,
-            index_local,
-            advance_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_iterator_result_object_from_locals(
-            value_payload_local,
-            value_tag_local,
-            false,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        for local in [
-            value_tag_local,
-            value_payload_local,
-            temp_local,
-            next_advance_local,
-            next_codepoint_local,
-            next_byte_local,
-            next_index_local,
-            advance_local,
-            codepoint_local,
-            byte_local,
-            string_length_local,
-            string_offset_local,
-            index_local,
-            index_tag_local,
-            index_payload_local,
-            string_tag_local,
-            string_payload_local,
-            slot_present_local,
-            key_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        header.clear(function);
+        Ok(result)
     }
 
     pub(crate) fn emit_regexp_string_iterator_create_from_locals(
         &mut self,
-        regexp_payload_local: u32,
-        regexp_tag_local: u32,
-        string_payload_local: u32,
-        global_local: u32,
-        unicode_local: u32,
-        last_index_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        regexp: &ValueLocals,
+        input: &GcLocal<StringValue>,
+        global: I32Local,
+        full_unicode: I32Local,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-
-        self.emit_running_realm_iterator_intrinsic(
-            RunningRealmIteratorIntrinsic::RegExpStringIteratorPrototype,
-            prototype_local,
+    ) -> Result<GcStackReference<RegExpStringIteratorObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let header = self.emit_native_iterator_header(
+            NonArrayRealmIntrinsicSlot::RegExpStringIteratorPrototype,
+            function,
+        )?;
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(regexp, function),
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.emit_object_define_local_data(
-            object_local,
-            "$RegExpStringIterator.regexp",
-            regexp_payload_local,
-            regexp_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(string_tag_local));
-        self.emit_object_define_local_data(
-            object_local,
-            "$RegExpStringIterator.string",
-            string_payload_local,
-            string_tag_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            object_local,
-            "$RegExpStringIterator.global",
-            global_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            object_local,
-            "$RegExpStringIterator.unicode",
-            unicode_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data(
-            object_local,
-            "$RegExpStringIterator.done",
-            false,
-            function,
-        )?;
+        let result = schema
+            .struct_type::<RegExpStringIteratorObject>()
+            .construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::reference(&stored, schema),
+                    GcOperand::reference(input, schema),
+                    GcOperand::boolean_local(global),
+                    GcOperand::boolean_local(full_unicode),
+                    GcOperand::boolean(false),
+                ),
+                function,
+            );
+        stored.clear(function);
+        header.clear(function);
+        Ok(result)
+    }
 
-        function.instruction(&Instruction::LocalGet(last_index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_write_strict(
-            regexp_payload_local,
-            regexp_tag_local,
-            key_local,
-            index_payload_local,
-            index_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-
-        self.release_temp_local(key_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(string_tag_local);
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(object_local);
+    pub(crate) fn emit_iterator_result_object_from_locals(
+        &mut self,
+        value: &ValueLocals,
+        done: bool,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm(function);
+        let done_local = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(i32::from(done)));
+        done_local.store(function);
+        let object =
+            self.emit_iterator_result_object_in_realm(&realm, value, done_local, function)?;
+        let output = schema.reserve_value_local(function);
+        output.set_reference(&object, schema, function);
+        result.set_normal(&output, function);
+        output.clear(function);
+        object.clear(function);
+        schema.release_i32_local(done_local, function);
+        realm.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_regexp_string_iterator_next_from_locals(
+    /// Array iterator entries use the real private List-to-Array owner.
+    fn emit_native_iterator_entry(
         &mut self,
-        this_payload_local: u32,
-        this_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        index: I64Local,
+        element: &ValueLocals,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let slot_present_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let regexp_payload_local = self.reserve_temp_local();
-        let regexp_tag_local = self.reserve_temp_local();
-        let string_payload_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        let global_payload_local = self.reserve_temp_local();
-        let global_tag_local = self.reserve_temp_local();
-        let unicode_payload_local = self.reserve_temp_local();
-        let unicode_tag_local = self.reserve_temp_local();
-        let exec_payload_local = self.reserve_temp_local();
-        let exec_tag_local = self.reserve_temp_local();
-        let match_payload_local = self.reserve_temp_local();
-        let match_tag_local = self.reserve_temp_local();
-        let element_payload_local = self.reserve_temp_local();
-        let element_tag_local = self.reserve_temp_local();
-        let match_string_payload_local = self.reserve_temp_local();
-        let empty_string_payload_local = self.reserve_temp_local();
-        let last_index_payload_local = self.reserve_temp_local();
-        let last_index_tag_local = self.reserve_temp_local();
-        let last_index_local = self.reserve_temp_local();
-        let next_index_local = self.reserve_temp_local();
-        let input_offset_local = self.reserve_temp_local();
-        let input_len_local = self.reserve_temp_local();
-        let input_utf16_length_local = self.reserve_temp_local();
-        let one_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let match_array_payload_local = self.reserve_temp_local();
-        let match_array_tag_local = self.reserve_temp_local();
-        let string_arg_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$RegExpStringIterator.done"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "RegExp String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(match_tag_local));
-        self.emit_iterator_result_object_from_locals(
-            match_payload_local,
-            match_tag_local,
-            true,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$RegExpStringIterator.regexp"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            regexp_payload_local,
-            regexp_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "RegExp String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$RegExpStringIterator.string"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            string_payload_local,
-            string_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "RegExp String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$RegExpStringIterator.global"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            global_payload_local,
-            global_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "RegExp String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("$RegExpStringIterator.unicode"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            this_payload_local,
-            this_tag_local,
-            key_local,
-            slot_present_local,
-            unicode_payload_local,
-            unicode_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(slot_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "RegExp String Iterator next called on incompatible receiver",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("exec")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            regexp_payload_local,
-            regexp_tag_local,
-            regexp_payload_local,
-            regexp_tag_local,
-            key_local,
-            exec_payload_local,
-            exec_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-
-        self.emit_is_callable_i32(exec_tag_local, exec_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(
-            REGEXP_PROTOTYPE_EXEC_FUNCTION_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(exec_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(exec_tag_local));
-        function.instruction(&Instruction::End);
-
-        self.emit_is_callable_i32(exec_tag_local, exec_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(string_arg_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            exec_payload_local,
-            exec_tag_local,
-            regexp_payload_local,
-            regexp_tag_local,
-            &[(string_payload_local, string_arg_tag_local)],
-            match_payload_local,
-            match_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(match_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(match_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(match_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(match_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "RegExp String Iterator exec returned non-object",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::LocalSet(match_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(last_index_local));
-        self.compile_truthy_tagged_i32(global_tag_local, global_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            regexp_payload_local,
-            regexp_tag_local,
-            regexp_payload_local,
-            regexp_tag_local,
-            key_local,
-            last_index_payload_local,
-            last_index_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_length_i64_from_value_locals(
-            last_index_tag_local,
-            last_index_payload_local,
-            last_index_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            input_offset_local,
-            input_len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(last_index_local));
-        function.instruction(&Instruction::LocalGet(input_len_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(one_local));
-        self.emit_string_slice_payload_from_locals(
-            string_payload_local,
-            last_index_local,
-            one_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(element_payload_local));
-        function.instruction(&Instruction::LocalGet(last_index_local));
+        let schema = self.runtime_schema();
+        let key = schema.reserve_value_local(function);
+        index.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_string_match_array_from_locals(
-            string_payload_local,
-            element_payload_local,
-            index_payload_local,
-            match_array_payload_local,
-            match_array_tag_local,
+        key.scalar().store(function);
+        key.set_number(key.scalar(), function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[&key, element], function);
+        let entry = self.emit_array_from_argument_list(&arguments, function)?;
+        output.set_reference(&entry, schema, function);
+        entry.clear(function);
+        arguments.clear(function);
+        key.clear(function);
+        Ok(())
+    }
+}
+
+impl FunctionBuilder<'_> {
+    /// CreateIteratorResultObject publishes two fresh W/E/C data properties
+    /// using the actual supplied execution Realm's Object prototype.
+    pub(crate) fn emit_iterator_result_object_in_realm(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        value: &ValueLocals,
+        done: I32Local,
+        function: &mut Function,
+    ) -> Result<GcLocal<OrdinaryObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            realm,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(match_array_payload_local));
-        function.instruction(&Instruction::LocalSet(match_payload_local));
-        function.instruction(&Instruction::LocalGet(match_array_tag_local));
-        function.instruction(&Instruction::LocalSet(match_tag_local));
-        self.compile_truthy_tagged_i32(global_tag_local, global_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(last_index_local));
+        );
+        let object = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
+            function,
+        );
+        let boolean = schema.reserve_value_local(function);
+        boolean.set_boolean(done, function);
+        for (name, field_value) in [("value", value), ("done", &boolean)] {
+            let text = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
+            let key = crate::objects::PropertyKeyLocals::from_string(schema, &text, function);
+            self.emit_object_append_data_property_with_flags(
+                &object,
+                &key,
+                field_value,
+                true,
+                true,
+                true,
+                function,
+            )?;
+            key.clear(function);
+            text.clear(function);
+        }
+        boolean.clear(function);
+        prototype.clear(function);
+        Ok(object)
+    }
+}
+
+impl FunctionBuilder<'_> {
+    /// AdvanceStringIndex's code-point width. Reads occur only within the
+    /// validated immutable UTF-16 array; an index beyond it advances by one.
+    pub(in crate::builtins) fn emit_native_iterator_string_width(
+        &mut self,
+        input: &GcLocal<StringValue>,
+        index: I64Local,
+        width: I32Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(StringValueSchema::CODE_UNITS)
+                .read(input, schema, function)
+                .reference(),
+            function,
+        );
+        let length = schema.reserve_i32_local(function);
+        let offset = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        length.store(function);
+        function.instruction(&Instruction::I32Const(1));
+        width.store(function);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, function);
+        index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        offset.store(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, offset, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(0xd800));
+        function.instruction(&Instruction::I32GeU);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(0xdbff));
+        function.instruction(&Instruction::I32LeU);
+        function.instruction(&Instruction::I32And);
+        index.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(next_index_local));
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(last_index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(last_index_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_write(
-            regexp_payload_local,
-            regexp_tag_local,
-            key_local,
-            last_index_payload_local,
-            last_index_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
+        length.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        offset.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        offset.store(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, offset, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(0xdc00));
+        function.instruction(&Instruction::I32GeU);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(0xdfff));
+        function.instruction(&Instruction::I32LeU);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(2));
+        width.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(unit, function);
+        schema.release_i32_local(offset, function);
+        schema.release_i32_local(length, function);
+        units.clear(function);
+    }
 
-        function.instruction(&Instruction::LocalGet(match_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_define_bool_data(
-            this_payload_local,
-            "$RegExpStringIterator.done",
-            true,
+    pub(crate) fn emit_string_iterator_next_from_locals(
+        &mut self,
+        receiver: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        let index = schema.reserve_i64_local(function);
+        let length = schema.reserve_i32_local(function);
+        let width = schema.reserve_i32_local(function);
+        let cursor = schema.reserve_i32_local(function);
+        let source_index = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        value.set_undefined(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<StringIteratorObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_native_iterator_error_if(
+            RuntimeErrorMessage::STRING_ITERATOR_NEXT_CALLED_ON_INCOMPATIBLE_RECEIVER,
+            result,
+            exit,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(element_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(element_tag_local));
-        self.emit_iterator_result_object_from_locals(
-            element_payload_local,
-            element_tag_local,
-            true,
-            payload_local,
-            tag_local,
+        let iterator = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<StringIteratorObject>(schema, function),
             function,
-        )?;
-        self.emit_return_current_completion(function);
+        );
+        schema
+            .field(StringIteratorObjectSchema::DONE)
+            .read(&iterator, schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_iterator_result_object_from_locals(&value, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.compile_truthy_tagged_i32(global_tag_local, global_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("0")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            match_payload_local,
-            match_tag_local,
-            match_payload_local,
-            match_tag_local,
-            key_local,
-            element_payload_local,
-            element_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_value_to_string_payload(element_payload_local, element_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(match_string_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(empty_string_payload_local));
-        self.emit_string_payload_equality_i32(
-            match_string_payload_local,
-            empty_string_payload_local,
+        let input = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(StringIteratorObjectSchema::INPUT)
+                .read(&iterator, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            regexp_payload_local,
-            regexp_tag_local,
-            regexp_payload_local,
-            regexp_tag_local,
-            key_local,
-            last_index_payload_local,
-            last_index_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_length_i64_from_value_locals(
-            last_index_tag_local,
-            last_index_payload_local,
-            last_index_local,
-            function,
-        )?;
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            input_offset_local,
-            input_len_local,
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(StringValueSchema::CODE_UNITS)
+                .read(&input, schema, function)
+                .reference(),
             function,
         );
-        self.emit_utf16_code_unit_len_from_utf8_locals(
-            input_offset_local,
-            input_len_local,
-            input_utf16_length_local,
+        schema
+            .field(StringIteratorObjectSchema::NEXT_CODE_UNIT_INDEX)
+            .read(&iterator, schema, function)
+            .store_i64(index, function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        length.store(function);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64GeU);
+        self.open_frame(ControlFrameKind::If, function);
+        schema.field(StringIteratorObjectSchema::DONE).write(
+            &iterator,
+            GcOperand::boolean(true),
+            schema,
             function,
         );
-        self.emit_advance_string_index_from_locals(
-            string_payload_local,
-            input_utf16_length_local,
-            last_index_local,
-            unicode_payload_local,
-            next_index_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(last_index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(last_index_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_write(
-            regexp_payload_local,
-            regexp_tag_local,
-            key_local,
-            last_index_payload_local,
-            last_index_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
+        self.emit_iterator_result_object_from_locals(&value, true, result, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_object_define_bool_data(
-            this_payload_local,
-            "$RegExpStringIterator.done",
-            true,
+        self.emit_native_iterator_string_width(&input, index, width, function);
+        let construction = StringConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            width,
             function,
-        )?;
+        );
+        function.instruction(&Instruction::I32Const(0));
+        cursor.store(function);
+        let copied = self.open_frame(ControlFrameKind::Block, function);
+        let copy = self.open_frame(ControlFrameKind::Loop, function);
+        cursor.load(function);
+        width.load(function);
+        function.instruction(&Instruction::I32GeU);
+        self.emit_branch_if_to_target(copied, function);
+        index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        cursor.load(function);
+        function.instruction(&Instruction::I32Add);
+        source_index.store(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, source_index, schema, function)
+            .store(unit, function);
+        construction.write(cursor, unit, schema, function);
+        cursor.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        cursor.store(function);
+        self.emit_branch_to_target(copy, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
-
-        self.emit_iterator_result_object_from_locals(
-            match_payload_local,
-            match_tag_local,
-            false,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(string_arg_tag_local);
-        self.release_temp_local(match_array_tag_local);
-        self.release_temp_local(match_array_payload_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(one_local);
-        self.release_temp_local(input_utf16_length_local);
-        self.release_temp_local(input_len_local);
-        self.release_temp_local(input_offset_local);
-        self.release_temp_local(next_index_local);
-        self.release_temp_local(last_index_local);
-        self.release_temp_local(last_index_tag_local);
-        self.release_temp_local(last_index_payload_local);
-        self.release_temp_local(empty_string_payload_local);
-        self.release_temp_local(match_string_payload_local);
-        self.release_temp_local(element_tag_local);
-        self.release_temp_local(element_payload_local);
-        self.release_temp_local(match_tag_local);
-        self.release_temp_local(match_payload_local);
-        self.release_temp_local(exec_tag_local);
-        self.release_temp_local(exec_payload_local);
-        self.release_temp_local(unicode_tag_local);
-        self.release_temp_local(unicode_payload_local);
-        self.release_temp_local(global_tag_local);
-        self.release_temp_local(global_payload_local);
-        self.release_temp_local(string_tag_local);
-        self.release_temp_local(string_payload_local);
-        self.release_temp_local(regexp_tag_local);
-        self.release_temp_local(regexp_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(slot_present_local);
-        self.release_temp_local(key_local);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        let substring = schema
+            .reserve_gc_local(function)
+            .initialize(construction.publish(schema, function), function);
+        value.set_reference(&substring, schema, function);
+        index.load(function);
+        width.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Add);
+        index.store(function);
+        schema
+            .field(StringIteratorObjectSchema::NEXT_CODE_UNIT_INDEX)
+            .write(&iterator, GcOperand::i64_local(index), schema, function);
+        self.emit_iterator_result_object_from_locals(&value, false, result, function)?;
+        substring.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        units.clear(function);
+        input.clear(function);
+        iterator.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        for local in [unit, source_index, cursor, width, length] {
+            schema.release_i32_local(local, function);
+        }
+        schema.release_i64_local(index, function);
+        value.clear(function);
         Ok(())
     }
 }
 
-/// An intrinsic an iterator or iterator-result allocation takes from the
-/// running execution context's Realm. Closed, so every such allocation goes
-/// through [`FunctionBuilder::emit_running_realm_iterator_intrinsic`] with a
-/// slot and entry-Realm fallback that cannot disagree.
-#[derive(Clone, Copy)]
-enum RunningRealmIteratorIntrinsic {
-    /// CreateIteratorResultObject's OrdinaryObjectCreate(%Object.prototype%).
-    ObjectPrototype,
-    /// CreateArrayIterator's %ArrayIteratorPrototype%.
-    ArrayIteratorPrototype,
-    /// %StringIteratorPrototype%.
-    StringIteratorPrototype,
-    /// CreateRegExpStringIterator's %RegExpStringIteratorPrototype%.
-    RegExpStringIteratorPrototype,
-}
-
-impl RunningRealmIteratorIntrinsic {
-    /// The Realm record slot, through the one closed slot domain Realm
-    /// construction also writes, so no second offset table exists.
-    const fn realm_slot(self) -> NonArrayRealmIntrinsicSlot {
-        match self {
-            Self::ObjectPrototype => NonArrayRealmIntrinsicSlot::ObjectPrototype,
-            Self::ArrayIteratorPrototype => NonArrayRealmIntrinsicSlot::ArrayIteratorPrototype,
-            Self::StringIteratorPrototype => NonArrayRealmIntrinsicSlot::StringIteratorPrototype,
-            Self::RegExpStringIteratorPrototype => {
-                NonArrayRealmIntrinsicSlot::RegExpStringIteratorPrototype
+impl FunctionBuilder<'_> {
+    pub(crate) fn emit_typed_array_iterator_next_from_locals(
+        &mut self,
+        receiver: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        let element = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        let index = schema.reserve_i64_local(function);
+        let next_index = schema.reserve_i64_local(function);
+        let length = schema.reserve_i64_local(function);
+        let kind_local = schema.reserve_i32_local(function);
+        value.set_undefined(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<TypedArrayIteratorObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_native_iterator_error_if(
+            RuntimeErrorMessage::ARRAY_ITERATOR_NEXT_CALLED_ON_INCOMPATIBLE_RECEIVER,
+            result,
+            exit,
+            function,
+        )?;
+        let iterator = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<TypedArrayIteratorObject>(schema, function),
+            function,
+        );
+        schema
+            .field(TypedArrayIteratorObjectSchema::DONE)
+            .read(&iterator, schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_iterator_result_object_from_locals(&value, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let array = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(TypedArrayIteratorObjectSchema::ARRAY)
+                .read(&iterator, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        schema
+            .field(TypedArrayIteratorObjectSchema::NEXT_INDEX)
+            .read(&iterator, schema, function)
+            .store_i64(index, function);
+        schema
+            .field(TypedArrayIteratorObjectSchema::KIND)
+            .read(&iterator, schema, function)
+            .store(kind_local, function);
+        // Every active next takes a new validated view witness. An invalid
+        // buffer leaves both the retained array and its next index unchanged.
+        self.emit_validate_typed_array_view(&array, length, &pending, function)?;
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I64GeU);
+        self.open_frame(ControlFrameKind::If, function);
+        schema.field(TypedArrayIteratorObjectSchema::DONE).write(
+            &iterator,
+            GcOperand::boolean(true),
+            schema,
+            function,
+        );
+        schema.field(TypedArrayIteratorObjectSchema::ARRAY).write(
+            &iterator,
+            GcOperand::null(schema),
+            schema,
+            function,
+        );
+        self.emit_iterator_result_object_from_locals(&value, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        next_index.store(function);
+        schema
+            .field(TypedArrayIteratorObjectSchema::NEXT_INDEX)
+            .write(
+                &iterator,
+                GcOperand::i64_local(next_index),
+                schema,
+                function,
+            );
+        let selected = self.open_frame(ControlFrameKind::Block, function);
+        for kind in [
+            ArrayIterationKind::Key,
+            ArrayIterationKind::Value,
+            ArrayIterationKind::KeyAndValue,
+        ] {
+            kind_local.load(function);
+            function.instruction(&Instruction::I32Const(kind.encode()));
+            function.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            match kind {
+                ArrayIterationKind::Key => {
+                    index.load(function);
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    value.scalar().store(function);
+                    value.set_number(value.scalar(), function);
+                }
+                ArrayIterationKind::Value | ArrayIterationKind::KeyAndValue => {
+                    self.emit_typed_array_element_read_from_locals(
+                        &array, index, &element, function,
+                    )?;
+                    match kind {
+                        ArrayIterationKind::Value => value.copy_from(&element, function),
+                        ArrayIterationKind::KeyAndValue => {
+                            self.emit_native_iterator_entry(index, &element, &value, function)?
+                        }
+                        ArrayIterationKind::Key => unreachable!("Key performs no element read"),
+                    }
+                }
             }
+            self.emit_branch_to_target(selected, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
+        function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.emit_iterator_result_object_from_locals(&value, false, result, function)?;
+        array.clear(function);
+        iterator.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(kind_local, function);
+        schema.release_i64_local(length, function);
+        schema.release_i64_local(next_index, function);
+        schema.release_i64_local(index, function);
+        pending.clear(function);
+        element.clear(function);
+        value.clear(function);
+        Ok(())
     }
 
-    const fn entry_realm_global_index(self) -> u32 {
-        match self {
-            Self::ObjectPrototype => OBJECT_PROTOTYPE_GLOBAL_INDEX,
-            Self::ArrayIteratorPrototype => ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            Self::StringIteratorPrototype => STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            Self::RegExpStringIteratorPrototype => REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    /// The single ArrayIteratorPrototype.next entry handles both concrete
+    /// iterator records; generic Array records still validate TypedArray input.
+    pub(crate) fn emit_array_iterator_next_from_locals(
+        &mut self,
+        receiver: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let array_value = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        let element = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        let index = schema.reserve_i64_local(function);
+        let next_index = schema.reserve_i64_local(function);
+        let length = schema.reserve_i64_local(function);
+        let kind_local = schema.reserve_i32_local(function);
+        let typed_array_input = schema.reserve_i32_local(function);
+        value.set_undefined(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<TypedArrayIteratorObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_typed_array_iterator_next_from_locals(receiver, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<ArrayIteratorObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_native_iterator_error_if(
+            RuntimeErrorMessage::ARRAY_ITERATOR_NEXT_CALLED_ON_INCOMPATIBLE_RECEIVER,
+            result,
+            exit,
+            function,
+        )?;
+        let iterator = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<ArrayIteratorObject>(schema, function),
+            function,
+        );
+        schema
+            .field(ArrayIteratorObjectSchema::DONE)
+            .read(&iterator, schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_iterator_result_object_from_locals(&value, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(ArrayIteratorObjectSchema::ARRAY)
+                .read(&iterator, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &array_value, schema, function);
+        stored.clear(function);
+        schema
+            .field(ArrayIteratorObjectSchema::NEXT_INDEX)
+            .read(&iterator, schema, function)
+            .store_i64(index, function);
+        schema
+            .field(ArrayIteratorObjectSchema::KIND)
+            .read(&iterator, schema, function)
+            .store(kind_local, function);
+        array_value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<TypedArrayObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        typed_array_input.store(function);
+        typed_array_input.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let array = schema.reserve_gc_local(function).initialize(
+            array_value.cast_reference::<TypedArrayObject>(schema, function),
+            function,
+        );
+        self.emit_validate_typed_array_view(&array, length, &pending, function)?;
+        array.clear(function);
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        function.instruction(&Instruction::Else);
+        let length_key = self.emit_iterator_named_key("length", function)?;
+        self.emit_object_read(&array_value, &array_value, &length_key, &pending, function)?;
+        length_key.clear(function);
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        element.copy_from(pending.value(), function);
+        self.emit_to_length_i64_from_value_locals(&element, length, &pending, function)?;
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I64GeU);
+        self.open_frame(ControlFrameKind::If, function);
+        schema.field(ArrayIteratorObjectSchema::DONE).write(
+            &iterator,
+            GcOperand::boolean(true),
+            schema,
+            function,
+        );
+        let absent = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&value, function),
+            function,
+        );
+        schema.field(ArrayIteratorObjectSchema::ARRAY).write(
+            &iterator,
+            GcOperand::reference(&absent, schema),
+            schema,
+            function,
+        );
+        absent.clear(function);
+        self.emit_iterator_result_object_from_locals(&value, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // Advance before Get: an abrupt element getter must not replay this
+        // index on the next call, and a reentrant next observes the successor.
+        index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        next_index.store(function);
+        schema.field(ArrayIteratorObjectSchema::NEXT_INDEX).write(
+            &iterator,
+            GcOperand::i64_local(next_index),
+            schema,
+            function,
+        );
+        let selected = self.open_frame(ControlFrameKind::Block, function);
+        for kind in [
+            ArrayIterationKind::Key,
+            ArrayIterationKind::Value,
+            ArrayIterationKind::KeyAndValue,
+        ] {
+            kind_local.load(function);
+            function.instruction(&Instruction::I32Const(kind.encode()));
+            function.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            match kind {
+                ArrayIterationKind::Key => {
+                    index.load(function);
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    value.scalar().store(function);
+                    value.set_number(value.scalar(), function);
+                }
+                ArrayIterationKind::Value | ArrayIterationKind::KeyAndValue => {
+                    typed_array_input.load(function);
+                    self.open_frame(ControlFrameKind::If, function);
+                    let array = schema.reserve_gc_local(function).initialize(
+                        array_value.cast_reference::<TypedArrayObject>(schema, function),
+                        function,
+                    );
+                    self.emit_typed_array_element_read_from_locals(
+                        &array, index, &element, function,
+                    )?;
+                    array.clear(function);
+                    function.instruction(&Instruction::Else);
+                    index.load(function);
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    element.scalar().store(function);
+                    let text = schema.reserve_gc_local(function).initialize(
+                        self.emit_number_to_string_payload(element.scalar(), function)?,
+                        function,
+                    );
+                    let key = PropertyKeyLocals::from_string(schema, &text, function);
+                    text.clear(function);
+                    self.emit_object_read(&array_value, &array_value, &key, &pending, function)?;
+                    key.clear(function);
+                    self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+                    element.copy_from(pending.value(), function);
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                    match kind {
+                        ArrayIterationKind::Value => value.copy_from(&element, function),
+                        ArrayIterationKind::KeyAndValue => {
+                            self.emit_native_iterator_entry(index, &element, &value, function)?
+                        }
+                        ArrayIterationKind::Key => unreachable!("Key performs no element read"),
+                    }
+                }
+            }
+            self.emit_branch_to_target(selected, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
+        function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.emit_iterator_result_object_from_locals(&value, false, result, function)?;
+        iterator.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(typed_array_input, function);
+        schema.release_i32_local(kind_local, function);
+        schema.release_i64_local(length, function);
+        schema.release_i64_local(next_index, function);
+        schema.release_i64_local(index, function);
+        pending.clear(function);
+        element.clear(function);
+        value.clear(function);
+        array_value.clear(function);
+        Ok(())
+    }
+}
+
+impl FunctionBuilder<'_> {
+    pub(crate) fn emit_regexp_string_iterator_next_from_locals(
+        &mut self,
+        receiver: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let regexp = schema.reserve_value_local(function);
+        let acquired_exec = schema.reserve_value_local(function);
+        let matched = schema.reserve_value_local(function);
+        let element = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        let index = schema.reserve_i64_local(function);
+        let width = schema.reserve_i32_local(function);
+        matched.set_undefined(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<RegExpStringIteratorObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_native_iterator_error_if(
+            RuntimeErrorMessage::REGEXP_STRING_ITERATOR_NEXT_CALLED_ON_INCOMPATIBLE_RECEIVER,
+            result,
+            exit,
+            function,
+        )?;
+        let iterator = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<RegExpStringIteratorObject>(schema, function),
+            function,
+        );
+        schema
+            .field(RegExpStringIteratorObjectSchema::DONE)
+            .read(&iterator, schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_iterator_result_object_from_locals(&matched, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(RegExpStringIteratorObjectSchema::REGEXP)
+                .read(&iterator, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &regexp, schema, function);
+        stored.clear(function);
+        let input = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(RegExpStringIteratorObjectSchema::INPUT)
+                .read(&iterator, schema, function)
+                .reference(),
+            function,
+        );
+        // RegExpExec owns callable exec and the concrete RegExpBuiltinExec
+        // fallback. This consumer performs exactly its one observable Get.
+        let key = self.emit_iterator_named_key("exec", function)?;
+        self.emit_object_read(&regexp, &regexp, &key, &pending, function)?;
+        key.clear(function);
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        acquired_exec.copy_from(pending.value(), function);
+        self.emit_regexp_exec_from_values(&regexp, &input, &acquired_exec, &pending, function)?;
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        matched.copy_from(pending.value(), function);
+        matched.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Null as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        schema.field(RegExpStringIteratorObjectSchema::DONE).write(
+            &iterator,
+            GcOperand::boolean(true),
+            schema,
+            function,
+        );
+        matched.set_undefined(function);
+        self.emit_iterator_result_object_from_locals(&matched, true, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema
+            .field(RegExpStringIteratorObjectSchema::GLOBAL)
+            .read(&iterator, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        schema.field(RegExpStringIteratorObjectSchema::DONE).write(
+            &iterator,
+            GcOperand::boolean(true),
+            schema,
+            function,
+        );
+        self.emit_iterator_result_object_from_locals(&matched, false, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let key = self.emit_iterator_named_key("0", function)?;
+        self.emit_object_read(&matched, &matched, &key, &pending, function)?;
+        key.clear(function);
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        element.copy_from(pending.value(), function);
+        self.emit_value_to_string_payload(&element, &pending, function)?;
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        let match_string = schema.reserve_gc_local(function).initialize(
+            pending
+                .value()
+                .cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(StringValueSchema::CODE_UNITS)
+                .read(&match_string, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        units.clear(function);
+        match_string.clear(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let key = self.emit_iterator_named_key("lastIndex", function)?;
+        self.emit_object_read(&regexp, &regexp, &key, &pending, function)?;
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        element.copy_from(pending.value(), function);
+        self.emit_to_length_i64_from_value_locals(&element, index, &pending, function)?;
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        function.instruction(&Instruction::I32Const(1));
+        width.store(function);
+        schema
+            .field(RegExpStringIteratorObjectSchema::FULL_UNICODE)
+            .read(&iterator, schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_native_iterator_string_width(&input, index, width, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        index.load(function);
+        width.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        element.scalar().store(function);
+        element.set_number(element.scalar(), function);
+        self.emit_object_write_strict(&regexp, &key, &element, &pending, function)?;
+        key.clear(function);
+        self.emit_native_iterator_abrupt_exit(&pending, result, exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // An abrupt exec/Get/ToString/lastIndex Set leaves Done unchanged.
+        self.emit_iterator_result_object_from_locals(&matched, false, result, function)?;
+        input.clear(function);
+        iterator.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(width, function);
+        schema.release_i64_local(index, function);
+        pending.clear(function);
+        element.clear(function);
+        matched.clear(function);
+        acquired_exec.clear(function);
+        regexp.clear(function);
+        Ok(())
     }
 }

@@ -47,6 +47,7 @@ use boa_interner::Interner;
 
 pub use self::{
     error::Error,
+    identifier::{is_identifier_part, is_identifier_start},
     token::{Token, TokenKind},
 };
 
@@ -238,7 +239,6 @@ impl<R> Lexer<R> {
                 let _token = HashbangComment.lex(&mut self.cursor, start, interner);
                 return self.next(interner);
             }
-
         }
 
         // Ignore whitespace
@@ -360,7 +360,7 @@ impl<R> Lexer<R> {
                 '\\' if self.cursor.peek_char()? == Some(0x0075 /* u */) => {
                     Identifier::new(c).lex(&mut self.cursor, start, interner)
                 }
-                _ if Identifier::is_identifier_start(c as u32) => {
+                _ if is_identifier_start(c as u32) => {
                     Identifier::new(c).lex(&mut self.cursor, start, interner)
                 }
                 #[allow(clippy::cast_possible_truncation)]

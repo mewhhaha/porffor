@@ -235,5 +235,13 @@ of individual lines:
 - the exact GitHub repository URL, `CNAME`, and recovery commit remain valid;
 - vendored/Test262 upstream content is outside project identity.
 
+The repository-root `.lila-task-work/` directory contains ignored local source
+recovery snapshots and verification logs. The audit still uses Git's tracked
+and unignored file inventory: forcing a recovery file into the index makes it
+subject to the same identity checks as other tracked files. The anchored ignore
+rule does not cover a directory of that name nested in a product package.
+`scripts/tests/test_tooling_identity.py` checks these boundaries with real Git
+fixtures and verifies that auditing preserves the recovery files.
+
 Any new exception needs an owner, a reason and a removal condition in T29. A
 free-form textual allowlist is not acceptable.

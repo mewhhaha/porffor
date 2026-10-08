@@ -1,10 +1,11 @@
-//! Shared private operations selected only by a validated compiled graph.
+//! Registered module helpers borrow real records and return their declared domains.
 
 use super::*;
-use crate::runtime_helpers::RuntimeHelperId;
+use crate::runtime_helpers::*;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ModuleRuntimeOperation {
+    Initialize,
     Evaluate,
     Ready,
     Gather,
@@ -14,7 +15,8 @@ pub(crate) enum ModuleRuntimeOperation {
     DeferredImport,
 }
 impl ModuleRuntimeOperation {
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
+        Self::Initialize,
         Self::Evaluate,
         Self::Ready,
         Self::Gather,
@@ -25,6 +27,7 @@ impl ModuleRuntimeOperation {
     ];
     pub(crate) const fn helper(self) -> RuntimeHelperId {
         match self {
+            Self::Initialize => RuntimeHelperId::ModuleInitialize,
             Self::Evaluate => RuntimeHelperId::ModuleEvaluate,
             Self::Ready => RuntimeHelperId::ModuleReady,
             Self::Gather => RuntimeHelperId::ModuleGather,
@@ -36,218 +39,290 @@ impl ModuleRuntimeOperation {
     }
 }
 
+/// A compiler List has a rooted backing array and an exact live prefix. Neither
+/// component enters the JavaScript value or completion domain.
+#[must_use]
+pub(super) struct GatheredModules {
+    pub(super) modules: GcLocal<ModuleRegistry>,
+    pub(super) count: I64Local,
+}
+impl GatheredModules {
+    pub(super) fn clear(self, schema: &RuntimeSchema, function: &mut Function) {
+        schema.release_i64_local(self.count, function);
+        self.modules.clear(function);
+    }
+}
+
 impl FunctionBuilder<'_> {
     pub(crate) fn compile_module_runtime_operation(
         &mut self,
         operation: ModuleRuntimeOperation,
     ) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(operation.helper());
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        let schema = self.runtime_schema();
+        macro_rules! completion_body {
+            ($parameters:ident, $method:ident $(, $value:ident)?) => {{
+                let parameters = self.helper_parameters::<$parameters>(&mut function);
+                let result = schema.reserve_completion(&mut function); result.initialize(&mut function);
+                self.$method(&parameters.module, $(&parameters.$value,)? &result, &mut function)?;
+                result.emit(&mut function); result.clear(&mut function); parameters.release(&mut function);
+            }};
+        }
         match operation {
+            ModuleRuntimeOperation::Initialize => {
+                let parameters =
+                    self.helper_parameters::<ModuleInitializeParameters>(&mut function);
+                let result = schema.reserve_completion(&mut function);
+                result.initialize(&mut function);
+                self.emit_module_initialization_runtime(&parameters.realm, &result, &mut function)?;
+                result.emit(&mut function);
+                result.clear(&mut function);
+                parameters.release(&mut function);
+            }
             ModuleRuntimeOperation::Evaluate => {
-                self.emit_module_evaluation_runtime(&mut function)?
+                completion_body!(ModuleEvaluateParameters, emit_module_evaluation_runtime)
             }
-            ModuleRuntimeOperation::Ready => self.emit_module_readiness_runtime(&mut function)?,
-            ModuleRuntimeOperation::Gather => self.emit_module_gather_runtime(&mut function)?,
-            ModuleRuntimeOperation::Execute => self.emit_module_execute_runtime(&mut function)?,
-            ModuleRuntimeOperation::Fulfilled => {
-                self.emit_module_fulfilled_runtime(&mut function)?
+            ModuleRuntimeOperation::Execute => {
+                completion_body!(ModuleExecuteParameters, emit_module_execute_runtime)
             }
-            ModuleRuntimeOperation::Rejected => self.emit_module_rejected_runtime(&mut function)?,
-            ModuleRuntimeOperation::DeferredImport => {
-                self.emit_module_deferred_import_runtime(&mut function)?
+            ModuleRuntimeOperation::Fulfilled => completion_body!(
+                ModuleFulfilledParameters,
+                emit_module_fulfilled_runtime,
+                value
+            ),
+            ModuleRuntimeOperation::Rejected => completion_body!(
+                ModuleRejectedParameters,
+                emit_module_rejected_runtime,
+                reason
+            ),
+            ModuleRuntimeOperation::DeferredImport => completion_body!(
+                ModuleDeferredImportParameters,
+                emit_module_deferred_import_runtime
+            ),
+            ModuleRuntimeOperation::Ready => {
+                let parameters = self.helper_parameters::<ModuleReadyParameters>(&mut function);
+                let result = schema.reserve_i32_local(&mut function);
+                self.emit_module_readiness_runtime(&parameters.module, result, &mut function)?;
+                result.load(&mut function);
+                schema.release_i32_local(result, &mut function);
+                parameters.release(&mut function);
+            }
+            ModuleRuntimeOperation::Gather => {
+                let parameters = self.helper_parameters::<ModuleGatherParameters>(&mut function);
+                let result = self.emit_module_gather_runtime(&parameters.module, &mut function)?;
+                result.modules.load(schema, &mut function);
+                result.count.load(&mut function);
+                result.clear(schema, &mut function);
+                parameters.release(&mut function);
             }
         }
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
 
-    pub(super) fn emit_module_runtime_call(
+    pub(super) fn emit_module_gather_call(
         &mut self,
-        operation: ModuleRuntimeOperation,
-        arguments: &[u32],
-        payload: u32,
-        tag: u32,
+        record: &GcLocal<ModuleRecord>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if self.functions.module_execution_record_count() == 0 {
-            return Err(EmitError::unsupported(
-                "private module operation requires its validated execution graph",
-            ));
-        }
-        assert!(arguments.len() <= 7);
-        let index = self
-            .heap_alloc_function_index
-            .map(|base| operation.helper().index(base))
-            .ok_or_else(|| EmitError::unsupported("module execution requires heap runtime"))?;
-        for &argument in arguments {
-            function.instruction(&Instruction::LocalGet(argument));
-        }
-        for _ in arguments.len()..7 {
-            function.instruction(&Instruction::I64Const(0));
-        }
-        function.instruction(&Instruction::Call(index));
-        self.store_call_results(payload, tag, function);
-        Ok(())
-    }
-
-    pub(super) fn emit_module_array_address(
-        &self,
-        base: u32,
-        index: u32,
-        stride: u64,
-        address: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(base));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(stride as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address));
+    ) -> Result<GatheredModules, EmitError> {
+        let schema = self.runtime_schema();
+        let slot = schema.reserve_gc_local(function);
+        let count = schema.reserve_i64_local(function);
+        let modules = schema
+            .call_helper(
+                ModuleGatherArguments::new(record),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .bind(schema, slot, count, function);
+        Ok(GatheredModules { modules, count })
     }
 
     pub(super) fn emit_module_list_contains(
-        &mut self,
-        base: u32,
-        count: u32,
-        sought: u32,
-        found: u32,
+        &self,
+        list: &GcLocal<ModuleRegistry>,
+        count: I64Local,
+        sought: &GcLocal<ModuleRecord>,
+        found: I32Local,
         function: &mut Function,
     ) {
-        let index = self.reserve_temp_local();
-        let address = self.reserve_temp_local();
-        for local in [index, found] {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
+        let schema = self.runtime_schema();
+        let index = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        found.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(count));
+        index.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_module_array_address(base, index, 8, address, function);
-        self.load_i64_to_local_from_offset(address, 0, address, function);
-        function.instruction(&Instruction::LocalGet(address));
-        function.instruction(&Instruction::LocalGet(sought));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
+        let entry = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleRegistry>()
+                .read(list, index, schema, function)
+                .reference(),
+            function,
+        );
+        entry.load(schema, function);
+        sought.load(schema, function);
+        function.instruction(&Instruction::RefEq);
+        found.store(function);
+        entry.clear(function);
+        found.load(function);
+        function.instruction(&Instruction::BrIf(1));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(address);
-        self.release_temp_local(index);
-    }
-
-    pub(super) fn emit_module_increment(&self, local: u32, amount: i64, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(local));
-        function.instruction(&Instruction::I64Const(amount));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(local));
+        schema.release_i32_local(index, function);
     }
 
     pub(super) fn emit_module_bounded_append(
-        &mut self,
-        base: u32,
-        count: u32,
-        limit: u32,
-        value: u32,
+        &self,
+        list: &GcLocal<ModuleRegistry>,
+        count: I64Local,
+        value: &GcLocal<ModuleRecord>,
         function: &mut Function,
     ) {
-        let address = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(count));
-        function.instruction(&Instruction::LocalGet(limit));
+        let schema = self.runtime_schema();
+        let index = schema.reserve_i32_local(function);
+        count.load(function);
+        schema
+            .array_type::<ModuleRegistry>()
+            .length(list, schema, function);
+        function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
-        self.emit_module_array_address(base, count, 8, address, function);
-        self.store_i64_local_at_offset(address, 0, value, function);
-        self.emit_module_increment(count, 1, function);
-        self.release_temp_local(address);
+        count.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        index.store(function);
+        schema.array_type::<ModuleRegistry>().write(
+            list,
+            index,
+            GcOperand::nullable_reference(value, schema),
+            schema,
+            function,
+        );
+        count.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        count.store(function);
+        schema.release_i32_local(index, function);
     }
 
-    pub(super) fn emit_module_allocate_words(
-        &mut self,
-        count: u32,
-        stride: u64,
-        destination: u32,
+    pub(super) fn emit_module_graph_list(
+        &self,
+        graph: &GcLocal<ModuleGraph>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let size = self.reserve_temp_local();
-        // Count originated from the validated graph's u32 cardinality. The
-        // bound also rejects corrupted private records before multiplication.
-        function.instruction(&Instruction::LocalGet(count));
-        function.instruction(&Instruction::I64Const((u32::MAX as u64 / stride) as i64));
+    ) -> GcLocal<ModuleRegistry> {
+        let schema = self.runtime_schema();
+        let records = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleGraph>()
+                .field(ModuleGraphSchema::MODULES)
+                .read(graph, schema, function)
+                .reference(),
+            function,
+        );
+        let count = schema.reserve_i32_local(function);
+        schema
+            .array_type::<ModuleRegistry>()
+            .length(&records, schema, function);
+        count.store(function);
+        let list = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleRegistry>()
+                .filled(GcOperand::null(schema), count, function),
+            function,
+        );
+        schema.release_i32_local(count, function);
+        records.clear(function);
+        list
+    }
+
+    pub(super) fn emit_module_list_entry(
+        &self,
+        list: &GcLocal<ModuleRegistry>,
+        index: I64Local,
+        function: &mut Function,
+    ) -> GcLocal<ModuleRecord> {
+        let schema = self.runtime_schema();
+        let position = schema.reserve_i32_local(function);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(u32::MAX as i64));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(count));
-        function.instruction(&Instruction::I64Const(stride as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(size));
-        self.emit_heap_alloc_from_local(size, function)?;
-        function.instruction(&Instruction::LocalSet(destination));
-        self.release_temp_local(size);
-        Ok(())
+        index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        position.store(function);
+        let entry = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleRegistry>()
+                .read(list, position, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        schema.release_i32_local(position, function);
+        entry
     }
 
     pub(super) fn emit_module_read_settled_evaluation(
         &mut self,
-        promise: u32,
-        tag: u32,
+        promise: &GcLocal<PromiseObject>,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let state = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            promise,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record,
+        let schema = self.runtime_schema();
+        let state = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::HANDLED)
+            .write(promise, GcOperand::boolean(true), schema, function);
+        self.emit_load_promise_state_strict(promise, state, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::RESULT)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_const_at_offset(record, HEAP_PROMISE_IS_HANDLED_OFFSET, 1, function);
-        self.emit_load_promise_state_strict(record, state, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(PromiseState::Pending.word() as i64));
-        function.instruction(&Instruction::I64Eq);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, result.value(), schema, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            PromiseState::Pending,
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            record,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            promise,
-            function,
-        );
-        self.load_i64_to_local_from_offset(record, HEAP_PROMISE_RESULT_TAG_OFFSET, tag, function);
-        function.instruction(&Instruction::LocalGet(state));
-        function.instruction(&Instruction::I64Const(PromiseState::Rejected.word() as i64));
-        function.instruction(&Instruction::I64Eq);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            PromiseState::Rejected,
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.set_completion_kind(CompletionKind::Throw, function);
+        result.set_kind(CompletionKind::Throw, function);
         function.instruction(&Instruction::Else);
-        self.set_completion_kind(CompletionKind::Normal, function);
+        result.set_kind(CompletionKind::Normal, function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(state);
-        self.release_temp_local(record);
+        function.instruction(&Instruction::I32Const(0));
+        result.target().store(function);
+        stored.clear(function);
+        schema.release_i32_local(state, function);
         Ok(())
     }
 }

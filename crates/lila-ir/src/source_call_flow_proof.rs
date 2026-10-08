@@ -100,6 +100,9 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             target: _target,
             admission: _admission,
         } => false,
+        StatementIr::EmptyStatementCompletion(item) => {
+            statement_preserves_caller_flow(item.statement())
+        }
         StatementIr::LexicalBlock(statements) => {
             statements.iter().all(statement_preserves_caller_flow)
         }
@@ -140,6 +143,23 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             resume_state: _resume_state,
             resume_mode: _resume_mode,
         } => false,
+        StatementIr::AsyncGeneratorLoop(_)
+        | StatementIr::AsyncGeneratorIf(_)
+        | StatementIr::AsyncGeneratorWith(_)
+        | StatementIr::AsyncGeneratorSwitch(_)
+        | StatementIr::AsyncGeneratorArrayDestructuring(_)
+        | StatementIr::AsyncGeneratorResourceScope(_)
+        | StatementIr::AsyncGeneratorResourceRegistration(_)
+        | StatementIr::AsyncGeneratorForOf(_)
+        | StatementIr::AsyncGeneratorForIn(_)
+        | StatementIr::OrdinaryGeneratorLoop(_)
+        | StatementIr::OrdinaryGeneratorIf(_)
+        | StatementIr::OrdinaryGeneratorSwitch(_)
+        | StatementIr::ArrayDestructuringOperation(_)
+        | StatementIr::OrdinaryGeneratorWith(_)
+        | StatementIr::OrdinaryGeneratorArrayDestructuring(_)
+        | StatementIr::AsyncFunctionArrayDestructuring(_)
+        | StatementIr::AsyncFunctionWith(_) => false,
         StatementIr::GeneratorLoop {
             init: _init,
             test: _test,
@@ -165,6 +185,8 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             else_resume_state: _else_resume_state,
             exit_state: _exit_state,
         } => false,
+        StatementIr::AsyncFunctionWhile(_) => false,
+        StatementIr::AsyncFunctionSwitch(_) => false,
         StatementIr::AsyncFunctionIf {
             condition: _condition,
             then_branch: _then_branch,
@@ -232,6 +254,10 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             iterable: _iterable,
             plan: _plan,
         } => false,
+        StatementIr::GeneratorForOfIterator {
+            iterable: _iterable,
+            plan: _plan,
+        } => false,
         StatementIr::Switch {
             discriminant,
             lexical_environment: _lexical_environment,
@@ -252,6 +278,7 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
         StatementIr::Labelled {
             labels: _labels,
             statement,
+            async_plan: _,
         } => statement_preserves_caller_flow(statement),
         StatementIr::Debugger => false,
         StatementIr::Throw(expr) | StatementIr::Return(expr) => expr_preserves_caller_flow(expr),
@@ -318,12 +345,14 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         | ExprIr::ArrayHole
         | ExprIr::Null
         | ExprIr::This
+        | ExprIr::ExecutionGlobalObject
         | ExprIr::Arguments
         | ExprIr::NewTarget => true,
         ExprIr::Boolean(_value) => true,
         ExprIr::Number(_bits) => true,
         ExprIr::BigInt(_value) => true,
         ExprIr::String(_value) => true,
+        ExprIr::WellKnownSymbol(_symbol) => true,
         ExprIr::FunctionValue(_function_id) => true,
         ExprIr::Identifier(_name) => true,
         ExprIr::Symbol { description } => description
@@ -332,7 +361,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         ExprIr::RegExpLiteral {
             source: _source,
             flags: _flags,
-            program: _program,
+            static_compilation: _static_compilation,
         } => true,
         ExprIr::DynamicImport {
             specifier: _specifier,
@@ -344,6 +373,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         ExprIr::ModuleEntryEvaluation(_) => false,
         ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
+        | ExprIr::JsonModuleValue(_)
         | ExprIr::ModuleEvaluate(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)
@@ -352,6 +382,10 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         ExprIr::ModuleNamespace { exports, .. } => expr_preserves_caller_flow(exports),
         ExprIr::ObjectLiteral(properties) => {
             properties.iter().all(object_property_preserves_caller_flow)
+        }
+        ExprIr::ObjectPropertyDefinition(definition) => {
+            expr_preserves_caller_flow(definition.target())
+                && object_property_preserves_caller_flow(definition.property())
         }
         ExprIr::ArrayLiteral(elements) => elements.iter().all(expr_preserves_caller_flow),
         ExprIr::ArrayAccumulation(accumulation) => {
@@ -385,6 +419,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         } => false,
         ExprIr::OrdinaryPropertyAssignment(_assignment) => false,
         ExprIr::OrdinaryPropertyLogicalAssignment(_assignment) => false,
+        ExprIr::OrdinaryPropertyGetCapture(_) | ExprIr::CapturedOrdinaryPropertyWrite(_) => false,
         ExprIr::OrdinaryPropertyNumericUpdate(_update) => false,
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(_assignment) => false,
         ExprIr::UpdateIdentifier {
@@ -393,23 +428,10 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             return_mode: _return_mode,
             value_kind: _value_kind,
         } => false,
-        ExprIr::GlobalPropertyUpdate {
-            name: _name,
-            op: _op,
-            return_mode: _return_mode,
-            value_kind: _value_kind,
-            strictness: _strictness,
-        } => false,
         ExprIr::CompoundAssignIdentifier {
             name: _name,
             op: _op,
             value: _value,
-        } => false,
-        ExprIr::GlobalPropertyCompoundAssign {
-            name: _name,
-            op: _op,
-            value: _value,
-            strictness: _strictness,
         } => false,
         ExprIr::UnaryPlus { expr: _operand } | ExprIr::UnaryMinusNumeric { expr: _operand } => {
             false
@@ -421,6 +443,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         ExprIr::Void { expr } | ExprIr::TypeOf { expr } | ExprIr::LogicalNot { expr } => {
             expr_preserves_caller_flow(expr)
         }
+        ExprIr::DeleteOptionalPropertyChain(_) => false,
         ExprIr::DeleteValue { expr: _expr } => false,
         ExprIr::DeleteIdentifier { name: _name } => false,
         ExprIr::DeleteGlobalProperty {
@@ -457,10 +480,6 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             rhs: _rhs,
         } => false,
         ExprIr::StringFromCharCode { code: _code } => false,
-        ExprIr::StringCharCodeAt {
-            target: _lhs,
-            index: _rhs,
-        } => false,
         ExprIr::StringConcat {
             lhs: _lhs,
             rhs: _rhs,
@@ -513,6 +532,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             value: _value,
             pattern: _pattern,
         } => false,
+        ExprIr::ObjectDestructuringOperation(_) => false,
         ExprIr::CallNamed {
             name: _name,
             args: _args,
@@ -534,7 +554,10 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             key: _key,
             args: _args,
         } => false,
-        ExprIr::SpreadArgument(_spread) => false,
+        ExprIr::SpreadArgument(_)
+        | ExprIr::CaptureArgumentList(_)
+        | ExprIr::CaptureOptionalCallReference(_)
+        | ExprIr::CapturedArgumentList(_) => false,
         ExprIr::AssertSameValue {
             actual: _actual,
             expected: _expected,
@@ -544,14 +567,11 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             name: _name,
             message: _message,
         } => true,
-        ExprIr::JsonParseStaticReviver {
-            callee: _callee,
-            input: _input,
-            value: _value,
-            reviver: _reviver,
-        } => false,
         ExprIr::ClassDefinition(_class) => false,
-        ExprIr::SuperConstruct { args: _args } => false,
+        ExprIr::SuperConstruct { args: _ }
+        | ExprIr::PreparedSuperConstruct(_)
+        | ExprIr::SuperConstructor
+        | ExprIr::SuperNewTarget => false,
         ExprIr::SuperPropertyRead {
             key: _key,
             receiver: _receiver,
@@ -724,6 +744,50 @@ mod tests {
 
         assert!(!SourceCallFlowEffects::for_finalized_invocation(&[], &body)
             .proves_no_flow_invalidation());
+    }
+
+    #[test]
+    fn a_retained_literal_property_cannot_hide_operand_calls() {
+        let target = || {
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier("retained_literal".to_string()),
+            )
+        };
+        let call = || {
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::CallNamed {
+                    name: "effect".to_string(),
+                    args: Vec::new(),
+                },
+            )
+        };
+        for (target, value, preserves_flow) in [
+            (target(), TypedExpr::undefined(), true),
+            (call(), TypedExpr::undefined(), false),
+            (target(), call(), false),
+        ] {
+            let definition = crate::ObjectPropertyDefinitionIr::new(
+                target,
+                ObjectPropertyIr::Data {
+                    key: "value".to_string(),
+                    value,
+                    is_shorthand: false,
+                },
+            )
+            .expect("the retained target has the exact Object kind");
+            let expr = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::ObjectPropertyDefinition(Box::new(definition)),
+            );
+            let body = body_with(StatementIr::Return(expr));
+            assert_eq!(
+                SourceCallFlowEffects::for_finalized_invocation(&[], &body)
+                    .proves_no_flow_invalidation(),
+                preserves_flow,
+            );
+        }
     }
 
     #[test]

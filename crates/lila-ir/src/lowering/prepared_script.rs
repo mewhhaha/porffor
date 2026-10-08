@@ -1,6 +1,6 @@
 use super::*;
 use boa_ast::operations::{var_scoped_declarations, VarScopedDeclaration};
-use lila_front::{ParseDiagnosticKind, ParseOptions};
+use lila_front::ParseDiagnosticKind;
 
 pub(super) fn compile_dynamic_script_sources(
     program: &mut ProgramIr,
@@ -9,24 +9,9 @@ pub(super) fn compile_dynamic_script_sources(
     allocations: &mut AnalysisAllocationState,
 ) {
     for source in sources {
-        let parsed_source = match &source.kind {
-            PreparedScriptKind::RealmScript => {
-                lila_front::parse(source.source.clone(), ParseOptions::script()).map(|parsed| {
-                    let ParsedSource::Script(parsed) = parsed else {
-                        unreachable!("Script goal produces a Script")
-                    };
-                    parsed
-                })
-            }
-            PreparedScriptKind::IndirectEval => lila_front::prepare_eval_source(
-                source.source.clone(),
-                &lila_front::EvalParseContext::Indirect,
-            ),
-            PreparedScriptKind::DirectEval(context) => lila_front::prepare_eval_source(
-                source.source.clone(),
-                &lila_front::EvalParseContext::Direct(context.parse_context()),
-            ),
-        };
+        let parsed_source = allocations
+            .prepared_sources
+            .parse_script(&source.kind, &source.source);
         let parsed = match parsed_source {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -103,6 +88,7 @@ pub(super) fn compile_dynamic_script_sources(
             .script
             .expect("independent source lowered as Script");
         let unit = PreparedScriptUnit {
+            template_source: compiled.template_source,
             eval_environment: compiled.eval_environment.take(),
             id,
             kind: source.kind.clone(),
@@ -165,6 +151,7 @@ pub(super) fn compile_module_prelude(
     }
     let mut compiled = compiled.script.expect("Module prelude lowers as Script");
     let unit = PreparedScriptUnit {
+        template_source: compiled.template_source,
         eval_environment: compiled.eval_environment.take(),
         id,
         kind,
@@ -210,6 +197,12 @@ impl ScriptLowerer<'_> {
             .script_root_functions
             .iter()
             .rev()
+            .filter(|function| {
+                !self
+                    .analysis
+                    .module_execution
+                    .is_private_dispatcher_function(&function.id)
+            })
             .filter(|function| function_names.insert(function.name.clone()))
             .map(|function| GlobalFunctionDeclarationIr {
                 name: function.name.clone(),

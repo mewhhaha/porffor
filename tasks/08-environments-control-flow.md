@@ -1,5 +1,42 @@
 # T08 — Environments, references, control flow and abrupt completion
 
+## Ordinary global assignment retains its first Reference — 2026-10-07 dry source
+
+Ordinary Identifier assignment now locates its fallback before lowering the RHS.
+Possible With/global HasProperty hooks invalidate RHS facts before its lowering.
+Both emitted global-write routes resolve the source Realm's Global Environment
+Record before RHS evaluation, retain that exact lexical/object/unresolvable
+Reference, and use the shared Environment Record Put and release. Suspended
+global capture shares this same resolver. Strict missing References stay missing
+when the RHS creates a property; resolved Object Records recheck deletion after
+the RHS. Ordinary declarative and property assignments keep their existing owners.
+
+Five Engine controls are authored for the unchanged pinned negative, RHS
+creation/deletion and abrupt identity, deletable Script global vars, Proxy
+HasProperty ordering, With fallbacks and foreign Realm error identity. Only
+formatting and diff checks have run; compilation/runtime and full T08 acceptance
+remain deferred. This repairs a surviving source cause from the September 30
+backlog without refreshing conformance counts.
+
+## Object bindings observe each property once — 2026-10-04 dry source
+
+Ordinary lexical/var object patterns and shared synchronous/async/generator loop
+heads now consume the existing ObjectDestructure operation. The cloned simple
+lexical default and separate var statement optimizer are retired. The same
+private initializer keeps actual source modes and renamed storage; arrays keep
+their existing binding iterator owner. The backend's GetV lookup boxes a primitive
+while preserving the original value as getter Receiver. Rest keeps its separate
+CopyDataProperties rules.
+
+Seven existing IR controls are maintained and new actual head/storage controls
+and three paired finite Engine cohorts are authored. They distinguish one Get
+on either default branch, primitive strict getter receivers, TDZ and var policy,
+fresh/interleaved async cells, original abrupt cutoffs, finally and iterator close.
+Compilation, runtime, guards and full-task acceptance remain unverified. Finish
+all remaining task source before verification under a confirmed 4096 MiB aggregate
+kernel cap, zero swap and serial defaults. No task or published count closes.
+See the [single-Get contract](../docs/rust-rewrite/contracts/object-binding-single-get.md).
+
 **Status:** In progress — dedicated lowering/emission modules exist; conformance closure remains
 
 **Parallel group:** Core foundations  
@@ -7,6 +44,52 @@
 **Blocks:** T09, T12-T15, T24
 
 ## Current repository state
+
+The 2026-10-04 generator lexical-pattern source adds eager Let/Const array and
+object heads to plain synchronous for-of continuations. Analysis now allocates
+the complete fresh iteration environment even when no source binding is
+captured. The shared checked head owns the real mode, matching TDZ names and
+semantic initialization of those cells. Its generator-only input proves the
+Dynamic entry sink cannot reach operands, captures, persistent storage or
+resumed statements, and consumes the exact initializer prefix with the body.
+Head initialization precedes body lexical shadowing and stays within the
+existing close/finalizer region. Current source, meaningful constructor/lowering
+controls, three paired Engine cohorts and maintained guards are authored;
+compilation/runtime and full T08/T15 acceptance remain pending. See the
+[lexical-pattern contract](../docs/rust-rewrite/contracts/plain-generator-for-of-lexical-pattern-heads.md).
+
+The 2026-10-03 dry shared resumable identifier-head constructor now requires the
+source name separately from renamed iteration storage. Lexical heads must carry
+the matching canonical TDZ placeholder before physical environment validation.
+Both async and generator lowering supply the name from their original ForOfLoop;
+var policy retains its existing owner. The earlier identifier proof passed the
+ref74 all-target Rust checkpoint; the lexical-pattern successor above remains
+uncompiled and all current runtime acceptance remains pending. See the
+[binding contract](../docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+The 2026-09-29 continuation admits Array and Arguments member References in
+`for-in` and `for-of` assignment heads through the ordinary property-write
+IR. The exact pinned `language/statements/for-in/head-lhs-let.js` baseline
+reported `0/1`, Runtime/NotImplemented, because the value-assignment lowerer
+omitted those two object kinds. Array keys share the ordinary array-key
+lowerer, including exotic `length`; Arguments keys retain String and Symbol
+coercion through the ordinary property-key lowerer. The product fixture
+`wasm_iteration_member_references.js` covers inherited setters on temporary
+arrays, mapped Arguments, Symbol keys, per-iteration base evaluation and
+IteratorClose after an abrupt setter. Workspace/all-target checking and the
+exact CLI fixture pass on 2026-09-29. The complete pinned `for-in` replay
+initially passed `196/198`; both remaining Runtime/Bug executions were strict
+prepared-eval callers of `S12.6.4_A3.1.js` and `S12.6.4_A4.1.js`. Analysis now
+includes `var` for-in heads in the owner environment-cell inventory, matching
+the for-of declaration path. Added runtime coverage retains the exact pinned
+sources and checks escaped closures, destructuring and zero-iteration hoisting.
+Strict direct and indirect eval now initialize their planned local `var` cells
+to `undefined` before body execution while preserving lexical TDZ. All 17
+`aot_direct_eval_environment` tests pass, including four executions of those
+two unchanged pinned sources and the zero-iteration/escaped-cell regression.
+The complete repaired replay passes all 198 executions on 2026-09-30, with
+every non-success bucket at zero. Broader integration remains pending. This
+does not close the full control-flow lane.
 
 Environment, reference-adjacent lowering and structured control-flow emitters
 now support substantial lexical scope, closure, loop, destructuring and
@@ -674,3 +757,33 @@ cargo test -p lila-cli wasm_ --quiet
 ```
 
 Run focused real filters for lexical declarations, destructuring, `for-in`, `for-of`, `try`, labels, `with`, global code and closure capture.
+
+
+## 2026-10-03 proposed fresh Script restricted-global lexical admission
+
+The current pinned `language/global-code/decl-lex-restricted-global.js`
+publication records two runtime Bug modes: `let undefined;` incorrectly
+completes instead of throwing `SyntaxError`. Read-only source diagnosis found
+that prepared realm Scripts already validate restricted global descriptors,
+while fresh entry publishes its global lexical table without that check.
+
+The future batch source overlay reuses the closed global initializer descriptor
+projection and the existing runtime `RestrictedProperty` error completion.
+It checks all fresh global lexical names after runtime roots exist and before
+lexical publication, source global declaration installation or body effects.
+It introduces no parsing blacklist or unsupported diagnostic. Configurable
+global shadows and local block/function/eval/Module bindings remain valid.
+
+The [fresh Script contract](../docs/rust-rewrite/contracts/fresh-script-restricted-global-lexicals.md)
+and `aot_fresh_script_global_lexicals` describe the focused regression matrix,
+including the untouched pinned fixture and descriptor/scope/evaluation-order
+controls. This is an uncompiled, unexecuted source proposal for the next
+coherent batch. Current publication counts and T08 acceptance remain unchanged;
+Root integration, compilation, focused/pinned execution and broad verification
+are still required.
+
+### Dry var destructuring Reference correction, 2026-10-03
+
+The source correction routes static/computed object var bindings, array/rest bindings and var loop heads through the existing prepare-target → obtain-value → default → PutValue lifecycle whenever with/eval resolution is observable. A closed ResolvedVarBinding IR arm retains declaration/hoisting information while carrying the write Reference. The existing ordered WithEnvironmentReferencePlan builds a binding-object selection expression before source Get; the backend retains that object and consumes the existing Object Environment PutValue implementation. Repeated var targets preserve their activation/captured declarative position rather than accidentally creating a block cutoff. Lexical InitializeBinding and its TDZ remain separate.
+
+Regression sources cover ordering, selected-object stability, duplicate targets, object/array rest, abrupt HasBinding/unscopables hooks, nested fallback, lexical/captured-function cutoff, loop heads and borrowed direct eval. The exact pinned noStrict witness is language/destructuring/binding/keyed-destructuring-property-reference-target-evaluation-order-with-bindings.js. Source-only rustfmt and closed-consumer checks passed; Cargo and product runtime have not run. No task is closed and no conformance pass is claimed by this dry patch.

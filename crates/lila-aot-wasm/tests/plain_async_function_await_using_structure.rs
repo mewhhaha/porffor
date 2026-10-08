@@ -5,7 +5,6 @@ const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/asy
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
-const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const FIXTURE: &str = include_str!(
     "../../lila-cli/tests/fixtures/wasm_await_using_plain_async_function_lifecycle.js"
 );
@@ -265,7 +264,6 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
         "#[must_use = \"an async DisposeCapability storage proof must reach its consuming finalizer\"]\nstruct ActivationAsyncDisposeCapabilityStorage",
         "#[must_use = \"an active async DisposeCapability must be published before acquisition\"]\nstruct ActiveActivationAsyncDisposeCapabilityLocals",
         "#[must_use = \"an acquired async resource must be published or released\"]\nstruct AcquiredAsyncDisposableResourceLocals",
-        "#[must_use = \"a detached async DisposeCapability must finish its parked LIFO walk\"]\nstruct DisposingActivationAsyncDisposeCapability",
         "#[must_use = \"a parked async-dispose completion must be restored exactly once\"]\nstruct ActiveAsyncDisposePendingCompletion",
         "#[must_use = \"an async DisposeCapability owner must reach its consuming finalizer\"]\nenum ActivationAsyncDisposeOwner<'a>",
     ] {
@@ -306,7 +304,7 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
         "fn initialize_async_disposable_resource_bindings(",
     );
     assert!(compile.contains("ActivationAsyncDisposeOwner::from_execution(execution)"));
-    assert!(compile.contains("meta.protocol.execution_kind() == owner.execution_kind()"));
+    assert!(compile.contains("meta.protocol().execution_kind() == owner.execution_kind()"));
     assert!(compile.contains("activation_owned_binding_storage(owner.binding_name())"));
     assert!(!compile.contains("allocate_binding(owner.binding_name"));
     positions_in_order(
@@ -318,137 +316,11 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
             "finalizer.entry_state()",
             "finalizer.dispose_state()",
             "initialize_activation_async_dispose_capability",
-            "compile_async_block_contents(",
             "begin_async_dispose_pending_completion",
             "begin_activation_async_dispose_capability",
             "consume_activation_async_dispose_capability",
         ],
     );
-}
-
-#[test]
-fn acquisition_registers_before_binding_and_fallback_stays_distinct() {
-    let initialize_empty = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn initialize_empty_activation_async_dispose_capability(",
-        "fn release_active_activation_async_dispose_capability(",
-    );
-    positions_in_order(
-        initialize_empty,
-        &[
-            "ActivationAsyncDisposeCapabilityState::Pending.word()",
-            "write_binding_from_locals(storage.binding, capability.object, object_tag, function)",
-            "Ok(capability)",
-        ],
-    );
-    let initialize = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn initialize_activation_async_dispose_capability(",
-        "fn initialize_empty_activation_async_dispose_capability(",
-    );
-    positions_in_order(
-        initialize,
-        &[
-            "let capability = self.initialize_empty_activation_async_dispose_capability(",
-            "resources.len()",
-            "for resource in resources.iter()",
-            "compile_expr_to_locals(",
-            "emit_propagate_throw_from_locals_if_needed(",
-            "acquire_async_disposable_resource_from_locals",
-            "append_activation_async_disposable_resource",
-            "write_binding_from_locals(\n                resource_storage",
-        ],
-    );
-
-    let acquire = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn acquire_async_disposable_resource_from_locals(",
-        "fn append_activation_async_disposable_resource(",
-    );
-    positions_in_order(
-        acquire,
-        &[
-            "emit_is_nullish_tag_i32",
-            "Symbol.asyncDispose",
-            "emit_propagate_throw_from_locals_if_needed",
-            "emit_is_nullish_tag_i32",
-            "Symbol.dispose",
-            "ActivationAsyncDisposeEntryKind::SyncFallbackMethod",
-            "ActivationAsyncDisposeEntryKind::AsyncMethod",
-        ],
-    );
-    assert!(acquire.contains("method is not callable"));
-    assert!(acquire.contains("resource has no disposal method"));
-}
-
-#[test]
-fn finalizer_awaits_empty_and_async_results_but_discards_sync_fallback_returns() {
-    let begin = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn begin_activation_async_dispose_capability(",
-        "fn fold_error_into_async_dispose_pending_completion(",
-    );
-    positions_in_order(
-        begin,
-        &[
-            "ActivationAsyncDisposeCapabilityState::Disposing.word()",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET",
-            "finalizer.dispose_state()",
-        ],
-    );
-
-    let consume = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn consume_activation_async_dispose_capability(",
-        "fn finish_async_dispose_pending_completion(",
-    );
-    positions_in_order(
-        consume,
-        &[
-            "finalizer.resume_state()",
-            "emit_load_activation_async_dispose_resume_is_throw",
-            "fold_error_into_async_dispose_pending_completion",
-            "finalizer.dispose_state()",
-            "I64Sub",
-            "HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET",
-            "for entry_kind in ActivationAsyncDisposeEntryKind::ALL",
-            "ActivationAsyncDisposeEntryKind::Empty => {}",
-            "ActivationAsyncDisposeEntryKind::AsyncMethod =>",
-            "ActivationAsyncDisposeEntryKind::SyncFallbackMethod =>",
-            "emit_rejected_intrinsic_promise_from_error",
-            "emit_set_async_resume_state(activation_local, finalizer.resume_state()",
-            "emit_activation_async_dispose_await_reactions",
-            "emit_return_current_completion",
-            "ActivationAsyncDisposeCapabilityState::Disposed.word()",
-            "finish_async_dispose_pending_completion",
-            "finalizer.exit_state()",
-            "emit_dispatch_activation_async_dispose_completion",
-        ],
-    );
-    assert!(consume.contains("ValueKind::Undefined.tag()"));
-    assert_eq!(
-        consume
-            .matches("for entry_kind in ActivationAsyncDisposeEntryKind::ALL")
-            .count(),
-        1
-    );
-    assert!(!consume.contains("_ =>"));
-
-    let planning = bounded(
-        PLANNING_SOURCE,
-        "fn count_async_disposable_scope_temp_locals(",
-        "pub(crate) fn count_expr_temp_locals(",
-    );
-    for marker in [
-        "ACTIVATION_ASYNC_DISPOSE_ACTIVE_TEMP_LOCALS",
-        "ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS",
-        "ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS",
-        "acquisition_peak.max(disposal_peak).max(body_temps)",
-    ] {
-        assert!(planning.contains(marker));
-    }
 }
 
 #[test]

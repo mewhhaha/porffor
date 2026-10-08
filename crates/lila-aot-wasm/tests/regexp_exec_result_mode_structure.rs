@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const SOURCE: &str = include_str!("../src/builtins/string.rs");
+const REJECTION_SOURCE: &str = include_str!("../src/builtins/runtime_semantics.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -261,21 +262,21 @@ fn regexp_exec_result_mode_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "RegExpExecResultMode"),
-        21,
-        "the declaration, three typed parameters, fourteen projection arms and three producers own every mention"
+        16,
+        "the declaration, two typed parameters, ten projection arms and three intrinsic producers own every mention"
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "RegExpExecResultMode::MatchArrayOrNull"),
-        9
+        7
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "RegExpExecResultMode::Boolean"),
-        8
+        6
     );
 }
 
 #[test]
-fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
+fn regexp_exec_result_mode_is_forwarded_to_the_sole_compiled_matcher() {
     let lexical_probe = r###"
         // match result_mode { }
         const IGNORED: &str = r#"matchresult_mode{"#;
@@ -307,11 +308,6 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     let program = bounded(
         SOURCE,
         "    fn emit_regexp_exec_program_from_locals(",
-        "    fn emit_regexp_exec_simple_from_locals(",
-    );
-    let simple = bounded(
-        SOURCE,
-        "    fn emit_regexp_exec_simple_from_locals(",
         "    pub(crate) fn emit_concat_string_payloads_local(",
     );
 
@@ -330,15 +326,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
             concat!(
                 "&mutself,receiver_payload_local:u32,receiver_tag_local:u32,",
                 "input_payload_local:u32,last_index_local:u32,result_mode:&RegExpExecResultMode,",
-                "handled_local:u32,payload_local:u32,tag_local:u32,function:&mutFunction,"
-            ),
-        ),
-        (
-            simple,
-            concat!(
-                "&mutself,receiver_payload_local:u32,receiver_tag_local:u32,",
-                "input_payload_local:u32,last_index_local:u32,result_mode:&RegExpExecResultMode,",
-                "handled_local:u32,payload_local:u32,tag_local:u32,function:&mutFunction,"
+                "payload_local:u32,tag_local:u32,function:&mutFunction,"
             ),
         ),
     ] {
@@ -359,18 +347,18 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
         consumers
             .matches("result_mode: &RegExpExecResultMode,")
             .count(),
-        2
+        1
     );
-    assert_eq!(consumers.matches("match result_mode {").count(), 7);
+    assert_eq!(consumers.matches("match result_mode {").count(), 5);
     assert_eq!(
         consumers
             .matches("RegExpExecResultMode::MatchArrayOrNull")
             .count(),
-        7
+        5
     );
     assert_eq!(
         consumers.matches("RegExpExecResultMode::Boolean").count(),
-        7
+        5
     );
     assert!(!consumers.contains("return_boolean"));
     assert!(!consumers.contains(": bool"));
@@ -379,7 +367,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     assert!(!consumers.contains("_ =>"));
     assert!(!consumers.contains("unreachable!"));
 
-    // The seven projections span roughly twenty thousand normalized bytes.
+    // The five retained projections span roughly fifteen thousand normalized bytes.
     // Length plus FNV-1a pins their complete text and order without duplicating
     // the emitter implementation inside this guard.
     let match_bodies = normalized_match_bodies(consumers);
@@ -390,15 +378,13 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     assert_eq!(
         body_fingerprints,
         [
-            (3572, 0xad09_ffd0_9581_0b42),
             (1896, 0x7565_612a_66e6_8697),
             (3810, 0x3825_d41d_a8c9_0680),
             (1651, 0x50c5_fe96_fd50_bd24),
             (829, 0xc103_e8b7_a1ac_03ac),
             (7022, 0x8b27_49b3_f019_9de2),
-            (1255, 0xa0bb_1042_c351_8fe3),
         ],
-        "the wrapper, five program-matcher and simple-matcher projections must retain their exact normalized bodies and global order"
+        "the five compiled-matcher projections retain their complete normalized bodies and order after fallback retirement"
     );
 
     let wrapper = normalized(wrapper);
@@ -408,47 +394,110 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
             .count(),
         1
     );
-    assert_eq!(
-        wrapper
-            .matches("self.emit_regexp_exec_simple_from_locals(")
-            .count(),
-        1
-    );
     let program_call = concat!(
         "self.emit_regexp_exec_program_from_locals(receiver_payload_local,",
-        "receiver_tag_local,input_payload_local,last_index_local,&result_mode,program_handled_local,",
-        "payload_local,tag_local,function,)?;"
-    );
-    let simple_call = concat!(
-        "self.emit_regexp_exec_simple_from_locals(receiver_payload_local,",
-        "receiver_tag_local,input_payload_local,last_index_local,&result_mode,sticky_handled_local,",
+        "receiver_tag_local,input_payload_local,last_index_local,&result_mode,",
         "payload_local,tag_local,function,)?;"
     );
     assert_eq!(wrapper.matches(program_call).count(), 1);
-    assert_eq!(wrapper.matches(simple_call).count(), 1);
-    assert_eq!(wrapper.matches("matchresult_mode{").count(), 1);
-    let final_projection = wrapper.find("matchresult_mode{").unwrap();
+    assert!(!wrapper.contains("matchresult_mode{"));
+    for forbidden in [
+        "emit_regexp_exec_simple_from_locals",
+        "program_handled_local",
+        "sticky_handled_local",
+    ] {
+        assert!(
+            !SOURCE.contains(forbidden),
+            "retired exec route: {forbidden}"
+        );
+    }
+    let to_length = wrapper
+        .find("self.emit_to_length_i64_from_value_locals_with_abrupt_route(")
+        .expect("lastIndex must be converted before the compiled matcher");
     assert!(
-        wrapper.find(program_call).unwrap() < wrapper.find(simple_call).unwrap()
-            && wrapper.find(simple_call).unwrap() < final_projection,
-        "the borrowed authority must reach program then simple matcher before the wrapper consumes it"
+        to_length < wrapper.find(program_call).unwrap(),
+        "the matcher borrows the result authority only after observable ToLength"
     );
+
+    let rejection = lexically_normalized(REJECTION_SOURCE);
+    assert!(rejection.contains(concat!(
+        "function.instruction(&Instruction::I64Const(rejection.abi_code()));",
+        "function.instruction(&Instruction::Call(self.functions.",
+        "reject_runtime_semantics_import_function_index(),));",
+        "function.instruction(&Instruction::Unreachable);"
+    )));
 }
 
 #[test]
-fn exactly_three_producers_choose_their_named_result_modes() {
+fn exactly_three_intrinsic_producers_choose_their_named_result_modes() {
+    let regexp_exec = bounded(
+        SOURCE,
+        "    fn emit_regexp_exec_from_locals(",
+        "    pub(crate) fn emit_regexp_prototype_symbol_match_builtin(",
+    );
+    assert_eq!(
+        regexp_exec
+            .matches("RegExpExecResultMode::MatchArrayOrNull")
+            .count(),
+        1
+    );
+    assert!(!regexp_exec.contains("RegExpExecResultMode::Boolean"));
+    let regexp_exec = normalized(regexp_exec);
+    let callable = regexp_exec
+        .find("self.emit_is_callable_i32(exec_tag_local,exec_payload_local,function)?;")
+        .unwrap();
+    let call = regexp_exec
+        .find(concat!(
+            "self.emit_function_or_proxy_call_leave_throw_completion(exec_payload_local,",
+            "exec_tag_local,receiver_payload_local,receiver_tag_local,",
+            "&[(input_payload_local,input_tag_local)],payload_local,tag_local,function,)?;"
+        ))
+        .unwrap();
+    let propagation = regexp_exec
+        .find("self.emit_propagate_throw_from_locals_if_needed(payload_local,tag_local,function)?;")
+        .unwrap();
+    let null_check = regexp_exec
+        .find("Instruction::I64Const(ValueKind::Null.tag()asi64)")
+        .unwrap();
+    let object_check = regexp_exec
+        .find("self.emit_is_heap_object_like_tag_i32(tag_local,function);")
+        .unwrap();
+    let type_error = regexp_exec
+        .find("self.emit_throw_current_function_realm_type_error(")
+        .unwrap();
+    let fallback = regexp_exec
+        .find(concat!(
+            "Instruction::Else);self.emit_regexp_prototype_exec_from_locals(",
+            "receiver_payload_local,receiver_tag_local,input_payload_local,input_tag_local,",
+            "RegExpExecResultMode::MatchArrayOrNull,payload_local,tag_local,function,)?;"
+        ))
+        .unwrap();
+    assert!(callable < call && call < propagation && propagation < null_check);
+    assert!(null_check < object_check && object_check < type_error && type_error < fallback);
+    assert_eq!(
+        regexp_exec
+            .matches("self.emit_function_or_proxy_call_leave_throw_completion(")
+            .count(),
+        1
+    );
+    assert!(
+        !regexp_exec.contains("self.emit_object_read("),
+        "the abstract operation consumes the already-read exec value"
+    );
+
     let symbol_match = bounded(
         SOURCE,
         "    pub(crate) fn emit_regexp_prototype_symbol_match_builtin(",
         "    pub(crate) fn emit_regexp_prototype_symbol_match_all_builtin(",
     );
+    assert!(!symbol_match.contains("RegExpExecResultMode"));
     assert_eq!(
         symbol_match
-            .matches("RegExpExecResultMode::MatchArrayOrNull")
+            .matches("self.emit_regexp_exec_from_locals(")
             .count(),
-        1
+        2,
+        "global and non-global @@match both use the same cached-exec abstract operation"
     );
-    assert!(!symbol_match.contains("RegExpExecResultMode::Boolean"));
 
     let exec = bounded(
         SOURCE,

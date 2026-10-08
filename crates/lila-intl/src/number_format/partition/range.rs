@@ -246,7 +246,7 @@ impl Endpoint<'_> {
 pub fn partition_number_range(
     configuration: &NumberFormatConfiguration,
     range: &NumberRange,
-    profiles: &NumberProfiles,
+    profiles: &Arc<NumberProfiles>,
     limits: &PartitionLimits,
 ) -> Result<RangeNumberPartition, NumberFormatKernelError> {
     let context = FormatContext::new(configuration, profiles, limits)?;

@@ -1,11 +1,38 @@
 # Proxy `[[PreventExtensions]]` request and completion contract
 
-Status: selected implementation contract for the bounded T11
-`[[PreventExtensions]]` batch at Lila commit `f77ec3c2a`.
+Status: request/completion ownership is retained. The 2026-10-04 Realm
+follow-up is authored source; current compilation/runtime acceptance is pending.
+The original bounded contract and evidence at commit `f77ec3c2a` remain scoped
+to that historical source.
 
-## Evidence boundary
+## Trusted operation Realm — 2026-10-04 dry source
 
-The current vendored Test262 tree has content identity
+The real outlined PreventExtensions helper receives the outer operation's
+trusted Proxy execution Realm context in parameter6, installs it in the existing
+current-environment local and forwards it through recursive delegation, handler
+Get, trap dispatch and target IsExtensible. The existing closed source
+projections admit the three traversal helpers; scalar signature and request
+roles remain unchanged. Revocation/noncallable/extensible-target native errors
+use that trusted Realm and retain active-handler abrupt routing. Arbitrary
+trap/getter thrown values are preserved.
+
+A false trap result skips target IsExtensible. Reflect.preventExtensions returns
+false; Object.preventExtensions throws a TypeError selected from the actual
+called builtin's defining Realm. Its primitive-return behavior is unchanged.
+Successful Reflect returns true and successful Object returns its original
+object. No mutable public constructor determines those native errors.
+
+The two finite strict/sloppy Engine fixtures for prototype/extensibility helper
+Realms cover both Object/Reflect consumer pairs in both borrowed Realm
+directions. They assert recursive errors, original foreign marker identity,
+prior assignment/finally effects, false-result policy and successful target
+mutation/return identity. Mutable foreign globals are clobbered after saving
+native identities. Controls are authored and unexecuted; current source has not
+been compiled or run. Full T11 and semantic GC remain open.
+
+## Historical evidence boundary
+
+The vendored Test262 tree at the original checkpoint had content identity
 `aa55200d1310384c5cf69ea95b2a2ecba457007b`. Its
 `built-ins/Proxy/preventExtensions` leaf contains 12 physical files and 23
 execution identities. This batch owns exactly one physical file and one Module
@@ -15,13 +42,14 @@ execution:
 built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js
 ```
 
-The current harness does not execute that source honestly. It recognizes the
-exact path in `rewrite_proxy_prevent_extensions_case` and replaces its
+That historical harness did not execute the source honestly. It recognized the
+exact path in `rewrite_proxy_prevent_extensions_case` and replaced its
 self-imported module namespace with an ordinary non-extensible object. The
 recorded one-case success snapshot and the older path-counted leaf result are
 therefore materialized evidence, not proof of the product operation. This
-batch removes that one rewrite after the product path accepts the original
-source.
+batch's original requirement was to remove the rewrite once the product path
+accepted the original source. These older materialized counts are not current
+acceptance evidence.
 
 ## Normative lifecycle
 
@@ -92,8 +120,8 @@ trap result and normal trap result implement no clone, copy, debug, default,
 comparison, ordering or hashing capability. Their only usable surface is the
 one-way construction and consumption lifecycle.
 
-The normal-completion transition, normal-result consumer and recursive
-traversal bodies remain byte-identical at
+At the historical Batch Y checkpoint, the normal-completion transition,
+normal-result consumer and recursive traversal bodies were byte-identical at
 `08ec7efc44446238a2faa8a34163b212cad3de76427bc5d35dfb9c5429979616`,
 `158d5fa2f9ce31871ac1e711310b1167a126671eaa5d095a2470b04261de8c38`
 and `ffbac884ee4acaee1567677169776c5ad4417b9b182df24c9b3d4d356e4b5c5a`.

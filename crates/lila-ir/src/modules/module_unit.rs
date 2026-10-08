@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::{BlockIr, FunctionIr, ModuleNamespaceModeIr, OwnedEnvBindingIr};
 
 use super::namespace::ModuleNamespaceIr;
-use super::record::SourceTextModuleRecordIr;
+use super::record::ModuleRecordIr;
 use super::resolved_binding::ResolvedBindingIr;
 
 /// One module of the graph: its record, its source, and the lowered artifacts
@@ -11,7 +11,7 @@ use super::resolved_binding::ResolvedBindingIr;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleUnitIr {
     /// Static entry tables for this module.
-    pub record: SourceTextModuleRecordIr,
+    pub record: ModuleRecordIr,
     /// The module source text, kept so the lowerer can slice spans from it.
     pub source_text: String,
     /// Value `import.meta.url` reports.

@@ -1,118 +1,73 @@
 use super::*;
+use crate::functions::ArgumentListConstruction;
 
-#[must_use = "the prepared AggregateError must be finalized with its errors list"]
-pub(super) struct PreparedAggregateErrorLocal {
-    object: u32,
-}
+/// Message and cause processing is complete before IteratorToList begins.
+#[must_use]
+pub(super) struct PreparedAggregateErrorLocal(constructor::PreparedNativeErrorInstance);
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn emit_prepare_aggregate_error_instance(
         &mut self,
-        prototype_payload_local: u32,
-        message_arg_payload_local: u32,
-        message_arg_tag_local: u32,
+        prototype: &ValueLocals,
+        message: &ValueLocals,
         function: &mut Function,
     ) -> Result<PreparedAggregateErrorLocal, EmitError> {
-        let object_local = self.reserve_temp_local();
-        let message_payload_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(message_arg_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(
-            message_arg_payload_local,
-            message_arg_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(message_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
-            object_local,
-            key_local,
-            message_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
+        let instance = self.emit_prepare_native_error_instance(prototype, function)?;
+        let message =
+            self.emit_install_optional_error_message(instance.header(), message, function)?;
         self.emit_install_error_cause_from_arg(
-            object_local,
+            instance.header(),
             ErrorCauseOptionsArgument::AggregateError,
             function,
         )?;
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(message_payload_local);
-        Ok(PreparedAggregateErrorLocal {
-            object: object_local,
-        })
-    }
-
-    pub(super) fn emit_prepare_promise_any_aggregate_error_instance(
-        &mut self,
-        prototype_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<PreparedAggregateErrorLocal, EmitError> {
-        let object_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-        Ok(PreparedAggregateErrorLocal {
-            object: object_local,
-        })
+        message.clear(function);
+        Ok(PreparedAggregateErrorLocal(instance))
     }
 
     pub(super) fn emit_finish_aggregate_error_instance(
         &mut self,
         prepared: PreparedAggregateErrorLocal,
-        errors_payload_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        errors: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let PreparedAggregateErrorLocal {
-            object: object_local,
-        } = prepared;
-        let key_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("errors")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
-            object_local,
-            key_local,
-            errors_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(object_local);
+        self.emit_append_error_data(prepared.0.header(), "errors", errors, function)?;
+        prepared.0.publish(self, result, function);
         Ok(())
+    }
+
+    /// IteratorToList uses the checked shared GetIterator/IteratorStepValue
+    /// owners. Protocol and value abrupts propagate directly, without Close.
+    /// The compiler List becomes a JS Array only after the terminal step, in
+    /// the called constructor's Realm independently of the chosen NewTarget.
+    pub(super) fn emit_aggregate_error_iterable_to_list(
+        &mut self,
+        source: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<GcLocal<ArrayObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let iterator =
+            self.emit_get_sync_iterator(source, SyncIteratorConsumer::AggregateError, function)?;
+        let list = ArgumentListConstruction::new(schema, function);
+        let done = schema.reserve_i32_local(function);
+        let value = schema.reserve_value_local(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        let repeat = self.open_frame(ControlFrameKind::Loop, function);
+        self.emit_sync_iterator_step_value(&iterator, done, &value, function)?;
+        done.load(function);
+        self.emit_branch_if_to_target(exit, function);
+        list.append(&value, schema, function);
+        self.emit_branch_to_target(repeat, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        value.clear(function);
+        schema.release_i32_local(done, function);
+        let values = list.finish(self, function);
+        let array = self.emit_array_from_argument_list(&values, function)?;
+        values.clear(function);
+        iterator.clear(function);
+        Ok(array)
     }
 }

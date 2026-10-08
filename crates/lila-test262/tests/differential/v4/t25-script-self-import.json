@@ -1,0 +1,32 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/script-self-import",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "script",
+      "identity": "entry.js",
+      "source": "globalThis.bodyCount = 1;\nvar key = 'self';\nconst first = import(key), second = import(key);\nif (first === second || bodyCount !== 1) throw 'promise freshness or eager evaluation';\nPromise.all([first, second]).then(async namespaces => {\n  const later = await import(key);\n  if (namespaces[0] !== namespaces[1] || later !== namespaces[0] || bodyCount !== 2 || later.rootThis !== undefined) throw 'source goal identity';\n  print('embedded-script-self:2');\n});\n262;\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "entry.js",
+        "source": "globalThis.bodyCount++; export const rootThis = this;",
+        "meta_url": "lila://entry.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "script",
+          "identity": "entry.js"
+        },
+        "specifier": "self",
+        "attributes": [],
+        "target": "entry.js"
+      }
+    ]
+  }
+}

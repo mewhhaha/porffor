@@ -3,9 +3,9 @@ use super::*;
 
 impl Locale {
     pub(super) fn from_raw(
-        mut raw: raw::Locale,
+        raw: raw::Locale,
         digits: &BTreeMap<String, [char; 10]>,
-        algorithmic: &BTreeMap<String, Vec<String>>,
+        pools: &mut pools::Pools,
     ) -> Result<Self, DateTimeFormatError> {
         let identifier = CanonicalLocaleId::from_data(raw.locale.clone())
             .map_err(|_| invalid("invalid profile locale"))?;
@@ -51,25 +51,10 @@ impl Locale {
             .copied()
             .find(|cycle| !cycle.is_twelve_hour())
             .ok_or_else(|| invalid("missing twenty-four-hour preference"))?;
-        let decimal = symbol_table(raw.decimal_separators, digits)?;
-        let minus = symbol_table(raw.minus_signs, digits)?;
-        let gregorian = Calendar::from_raw(
-            raw.calendars
-                .remove("gregorian")
-                .ok_or_else(|| invalid("missing Gregorian patterns"))?,
-            digits,
-            algorithmic,
-        )?;
-        let chinese = Calendar::from_raw(
-            raw.calendars
-                .remove("chinese")
-                .ok_or_else(|| invalid("missing Chinese patterns"))?,
-            digits,
-            algorithmic,
-        )?;
-        if !raw.calendars.is_empty() {
-            return Err(invalid("unexpected calendar profile"));
-        }
+        let numbering = pools.numbering_for_locale(&raw.default_numbering, digits);
+        let decimal = symbol_table(raw.decimal_separators, &numbering)?;
+        let minus = symbol_table(raw.minus_signs, &numbering)?;
+        let records = pools.for_locale(raw.calendar_refs, raw.zone_name_ref, default_calendar)?;
         Ok(Self {
             identifier,
             territory: raw.territory,
@@ -81,40 +66,39 @@ impl Locale {
             hour_cycle12,
             hour_cycle24,
             periods: PeriodRules::from_raw(raw.day_period_rules)?,
-            gregorian,
-            chinese,
-            zones: raw.zone_names,
+            first_weekday: raw.first_weekday,
+            calendars: records.calendars,
+            zones: records.zones,
         })
     }
 }
 
 fn symbol_table(
     rows: Vec<(String, String)>,
-    digits: &BTreeMap<String, [char; 10]>,
+    numbering: &BTreeSet<String>,
 ) -> Result<BTreeMap<String, String>, DateTimeFormatError> {
     let mut table = BTreeMap::new();
     for (identifier, value) in rows {
         if value.is_empty()
-            || !digits.contains_key(&identifier)
+            || !numbering.contains(&identifier)
             || table.insert(identifier, value).is_some()
         {
             return Err(invalid("invalid localized numeric symbol"));
         }
     }
-    if table.len() != digits.len() {
+    if table.len() != numbering.len() {
         return Err(invalid("incomplete localized numeric symbols"));
     }
     Ok(table)
 }
 
 impl Calendar {
-    fn from_raw(
+    pub(super) fn from_raw(
         mut raw: raw::Calendar,
         digits: &BTreeMap<String, [char; 10]>,
-        algorithmic: &BTreeMap<String, Vec<String>>,
+        algorithmic: &BTreeMap<String, AlgorithmicField>,
     ) -> Result<Self, DateTimeFormatError> {
-        if !matches!(raw.calendar.as_str(), "gregorian" | "chinese")
-            || raw.available.is_empty()
+        if raw.available.is_empty()
             || raw.intervals.is_empty()
             || raw.excluded_non_ecma_formats.iter().any(|row| {
                 row.path.is_empty()
@@ -152,6 +136,7 @@ impl Calendar {
             available.push(
                 pattern(
                     raw::Pattern {
+                        range_pattern: row.range_pattern,
                         source: row.source,
                         tokens: row.tokens,
                         numbering_overrides: row.numbering_overrides,
@@ -173,6 +158,7 @@ impl Calendar {
             }
             let pattern = pattern(
                 raw::Pattern {
+                    range_pattern: None,
                     source: row.source,
                     tokens: row.tokens,
                     numbering_overrides: row.numbering_overrides,
@@ -219,7 +205,8 @@ impl Calendar {
             });
         }
         Ok(Self {
-            names: FieldNames::from_raw(raw.names)?,
+            kind: raw.calendar,
+            names: FieldNames::from_raw(raw.names, raw.calendar)?,
             styles: styles
                 .try_into()
                 .map_err(|_| invalid("invalid style count"))?,
@@ -235,14 +222,16 @@ impl Calendar {
 fn numbering(
     rows: Vec<raw::NumberingOverride>,
     digits: &BTreeMap<String, [char; 10]>,
-    algorithmic: &BTreeMap<String, Vec<String>>,
+    algorithmic: &BTreeMap<String, AlgorithmicField>,
 ) -> Result<Vec<(Option<char>, String)>, DateTimeFormatError> {
     let mut keys = BTreeSet::new();
     let mut result = Vec::new();
     for row in rows {
         if !keys.insert(row.field)
             || (!digits.contains_key(&row.numbering)
-                && !(row.field == Some('d') && algorithmic.contains_key(&row.numbering)))
+                && !algorithmic
+                    .get(&row.numbering)
+                    .is_some_and(|kind| kind.admits(row.field)))
         {
             return Err(invalid("unsupported pattern numbering override"));
         }
@@ -254,7 +243,7 @@ fn numbering(
 fn pattern(
     raw: raw::Pattern,
     digits: &BTreeMap<String, [char; 10]>,
-    algorithmic: &BTreeMap<String, Vec<String>>,
+    algorithmic: &BTreeMap<String, AlgorithmicField>,
 ) -> Result<Pattern, DateTimeFormatError> {
     if raw.source.is_empty() {
         return Err(invalid("empty source pattern"));
@@ -272,13 +261,22 @@ fn pattern(
     if !tokens.iter().any(|token| matches!(token, Token::Field(_))) {
         return Err(invalid("pattern has no date/time field"));
     }
-    Ok(Pattern::new(
+    let primary = Pattern::new(
         tokens,
         numbering(raw.numbering_overrides, digits, algorithmic)?,
-    ))
+    );
+    match raw.range_pattern {
+        Some(companion) => {
+            if companion.range_pattern.is_some() {
+                return Err(invalid("nested range endpoint companion"));
+            }
+            primary.with_range_pattern(pattern(*companion, digits, algorithmic)?)
+        }
+        None => Ok(primary),
+    }
 }
 fn glue(raw: raw::Pattern) -> Result<Glue, DateTimeFormatError> {
-    if raw.source.is_empty() || !raw.numbering_overrides.is_empty() {
+    if raw.source.is_empty() || !raw.numbering_overrides.is_empty() || raw.range_pattern.is_some() {
         return Err(invalid("invalid connector source"));
     }
     let mut tokens = Vec::new();

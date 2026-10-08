@@ -1,0 +1,25 @@
+function require(value, message) { if (!value) throw message; }
+var publicNames = Intl.Collator.supportedLocalesOf(['de-CH', 'sv', 'de', 'fr', 'en-US']);
+require(publicNames.join(',') === 'de-CH,sv,en-US', 'selected Collator public domain');
+require(new Intl.Collator('fr').resolvedOptions().locale === 'en-US', 'excluded Collator fallback');
+require(new Intl.Collator('de-CH-x-private').resolvedOptions().locale === 'de-CH', 'public lookup prefix');
+var sort = new Intl.Collator('de-CH');
+var search = new Intl.Collator('de-CH', { usage: 'search' });
+require(sort.compare('AE', 'Ä') > 0, 'genuine default sort');
+require(search.compare('AE', 'Ä') < 0, 'genuine search');
+require(new Intl.Collator('de-CH', { collation: 'PHONEBK', sensitivity: 'base' }).compare('AE', 'Ä') === 0, 'phonebook canonical option');
+require(sort.compare('é', 'e\u0301') === 0, 'selected NFD canonical equivalence');
+var numeric = new Intl.Collator('de-CH-u-kn', { ignorePunctuation: true });
+require(numeric.compare('a-2', 'a10') < 0, 'conditional numeric shifted data');
+require(new Intl.Collator('sv').compare('z', 'å') < 0, 'Swedish tailoring');
+require(new Intl.Collator('en-US').compare('\ud800', '\ufffd') === 0, 'original UTF16 units');
+require(new Intl.Locale('de').getCollations().indexOf('phonebk') >= 0, 'excluded Locale keeps private preference authority');
+require(new Intl.Locale('qaa').getCollations().join(',') === 'emoji,eor', 'actual root preferences');
+var values = Intl.supportedValuesOf('collation');
+require(values.indexOf('phonebk') >= 0 && values.indexOf('search') < 0, 'selected admitted sort union');
+var original = values.join(',');
+values[0] = 'changed';
+require(Intl.supportedValuesOf('collation').join(',') === original, 'supportedValues fresh array');
+require('a-2'.localeCompare('a10', 'de-CH', { numeric: true, ignorePunctuation: true }) < 0, 'selected String locale consumer');
+console.log('intl-collator-projection:ok');
+262;

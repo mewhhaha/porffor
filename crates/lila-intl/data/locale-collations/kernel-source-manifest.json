@@ -1,0 +1,561 @@
+{
+  "data": [
+    {
+      "bytes": 6888,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_diacritics_v1.rs.data",
+      "sha256": "4b27db34685d29336dd6e966306da3d053051b72a4486beb45d99379430689d2"
+    },
+    {
+      "bytes": 6627,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_jamo_v1.rs.data",
+      "sha256": "899f8aeebd985eae7ee46aae077cecec133d9f4cfc2737511075bb706a3ddac2"
+    },
+    {
+      "bytes": 7278,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_metadata_v1.rs.data",
+      "sha256": "6c14621f6b5296e37072b0870cef5e1c2258e613717c693eff25309e735c52c6"
+    },
+    {
+      "bytes": 36173,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_reordering_v1.rs.data",
+      "sha256": "25ca5b127b865ef3e2a74e6c7a0563166acc85416aaf577f8d169e9a13ff1dc9"
+    },
+    {
+      "bytes": 388642,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_root_v1.rs.data",
+      "sha256": "0b7fad9d9a66ee4c8d3f81b1d34ca2c1bdd8e6b09efd9009083f277fdefb75e7"
+    },
+    {
+      "bytes": 4138,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_special_primaries_v1.rs.data",
+      "sha256": "fd8a112f960e85fc2a5a49ab4fcd520a3f476758803fc99bdf466afae3e814d8"
+    },
+    {
+      "bytes": 3122758,
+      "path": "crates/lila-intl-collator-data/src/generated/collation_tailoring_v1.rs.data",
+      "sha256": "4e401c5f9c8dd104e665d884c8172b5fc85643d6e6eafff5b4498a40d574d8b1"
+    },
+    {
+      "bytes": 2033,
+      "path": "crates/lila-intl-collator-data/src/generated/mod.rs",
+      "sha256": "2f7c390bcfeb3bf4f2ac333abf074a3c11fafd5f624779c26a94ac8483e679d6"
+    },
+    {
+      "bytes": 71288,
+      "path": "crates/lila-intl-collator-data/src/generated/normalizer_nfd_data_v1.rs.data",
+      "sha256": "9d979382310c61cbf6dea570a19b53fbcad493a2824191e67ba8195ba41526ce"
+    },
+    {
+      "bytes": 10924,
+      "path": "crates/lila-intl-collator-data/src/generated/normalizer_nfd_tables_v1.rs.data",
+      "sha256": "ed4a3ca76c51d513fbd21bbb46e5c89c1a8d828999bcab3b54159bb5ea1c67e6"
+    },
+    {
+      "bytes": 5791555,
+      "path": "crates/lila-intl/data/collator-icu-2/icuexportdata_icu4x-2025-05-01-77.x.zip",
+      "sha256": "e5dae398d77a31ee7fcd86e4b35041cf9bf4643c694794629fc7c5dca76d9c6b"
+    },
+    {
+      "bytes": 9251,
+      "path": "crates/lila-intl/data/collator-icu-2/manifest.json",
+      "sha256": "a7d8e3c73c8efda0d52d9277f9aaa5581200685258125c3ebe6897c007c5a9f4"
+    },
+    {
+      "bytes": 7792,
+      "path": "crates/lila-intl/data/collator-icu-2/source-inputs.json",
+      "sha256": "4d8fe5b9a1afb8eff2b0d6f9376a0dc44b774f9fdad586652c74a2aaf6d0ca5c"
+    },
+    {
+      "bytes": 2200270,
+      "path": "crates/lila-intl/data/collator-icu-2/sources.tar.gz",
+      "sha256": "65084de81b21618bc314f37b258660b9d2c51e2762a3b758d737555d32ee958b"
+    },
+    {
+      "bytes": 552,
+      "path": "crates/lila-intl/data/number-cldr-47/payload-manifest.json",
+      "sha256": "eecc4c6f868a7307ca89fd7fb38d17c3c80d00e7f84ac5cb3c7185157ab45928"
+    },
+    {
+      "bytes": 6091829,
+      "path": "crates/lila-intl/data/number-cldr-47/profiles.bin",
+      "sha256": "d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254"
+    },
+    {
+      "bytes": 1311220,
+      "path": "crates/lila-intl/data/number-cldr-47/profiles.json.gz",
+      "sha256": "6b9107038f5891fa2585aa99aecedfc5f8f898e80b011cfb74aeb0f721d7fe12"
+    },
+    {
+      "bytes": 412691,
+      "path": "crates/lila-intl/data/number-cldr-47/source-manifest.json",
+      "sha256": "582f922168284a76255554a4b74c6200f0e954853ef2eaf49bceb393a2d48b49"
+    }
+  ],
+  "domain": "lila-locale-collations-native-v1",
+  "excluded": [
+    "standard",
+    "search",
+    "searchjl"
+  ],
+  "formatting_DefaultLocale_selection": false,
+  "global_union_selection": false,
+  "kernel_sha256": "d4d16079ba723783dd66a35c0b9f5d1bb33323776368aeacb1164e5c83a184f0",
+  "locale_independent_profile_admission": {
+    "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
+    "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
+    "profiles": [
+      {
+        "actual_profile_sha256": "b08ba774b827255426686f4a376ab1b8d29a9a7c60556a8f4798fb7b88fee30d",
+        "collation": "emoji",
+        "constructor_configurations": 49,
+        "default_consumed_loads": [
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationRootV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "NormalizerNfdDataV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "NormalizerNfdTablesV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationJamoV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationMetadataV1",
+            "requested_attributes": "emoji",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationDiacriticsV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          }
+        ],
+        "locale": "und",
+        "metadata_bits": 1
+      },
+      {
+        "actual_profile_sha256": "4e388568de158ba7a06628d33bbc43fd9cdeee1b170ad2e740ceb2464333c594",
+        "collation": "eor",
+        "constructor_configurations": 49,
+        "default_consumed_loads": [
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationRootV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "NormalizerNfdDataV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "NormalizerNfdTablesV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationJamoV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationMetadataV1",
+            "requested_attributes": "eor",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          },
+          {
+            "internal_locale_fallback": false,
+            "marker": "CollationDiacriticsV1",
+            "requested_attributes": "",
+            "requested_locale": "und",
+            "returned_locale": "und"
+          }
+        ],
+        "locale": "und",
+        "metadata_bits": 1
+      }
+    ]
+  },
+  "producer_checks": "read-only historical genuine export/constructor ancestry; no new Cargo reexport or runtime admission",
+  "production_sources": [
+    {
+      "bytes": 75241,
+      "path": "Cargo.lock",
+      "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+    },
+    {
+      "bytes": 3208,
+      "path": "Cargo.toml",
+      "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+    },
+    {
+      "bytes": 80091,
+      "path": "crates/lila-aot-wasm/src/emit.rs",
+      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+    },
+    {
+      "bytes": 80996,
+      "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+    },
+    {
+      "bytes": 33617,
+      "path": "crates/lila-engine/src/intl_data_images.rs",
+      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+    },
+    {
+      "bytes": 16823,
+      "path": "crates/lila-engine/src/wasm_gc_intl_host.rs",
+      "sha256": "706e7e9284afc7c2833925bf516866eb1509ffb7b772b14d3255d0b9680e3af1"
+    },
+    {
+      "bytes": 898,
+      "path": "crates/lila-intl-collator-data/Cargo.toml",
+      "sha256": "1226b55d7619167cd21b31aba5dc7f13ae88099c3f72b6700b10510c47b07482"
+    },
+    {
+      "bytes": 1672,
+      "path": "crates/lila-intl-collator-data/src/baked.rs",
+      "sha256": "d82774705a9d794405855d8a3b223c5dbf8b7fcf0285af6961db44a831abb50e"
+    },
+    {
+      "bytes": 495,
+      "path": "crates/lila-intl-collator-data/src/lib.rs",
+      "sha256": "3ecc9ae66c1ce7b3c5aa46a62cb944747487d29acd1978c46e8bd20538a03978"
+    },
+    {
+      "bytes": 3178,
+      "path": "crates/lila-intl/Cargo.toml",
+      "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+    },
+    {
+      "bytes": 2580,
+      "path": "crates/lila-intl/build.rs",
+      "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+    },
+    {
+      "bytes": 14542,
+      "path": "crates/lila-intl/data/collator-icu-2/locale-inventory.json",
+      "sha256": "f409cb88343d020b5986e21fe43571d1badf7b8e842cfaa8b1170217460bfab5"
+    },
+    {
+      "bytes": 7984,
+      "path": "crates/lila-intl/src/collator.rs",
+      "sha256": "7fd714063eea44b9d53ed51515d0e598359361e22d7b570395b46f7cb72c2b5e"
+    },
+    {
+      "bytes": 324,
+      "path": "crates/lila-intl/src/collator/identity.rs",
+      "sha256": "bffa519e9e5754372f25a2b73e39e8d8363c5e1786b659dd60bedbd0cf58082a"
+    },
+    {
+      "bytes": 31472,
+      "path": "crates/lila-intl/src/collator/profiles.rs",
+      "sha256": "4d52479510a011a9afd61e1fd4312b251a99411305a776e3acdac8ffd91ddbc2"
+    },
+    {
+      "bytes": 3603,
+      "path": "crates/lila-intl/src/collator/profiles/preferences.rs",
+      "sha256": "fd71eeac3b7928130c6b57bf970f0b10abc9db33e74c154793c3168bd1128a01"
+    },
+    {
+      "bytes": 15387,
+      "path": "crates/lila-intl/src/collator_image.rs",
+      "sha256": "e92ea37943f6eaccddf801a0ae609f42a010a8ef6b8c0092761ce187175de5bf"
+    },
+    {
+      "bytes": 10472,
+      "path": "crates/lila-intl/src/collator_image/projection.rs",
+      "sha256": "8e0e0be6c581f1cf203a4f8d9bc70505f750b4f2f6378b304b04f4275cba3291"
+    },
+    {
+      "bytes": 4953,
+      "path": "crates/lila-intl/src/collator_image/projection/rows.rs",
+      "sha256": "a14fcaab39a39cfe18b80fbd35d2c9d57d343e3a87ff5248712bb31452100bd6"
+    },
+    {
+      "bytes": 12094,
+      "path": "crates/lila-intl/src/collator_protocol.rs",
+      "sha256": "24c6b65bb07848726ab6667dd062a26234a271a2c90a908737c7a0c87cfb04af"
+    },
+    {
+      "bytes": 8388,
+      "path": "crates/lila-intl/src/identifiers.rs",
+      "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
+    },
+    {
+      "bytes": 10333,
+      "path": "crates/lila-intl/src/image.rs",
+      "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+    },
+    {
+      "bytes": 2712,
+      "path": "crates/lila-intl/src/image_build/collator.rs",
+      "sha256": "6ee235a2af1d2ce811c392641a4da657bb09f1f25b193d02997500d2dd4355f5"
+    },
+    {
+      "bytes": 1366,
+      "path": "crates/lila-intl/src/image_build/keyword.rs",
+      "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+    },
+    {
+      "bytes": 1473,
+      "path": "crates/lila-intl/src/image_build/locale.rs",
+      "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+    },
+    {
+      "bytes": 41350,
+      "path": "crates/lila-intl/src/lib.rs",
+      "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+    },
+    {
+      "bytes": 6504,
+      "path": "crates/lila-intl/src/locale_image.rs",
+      "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+    },
+    {
+      "bytes": 13601,
+      "path": "crates/lila-intl/src/locale_information_wire.rs",
+      "sha256": "a9e496c66ff718f1de05d2a42910f6bb10ca5c7a911dcd2b75a74c866d787b4c"
+    },
+    {
+      "bytes": 13922,
+      "path": "crates/lila-intl/src/number_format/configuration.rs",
+      "sha256": "6767e6bd194b7e3543ebeeeccf733fd31e67700f14e4d1c5ee3292711178758f"
+    },
+    {
+      "bytes": 1473,
+      "path": "crates/lila-intl/src/number_format/mod.rs",
+      "sha256": "a6e6381f9d103098a4efc906aad864b9169a8612387dae27592a3c31ef1c5d3c"
+    },
+    {
+      "bytes": 2358,
+      "path": "crates/lila-intl/src/number_format/numeric/digits.rs",
+      "sha256": "2faa87f60e41177ede509533570a2a8c201b3127bb993b2966d054c5a6067303"
+    },
+    {
+      "bytes": 5228,
+      "path": "crates/lila-intl/src/number_format/numeric/mod.rs",
+      "sha256": "82374bb5ffe4e67434ec94d61dc42f6ca052af0f605fff297d1add14183e95f8"
+    },
+    {
+      "bytes": 7559,
+      "path": "crates/lila-intl/src/number_format/numeric/notation.rs",
+      "sha256": "141232279f2d675845175a079efdddbfcfa5dd697a979941479b81d79e54ced9"
+    },
+    {
+      "bytes": 15121,
+      "path": "crates/lila-intl/src/number_format/numeric/parse.rs",
+      "sha256": "e78e13d0db3b057ea51e613f6a17e18f6d3bc91dfd2e226ee57e28d645b3a2da"
+    },
+    {
+      "bytes": 1298,
+      "path": "crates/lila-intl/src/number_format/numeric/parse/thresholds.rs",
+      "sha256": "9c9975b414b0d83044a18ebd896d6d95e5af67eb43116dd449d86e6af1a194e4"
+    },
+    {
+      "bytes": 8600,
+      "path": "crates/lila-intl/src/number_format/numeric/plural.rs",
+      "sha256": "9a2c09d2f8962c103a9e45e95f99101bf7ca6c89623384edb07335f2f19bb27d"
+    },
+    {
+      "bytes": 2507,
+      "path": "crates/lila-intl/src/number_format/numeric/resource.rs",
+      "sha256": "cf253f03853072b37972f7f4b21383f3fb95b0d409e6b3bbfdee7731b215f877"
+    },
+    {
+      "bytes": 12716,
+      "path": "crates/lila-intl/src/number_format/numeric/round.rs",
+      "sha256": "c10b47ee9d85e31fa963d3ababcf1d58a34db2214b4f8daf6aacb21ebdea489f"
+    },
+    {
+      "bytes": 10689,
+      "path": "crates/lila-intl/src/number_format/options.rs",
+      "sha256": "437cbf8d466ad052235af19fe6d99f8990ba1ae51dc79bc63b407decd5ba93ad"
+    },
+    {
+      "bytes": 3604,
+      "path": "crates/lila-intl/src/number_format/partition/buffer.rs",
+      "sha256": "773a01cb40071d0225d732dbc9573d5c5535b211899cac7e8c6798e701081508"
+    },
+    {
+      "bytes": 4861,
+      "path": "crates/lila-intl/src/number_format/partition/mod.rs",
+      "sha256": "0ec530b646335a7f641d2cf4ec4e417781758f695a1decf6824cb4be0e885a39"
+    },
+    {
+      "bytes": 14017,
+      "path": "crates/lila-intl/src/number_format/partition/range.rs",
+      "sha256": "b55ad9d18bc8e96d7c222d99a49f03f44f8238edb7619d95972ffe17da3e60a9"
+    },
+    {
+      "bytes": 28611,
+      "path": "crates/lila-intl/src/number_format/partition/render.rs",
+      "sha256": "17a5ed1c78845935074fec38cce397e2988e2bfb628bd437b387007e8986a4f8"
+    },
+    {
+      "bytes": 4804,
+      "path": "crates/lila-intl/src/number_format/partition_resource.rs",
+      "sha256": "036771251db99497dca4559b8fdc1cf0dc01bbe61c5995a77d1b991574994b38"
+    },
+    {
+      "bytes": 3459,
+      "path": "crates/lila-intl/src/number_format/parts.rs",
+      "sha256": "4dd7429971a85ea379cd15f33fdd1b5190a8526e5a2e7a3f1481f4d78da17e69"
+    },
+    {
+      "bytes": 1888,
+      "path": "crates/lila-intl/src/number_format/plural_rules.rs",
+      "sha256": "a5535170f45997be6739b41f565ef7ab47b2ce938ddb1f9b3859a67a36e54759"
+    },
+    {
+      "bytes": 5016,
+      "path": "crates/lila-intl/src/number_format/profiles/domains.rs",
+      "sha256": "4c14e36615acc6cbac0b341d74277fbea1b7d48ba484341dee619e4eee41424a"
+    },
+    {
+      "bytes": 417,
+      "path": "crates/lila-intl/src/number_format/profiles/fingerprint.rs",
+      "sha256": "b21c63bb85b92393474de4185d79ffb03e78e6a89b3ec79e50b24c7c4e40b6e8"
+    },
+    {
+      "bytes": 17304,
+      "path": "crates/lila-intl/src/number_format/profiles/mod.rs",
+      "sha256": "dc6e9cce3cd0dea2cbbc484dbd916b44c8f41e9c0d9e7f5dbdf1f44bfce506c3"
+    },
+    {
+      "bytes": 5205,
+      "path": "crates/lila-intl/src/number_format/profiles/projection.rs",
+      "sha256": "58cc1123fb2098e653ee2fb76d5c8584703b0b5dc194ee2764fdc6d5c4ec5feb"
+    },
+    {
+      "bytes": 10982,
+      "path": "crates/lila-intl/src/number_format/profiles/projection/closure.rs",
+      "sha256": "b0e0384277d2f7d5fbe42b459b3d1318dda25e0e5ca4a2e8c160a27d28c49be2"
+    },
+    {
+      "bytes": 14608,
+      "path": "crates/lila-intl/src/number_format/profiles/projection/encode.rs",
+      "sha256": "8100a9470e70a6cae01bc51a4c937790841edc16d176df45d02001ad88e97f20"
+    },
+    {
+      "bytes": 17637,
+      "path": "crates/lila-intl/src/number_format/profiles/read.rs",
+      "sha256": "5129b1a5437e6f81ca6d94ce9e80c632cec5708b8dab48ca4e4aade999b8ff9c"
+    },
+    {
+      "bytes": 24763,
+      "path": "crates/lila-intl/src/number_format/profiles/validate.rs",
+      "sha256": "bdb0106f56b5b5575220e41ae9a73c317ce4704b4af4acffabf6115195d62fdb"
+    },
+    {
+      "bytes": 15496,
+      "path": "crates/lila-intl/src/number_image.rs",
+      "sha256": "1104730a9f1c553007019cc9a2414637a05d7c5040e0d9842a41a0e271709270"
+    },
+    {
+      "bytes": 49955,
+      "path": "crates/lila-intl/src/protocol.rs",
+      "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+    },
+    {
+      "bytes": 80443,
+      "path": "crates/lila-intl/src/provider.rs",
+      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+    },
+    {
+      "bytes": 2251,
+      "path": "crates/lila-intl/src/provider/conformance.rs",
+      "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
+    },
+    {
+      "bytes": 17530,
+      "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+    },
+    {
+      "bytes": 4101,
+      "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+      "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+    },
+    {
+      "bytes": 21618,
+      "path": "crates/lila-intl/src/provider/language_domain.rs",
+      "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+    },
+    {
+      "bytes": 3082,
+      "path": "crates/lila-intl/src/provider/locale_collations.rs",
+      "sha256": "baffe8961abe04a0bddfbf5f8b33bcfdd7435856539c79f6c49903d77bc2cb69"
+    },
+    {
+      "bytes": 5089,
+      "path": "crates/lila-intl/src/provider/region_preference.rs",
+      "sha256": "f9cddf291e053fb1980fea123ca06b8053ea7566ea9b15e2e24b9b917c489d66"
+    },
+    {
+      "bytes": 54634,
+      "path": "crates/lila-intl/src/selection.rs",
+      "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+    },
+    {
+      "bytes": 21454,
+      "path": "crates/lila-intl/src/selection/export.rs",
+      "sha256": "1ff9becaa320301f1ae1f1dcc85d468b4546d1aa86f33c31db9f35418408d97e"
+    },
+    {
+      "bytes": 35819,
+      "path": "crates/lila-intl/src/selection/manifest.rs",
+      "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
+    },
+    {
+      "bytes": 7999,
+      "path": "crates/lila-intl/src/service_selection.rs",
+      "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
+    },
+    {
+      "bytes": 9139,
+      "path": "scripts/generate-intl-keyword-aliases.py",
+      "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
+    },
+    {
+      "bytes": 12711,
+      "path": "scripts/generate-intl-locale-collations-identity.py",
+      "sha256": "6a254e6ab0e864ba0146f891247ef6319af2fdea81e09d15d54cd394dcadfca1"
+    }
+  ],
+  "schema": 1,
+  "selection": "NoCo checked request; actual CollatorProfiles matching(Lookup) per-locale admitted sort map; unmatched checked locale-independent und emoji/eor profile owner"
+}

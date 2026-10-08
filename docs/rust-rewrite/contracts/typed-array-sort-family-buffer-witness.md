@@ -1,5 +1,25 @@
 # TypedArray sort-family buffer witness
 
+## Current construction and comparison update — 2026-10-04 dry source
+
+Comparator admissibility and the single validated entry witness below remain
+unchanged. `toSorted` now acquires its private completed same-type result from
+the called builtin's defining-Realm intrinsic, copies every captured source
+element, sorts through that owner, then consumes it for publication. The result
+stays private during copying and all source reads precede comparator effects.
+
+The shared stable sorter now continues after normal comparator Call/ToNumber
+even when those effects detach the receiver. SortIndexedProperties stops for
+an abrupt comparison, not a later detached-state observation. Both existing
+abrupt paths remain before sorting publication, and every writeback retains
+fresh integer-indexed validity. The obsolete detach-abort state and its branch
+are removed. The maintained guard pins the actual owner/sort consumer; paired
+fixtures add detachment, foreign coercion throws and shrink/regrow writeback.
+See [same-type ownership](typed-array-create-same-type-ownership.md).
+Compilation and execution remain pending. The algorithm-preservation and
+verification sections below describe the historical entry-witness migration;
+their unchanged-sort claim does not apply to this current update.
+
 Status: normative for the Wasm-AOT `%TypedArray%.prototype.sort` and
 `%TypedArray%.prototype.toSorted` method-entry seam. The implementation and
 structural mutation guard are independently reviewed and focused-verified under

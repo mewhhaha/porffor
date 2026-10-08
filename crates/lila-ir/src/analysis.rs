@@ -3,6 +3,9 @@ mod direct_eval_capture;
 mod eval_environment;
 mod function_environment;
 use boa_ast::pattern::{ArrayPattern, ObjectPattern};
+pub(crate) use eval_environment::{
+    CompleteResumableForInOwner, CompleteResumableForOfOwner, MixedAsyncGeneratorWithOwner,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -67,6 +70,35 @@ impl WithObjectBindingName {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WithObjectEnvironmentPlan {
     pub(crate) binding_name: WithObjectBindingName,
+    pub(crate) continuation_owner: WithContinuationOwner,
+}
+
+/// The actual source region decides which compiler owns this record's lifetime.
+/// A resumable function alone does not give an iterator-body With whole phases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WithContinuationOwner {
+    Immediate,
+    OrdinaryWhole,
+    PlainAsyncWhole,
+    MixedAsyncGeneratorWhole(MixedAsyncGeneratorWithOwner),
+    LinearResumable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ForInContinuationOwner {
+    CompleteWhole(CompleteResumableForInOwner),
+    ImmediateOrLinear,
+}
+
+impl WithContinuationOwner {
+    fn for_execution(execution_kind: FunctionExecutionKind) -> Self {
+        match execution_kind {
+            FunctionExecutionKind::Ordinary => Self::Immediate,
+            FunctionExecutionKind::Generator
+            | FunctionExecutionKind::Async
+            | FunctionExecutionKind::AsyncGenerator => Self::LinearResumable,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -186,8 +218,10 @@ impl FunctionPlan<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct AnalysisAllocationState {
+    pub(crate) prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
+    pub(crate) template_sources: crate::template_site::TemplateSourceOwners,
     next_static_script_id: u32,
     next_function_id: usize,
     next_environment_id: usize,
@@ -207,6 +241,7 @@ impl AnalysisAllocationState {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Analysis<'a> {
+    pub(crate) template_source: Option<TemplateSourceIr>,
     pub(crate) script_instantiation: ScriptInstantiation,
     pub(crate) allocations: AnalysisAllocationState,
     pub(crate) owner_plans: BTreeMap<String, OwnerPlan>,
@@ -215,6 +250,8 @@ pub(crate) struct Analysis<'a> {
     pub(crate) block_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) with_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) with_object_environment_plans: BTreeMap<EnvironmentId, WithObjectEnvironmentPlan>,
+    pub(crate) for_in_continuation_owners: BTreeMap<usize, ForInContinuationOwner>,
+    pub(crate) complete_for_of_owners: BTreeMap<usize, CompleteResumableForOfOwner>,
     pub(crate) switch_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) catch_parameter_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) for_lexical_environment_ids: BTreeMap<usize, EnvironmentId>,
@@ -301,7 +338,9 @@ fn environment_has_runtime_storage(
         || resumable_activation
         || matches!(
             environment.kind,
-            EnvironmentKind::FunctionBody | EnvironmentKind::FunctionParameters
+            EnvironmentKind::FunctionBody
+                | EnvironmentKind::FunctionParameters
+                | EnvironmentKind::NamedFunctionExpression
         )
         || !environment.owned_env_slots.is_empty())
         && (environment.kind == EnvironmentKind::Activation || environment.kind.is_materialized())
@@ -309,6 +348,9 @@ fn environment_has_runtime_storage(
 
 #[derive(Default)]
 pub(crate) struct AnalysisBuilder<'a> {
+    prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
+    template_source: Option<TemplateSourceIr>,
+    template_sources: crate::template_site::TemplateSourceOwners,
     script_instantiation: ScriptInstantiation,
     eval_visible: bool,
     source_names_by_storage: BTreeMap<String, String>,
@@ -319,6 +361,8 @@ pub(crate) struct AnalysisBuilder<'a> {
     block_environment_ids: BTreeMap<usize, EnvironmentId>,
     with_environment_ids: BTreeMap<usize, EnvironmentId>,
     with_object_environment_plans: BTreeMap<EnvironmentId, WithObjectEnvironmentPlan>,
+    for_in_continuation_owners: BTreeMap<usize, ForInContinuationOwner>,
+    complete_for_of_owners: BTreeMap<usize, CompleteResumableForOfOwner>,
     switch_environment_ids: BTreeMap<usize, EnvironmentId>,
     catch_parameter_environment_ids: BTreeMap<usize, EnvironmentId>,
     for_lexical_environment_ids: BTreeMap<usize, EnvironmentId>,
@@ -330,6 +374,7 @@ pub(crate) struct AnalysisBuilder<'a> {
     annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
     function_expr_ids: BTreeMap<String, FunctionId>,
     class_execution_ids: BTreeMap<String, FunctionId>,
+    class_method_bodies: BTreeMap<FunctionId, &'a FunctionBody>,
     class_name_environment_ids: BTreeMap<String, EnvironmentId>,
     private_environment_plans: BTreeMap<PrivateEnvironmentId, PrivateEnvironmentPlan>,
     class_private_environment_ids: BTreeMap<String, PrivateEnvironmentId>,
@@ -345,11 +390,23 @@ pub(crate) struct AnalysisBuilder<'a> {
 }
 
 impl<'a> AnalysisBuilder<'a> {
+    /// A module graph can execute in a Realm whose global declarations differ
+    /// from the entry Script's. Named environment lookup keeps those bindings
+    /// attached to that Realm instead of capturing entry-script slot indices.
+    pub(crate) fn with_realm_reusable_module_environments(mut self, enabled: bool) -> Self {
+        self.eval_visible |= enabled;
+        self
+    }
+
     pub(crate) fn with_allocations(
         allocations: AnalysisAllocationState,
         script_instantiation: ScriptInstantiation,
+        template_source: Option<TemplateSourceIr>,
     ) -> Self {
         Self {
+            template_source,
+            prepared_sources: allocations.prepared_sources,
+            template_sources: allocations.template_sources,
             script_instantiation,
             next_static_script_id: allocations.next_static_script_id,
             next_function_id: allocations.next_function_id,
@@ -365,13 +422,19 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &'a Interner,
         source_text: &'a str,
     ) -> Analysis<'a> {
-        self.eval_visible = matches!(
-            &self.script_instantiation,
-            ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(_))
-        ) || boa_ast::operations::contains(
-            script,
-            boa_ast::operations::ContainsSymbol::DirectEval,
-        );
+        self.eval_visible = self.eval_visible
+            || matches!(
+                &self.script_instantiation,
+                ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(_))
+            )
+            || (script.strict()
+                && matches!(
+                    &self.script_instantiation,
+                    ScriptInstantiation::Prepared(
+                        PreparedScriptKind::IndirectEval | PreparedScriptKind::ShadowRealmEvaluate
+                    )
+                ))
+            || eval_environment::contains_direct_eval_call(script);
         self.source_identifiers = eval_environment::source_identifiers(script, interner);
         let direct_context = match &self.script_instantiation {
             ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(context)) => {
@@ -509,6 +572,7 @@ impl<'a> AnalysisBuilder<'a> {
                 source_text,
             );
         }
+        self.finalize_with_continuation_owners();
         self.finalize_capture_plans(interner);
         let planned_source_function_ids = Arc::new(
             self.function_plans
@@ -518,8 +582,11 @@ impl<'a> AnalysisBuilder<'a> {
                 .collect::<BTreeSet<_>>(),
         );
         Analysis {
+            template_source: self.template_source,
             script_instantiation: self.script_instantiation,
             allocations: AnalysisAllocationState {
+                prepared_sources: self.prepared_sources,
+                template_sources: self.template_sources,
                 next_static_script_id: self.next_static_script_id,
                 next_function_id: self.next_function_id,
                 next_environment_id: self.next_environment_id,
@@ -531,6 +598,8 @@ impl<'a> AnalysisBuilder<'a> {
             block_environment_ids: self.block_environment_ids,
             with_environment_ids: self.with_environment_ids,
             with_object_environment_plans: self.with_object_environment_plans,
+            for_in_continuation_owners: self.for_in_continuation_owners,
+            complete_for_of_owners: self.complete_for_of_owners,
             switch_environment_ids: self.switch_environment_ids,
             catch_parameter_environment_ids: self.catch_parameter_environment_ids,
             for_lexical_environment_ids: self.for_lexical_environment_ids,
@@ -759,6 +828,9 @@ impl<'a> AnalysisBuilder<'a> {
             id,
             WithObjectEnvironmentPlan {
                 binding_name: binding_name.clone(),
+                continuation_owner: WithContinuationOwner::for_execution(
+                    self.owner_plans[owner_id].execution_kind,
+                ),
             },
         );
         EnvironmentCursor {
@@ -934,13 +1006,7 @@ impl<'a> AnalysisBuilder<'a> {
             AnnexBDirectFunctionCollection::Record => {
                 let direct_functions = items
                     .iter()
-                    .filter_map(|item| match item {
-                        StatementListItem::Declaration(declaration) => match declaration.as_ref() {
-                            Declaration::FunctionDeclaration(function) => Some(function),
-                            _ => None,
-                        },
-                        StatementListItem::Statement(_) => None,
-                    })
+                    .filter_map(statement_list_item_function_declaration)
                     .collect::<Vec<_>>();
                 self.record_annex_b_direct_functions(
                     owner_id,
@@ -1273,13 +1339,7 @@ impl<'a> AnalysisBuilder<'a> {
                     .cases()
                     .iter()
                     .flat_map(|case| case.body().statements())
-                    .filter_map(|item| match item {
-                        StatementListItem::Declaration(declaration) => match declaration.as_ref() {
-                            Declaration::FunctionDeclaration(function) => Some(function),
-                            _ => None,
-                        },
-                        StatementListItem::Statement(_) => None,
-                    })
+                    .filter_map(statement_list_item_function_declaration)
                     .collect::<Vec<_>>();
                 self.record_annex_b_direct_functions(
                     owner_id,
@@ -1495,18 +1555,16 @@ impl<'a> AnalysisBuilder<'a> {
         source_text: &'a str,
     ) {
         let owner_id = function.id.clone();
-        let definition_environment_cursor = if self.eval_visible {
-            if let Some(name) = &function.self_binding_name {
-                self.register_lexical_environment_with_modes(
-                    &owner_id,
-                    EnvironmentKind::NamedFunctionExpression,
-                    definition_environment_cursor,
-                    BTreeSet::from([name.clone()]),
-                    BTreeMap::from([(name.clone(), BindingMode::Const)]),
-                )
-            } else {
-                definition_environment_cursor
-            }
+        // Source function allocation always creates the immutable self-name
+        // record. Count that physical parent even when no direct eval observes it.
+        let definition_environment_cursor = if let Some(name) = &function.self_binding_name {
+            self.register_lexical_environment_with_modes(
+                &owner_id,
+                EnvironmentKind::NamedFunctionExpression,
+                definition_environment_cursor,
+                BTreeSet::from([name.clone()]),
+                BTreeMap::from([(name.clone(), BindingMode::Const)]),
+            )
         } else {
             definition_environment_cursor
         };
@@ -2190,6 +2248,13 @@ impl<'a> AnalysisBuilder<'a> {
                                     &bound.source_name,
                                 ));
                             }
+                        }
+                    }
+                    IterableLoopInitializer::Var(variable) => {
+                        if let Some(bound_names) =
+                            supported_bound_names(interner, variable.binding())
+                        {
+                            bindings.extend(bound_names.into_iter().map(|bound| bound.source_name));
                         }
                     }
                     _ => {}
@@ -3048,10 +3113,7 @@ impl<'a> AnalysisBuilder<'a> {
                         .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
                     self.scan_class_definition(
                         owner_id,
-                        Some((
-                            interner.resolve_expect(class.name().sym()).to_string(),
-                            class.name().span(),
-                        )),
+                        SourceClassName::from_declaration(class, interner),
                         constructor_execution_key,
                         class.super_ref(),
                         class.constructor(),
@@ -3072,7 +3134,7 @@ impl<'a> AnalysisBuilder<'a> {
     fn scan_class_definition(
         &mut self,
         owner_id: &str,
-        class_name: Option<(String, boa_ast::Span)>,
+        class_name: SourceClassName,
         constructor_execution_key: String,
         heritage: Option<&'a Expression>,
         constructor: Option<&'a FunctionExpression>,
@@ -3084,9 +3146,12 @@ impl<'a> AnalysisBuilder<'a> {
         refs: &mut BTreeMap<String, String>,
     ) {
         let mut class_capture_aliases = capture_aliases.clone();
-        let class_cursor = class_name.map(|(source_name, span)| {
-            let storage_name = class_name_binding_storage_name(&source_name, span);
-            class_capture_aliases.insert(source_name, storage_name.clone());
+        let class_cursor = class_name.binding_name().map(|source_name| {
+            let span = class_name
+                .binding_span()
+                .expect("a source class binding retains its original span");
+            let storage_name = class_name_binding_storage_name(source_name, span);
+            class_capture_aliases.insert(source_name.to_owned(), storage_name.clone());
             self.register_class_name_environment(
                 owner_id,
                 constructor_execution_key.clone(),
@@ -3377,11 +3442,11 @@ impl<'a> AnalysisBuilder<'a> {
                     }
                     let id = self.alloc_function_id();
                     self.class_execution_ids.insert(key, id.clone());
-                    let strict = self
-                        .owner_plans
-                        .get(parent_owner_id)
-                        .is_some_and(|owner| owner.strict)
-                        || method.body().strict();
+                    self.class_method_bodies.insert(id.clone(), method.body());
+                    // ClassBody is unconditionally strict: every method,
+                    // getter and setter is strict code regardless of the
+                    // surrounding script.
+                    let strict = true;
                     let root_functions = self.collect_root_functions(
                         interner,
                         source_text,
@@ -3707,14 +3772,13 @@ impl<'a> AnalysisBuilder<'a> {
         } else {
             LexicalSuperOwnerRole::HomeObject
         };
+        // ClassBody is unconditionally strict: the constructor is strict
+        // code regardless of the surrounding script.
         let root_functions = self.collect_root_functions(
             interner,
             source_text,
             constructor.body().statements(),
-            self.owner_plans
-                .get(parent_owner_id)
-                .is_some_and(|owner| owner.strict)
-                || constructor.body().strict(),
+            true,
             capture_aliases,
         );
         let mut root_bindings = self.collect_owner_bindings(
@@ -3778,11 +3842,7 @@ impl<'a> AnalysisBuilder<'a> {
                 flavor: FunctionFlavor::Ordinary,
                 execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role,
-                strict: self
-                    .owner_plans
-                    .get(parent_owner_id)
-                    .is_some_and(|owner| owner.strict)
-                    || constructor.body().strict(),
+                strict: true,
                 parent_owner_id: Some(parent_owner_id.to_string()),
                 activation_environment_id,
                 definition_environment_cursor: definition_environment_cursor.clone(),
@@ -4681,17 +4741,29 @@ impl<'a> AnalysisBuilder<'a> {
                         self.for_of_iteration_binding_modes(interner, for_of),
                     )
                 });
-                let complete_resumable_iteration_environment = self
-                    .owner_plans
-                    .get(owner_id)
-                    .is_some_and(|owner| owner.execution_kind == FunctionExecutionKind::Async)
-                    && !for_of.r#await()
-                    && matches!(
-                        for_of.initializer(),
-                        IterableLoopInitializer::Let(Binding::Pattern(_))
-                            | IterableLoopInitializer::Const(Binding::Pattern(_))
-                    )
-                    && contains(for_of.body(), ContainsSymbol::AwaitExpression);
+                let complete_resumable_iteration_environment =
+                    self.owner_plans.get(owner_id).is_some_and(|owner| {
+                        match owner.execution_kind {
+                        FunctionExecutionKind::Async => {
+                            contains(for_of.body(), ContainsSymbol::AwaitExpression)
+                        }
+                        FunctionExecutionKind::Generator => contains(
+                            for_of.body(),
+                            ContainsSymbol::YieldExpression,
+                        )
+                            && crate::lowering_helpers::generator_for_of_source_shape_is_supported(
+                                for_of,
+                            ),
+                        FunctionExecutionKind::Ordinary | FunctionExecutionKind::AsyncGenerator => {
+                            false
+                        }
+                    }
+                    }) && !for_of.r#await()
+                        && matches!(
+                            for_of.initializer(),
+                            IterableLoopInitializer::Let(Binding::Pattern(_))
+                                | IterableLoopInitializer::Const(Binding::Pattern(_))
+                        );
                 if let Some(cursor) = &iteration_cursor {
                     self.for_in_of_iteration_environment_ids
                         .insert(for_of as *const ForOfLoop as usize, cursor.environment_id);
@@ -4772,6 +4844,10 @@ impl<'a> AnalysisBuilder<'a> {
             }
             Statement::ForInLoop(for_in) => {
                 let outer_cursor = self.current_environment_cursor();
+                self.for_in_continuation_owners.insert(
+                    for_in as *const boa_ast::statement::iteration::ForInLoop as usize,
+                    ForInContinuationOwner::ImmediateOrLinear,
+                );
                 let mut head_aliases = capture_aliases.clone();
                 let lexical_loop = matches!(
                     for_in.initializer(),
@@ -4823,6 +4899,18 @@ impl<'a> AnalysisBuilder<'a> {
                         .pop()
                         .expect("for-in TDZ head must restore its environment cursor");
                     debug_assert_eq!(&cursor, expected_cursor);
+                }
+                // A bare `for (x in …)` head PutValues the key into `x` every
+                // iteration, exactly like the for-of head above: without this
+                // the write is invisible to capture analysis and lowers to a
+                // global-object write instead of the captured binding.
+                if let IterableLoopInitializer::Identifier(identifier) = for_in.initializer() {
+                    self.record_ref(
+                        owner_id,
+                        interner.resolve_expect(identifier.sym()).to_string(),
+                        capture_aliases,
+                        refs,
+                    );
                 }
                 let mut body_aliases = capture_aliases.clone();
                 if let IterableLoopInitializer::Let(binding)
@@ -4891,6 +4979,17 @@ impl<'a> AnalysisBuilder<'a> {
                                 refs,
                             );
                         }
+                    }
+                    IterableLoopInitializer::Access(access) => {
+                        self.scan_property_access(
+                            owner_id,
+                            access,
+                            interner,
+                            source_text,
+                            self_name,
+                            &body_aliases,
+                            refs,
+                        );
                     }
                     _ => {}
                 }
@@ -6128,12 +6227,7 @@ impl<'a> AnalysisBuilder<'a> {
                     .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
                 self.scan_class_definition(
                     owner_id,
-                    class.name().map(|identifier| {
-                        (
-                            interner.resolve_expect(identifier.sym()).to_string(),
-                            identifier.span(),
-                        )
-                    }),
+                    SourceClassName::from_expression(class, interner),
                     constructor_execution_key,
                     class.super_ref(),
                     class.constructor(),
@@ -6522,11 +6616,16 @@ impl<'a> AnalysisBuilder<'a> {
     fn finalize_capture_plans(&mut self, interner: &Interner) {
         let mut owned_names = BTreeMap::<EnvironmentId, BTreeSet<String>>::new();
         self.prepare_direct_eval_context_captures(&mut owned_names);
-        for environment in self
-            .environment_plans
-            .values()
-            .filter(|environment| environment.eval_visible)
-        {
+        for environment in self.environment_plans.values().filter(|environment| {
+            environment.eval_visible
+                || (environment.kind == EnvironmentKind::WithObject
+                    && matches!(
+                        self.with_object_environment_plans[&environment.id].continuation_owner,
+                        WithContinuationOwner::OrdinaryWhole
+                            | WithContinuationOwner::PlainAsyncWhole
+                            | WithContinuationOwner::MixedAsyncGeneratorWhole(_)
+                    ))
+        }) {
             owned_names
                 .entry(environment.id)
                 .or_default()

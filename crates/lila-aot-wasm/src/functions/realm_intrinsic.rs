@@ -1,0 +1,141 @@
+//! Intrinsic identities are rooted values from the supplied defining Realm.
+
+use super::*;
+use crate::gc_types::{
+    ArrayObject, FunctionContext, FunctionContextSchema, GcLocal, GcStackReference, IntrinsicTable,
+    RealmRecord, RealmRecordSchema, StoredValue, ValueLocals,
+};
+
+impl FunctionBuilder<'_> {
+    pub(super) fn emit_store_realm_intrinsic_at_index(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        index: u32,
+        value: &ValueLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let intrinsics = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<RealmRecord>()
+                .field(RealmRecordSchema::INTRINSICS)
+                .read(realm, schema, function)
+                .reference(),
+            function,
+        );
+        let slot = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(index as i32));
+        slot.store(function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(value, function),
+            function,
+        );
+        schema.array_type::<IntrinsicTable>().write(
+            &intrinsics,
+            slot,
+            crate::gc_types::GcOperand::reference(&stored, schema),
+            schema,
+            function,
+        );
+        stored.clear(function);
+        schema.release_i32_local(slot, function);
+        intrinsics.clear(function);
+    }
+
+    pub(crate) fn emit_current_function_realm(
+        &mut self,
+        function: &mut Function,
+    ) -> GcStackReference<RealmRecord> {
+        let schema = self.runtime_schema();
+        let context = self
+            .current_function_context()
+            .expect("current-function Realm requires an actual callable context");
+        schema
+            .struct_type::<FunctionContext>()
+            .field(FunctionContextSchema::REALM)
+            .read(context, schema, function)
+            .reference()
+    }
+
+    pub(crate) fn emit_load_non_array_realm_intrinsic(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        slot: NonArrayRealmIntrinsicSlot,
+        result: &ValueLocals,
+        function: &mut Function,
+    ) {
+        self.emit_load_realm_intrinsic_at_index(realm, slot.gc_index(), result, function);
+    }
+
+    fn emit_load_realm_intrinsic_at_index(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        index: u32,
+        result: &ValueLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let intrinsics = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<RealmRecord>()
+                .field(RealmRecordSchema::INTRINSICS)
+                .read(realm, schema, function)
+                .reference(),
+            function,
+        );
+        let slot = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(index as i32));
+        slot.store(function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<IntrinsicTable>()
+                .read(&intrinsics, slot, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, result, schema, function);
+        // The table contains only completed intrinsic objects. An unpopulated
+        // bootstrap slot is a compiler invariant failure at this boundary.
+        function.instruction(&Instruction::I32Const(0));
+        for tag in [
+            WasmRuntimeValueTag::Object,
+            WasmRuntimeValueTag::Array,
+            WasmRuntimeValueTag::Function,
+            WasmRuntimeValueTag::Arguments,
+        ] {
+            result.tag().load(function);
+            function.instruction(&Instruction::I32Const(tag as i32));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        stored.clear(function);
+        schema.release_i32_local(slot, function);
+        intrinsics.clear(function);
+    }
+
+    pub(crate) fn emit_load_realm_array_prototype(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> GcStackReference<ArrayObject> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        self.emit_load_realm_intrinsic_at_index(
+            realm,
+            NonArrayRealmIntrinsicSlot::ARRAY_INDEX,
+            &value,
+            function,
+        );
+        let prototype = value.cast_reference::<ArrayObject>(schema, function);
+        value.clear(function);
+        prototype
+    }
+}

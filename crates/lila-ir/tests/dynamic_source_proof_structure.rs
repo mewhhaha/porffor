@@ -72,7 +72,8 @@ fn source_syntax_produces_one_proof_consumed_by_one_exhaustive_gap_projection() 
         match kind {
             DynamicSourceKind::DirectEval
             | DynamicSourceKind::IndirectEval
-            | DynamicSourceKind::RealmEvalScript => args
+            | DynamicSourceKind::RealmEvalScript
+            | DynamicSourceKind::ShadowRealmEvaluate => args
                 .first()
                 .map_or(Self::Runtime, |source| Self::from_expression(source)),
             DynamicSourceKind::Function(

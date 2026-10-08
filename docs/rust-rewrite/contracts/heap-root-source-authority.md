@@ -1,5 +1,17 @@
 # Heap root-source authority
 
+Current dry source — 2026-10-05: the passive raw-representation source
+mirror below is retired from the atomic GC draft. Its registry spelling,
+offset descriptions and historical checks do not verify actual GC references,
+roots, host values or weak reachability. Current semantic GC source owns those
+operations through typed fields and complete value/Realm/completion owners.
+Final provider retirement and the remaining native source families are still
+in progress; the earlier descriptions, commands and results are historical.
+
+Compilation and behavioral verification remain deferred to the complete task
+batch. Weak reachability keeps its explicit [unavailable facility boundary](weak-unavailable-runtime-boundary.md). No current green result or weak
+retention facility is supplied by this source retirement.
+
 ## Closed source identity
 
 The passive collector inventory names exactly nine `HeapRootSource` variants:

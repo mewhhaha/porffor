@@ -1,0 +1,3955 @@
+{
+  "algorithm": "locale-hour-cycles-cldr47-v1",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "cldr_release": "47.0.0",
+  "primary_manifest_sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5",
+  "primary_source_sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4",
+  "regions": [
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "001"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "002"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "003"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "005"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "009"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "011"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "013"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "014"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "015"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "017"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "018"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "019"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "021"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "029"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "030"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "034"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "035"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "039"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "053"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "054"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "057"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "061"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "142"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "143"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "145"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "150"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "151"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "154"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "155"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "202"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "419"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AD"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "AE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AF"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "AG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AI"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "AL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "AR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "AS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "AU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AW"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "AX"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "AZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BB"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BJ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BL"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BO"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "BQ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BS"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "BT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BV"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BW"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "BZ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CO"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "CP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CV"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CW"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "CX"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "CY"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "CZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "DE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "DG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "DJ"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "DK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "DM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "DO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "DZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "EA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "EC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "EE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "EG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "EH"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "ER"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "ES"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "ET"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "EU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "EZ"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "FI"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "FJ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "FK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "FM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "FO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "FR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GB"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GL"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GS"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "GW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "GY"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "HK"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "HM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "HN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "HR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "HT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "HU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "IC"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "ID"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "IE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "IL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "IM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "IN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "IO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "IQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "IR"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "IS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "IT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "JE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "JM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "JO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h11",
+        "h12"
+      ],
+      "region": "JP"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "KG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KH"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "KM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KP"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "KY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "KZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "LA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "LB"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "LC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "LI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "LK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "LR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "LS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "LT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "LU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "LV"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "LY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "ME"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MK"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "ML"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MV"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MX"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "MY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "MZ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "NA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NC"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "NE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "NI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "NU"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "NZ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "OM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "PF"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PH"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PK"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "PL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "PM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "PN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "PT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "PY"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "QA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "QO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "RE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "RO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "RS"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "RU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "RW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SB"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SD"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "SE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SI"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "SJ"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "region": "SK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "ST"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SV"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "SX"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SY"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "SZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TJ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TK"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "TV"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "TZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "UA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "UG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "UM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "UN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "US"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "UY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "UZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "VA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "VC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "VE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "VG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "VI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "VN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "VU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "WF"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "WS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "XK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "YE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "YT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "ZA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "region": "ZM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "region": "ZW"
+    }
+  ],
+  "schema": 1,
+  "selectors": [
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "001"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "419"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AD"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "AE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AF"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "AG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AI"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "AL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "AR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "AS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "AU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AW"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "AX"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "AZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BB"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BJ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BL"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BO"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "BQ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BS"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "BT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BW"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "BZ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CO"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "CP"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CV"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CW"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "CX"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "CY"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "CZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "DE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "DG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "DJ"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "DK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "DM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "DO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "DZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "EA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "EC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "EE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "EG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "EH"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "ER"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "ES"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "ET"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "FI"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "FJ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "FK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "FM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "FO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "FR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GB"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GL"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GS"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "GW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "GY"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "HK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "HN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "HR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "HU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "IC"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "ID"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "IE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "IL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "IM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "IN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "IO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "IQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "IR"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "IS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "IT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "JE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "JM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "JO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h11",
+        "h12"
+      ],
+      "selector": "JP"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "KG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KH"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "KM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KP"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "KY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "KZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "LA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "LB"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "LC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "LI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "LK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "LR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "LS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "LT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "LU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "LV"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "LY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MC"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "ME"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MK"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "ML"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MO"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MQ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MV"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MX"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "MY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "MZ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "NA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NC"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "NE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "NI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NP"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "NU"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "NZ"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "OM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "PF"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PH"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PK"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "PL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "PM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "PN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "PT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "PY"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "QA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "RE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "RO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "RS"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "RU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "RW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SB"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SD"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "SE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SI"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "SJ"
+    },
+    {
+      "cycles": [
+        "h23"
+      ],
+      "selector": "SK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "ST"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SV"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "SX"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SY"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "SZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TD"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TF"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TG"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TJ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TL"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TO"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "TR"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TW"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "TZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "UA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "UG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "UM"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "US"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "UY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "UZ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "VA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "VC"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "VE"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "VG"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "VI"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "VN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "VU"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "WF"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "WS"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "XK"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "YE"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "YT"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "ZA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "ZM"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "ZW"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "af-ZA"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "ar-001"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "ca-ES"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "en-001"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "en-HK"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "en-IL"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "en-MY"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "es-BR"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "es-ES"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "es-GQ"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "fr-CA"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "gl-ES"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "gu-IN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "hi-IN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "it-CH"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "it-IT"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "kn-IN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "ml-IN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "mr-IN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "pa-IN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "ta-IN"
+    },
+    {
+      "cycles": [
+        "h12",
+        "h23"
+      ],
+      "selector": "te-IN"
+    },
+    {
+      "cycles": [
+        "h23",
+        "h12"
+      ],
+      "selector": "zu-ZA"
+    }
+  ]
+}

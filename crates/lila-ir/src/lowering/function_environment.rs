@@ -1,6 +1,47 @@
 use super::*;
 
 impl ScriptLowerer<'_> {
+    pub(super) fn root_this_binding_for_function_owner(
+        &self,
+        function_id: &FunctionId,
+    ) -> RootThisBinding {
+        // Function plans are lowered from one flat registry, rather than by
+        // recursively lowering their source parents. Recover the source-goal
+        // boundary from those parents so lexical arrows below a Module owner
+        // cannot inherit the outer Script's global this policy.
+        let mut owner_id = Some(function_id.as_str());
+        while let Some(id) = owner_id {
+            if let Some(owner) = self.analysis.function_plans.get(id) {
+                match owner.protocol {
+                    FunctionProtocolIr::ModuleActivation
+                    | FunctionProtocolIr::AsyncModuleActivation => {
+                        return RootThisBinding::Undefined;
+                    }
+                    FunctionProtocolIr::OrdinaryCallOnly
+                    | FunctionProtocolIr::OrdinaryCallAndConstruct
+                    | FunctionProtocolIr::Arrow
+                    | FunctionProtocolIr::Generator
+                    | FunctionProtocolIr::Async
+                    | FunctionProtocolIr::AsyncArrow
+                    | FunctionProtocolIr::AsyncGenerator
+                    | FunctionProtocolIr::ObjectMethod(_)
+                    | FunctionProtocolIr::ObjectGetter
+                    | FunctionProtocolIr::ObjectSetter
+                    | FunctionProtocolIr::ClassConstructor
+                    | FunctionProtocolIr::ClassMethod(_)
+                    | FunctionProtocolIr::ClassGetter
+                    | FunctionProtocolIr::ClassSetter => {}
+                }
+            }
+            owner_id = self
+                .analysis
+                .owner_plans
+                .get(id)
+                .and_then(|owner| owner.parent_owner_id.as_deref());
+        }
+        self.root_this_binding
+    }
+
     pub(super) fn begin_function_body_environment(&mut self) -> Option<LexicalEnvironmentIr> {
         let owner = &self.analysis.owner_plans[&self.current_owner_id];
         let body_id = owner.body_environment_id?;

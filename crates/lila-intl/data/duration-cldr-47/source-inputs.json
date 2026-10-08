@@ -1,0 +1,217 @@
+{
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "files": [
+    {
+      "bytes": 2033,
+      "path": "crates/lila-intl/data/duration-cldr-47/LICENSE",
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    },
+    {
+      "bytes": 132170,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/dtd/ldml.dtd",
+      "sha256": "ea3248b3620a5bcef2cee72de6da5e394517a5cd6a70218d6e4f6775facd6f5c"
+    },
+    {
+      "bytes": 691533,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/ar.xml",
+      "sha256": "f25c71f2ddb2664d5569220b1b4803893b9ddc0e3da4d54b71e90fa16b2432eb"
+    },
+    {
+      "bytes": 977,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/ar_EG.xml",
+      "sha256": "5b80cfe93e16c89b23dcd046ec76d9e39781386e6dfdfa7bb2d8f6dbc87955a7"
+    },
+    {
+      "bytes": 592674,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/de.xml",
+      "sha256": "7530b4c93f36102965b09685aea50b82934707a2bd025b7fc61ae0acb8a7114c"
+    },
+    {
+      "bytes": 435987,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/en.xml",
+      "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
+    },
+    {
+      "bytes": 459,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/en_US.xml",
+      "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
+    },
+    {
+      "bytes": 470040,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/es.xml",
+      "sha256": "a2f8f2580b75b41f0bf44f5897931ecdb207cb6d5522535d8b4e379e51aa0c97"
+    },
+    {
+      "bytes": 602136,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/fr.xml",
+      "sha256": "dd1034b6e8c2fde6eb66d00462651beb26fad1fd09eccbea6b250fd7130ae3e3"
+    },
+    {
+      "bytes": 565329,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/hi.xml",
+      "sha256": "e5bdf2a148b5e80555f6e73241a47a5f3c039518063faebde7046bb0db011e21"
+    },
+    {
+      "bytes": 428903,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/it.xml",
+      "sha256": "c5ec8e2e304e7b16f58e7012afe40ce2acc28c0c340d494ba2388ee86008667d"
+    },
+    {
+      "bytes": 512646,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/ja.xml",
+      "sha256": "a19cd8bea5cc68b132ace70dd99b65935edf8114367a835f7717b3a3dbd81118"
+    },
+    {
+      "bytes": 498327,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/ko.xml",
+      "sha256": "f7b9615d694e1821e4ad2bad8986cf3d57fe5f0f491662adb67b9833a43b036d"
+    },
+    {
+      "bytes": 268212,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/root.xml",
+      "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
+    },
+    {
+      "bytes": 655188,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/sr.xml",
+      "sha256": "72c8e384ffa4569785cd11e53148c1cb2fa9eecf5a12f53e9136976a8996439d"
+    },
+    {
+      "bytes": 610450,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/zh.xml",
+      "sha256": "97fea2cfdb7bfe59a4e0ce712ca2e6ccba67ef211957296f60365c9f84b24d52"
+    },
+    {
+      "bytes": 458,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/zh_Hans.xml",
+      "sha256": "138d8d3b9b646ab10d30628911ce79426ed86d308b13e988fc69f57bc16c91e2"
+    },
+    {
+      "bytes": 483,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/main/zh_Hans_CN.xml",
+      "sha256": "0a531ee82fcc7e4bfcb4dd2307d9f49ed5221491d178aa71c0d08037df042d0a"
+    },
+    {
+      "bytes": 408368,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/supplemental/supplementalData.xml",
+      "sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4"
+    },
+    {
+      "bytes": 179742,
+      "path": "crates/lila-intl/data/duration-cldr-47/common/supplemental/supplementalMetadata.xml",
+      "sha256": "74b9f3f942d7f28b302c18a9eebc21971ef83ebb02ea6b3565fb472a09a9be58"
+    },
+    {
+      "bytes": 209345,
+      "path": "crates/lila-intl/data/duration-cldr-47/docs/ldml/tr35-general.md",
+      "sha256": "9c5233811d7dddff67556785baf4930892d88ec3b3d62f31fb65c7db220f40bb"
+    },
+    {
+      "bytes": 115883,
+      "path": "crates/lila-intl/data/duration-cldr-47/docs/ldml/tr35-numbers.md",
+      "sha256": "73c96108008556c6da0d0cec1b5cb5a5befb9fe56af6be4e1449871992420205"
+    },
+    {
+      "bytes": 352127,
+      "path": "crates/lila-intl/data/duration-cldr-47/docs/ldml/tr35.md",
+      "sha256": "79e0cfa61d50c5de3b1ad87a8c5b9bf334492118087dcf84f600ba011787575a"
+    },
+    {
+      "bytes": 6294,
+      "path": "crates/lila-intl/data/duration-cldr-47/manifest.json",
+      "sha256": "852992651141505e64dc521449a61725bd3df829b20cf2a0b05a032b3343f66b"
+    },
+    {
+      "bytes": 356,
+      "path": "crates/lila-intl/data/duration-cldr-47/selector.json",
+      "sha256": "3c7da0f6b95a6194951e155909e03306fc06ba5b01d5ab9afc641fbaa8b2b7d8"
+    },
+    {
+      "bytes": 744,
+      "path": "crates/lila-intl/data/duration-cldr-47/spec-reference.json",
+      "sha256": "38ae2b82a51ff319f10fb3fe18e60fc431a782d057e0dde8c941d8fbd4cd0137"
+    },
+    {
+      "bytes": 3359,
+      "path": "crates/lila-intl/data/list-icu-2/source-inputs.json",
+      "sha256": "ed7d4cc28a9fe9e1e798f0c540b12b4b2c43d789f274d9915cef0fbe999da9f8"
+    },
+    {
+      "bytes": 66909,
+      "path": "crates/lila-intl/data/list-icu-2/sources.tar.gz",
+      "sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"
+    },
+    {
+      "bytes": 6091829,
+      "path": "crates/lila-intl/data/number-cldr-47/profiles.bin",
+      "sha256": "d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254"
+    },
+    {
+      "bytes": 1311220,
+      "path": "crates/lila-intl/data/number-cldr-47/profiles.json.gz",
+      "sha256": "6b9107038f5891fa2585aa99aecedfc5f8f898e80b011cfb74aeb0f721d7fe12"
+    },
+    {
+      "bytes": 412691,
+      "path": "crates/lila-intl/data/number-cldr-47/source-manifest.json",
+      "sha256": "582f922168284a76255554a4b74c6200f0e954853ef2eaf49bceb393a2d48b49"
+    },
+    {
+      "bytes": 9576417,
+      "path": "crates/lila-intl/data/number-cldr-47/sources.tar.gz",
+      "sha256": "f85496f1e76ca0a12a0d7603c5f3243a94e2506926176f6ec7fe178327ffcebf"
+    },
+    {
+      "bytes": 8381,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/bcp47/number.xml",
+      "sha256": "0c10e9578f2191527475d0f57105d56c399b2f44425ceebadf474e50157abbb6"
+    },
+    {
+      "bytes": 290595,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/main/root.xml",
+      "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17"
+    },
+    {
+      "bytes": 11834,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/supplemental/numberingSystems.xml",
+      "sha256": "c5b9b208c6fe7bd3ce4e1c6cbb8f3337480aca620c9cf703ef3b6c74d4258c16"
+    },
+    {
+      "bytes": 960,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/source-manifest.json",
+      "sha256": "c0b70b5f5ffc5940c8f47e97ec99bd9c5596e1b81613901bffaa9a80323dc62f"
+    },
+    {
+      "bytes": 2198209,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/ucd/UnicodeData.txt",
+      "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c"
+    },
+    {
+      "bytes": 11177,
+      "path": "scripts/generate-intl-duration-profile.py",
+      "sha256": "e2fd9c5d1997ff049bda777b8edbfde588e40c50c3f262501e7e5e0ae5926fca"
+    },
+    {
+      "bytes": 3932,
+      "path": "scripts/intl_calendar_eras.py",
+      "sha256": "336084a24f6a55bb580583516326f56d07590e0dfe9729b72df56fd9fd1b2f0b"
+    },
+    {
+      "bytes": 14260,
+      "path": "scripts/intl_cldr_profile.py",
+      "sha256": "502cf9ce1a0b98e11aa1670ab41dfd4d3cb6054b468ab618b7a8fc75c09956e2"
+    },
+    {
+      "bytes": 3323,
+      "path": "scripts/intl_ldml_schema.py",
+      "sha256": "d5c046d9060a741cd8d86fab179c56ad489e922007da238255e71c2c9ec12b3a"
+    },
+    {
+      "bytes": 5622,
+      "path": "scripts/intl_positional_numbering.py",
+      "sha256": "295624436d4935cc11015bae2643427caf09f38d08bf4fdc1886a0a95a40bf15"
+    }
+  ],
+  "schema": 1,
+  "total_bytes": 27751582
+}

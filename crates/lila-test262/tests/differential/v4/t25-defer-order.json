@@ -1,0 +1,32 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/defer-order",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "module",
+      "identity": "entry.js",
+      "source": "import defer * as deferred from 'target';\nprint('embedded-defer:before');\nconst key = 'target';\nconst repeated = await import.defer(key);\nif (deferred !== repeated) throw 'deferred namespace identity';\nprint('embedded-defer:value=' + repeated.value);\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "target.js",
+        "source": "print('embedded-defer:body'); export const value = 7;",
+        "meta_url": "lila://target.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "module",
+          "identity": "entry.js"
+        },
+        "specifier": "target",
+        "attributes": [],
+        "target": "target.js"
+      }
+    ]
+  }
+}

@@ -1,9 +1,8 @@
 use super::super::*;
-use super::standard::ActiveStandardBuiltinFunction;
-use crate::functions::{
-    ErrorMessageConstructorKind, FunctionRealmRevokedRoute, NewTargetPrototypeFallback,
-    OrdinaryDefaultPrototype,
-};
+use crate::control_flow::SyncIteratorConsumer;
+use crate::functions::{ErrorMessageConstructorKind, OrdinaryDefaultPrototype};
+use crate::gc_types::*;
+use crate::operations::PropertyKeyLocals;
 use lila_ir::NativeErrorKind;
 pub(crate) use runtime_error::ActiveBuiltinRealmPrototype;
 
@@ -19,21 +18,12 @@ enum ErrorBuiltin {
     PrototypeToString,
 }
 
-fn native_error_kind(name: &str) -> Result<NativeErrorKind, EmitError> {
-    NativeErrorKind::from_str(name).ok_or_else(|| {
-        EmitError::unsupported(format!(
-            "internal wasm-aot error emitter received unknown native error name `{name}`"
-        ))
-    })
-}
-
 enum ErrorCauseOptionsArgument {
     MessageError,
     AggregateError,
 }
-
 impl ErrorCauseOptionsArgument {
-    fn index(self) -> usize {
+    const fn index(self) -> usize {
         match self {
             Self::MessageError => 1,
             Self::AggregateError => 2,
@@ -41,187 +31,94 @@ impl ErrorCauseOptionsArgument {
     }
 }
 
-#[must_use = "Promise.any AggregateError allocation context must be consumed"]
-pub(super) struct PromiseAnyAggregateErrorAllocationContext {
-    prototype_local: u32,
-}
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     fn emit_error_builtin(
         &mut self,
         builtin: ErrorBuiltin,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        result.initialize(function);
         match builtin {
             ErrorBuiltin::IsError => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let brand_local = self.reserve_temp_local();
-
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    arg_payload_local,
-                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    brand_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(brand_local));
-                function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_ERROR as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-
-                self.release_temp_local(brand_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                let argument = schema.reserve_value_local(function);
+                let is_error = schema.reserve_i32_local(function);
+                self.emit_builtin_arg_to_value(0, &argument, function);
+                // IsError recognizes the ErrorData brand. Proxy and arbitrary
+                // ordinary objects cannot impersonate this GC record.
+                argument.reference().load(function);
+                function.instruction(&Instruction::RefTestNonNull(
+                    schema
+                        .reference_type::<NativeErrorObject>(GcNullability::NonNullable)
+                        .heap_type,
+                ));
+                is_error.store(function);
+                result.value().set_boolean(is_error, function);
+                schema.release_i32_local(is_error, function);
+                argument.clear(function);
             }
-            ErrorBuiltin::Constructor(error_kind) => match error_kind {
+            ErrorBuiltin::Constructor(kind) => match kind {
                 NativeErrorKind::AggregateError => {
-                    self.emit_normalize_undefined_new_target_to_active_standard_builtin(
-                        ActiveStandardBuiltinFunction::AggregateErrorConstructor,
-                        function,
-                    );
-                    let errors_arg_payload_local = self.reserve_temp_local();
-                    let errors_arg_tag_local = self.reserve_temp_local();
-                    let message_arg_payload_local = self.reserve_temp_local();
-                    let message_arg_tag_local = self.reserve_temp_local();
-                    let errors_payload_local = self.reserve_temp_local();
-                    let prototype_payload_local = self.reserve_temp_local();
-                    self.emit_builtin_arg_to_locals(
-                        0,
-                        errors_arg_payload_local,
-                        errors_arg_tag_local,
-                        function,
-                    );
-                    self.emit_builtin_arg_to_locals(
-                        1,
-                        message_arg_payload_local,
-                        message_arg_tag_local,
-                        function,
-                    );
-                    self.emit_aggregate_error_new_target_prototype_to_local(
-                        prototype_payload_local,
+                    let source = schema.reserve_value_local(function);
+                    let message = schema.reserve_value_local(function);
+                    self.emit_builtin_arg_to_value(0, &source, function);
+                    self.emit_builtin_arg_to_value(1, &message, function);
+                    let prototype = self.emit_error_constructor_prototype(
+                        OrdinaryDefaultPrototype::AggregateError,
                         function,
                     )?;
                     let prepared = self.emit_prepare_aggregate_error_instance(
-                        prototype_payload_local,
-                        message_arg_payload_local,
-                        message_arg_tag_local,
+                        prototype.value(),
+                        &message,
                         function,
                     )?;
-                    self.emit_aggregate_error_iterable_to_list_payload(
-                        errors_arg_payload_local,
-                        errors_arg_tag_local,
-                        errors_payload_local,
-                        function,
-                    )?;
+                    let errors = self.emit_aggregate_error_iterable_to_list(&source, function)?;
+                    let errors_value = schema.reserve_value_local(function);
+                    errors_value.set_reference(&errors, schema, function);
                     self.emit_finish_aggregate_error_instance(
                         prepared,
-                        errors_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
+                        &errors_value,
+                        &result,
                         function,
                     )?;
-                    self.release_temp_local(prototype_payload_local);
-                    self.release_temp_local(errors_payload_local);
-                    self.release_temp_local(message_arg_tag_local);
-                    self.release_temp_local(message_arg_payload_local);
-                    self.release_temp_local(errors_arg_tag_local);
-                    self.release_temp_local(errors_arg_payload_local);
-                    return Ok(());
+                    errors_value.clear(function);
+                    errors.clear(function);
+                    prototype.clear(function);
+                    message.clear(function);
+                    source.clear(function);
                 }
                 NativeErrorKind::SuppressedError => {
-                    self.emit_normalize_undefined_new_target_to_active_standard_builtin(
-                        ActiveStandardBuiltinFunction::SuppressedErrorConstructor,
-                        function,
-                    );
-                    let error_arg_payload_local = self.reserve_temp_local();
-                    let error_arg_tag_local = self.reserve_temp_local();
-                    let suppressed_arg_payload_local = self.reserve_temp_local();
-                    let suppressed_arg_tag_local = self.reserve_temp_local();
-                    let message_arg_payload_local = self.reserve_temp_local();
-                    let message_arg_tag_local = self.reserve_temp_local();
-                    let message_payload_local = self.reserve_temp_local();
-                    let prototype_payload_local = self.reserve_temp_local();
-                    self.emit_builtin_arg_to_locals(
-                        0,
-                        error_arg_payload_local,
-                        error_arg_tag_local,
-                        function,
-                    );
-                    self.emit_builtin_arg_to_locals(
-                        1,
-                        suppressed_arg_payload_local,
-                        suppressed_arg_tag_local,
-                        function,
-                    );
-                    self.emit_builtin_arg_to_locals(
-                        2,
-                        message_arg_payload_local,
-                        message_arg_tag_local,
-                        function,
-                    );
-                    let prototype_tag_local = self.reserve_temp_local();
-                    self.emit_new_target_prototype_to_locals(
-                        SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-                        NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
-                            OrdinaryDefaultPrototype::SuppressedError,
-                        ),
-                        prototype_payload_local,
-                        prototype_tag_local,
+                    let error = schema.reserve_value_local(function);
+                    let suppressed = schema.reserve_value_local(function);
+                    let message = schema.reserve_value_local(function);
+                    self.emit_builtin_arg_to_value(0, &error, function);
+                    self.emit_builtin_arg_to_value(1, &suppressed, function);
+                    self.emit_builtin_arg_to_value(2, &message, function);
+                    let prototype = self.emit_error_constructor_prototype(
+                        OrdinaryDefaultPrototype::SuppressedError,
                         function,
                     )?;
-                    self.release_temp_local(prototype_tag_local);
-                    function.instruction(&Instruction::LocalGet(message_arg_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_alloc_suppressed_error_instance_from_locals(
-                        None,
-                        error_arg_payload_local,
-                        error_arg_tag_local,
-                        suppressed_arg_payload_local,
-                        suppressed_arg_tag_local,
-                        prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
+                    let instance =
+                        self.emit_prepare_native_error_instance(prototype.value(), function)?;
+                    let converted = self.emit_install_optional_error_message(
+                        instance.header(),
+                        &message,
                         function,
                     )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(
-                        message_arg_payload_local,
-                        message_arg_tag_local,
+                    self.emit_append_error_data(instance.header(), "error", &error, function)?;
+                    self.emit_append_error_data(
+                        instance.header(),
+                        "suppressed",
+                        &suppressed,
                         function,
                     )?;
-                    function.instruction(&Instruction::LocalSet(message_payload_local));
-                    self.emit_alloc_suppressed_error_instance_from_locals(
-                        Some(message_payload_local),
-                        error_arg_payload_local,
-                        error_arg_tag_local,
-                        suppressed_arg_payload_local,
-                        suppressed_arg_tag_local,
-                        prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(prototype_payload_local);
-                    self.release_temp_local(message_payload_local);
-                    self.release_temp_local(message_arg_tag_local);
-                    self.release_temp_local(message_arg_payload_local);
-                    self.release_temp_local(suppressed_arg_tag_local);
-                    self.release_temp_local(suppressed_arg_payload_local);
-                    self.release_temp_local(error_arg_tag_local);
-                    self.release_temp_local(error_arg_payload_local);
-                    return Ok(());
+                    converted.clear(function);
+                    instance.publish(self, &result, function);
+                    prototype.clear(function);
+                    message.clear(function);
+                    suppressed.clear(function);
+                    error.clear(function);
                 }
                 NativeErrorKind::Error
                 | NativeErrorKind::EvalError
@@ -230,15 +127,17 @@ impl<'a> FunctionBuilder<'a> {
                 | NativeErrorKind::SyntaxError
                 | NativeErrorKind::TypeError
                 | NativeErrorKind::URIError => {
-                    let kind = ErrorMessageConstructorKind::from_native_error_kind(error_kind)
-                        .expect("the shared Error message arm excludes distinct constructors");
-                    self.emit_error_message_constructor(kind, function)?;
+                    let kind = ErrorMessageConstructorKind::from_native_error_kind(kind)
+                        .expect("the message constructor arm excludes distinct constructors");
+                    self.emit_error_message_constructor(kind, &result, function)?;
                 }
             },
             ErrorBuiltin::PrototypeToString => {
-                self.emit_error_prototype_to_string(function)?;
+                self.emit_error_prototype_to_string(&result, function)?;
             }
         }
+        self.completion().copy_from(&result, function);
+        result.clear(function);
         Ok(())
     }
 
@@ -345,604 +244,103 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_install_error_cause_from_arg(
         &mut self,
-        error_object_local: u32,
+        header: &GcLocal<OrdinaryObject>,
         options_argument: ErrorCauseOptionsArgument,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let options_payload_local = self.reserve_temp_local();
-        let options_tag_local = self.reserve_temp_local();
-        let cause_key_local = self.reserve_temp_local();
-        let has_cause_local = self.reserve_temp_local();
-        let cause_payload_local = self.reserve_temp_local();
-        let cause_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(
-            options_argument.index(),
-            options_payload_local,
-            options_tag_local,
-            function,
-        );
-        self.emit_is_heap_object_like_tag_i32(options_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("cause")));
-        function.instruction(&Instruction::LocalSet(cause_key_local));
-        self.emit_object_has_property_i32(
-            options_payload_local,
-            options_tag_local,
-            cause_key_local,
-            has_cause_local,
+        let schema = self.runtime_schema();
+        let options = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(options_argument.index(), &options, function);
+        self.emit_is_heap_object_like_tag_i32(options.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        let key = self.emit_error_property_key("cause", function)?;
+        let has_cause = schema.reserve_i32_local(function);
+        self.emit_object_has_property_i32(&options, &key, has_cause, function)?;
+        has_cause.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let pending = schema.reserve_completion(function);
+        self.emit_object_read_with_throw_routing(
+            &options,
+            &options,
+            &key,
+            &pending,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(has_cause_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_read(
-            options_payload_local,
-            options_tag_local,
-            options_payload_local,
-            options_tag_local,
-            cause_key_local,
-            cause_payload_local,
-            cause_tag_local,
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_object_append_data_property_with_flags(
+            header,
+            &key,
+            pending.value(),
+            true,
+            false,
+            true,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            cause_payload_local,
-            cause_tag_local,
-            function,
-        )?;
-        self.emit_object_define_data(
-            error_object_local,
-            cause_key_local,
-            cause_payload_local,
-            cause_tag_local,
-            function,
-        )?;
+        pending.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(has_cause, function);
+        key.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(cause_tag_local);
-        self.release_temp_local(cause_payload_local);
-        self.release_temp_local(has_cause_local);
-        self.release_temp_local(cause_key_local);
-        self.release_temp_local(options_tag_local);
-        self.release_temp_local(options_payload_local);
+        options.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_alloc_suppressed_error_instance_from_locals(
+    /// Resource disposal supplies already converted message and complete
+    /// error/suppressed values. This allocator has no observable coercion.
+    pub(crate) fn emit_alloc_suppressed_error_instance(
         &mut self,
-        message_payload_local: Option<u32>,
-        error_payload_local: u32,
-        error_tag_local: u32,
-        suppressed_payload_local: u32,
-        suppressed_tag_local: u32,
-        prototype_payload_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        message: Option<&GcLocal<StringValue>>,
+        error: &ValueLocals,
+        suppressed: &ValueLocals,
+        prototype: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-        if let Some(message_payload_local) = message_payload_local {
-            function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_object_define_data(
-                object_local,
-                key_local,
-                message_payload_local,
-                value_tag_local,
-                function,
-            )?;
+        let schema = self.runtime_schema();
+        let instance = self.emit_prepare_native_error_instance(prototype, function)?;
+        if let Some(message) = message {
+            let value = schema.reserve_value_local(function);
+            value.set_reference(message, schema, function);
+            self.emit_append_error_data(instance.header(), "message", &value, function)?;
+            value.clear(function);
         }
-        function.instruction(&Instruction::I64Const(self.strings.payload("error")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_define_data(
-            object_local,
-            key_local,
-            error_payload_local,
-            error_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("suppressed")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_define_data(
-            object_local,
-            key_local,
-            suppressed_payload_local,
-            suppressed_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(object_local);
+        self.emit_append_error_data(instance.header(), "error", error, function)?;
+        self.emit_append_error_data(instance.header(), "suppressed", suppressed, function)?;
+        instance.publish(self, result, function);
         Ok(())
     }
 
-    pub(crate) fn emit_error_new_target_prototype_to_local(
+    fn emit_error_property_key(
         &mut self,
-        default_prototype_global_index: u32,
-        fallback_realm_prototype_offset: Option<u64>,
-        prototype_payload_local: u32,
+        name: &str,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let fallback = fallback_realm_prototype_offset
-            .map(NewTargetPrototypeFallback::FunctionSnapshot)
-            .unwrap_or(NewTargetPrototypeFallback::CurrentGlobal);
-        let prototype_tag_local = self.reserve_temp_local();
-        let result = self.emit_new_target_prototype_to_locals(
-            default_prototype_global_index,
-            fallback,
-            prototype_payload_local,
-            prototype_tag_local,
+    ) -> Result<PropertyKeyLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(name, function)?,
             function,
         );
-        self.release_temp_local(prototype_tag_local);
-        result
+        let key = PropertyKeyLocals::from_string(schema, &string, function);
+        string.clear(function);
+        Ok(key)
     }
 
-    pub(crate) fn emit_new_target_prototype_to_locals(
+    fn emit_append_error_data(
         &mut self,
-        default_prototype_global_index: u32,
-        fallback: NewTargetPrototypeFallback,
-        prototype_payload_local: u32,
-        prototype_tag_local: u32,
+        header: &GcLocal<OrdinaryObject>,
+        name: &str,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-        let prototype_key_local = self.reserve_temp_local();
-        let realm_source_payload_local = self.reserve_temp_local();
-        let proxy_handler_payload_local = self.reserve_temp_local();
-        let proxy_target_tag_local = self.reserve_temp_local();
-        let should_get_prototype_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(should_get_prototype_local));
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
+        let key = self.emit_error_property_key(name, function)?;
+        self.emit_object_append_data_property_with_flags(
+            header, &key, value, true, false, true, function,
         )?;
-        function.instruction(&Instruction::LocalGet(new_target_payload_local));
-        function.instruction(&Instruction::LocalSet(realm_source_payload_local));
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            new_target_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            proxy_handler_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            new_target_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            proxy_target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(proxy_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            new_target_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            realm_source_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        match fallback {
-            NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) => {
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::GlobalGet(kind.constructor_global_index()));
-                function.instruction(&Instruction::LocalSet(new_target_payload_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::LocalSet(new_target_payload_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(new_target_tag_local));
-            }
-            _ => {
-                function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
-                function.instruction(&Instruction::LocalSet(prototype_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(prototype_tag_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(should_get_prototype_local));
-            }
-        }
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(should_get_prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-        function.instruction(&Instruction::LocalSet(prototype_key_local));
-        self.emit_object_read(
-            new_target_payload_local,
-            new_target_tag_local,
-            new_target_payload_local,
-            new_target_tag_local,
-            prototype_key_local,
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        match fallback {
-            NewTargetPrototypeFallback::CurrentGlobal => {
-                function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
-                function.instruction(&Instruction::LocalSet(prototype_payload_local));
-            }
-            NewTargetPrototypeFallback::FunctionSnapshot(offset) => {
-                self.load_i64_to_local_from_offset(
-                    realm_source_payload_local,
-                    offset,
-                    prototype_payload_local,
-                    function,
-                );
-            }
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {
-                self.emit_required_new_target_realm_ordinary_prototype(
-                    new_target_payload_local,
-                    new_target_tag_local,
-                    intrinsic,
-                    prototype_payload_local,
-                    prototype_tag_local,
-                    function,
-                )?;
-            }
-            NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) => {
-                self.emit_required_new_target_realm_ordinary_prototype(
-                    new_target_payload_local,
-                    new_target_tag_local,
-                    OrdinaryDefaultPrototype::MessageError(kind),
-                    prototype_payload_local,
-                    prototype_tag_local,
-                    function,
-                )?;
-            }
-            NewTargetPrototypeFallback::RealmIntrinsic(offset) => {
-                let prototype_realm_result = self.emit_get_function_realm(
-                    new_target_payload_local,
-                    new_target_tag_local,
-                    function,
-                );
-                let prototype_realm = self.emit_route_function_realm_result(
-                    prototype_realm_result,
-                    FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn {
-                        payload_local: self.result_local,
-                        tag_local: self.result_tag_local,
-                    },
-                    function,
-                )?;
-                self.emit_load_realm_intrinsic_prototype_or_global(
-                    prototype_realm.index(),
-                    offset,
-                    default_prototype_global_index,
-                    prototype_payload_local,
-                    function,
-                );
-                self.release_resolved_function_realm_local(prototype_realm);
-            }
-        }
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(prototype_tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(should_get_prototype_local);
-        self.release_temp_local(proxy_target_tag_local);
-        self.release_temp_local(proxy_handler_payload_local);
-        self.release_temp_local(realm_source_payload_local);
-        self.release_temp_local(prototype_key_local);
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(
-        &mut self,
-        prototype_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let prototype_tag_local = self.reserve_temp_local();
-        let result = self.emit_new_target_prototype_to_locals(
-            AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
-                OrdinaryDefaultPrototype::AggregateError,
-            ),
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        );
-        self.release_temp_local(prototype_tag_local);
-        result
-    }
-
-    pub(crate) fn emit_aggregate_error_iterable_to_list_payload(
-        &mut self,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let result_payload_local = self.reserve_temp_local();
-        let result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_like_snapshot_payload(
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            "AggregateError errors input must be iterable",
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_like_snapshot_payload(
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            "AggregateError errors input must be iterable",
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_heap_object_like_tag_i32(input_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            input_payload_local,
-            input_tag_local,
-            input_payload_local,
-            input_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "AggregateError errors input must be iterable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_function_handle_call(
-            method_payload_local,
-            method_tag_local,
-            Some((input_payload_local, Some(input_tag_local))),
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "AggregateError iterator method must return object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(next_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "AggregateError iterator next must be callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_alloc_array_payload_with_length(index_local, payload_local, function)?;
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.emit_function_handle_call(
-            next_payload_local,
-            next_tag_local,
-            Some((iterator_payload_local, Some(iterator_tag_local))),
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "AggregateError iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::BrIf(1));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_write(
-            payload_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "AggregateError errors input must be iterable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(index_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(result_tag_local);
-        self.release_temp_local(result_payload_local);
-        self.release_temp_local(next_tag_local);
-        self.release_temp_local(next_payload_local);
-        self.release_temp_local(iterator_tag_local);
-        self.release_temp_local(iterator_payload_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_local);
+        key.clear(function);
         Ok(())
     }
 }

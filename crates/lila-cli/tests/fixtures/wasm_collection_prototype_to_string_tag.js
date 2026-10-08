@@ -14,5 +14,5 @@ function checkCollectionTag(prototype, expected, instance) {
 
 checkCollectionTag(Map.prototype, "Map", new Map()) &&
   checkCollectionTag(Set.prototype, "Set", new Set()) &&
-  checkCollectionTag(WeakMap.prototype, "WeakMap", new WeakMap()) &&
-  checkCollectionTag(WeakSet.prototype, "WeakSet", new WeakSet());
+  checkCollectionTag(WeakMap.prototype, "WeakMap", Object.create(WeakMap.prototype)) &&
+  checkCollectionTag(WeakSet.prototype, "WeakSet", Object.create(WeakSet.prototype));

@@ -40,6 +40,33 @@ fn metadata_and_intrinsic_results() {
 }
 
 #[test]
+fn equals_returns_booleans_and_acquires_replaced_methods_before_arguments() {
+    assert_instant_methods(
+        r#"
+const instant = new Temporal.Instant(1n);
+if (instant.equals(new Temporal.Instant(1n)) !== true) throw 'equal Instant';
+if (instant.equals(new Temporal.Instant(2n)) !== false) throw 'different Instant';
+let trace = '';
+Object.defineProperty(Temporal.Instant.prototype, 'equals', {
+  configurable: true,
+  get() {
+    if (this !== instant) throw 'getter receiver';
+    trace += 'get;';
+    return function(argument) {
+      if (this !== instant) throw 'method receiver';
+      trace += 'call;';
+      return argument;
+    };
+  }
+});
+const result = instant.equals((trace += 'arg;', 'replacement'));
+if (result !== 'replacement' || trace !== 'get;arg;call;') throw 'live method order';
+print('ok');
+"#,
+    );
+}
+
+#[test]
 fn exact_arithmetic_and_representation_boundaries() {
     assert_instant_methods(include_str!(
         "fixtures/temporal_instant_methods/exact_arithmetic_and_representation_boundaries.js"

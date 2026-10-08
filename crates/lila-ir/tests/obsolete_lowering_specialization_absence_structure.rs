@@ -1,4 +1,9 @@
 const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const CONDITIONAL_FLOW_SOURCE: &str = include_str!("../src/lowering/conditional_flow.rs");
+const SIGNATURE_EVIDENCE_SOURCE: &str = include_str!("../src/lowering/signature_evidence.rs");
+const VAR_DECLARATION_SOURCE: &str = include_str!("../src/lowering/var_declaration.rs");
+const FUNCTION_DECLARATION_SOURCE: &str = include_str!("../src/lowering/function_declaration.rs");
+const LEXICAL_DECLARATION_SOURCE: &str = include_str!("../src/lowering/lexical_declaration.rs");
 const LOWERING_HELPERS_SOURCE: &str = include_str!("../src/lowering_helpers.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const REGEXP_SOURCE: &str = include_str!("../src/regexp.rs");
@@ -48,8 +53,23 @@ fn disconnected_lowering_specializations_are_absent() {
         "static_string_from_char_code_value",
         "static_generator_declaration_elements_by_name",
         "merge_operand_shapes",
+        "lower_static_yield_star_generator_method_call",
+        "static_generator_declaration_values",
+        "static_generator_for_loop_condition",
     ] {
-        assert!(!LOWERING_SOURCE.contains(name), "`{name}`");
+        assert!(
+            [
+                LOWERING_SOURCE,
+                SIGNATURE_EVIDENCE_SOURCE,
+                VAR_DECLARATION_SOURCE,
+                FUNCTION_DECLARATION_SOURCE,
+                LEXICAL_DECLARATION_SOURCE,
+                CONDITIONAL_FLOW_SOURCE,
+            ]
+            .iter()
+            .all(|source| !source.contains(name)),
+            "`{name}`"
+        );
     }
     assert!(!LOWERING_HELPERS_SOURCE.contains("StaticStringGeneratorLoopBody"));
     assert!(!LIB_SOURCE.contains("use regress::Regex;"));
@@ -59,15 +79,15 @@ fn disconnected_lowering_specializations_are_absent() {
 fn live_lowering_authorities_and_output_fields_remain() {
     for name in [
         "lower_generator_expression",
-        "lower_static_yield_star_generator_method_call",
-        "static_generator_declaration_values",
-        "static_generator_for_loop_condition",
         "static_string_typed_expr",
-        "merge_heap_shapes",
         "lower_generated_ast_function",
     ] {
         assert!(LOWERING_SOURCE.contains(name), "`{name}`");
     }
+    assert!(LOWERING_SOURCE.contains("mod conditional_flow;"));
+    assert!(CONDITIONAL_FLOW_SOURCE.contains("fn merge_heap_shapes("));
+    assert!(CONDITIONAL_FLOW_SOURCE.contains("self.merge_heap_shapes("));
+    assert!(!LOWERING_SOURCE.contains("fn merge_heap_shapes("));
 
     let fields = generated_function_output_source()
         .lines()

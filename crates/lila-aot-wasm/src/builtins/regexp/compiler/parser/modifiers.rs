@@ -1,12 +1,12 @@
 use super::*;
 
 pub(super) struct ModifierLocals {
-    pub(super) ignore_case: u32,
-    pub(super) multiline: u32,
-    pub(super) dot_all: u32,
+    pub(super) ignore_case: I64Local,
+    pub(super) multiline: I64Local,
+    pub(super) dot_all: I64Local,
 }
 impl ModifierLocals {
-    pub(super) fn words(&self) -> [(NodeWord, u32); 3] {
+    pub(super) fn words(&self) -> [(NodeWord, I64Local); 3] {
         [
             (NodeWord::IgnoreCase, self.ignore_case),
             (NodeWord::Multiline, self.multiline),
@@ -23,11 +23,11 @@ impl FunctionBuilder<'_> {
         modifiers: &ModifierLocals,
         function: &mut Function,
     ) {
-        let unit = self.reserve_temp_local();
-        let added = self.reserve_temp_local();
-        let removed = self.reserve_temp_local();
-        let seen_dash = self.reserve_temp_local();
-        let bit = self.reserve_temp_local();
+        let unit = self.runtime_schema().reserve_i64_local(function);
+        let added = self.runtime_schema().reserve_i64_local(function);
+        let removed = self.runtime_schema().reserve_i64_local(function);
+        let seen_dash = self.runtime_schema().reserve_i64_local(function);
+        let bit = self.runtime_schema().reserve_i64_local(function);
         for local in [added, removed, seen_dash] {
             set(function, local, 0);
         }
@@ -47,7 +47,7 @@ impl FunctionBuilder<'_> {
         );
         function.instruction(&Instruction::End);
         set(function, seen_dash, 1);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
         set(function, bit, 0);
@@ -58,10 +58,10 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::End);
         }
         eq(function, bit, 0);
-        function.instruction(&Instruction::LocalGet(added));
-        function.instruction(&Instruction::LocalGet(removed));
+        added.load(function);
+        removed.load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(bit));
+        bit.load(function);
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -75,22 +75,22 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         eq(function, seen_dash, 1);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(removed));
-        function.instruction(&Instruction::LocalGet(bit));
+        removed.load(function);
+        bit.load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(removed));
+        removed.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(added));
-        function.instruction(&Instruction::LocalGet(bit));
+        added.load(function);
+        bit.load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(added));
+        added.store(function);
         function.instruction(&Instruction::End);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(added));
-        function.instruction(&Instruction::LocalGet(removed));
+        added.load(function);
+        removed.load(function);
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -115,7 +115,7 @@ impl FunctionBuilder<'_> {
                 ),
             };
             for (mask, operand) in [(added, enabled), (removed, disabled)] {
-                function.instruction(&Instruction::LocalGet(mask));
+                mask.load(function);
                 function.instruction(&Instruction::I64Const(modifier.bit() as i64));
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::I64Eqz);
@@ -126,7 +126,7 @@ impl FunctionBuilder<'_> {
             }
         }
         for local in [bit, seen_dash, removed, added, unit] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
     }
 }

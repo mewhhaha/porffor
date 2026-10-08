@@ -35,10 +35,7 @@ fn assert_all_true(source: &str, host_surface_policy: HostSurfacePolicy, expecte
     let lines = outcome
         .output_events
         .iter()
-        .map(|event| match event {
-            HostOutputEvent::PrintLine(line) => line.as_str(),
-            other => panic!("unexpected host output event: {other:?}"),
-        })
+        .map(|HostOutputEvent::PrintLine(line)| line.as_str())
         .collect::<Vec<_>>();
     assert_eq!(lines.len(), expected_lines, "{lines:?}");
     for (index, line) in lines.iter().enumerate() {

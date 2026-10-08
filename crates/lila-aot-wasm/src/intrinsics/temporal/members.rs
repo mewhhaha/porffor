@@ -1,37 +1,53 @@
 use super::*;
 use crate::functions::{NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext};
 
-/// The two Temporal families whose intrinsic allocation is needed by Instant
-/// arithmetic. Other created-Realm Temporal families remain separate work.
-#[derive(Clone, Copy)]
+/// Every implemented Temporal constructor family. Both bootstrap paths and
+/// allocation policies consume this closed domain.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TemporalIntrinsicFamily {
     Instant,
     Duration,
-}
-
-pub(crate) enum TemporalIntrinsicRealm<'a> {
-    Entry,
-    Created(&'a RealmFunctionMaterializationContext),
+    PlainDate,
+    ZonedDateTime,
+    PlainTime,
+    PlainDateTime,
+    PlainYearMonth,
+    PlainMonthDay,
 }
 
 impl TemporalIntrinsicFamily {
-    pub(crate) const ALL: [Self; 2] = [Self::Instant, Self::Duration];
+    pub(crate) const ALL: [Self; 8] = [
+        Self::Instant,
+        Self::PlainDate,
+        Self::ZonedDateTime,
+        Self::PlainTime,
+        Self::PlainDateTime,
+        Self::PlainYearMonth,
+        Self::PlainMonthDay,
+        Self::Duration,
+    ];
     pub(crate) const fn constructor(self) -> StandardBuiltinId {
         match self {
             Self::Instant => StandardBuiltinId::TemporalInstantConstructor,
             Self::Duration => StandardBuiltinId::TemporalDurationConstructor,
+            Self::PlainDate => StandardBuiltinId::TemporalPlainDateConstructor,
+            Self::ZonedDateTime => StandardBuiltinId::TemporalZonedDateTimeConstructor,
+            Self::PlainTime => StandardBuiltinId::TemporalPlainTimeConstructor,
+            Self::PlainDateTime => StandardBuiltinId::TemporalPlainDateTimeConstructor,
+            Self::PlainYearMonth => StandardBuiltinId::TemporalPlainYearMonthConstructor,
+            Self::PlainMonthDay => StandardBuiltinId::TemporalPlainMonthDayConstructor,
         }
     }
     pub(crate) const fn prototype_slot(self) -> NonArrayRealmIntrinsicSlot {
         match self {
             Self::Instant => NonArrayRealmIntrinsicSlot::TemporalInstantPrototype,
             Self::Duration => NonArrayRealmIntrinsicSlot::TemporalDurationPrototype,
-        }
-    }
-    pub(crate) const fn prototype_global(self) -> u32 {
-        match self {
-            Self::Instant => TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-            Self::Duration => TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
+            Self::PlainDate => NonArrayRealmIntrinsicSlot::TemporalPlainDatePrototype,
+            Self::ZonedDateTime => NonArrayRealmIntrinsicSlot::TemporalZonedDateTimePrototype,
+            Self::PlainTime => NonArrayRealmIntrinsicSlot::TemporalPlainTimePrototype,
+            Self::PlainDateTime => NonArrayRealmIntrinsicSlot::TemporalPlainDateTimePrototype,
+            Self::PlainYearMonth => NonArrayRealmIntrinsicSlot::TemporalPlainYearMonthPrototype,
+            Self::PlainMonthDay => NonArrayRealmIntrinsicSlot::TemporalPlainMonthDayPrototype,
         }
     }
     fn constructor_methods(self) -> &'static [StandardBuiltinId] {
@@ -46,6 +62,27 @@ impl TemporalIntrinsicFamily {
                 StandardBuiltinId::TemporalDurationFrom,
                 StandardBuiltinId::TemporalDurationCompare,
             ],
+            Self::PlainDate => &[
+                StandardBuiltinId::TemporalPlainDateFrom,
+                StandardBuiltinId::TemporalPlainDateCompare,
+            ],
+            Self::ZonedDateTime => &[
+                StandardBuiltinId::TemporalZonedDateTimeFrom,
+                StandardBuiltinId::TemporalZonedDateTimeCompare,
+            ],
+            Self::PlainTime => &[
+                StandardBuiltinId::TemporalPlainTimeFrom,
+                StandardBuiltinId::TemporalPlainTimeCompare,
+            ],
+            Self::PlainDateTime => &[
+                StandardBuiltinId::TemporalPlainDateTimeFrom,
+                StandardBuiltinId::TemporalPlainDateTimeCompare,
+            ],
+            Self::PlainYearMonth => &[
+                StandardBuiltinId::TemporalPlainYearMonthFrom,
+                StandardBuiltinId::TemporalPlainYearMonthCompare,
+            ],
+            Self::PlainMonthDay => &[StandardBuiltinId::TemporalPlainMonthDayFrom],
         }
     }
     fn getters(self) -> &'static [StandardBuiltinId] {
@@ -68,10 +105,107 @@ impl TemporalIntrinsicFamily {
                 StandardBuiltinId::TemporalDurationPrototypeSignGetter,
                 StandardBuiltinId::TemporalDurationPrototypeBlankGetter,
             ],
+            Self::PlainDate => &[
+                StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeEraGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDayGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter,
+            ],
+            Self::ZonedDateTime => &[
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
+            ],
+            Self::PlainTime => &[
+                StandardBuiltinId::TemporalPlainTimePrototypeHourGetter,
+                StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter,
+                StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter,
+                StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter,
+                StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter,
+                StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter,
+            ],
+            Self::PlainDateTime => &[
+                StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter,
+            ],
+            Self::PlainYearMonth => &[
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter,
+            ],
+            Self::PlainMonthDay => &[
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter,
+            ],
         }
     }
-    fn methods(self) -> &'static [StandardBuiltinId] {
-        match self {
+    fn methods(self) -> impl Iterator<Item = StandardBuiltinId> {
+        let fixed: &'static [StandardBuiltinId] = match self {
             Self::Instant => &[
                 StandardBuiltinId::TemporalInstantPrototypeAdd,
                 StandardBuiltinId::TemporalInstantPrototypeSubtract,
@@ -83,6 +217,7 @@ impl TemporalIntrinsicFamily {
                 StandardBuiltinId::TemporalInstantPrototypeEquals,
                 StandardBuiltinId::TemporalInstantPrototypeToJson,
                 StandardBuiltinId::TemporalInstantPrototypeValueOf,
+                StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso,
             ],
             Self::Duration => &[
                 StandardBuiltinId::TemporalDurationPrototypeWith,
@@ -97,58 +232,140 @@ impl TemporalIntrinsicFamily {
                 StandardBuiltinId::TemporalDurationPrototypeToLocaleString,
                 StandardBuiltinId::TemporalDurationPrototypeValueOf,
             ],
-        }
+            Self::PlainDate => &[
+                StandardBuiltinId::TemporalPlainDatePrototypeWith,
+                StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar,
+                StandardBuiltinId::TemporalPlainDatePrototypeEquals,
+                StandardBuiltinId::TemporalPlainDatePrototypeToString,
+                StandardBuiltinId::TemporalPlainDatePrototypeToJson,
+                StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDatePrototypeValueOf,
+                StandardBuiltinId::TemporalPlainDatePrototypeAdd,
+                StandardBuiltinId::TemporalPlainDatePrototypeSubtract,
+                StandardBuiltinId::TemporalPlainDatePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDatePrototypeSince,
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime,
+                StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth,
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay,
+            ],
+            Self::ZonedDateTime => &[],
+            Self::PlainTime => &[
+                StandardBuiltinId::TemporalPlainTimePrototypeAdd,
+                StandardBuiltinId::TemporalPlainTimePrototypeSubtract,
+                StandardBuiltinId::TemporalPlainTimePrototypeWith,
+                StandardBuiltinId::TemporalPlainTimePrototypeUntil,
+                StandardBuiltinId::TemporalPlainTimePrototypeSince,
+                StandardBuiltinId::TemporalPlainTimePrototypeRound,
+                StandardBuiltinId::TemporalPlainTimePrototypeEquals,
+                StandardBuiltinId::TemporalPlainTimePrototypeToString,
+                StandardBuiltinId::TemporalPlainTimePrototypeToJson,
+                StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainTimePrototypeValueOf,
+            ],
+            Self::PlainDateTime => &[
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWith,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeAdd,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeRound,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeEquals,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToString,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToJson,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+            ],
+            Self::PlainYearMonth => &[
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeWith,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSince,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToString,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate,
+            ],
+            Self::PlainMonthDay => &[
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeWith,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToString,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate,
+            ],
+        };
+        fixed.iter().copied().chain(
+            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS
+                .iter()
+                .filter(move |_| matches!(self, Self::ZonedDateTime))
+                .map(|(_, builtin)| *builtin),
+        )
     }
 }
 
-impl<'a> FunctionBuilder<'a> {
+// A namespace cannot advertise an implemented constructor that created bootstrap
+// omits, or install it under a different ordered family row.
+const _: () = {
+    assert!(TemporalIntrinsicFamily::ALL.len() == TEMPORAL_NAMESPACE_CONSTRUCTORS.len());
+    let mut index = 0;
+    while index < TemporalIntrinsicFamily::ALL.len() {
+        assert!(
+            TemporalIntrinsicFamily::ALL[index].constructor() as usize
+                == TEMPORAL_NAMESPACE_CONSTRUCTORS[index].1 as usize
+        );
+        index += 1;
+    }
+};
+
+impl FunctionBuilder<'_> {
     pub(crate) fn emit_install_temporal_intrinsic_members(
         &mut self,
         family: TemporalIntrinsicFamily,
-        constructor: u32,
-        prototype: u32,
-        realm: TemporalIntrinsicRealm<'_>,
+        constructor: &crate::gc_types::ValueLocals,
+        prototype: &crate::gc_types::ValueLocals,
+        realm: &RealmFunctionMaterializationContext,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let callable = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        let key = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag));
         for builtin in family.constructor_methods() {
-            self.emit_temporal_intrinsic_callable(*builtin, &realm, callable, function)?;
-            self.emit_object_define_local_data(
+            self.emit_install_intrinsic_method(
                 constructor,
-                temporal_intrinsic_property_key(*builtin)?,
-                callable,
-                tag,
+                IntrinsicKey::Name(temporal_intrinsic_property_key(*builtin)?),
+                *builtin,
+                realm,
+                true,
+                true,
                 function,
             )?;
         }
         for builtin in family.getters() {
-            self.emit_temporal_intrinsic_callable(*builtin, &realm, callable, function)?;
-            function.instruction(&Instruction::I64Const(
-                self.strings
-                    .payload(temporal_intrinsic_property_key(*builtin)?),
-            ));
-            function.instruction(&Instruction::LocalSet(key));
-            self.emit_object_append_accessor_property_with_flags(
+            self.emit_install_intrinsic_accessor(
                 prototype,
-                key,
-                Some((callable, tag)),
+                IntrinsicKey::Name(temporal_intrinsic_property_key(*builtin)?),
+                Some(*builtin),
                 None,
-                false,
+                realm,
                 true,
                 function,
             )?;
         }
         for builtin in family.methods() {
-            self.emit_temporal_intrinsic_callable(*builtin, &realm, callable, function)?;
-            self.emit_object_define_local_data(
+            self.emit_install_intrinsic_method(
                 prototype,
-                temporal_intrinsic_property_key(*builtin)?,
-                callable,
-                tag,
+                IntrinsicKey::Name(temporal_intrinsic_property_key(builtin)?),
+                builtin,
+                realm,
+                true,
+                true,
                 function,
             )?;
         }
@@ -156,72 +373,23 @@ impl<'a> FunctionBuilder<'a> {
             prototype,
             family.constructor().debug_name(),
             function,
-        )?;
-        self.release_temp_local(key);
-        self.release_temp_local(tag);
-        self.release_temp_local(callable);
-        Ok(())
-    }
-
-    pub(crate) fn emit_temporal_intrinsic_callable(
-        &mut self,
-        builtin: StandardBuiltinId,
-        realm: &TemporalIntrinsicRealm<'_>,
-        callable: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let meta = self
-            .functions
-            .get(&builtin.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "missing Temporal intrinsic metadata: {}",
-                    builtin.debug_name()
-                ))
-            })?;
-        match realm {
-            TemporalIntrinsicRealm::Entry => {
-                self.emit_function_value_payload(&meta, function)?;
-                function.instruction(&Instruction::LocalSet(callable));
-            }
-            TemporalIntrinsicRealm::Created(context) => {
-                self.emit_function_value_payload_in_realm(&meta, context, callable, function)?;
-                self.store_i64_local_at_offset(
-                    callable,
-                    HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                    callable,
-                    function,
-                );
-            }
-        }
-        Ok(())
+        )
     }
 
     pub(crate) fn emit_define_temporal_intrinsic_to_string_tag(
         &mut self,
-        object: u32,
+        object: &crate::gc_types::ValueLocals,
         name: &str,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key = self.reserve_temp_local();
-        let payload = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::LocalSet(payload));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag));
-        let result = self.emit_object_append_data_property_with_flags(
-            object, key, payload, tag, false, false, true, function,
-        );
-        self.release_temp_local(tag);
-        self.release_temp_local(payload);
-        self.release_temp_local(key);
-        result
+        self.emit_install_intrinsic_string(
+            object,
+            IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::ToStringTag),
+            name,
+            false,
+            false,
+            true,
+            function,
+        )
     }
 }

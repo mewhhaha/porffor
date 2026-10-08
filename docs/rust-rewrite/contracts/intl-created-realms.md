@@ -1,5 +1,32 @@
 # Intl intrinsics in created Realms
 
+## Current atomic GC source — 2026-10-05
+
+The common GC bootstrap publishes each represented Intl namespace member for
+both entry and created Realms through `IntlNamespaceMembers` and the shared
+intrinsic definitions. NativeHost's separate `created_realm_intl_intrinsics.rs`
+installer and `created_realm_intl_structure` raw publication mirror are
+retired. The old three-member list and pointer-offset capture below describe
+the earlier publication surface.
+
+Current native Intl families consume actual GC formatter/Locale records,
+immutable FunctionContext and BuiltinClosureCapture roots, and the private
+validated ByteArray provider protocol. Existing created-Realm, bound-format,
+constructor/getter and abrupt-Realm semantic targets remain. The maintained
+`intl_supported_values_structure` guard retains checked native catalog/provider
+identity, once-only coercion, List-to-Array publication and namespace admission.
+These publication owners do not establish complete locale-data or Test262
+acceptance. See [NativeHost GC values](native-host-gc-values.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 The AOT host creates an `Intl` namespace with the same represented members as
 the entry Realm: `getCanonicalLocales`, `Locale`, and `DateTimeFormat`. Namespace
 membership comes from `IntlNamespaceMembers`. Constructor and prototype

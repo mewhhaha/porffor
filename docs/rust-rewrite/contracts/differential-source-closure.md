@@ -1,10 +1,23 @@
 # Differential replay source-closure contract
 
-Status: normative for differential corpus schemas v1, v2 and v3.
+## Worker-only JavaScript admission — 2026-10-04 dry source
+
+`DifferentialReplayInput` validates the native corpus wire and graph metadata
+without invoking the JavaScript parser. For v1/v2/v3, the worker constructs the
+source-admitted `DifferentialCase` only after publishing its bound header;
+closure parsing is therefore inside the attempt deadline. An explicit validated
+AdmissionRejected terminal is a corpus error. A missing or malformed terminal
+is a worker failure and cannot be mistaken for admission or empty output.
+V4 keeps the same graph owner and runtime loader policies below. No filesystem
+fallback or source-fingerprint change is introduced. Current controls remain
+unexecuted. See the [worker lifecycle](differential-worker-lifecycle.md).
+
+Status: normative for legacy differential corpus schemas v1/v2/v3 and the
+additive graph-owned schema v4. Current v4 source remains uncompiled and unexecuted.
 
 ## Integrity claim
 
-The current corpus wire formats carry one entry source, one parse goal and no
+The v1/v2/v3 corpus wire formats carry one entry source, one parse goal and no
 module graph. Their stable case fingerprints cover that source and the corpus
 metadata, but no dependency graph. A replay whose meaning can depend on a
 host-loaded module is therefore not reproducible from its corpus bytes: the
@@ -22,7 +35,8 @@ or dynamic import are invalid ECMAScript.
 Outer-source classification is not a complete runtime proof. `eval`, indirect
 eval, a Function constructor, a child realm or an agent can create an
 `import()` whose tokens are not in the entry AST. Differential replay therefore
-also fixes the shared `ModuleLoadingPolicy` to `RejectAll` for both backends.
+also fixes the shared `ModuleLoadingPolicy` to `RejectAll` for both backends
+when executing a v1/v2/v3 case.
 Wasm graph preparation uses a host loader that rejects before reading a
 dependency. A Wasm agent carries one typed compile-policy value from its root
 through the harness and group into both initial and cache-retry worker
@@ -37,7 +51,8 @@ specifically at differential replay's compile-option boundary.
 ## Typed classification
 
 `OuterScriptModuleDependency` is the closed IR classification used at the
-corpus constructor and decoder boundary. The mandatory loader policy separately
+source-admitted corpus constructor inside the worker. The parent native decoder
+does not perform this JavaScript classification. The mandatory loader policy separately
 closes runtime-created requests:
 
 | Evidence | Classification | Corpus admission |
@@ -60,10 +75,12 @@ at the boundary.
 
 `DifferentialCase` does not retain independently mutable `goal` and `source`
 fields. Construction couples them once into the private
-`DifferentialProgram::DependencySealedScript` variant. Execution exhaustively
-matches that program type, so adding any future program form must also add an
-explicit execution path. The replay-owned compile options select `RejectAll`;
-callers cannot opt a validated case back into filesystem loading. The Wasm
+`DifferentialProgram::DependencySealedScript` variant for v1/v2/v3, or the
+`EmbeddedGraph` variant for v4. The latter projects entry fields from its single
+immutable graph owner. Execution and compile-option projection exhaustively
+match that program type, selecting `RejectAll` for the legacy variant and
+`Embedded` with the same graph Arc for v4. Callers cannot opt a validated case
+back into filesystem loading. The Wasm
 program-cache key includes the policy, so a filesystem-enabled artifact cannot
 be reused by a reject-all replay. Its `v2` key grammar uses fixed-width
 discriminators plus presence tags and little-endian `u64` byte lengths for
@@ -72,21 +89,35 @@ graph state therefore cannot shift across field boundaries and reinterpret a
 policy discriminator. The domain string versions this grammar independently of
 the compiled-artifact fingerprint.
 
-The JSON schemas remain unchanged. For every previously valid admitted Script,
+The v1/v2/v3 JSON schemas remain unchanged. For every previously valid admitted Script,
 field names, field order, bytes and fingerprint inputs are unchanged.
 The committed v1, v2 and v3 fixtures pin that compatibility. Module and direct
 dynamic-import cases are rejected while decoding. Dynamic-source constructs
 may still be admitted, but any import they create meets the fixed rejecting
 loader instead of an ambient filesystem.
 
-## Future module protocol
+## Embedded module protocol
 
-Module replay requires a new additive protocol rather than weakening this
-contract. That protocol must carry a normalized, finite module graph; stable
-virtual module identities and referrer URLs; every resolution edge and request
-attribute; and a fingerprint over the complete graph. Both backends must
-consume that same in-memory graph without consulting the checkout or current
-working directory. The exact graph schema and loader are deliberately deferred.
+Schema v4 is the additive graph protocol. Its separate strict wire shape owns
+one entry, declared Module sources, independent metadata URLs and every exact
+resolution row. Script, Module and Unlocated referrers remain distinct; absent
+rows deny rather than infer paths. The sole graph constructor validates and
+canonicalizes those inputs once. Both actual backend adapters consume that same
+owner without consulting the checkout or current working directory. Dynamic
+sources can use only explicitly declared Unlocated rows, while Wasm-AOT keeps
+its unsupported dynamic-code-generation boundary.
+
+The cached graph SHA-256 includes all supplied sources, URLs, requests,
+attributes and targets, including unused rows. V4 case and mismatch identities
+retain that full digest; Embedded artifact keys consume it too. The entry
+parser, complete-catalog lowerer and spec loader keep source/goal/identity
+coupled. AOT uses existing module records and import jobs; no runtime parser is
+added. Spec-exec Embedded-created Realms share the actual Context interner and
+retain separate Realm module caches, so foreign callbacks cannot link records
+against another Context's symbols. Agent contexts remain separate instances
+sharing only immutable source authority. The complete contract and authored
+finite corpus are in
+[`differential-embedded-module-graph.md`](differential-embedded-module-graph.md).
 
 ## Durable witnesses
 
@@ -95,7 +126,7 @@ IR tests distinguish true literal/computed dynamic imports from a method named
 exercise Module, direct-import and indeterminate rejection plus method-name
 acceptance under every v1/v2/v3 protocol. Direct eval, indirect eval,
 Function-constructor, created-realm and agent sources are admitted under every
-protocol but pin the replay compile options to `RejectAll`. The feature-gated
+legacy protocol but pin the replay compile options to `RejectAll`. The feature-gated
 spec-exec witness first requires the same on-disk module body and fulfillment
 handler to run under `Filesystem` in the root, direct-eval, indirect-eval,
 Function-constructor, created-realm and agent contexts. It then requires the
@@ -115,12 +146,13 @@ Source closure and reject-all loading do not establish whole-program semantic
 equivalence or ECMAScript/Test262 conformance. They do not make time,
 randomness, scheduling, agents or other admitted host effects deterministic.
 They do not make Wasm-AOT support dynamic source compilation: current AOT
-diagnostics remain honest, while spec-exec can execute the generated source and
-must reject any import it creates. Cache-key framing removes structural tuple
+diagnostics remain honest, while spec-exec can execute the generated source.
+Its legacy cases reject those imports and v4 admits only declared exact rows.
+Cache-key framing removes structural tuple
 ambiguity before hashing; it does not claim mathematical collision-freedom for
 SHA-256 or make artifacts portable across compiler fingerprints or
-architectures. This slice does not add module replay, object or Symbol
-comparison, panic isolation, fuzz campaigns, performance budgets, CI scheduling
-or new conformance results. The existing
+architectures. The v4 module replay source path remains uncompiled and
+unexecuted. Object or Symbol comparison, panic isolation, fuzz campaigns,
+performance budgets, CI scheduling and new conformance results remain open. The existing
 protocol-specific observation contracts and their
 `semantic_equivalence: not_established` report value remain authoritative.

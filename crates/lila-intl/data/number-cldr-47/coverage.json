@@ -2,7 +2,7 @@
   "complete": true,
   "canonical_locales": 1082,
   "raw_candidates": 1082,
-  "numbering_systems": 77,
+  "numbering_systems": 78,
   "sanctioned_units": 45,
   "precomposed_pairs": 5,
   "currency_codes": 307,
@@ -17,8 +17,9 @@
     "currency_sets": 470,
     "unit_sets": 542,
     "plural_rules": 40,
+    "ordinal_rules": 26,
     "plural_ranges": 10,
-    "profiles": 534,
+    "profiles": 535,
     "unicode_sets": 6
   },
   "source_diagnostics": [
@@ -29,21 +30,33 @@
       "authority": "supplementalMetadata.xml defaultContent versus complete pinned Git tree"
     }
   ],
+  "numbering_supplement": {
+    "identifier": "tols",
+    "cldr_release": "48.0.0",
+    "cldr_commit": "acd6d88ae493633240e19a87a721076a8a75c310",
+    "unicode_release": "17.0.0",
+    "source_manifest_sha256": "c0b70b5f5ffc5940c8f47e97ec99bd9c5596e1b81613901bffaa9a80323dc62f"
+  },
   "products": [
     {
       "path": "profiles.json.gz",
-      "sha256": "9cee88aecc9b49b55db0b530d3831b8830e694fd3d3b2792dbb035049b983e69",
-      "bytes": 16942884
+      "sha256": "4bc17e2ed0a5a51a70ad342fa9bb7cf91af036db737775dedbf505204205699a",
+      "bytes": 16963236
     },
     {
       "path": "profile-provenance.json.gz",
-      "sha256": "300811145a4009769dd5939ad2fc7e4f0555bc254634966e809b8c78383467a6",
-      "bytes": 24260485
+      "sha256": "aa1aa78a0f7ad465ff0bf49ff8a420ad0b9c1bb2bc11f60799abd4053d77351f",
+      "bytes": 24260730
     },
     {
       "path": "medial-denominator-policy.json",
       "sha256": "89ffc7d990903cf4bd8868864b0aa11c6ac77db3fc0e8e293d083f68e85ba2a3",
       "bytes": 9360
+    },
+    {
+      "path": "ordinal-samples.json",
+      "sha256": "378bc5ca07ef2100d89b65e895858e2b5827e75242d04f7e73999649aa773d81",
+      "bytes": 53123
     },
     {
       "path": "plural-samples.json",

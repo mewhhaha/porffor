@@ -1,95 +1,29 @@
 # TypedArray iterator buffer witness
 
-Status: normative for the Wasm-AOT TypedArray iterator creation and step seam.
+Status: typed GC source migration; compilation and execution pending.
 
-## Specification boundary
+Each active TypedArray iterator next borrows its actual `TypedArrayObject` and
+calls the shared `emit_validate_typed_array_view` owner. That owner acquires
+one backing-store observation and derives a whole-element length, distinguishing
+detached and out-of-bounds views with a whole defining-function Realm TypeError.
+The Array iterator next entry uses the same validation when its retained
+Array-like receiver is a concrete TypedArray. Native TypedArray producer entry
+retains its required initial validation before record construction.
 
-The 2026 ECMA-262 algorithms for `%TypedArray%.prototype.{values,keys,entries}`
-perform `ValidateTypedArray(O, seq-cst)` before `CreateArrayIterator`. The
-abstract operation `CreateArrayIterator` allocates the iterator and its slots;
-on every live TypedArray step, `%ArrayIteratorPrototype%.next` performs
-`ValidateTypedArrayBounds`, rejects an out-of-bounds view, and derives the
-current element length from that fresh cached backing-store observation. Those
-operations may throw a `TypeError` in the Realm of the built-in function that
-performs them.
+Validation occurs before the done test and index mutation. Failure leaves the
+retained array and index unchanged, permitting a fixed view to resume at the
+same index after regrowth. Successful exhaustion clears the retained typed
+array and makes Done permanent; later growth cannot restart it. Element reads
+consume the existing typed element/buffer owner. There is no `TypedArrayViewLocals`
+raw slot reconstruction, manual heap pointer or independent cached-length policy.
 
-The older Wasm emitters reconstructed the private view slots independently at
-both boundaries and called `emit_validate_typed_array_current_byte_length`.
-That helper reloads the buffer and derives length, but its internally generated
-errors use the entry-global error prototype. Created-Realm TypedArray iterator
-methods and their Realm-owned `%ArrayIteratorPrototype%.next` therefore could
-throw an entry-Realm `TypeError`, even though their function objects already
-carry the correct Realm snapshot. The two reconstructions also remained
-outside the live witness used by the migrated access, search and callback
-families.
+The new `aot_gc_iterator_entries.rs` cases cover detach, fixed-view shrink/error/
+regrow, length-tracking growth/shrink, entries, and permanent completion. Existing
+TypedArray CLI matrices and their Realm controls remain unchanged. The former
+`typed_array_iterator_witness_structure.rs` raw representation mirror retires.
 
-## Closed projection
-
-`TypedArrayViewLocals` is the sole immutable view-slot projection. Iterator
-creation and iterator stepping both load those five slots once and pass the
-record to `emit_typed_array_witness` with
-`TypedArrayWitnessUse::ValidatedMethodEntry { length_local }`.
-
-The witness:
-
-1. reads the backing data pointer and cached backing byte length once;
-2. reads the length-tracking flag once;
-3. distinguishes detached, fixed out-of-bounds and tracking out-of-bounds
-   states without mutating the stored fixed extent;
-4. routes both invalid states through the current function Realm's TypeError;
-5. derives a whole-element length from the same cached byte length; and
-6. publishes that length only after validation.
-
-Iterator creation consumes the validation and discards the published length;
-iterator stepping consumes the length for its done test. The same closed
-variant is deliberate: both are specification `ValidateTypedArray`-shaped
-entry points, while generic Array borrowing and integer-indexed property
-observation retain their distinct non-throwing witness variants.
-
-The old raw validation helper remains for binary-data operations not migrated
-by this seam. The structural regression bounds both iterator bodies and forbids
-that helper, direct private-slot reconstruction, or entry-global error emission
-there. Adding a new iterator validation policy requires extending the closed
-`TypedArrayWitnessUse` domain rather than another boolean or parallel length
-calculation.
-
-## Durable regression
-
-The existing TypedArray iterator fixture retains values, keys, entries,
-BigInt, detach, resizable growth, odd-byte Uint16 flooring, fixed-view shrink
-and permanently-done
-coverage. Its Realm matrix additionally invokes another Realm's TypedArray
-iterator methods and `%ArrayIteratorPrototype%.next`:
-
-- a buffer detached before iterator creation must throw that method Realm's
-  `TypeError`;
-- a buffer detached after creation must make `next` throw the iterator-method
-  Realm's `TypeError`;
-- a fixed view made out of bounds before creation and after creation exercises
-  the same two Realm-aware paths; and
-- cross-borrowing the foreign method and foreign `next` onto entry-Realm views
-  and iterators proves the error Realm follows the executing builtin rather
-  than the receiver or iterator creator; and
-- neither error may inherit from the entry Realm's `TypeError.prototype`.
-
-These cases make both migrations load-bearing. The existing resize matrix
-continues to pin current-length observation and whole-element flooring. The
-foreign buffers are resized by borrowing the entry Realm's `resize` method;
-this keeps the iterator/view objects foreign while avoiding a claim that the
-created-Realm ArrayBuffer prototype already exposes the complete method set.
-
-## Deferred verification
-
-The focused AOT structure test and existing TypedArray iterator CLI fixture
-pass on the current working tree. The centralized ladder still runs all four
-`%TypedArray%.prototype` iterator leaves and the complete current-SHA
-binary-data matrix before any broader status claim.
-
-## Nonclaims
-
-This seam does not migrate the remaining raw TypedArray validators, complete
-the universal integer-indexed exotic protocol, change iterator result-object
-allocation, add shared-memory synchronization, retire a Test262 rewrite, or
-claim a new conformance count. The pre-edit focused iterator leaves were
-already green; this closes source ownership and created-Realm error identity,
-not a measured baseline failure or T17.
+The [current next algorithm](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-%arrayiteratorprototype%.next)
+requires a fresh bounds check on each active step. Prior focused iterator passes
+are historical evidence for the old representation. The GC batch has no new
+compile, runtime or Test262 result yet, and this contract makes no T17 closure
+or conformance-count claim.

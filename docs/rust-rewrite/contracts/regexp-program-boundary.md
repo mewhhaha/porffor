@@ -68,6 +68,24 @@ before throwing. The shared seven-parameter helper type is retained: parameters
 parameters 1 and 5 are reserved zeroes. Counts and section pointers cannot be
 passed independently.
 
+The three emitted-layout consumers reserve a move-only
+`PendingRegExpProgramLayoutLocals` with no section accessors. The private
+decoder keeps both its validity flag and actual decoded fields inside the
+guard-emitting factory. The factory consumes the pending owner and returns
+`ValidatedRegExpProgramLayoutLocals` only after the closed corrupt-program
+route has emitted its return: matcher failure results, compiler workspace
+rollback with CorruptProgram status, or exec's existing JavaScript failure
+completion. Only the validated owner exposes the section locals. Missing the
+factory handoff therefore prevents a caller from accessing decoded sections.
+Each consumer releases that same owner in the temporary stack's reverse
+reservation order; the matcher reserves it last so its helper-end release is
+legal without changing other matcher temporary lifetimes.
+
+This ownership hardening preserves the existing guarded program-layout
+behavior. It is source-only as of 2026-10-03: no compile, validator, test or
+runtime check was run for this change. Runtime Unicode-mode capability gaps
+and whole T19 conformance remain open.
+
 | Owner or copy path | Program ownership |
 | --- | --- |
 | Static pool and finite candidate rows | Aligned immutable allocation plus packed handle |

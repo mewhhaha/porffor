@@ -6,6 +6,75 @@ use lila_engine::{
     ObservedCompletion, RealmBuilder, RunOptions,
 };
 
+#[test]
+fn unicode_namespace_bindings_keep_distinct_live_export_cells() {
+    assert_namespace_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import * as n\u0301 from './value.js';
+if (ń['a\u0301'] !== 1 || ń['\u00E1'] !== 2 ||
+    ń['a\u093E'] !== 3 || ń['a\u203F'] !== 4 || ń['\u309B'] !== 5 ||
+    ń['\u{088F}'] !== 6 || ń['\u{11DB0}'] !== 7 || ń['a\u{1ACF}'] !== 8 ||
+    ń.default !== 9 || ń['await'] !== 1) throw 'Unicode export spelling';
+const before = Object.getOwnPropertyDescriptor(ń, 'a\u0301');
+ń.replace();
+const after = Object.getOwnPropertyDescriptor(ń, 'a\u0301');
+if (before.value !== 1 || after.value !== 11 || ń['await'] !== 11 ||
+    ń['\u00E1'] !== 2 || !after.writable || !after.enumerable || after.configurable)
+  throw 'Unicode live binding or descriptor';
+print('Unicode namespace live cells');
+"#,
+            ),
+            (
+                "value.js",
+                r#"
+export let a\u0301 = 1;
+export let á = 2;
+export let aा = 3;
+export let a‿ = 4;
+export let ゛ = 5;
+export let \u{088F} = 6;
+export let \u{11DB0} = 7;
+export let a\u{1ACF} = 8;
+export { á as 'await' };
+export default 9;
+export function replace() { á = 11; }
+"#,
+            ),
+        ],
+        &["Unicode namespace live cells"],
+    );
+}
+
+#[test]
+fn unicode_namespace_and_source_aliases_preserve_module_identity_and_phase() {
+    assert_namespace_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import * as nा from './value.js';
+import * as n‿ from './value.js';
+import source s\u0301 from './source.js';
+import source s‿ from './source.js';
+if (nा !== n‿ || nा.value !== 42 || ś !== s‿ ||
+    Object.getPrototypeOf(ś) !== null || Object.isExtensible(ś))
+  throw 'Unicode aliases or module identity';
+print('Unicode aliases and source phase');
+"#,
+            ),
+            ("value.js", "export const value = 42;"),
+            (
+                "source.js",
+                "throw 'source-only module evaluated'; export const value = 1;",
+            ),
+        ],
+        &["Unicode aliases and source phase"],
+    );
+}
+
 struct NamespaceModules(PathBuf);
 
 impl Drop for NamespaceModules {

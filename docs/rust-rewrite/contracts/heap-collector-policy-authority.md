@@ -1,5 +1,44 @@
 # Heap collector-policy authority
 
+## Current atomic GC source — 2026-10-05
+
+Native `gc()` now consumes the registered `GcHostImport::CollectGc` token in
+`builtins/host.rs`; its actual Engine callback invokes the selected Wasmtime
+collector. Live JavaScript references are rooted GC values and typed strong
+record edges. The old `NonMovingMetadataChecked` manual-heap policy and its
+nonexecutable host route below describe the predecessor, rather than the
+current product representation. The obsolete `heap_collector_policy_structure`
+transport mirror is retired; `aot_native_host_values` authors a live-root
+collector witness.
+
+The source-only retirement removes the unused passive policy and required-phase
+modules, their module declarations and their exact source mirrors. The final cleanup also retires the unused passive
+weak-edge inventory; actual runtime capability remains explicit.
+Promise state readers and settlement now consume GC fields; the old raw-offset
+Promise lifecycle mirror is retired. Existing whole-value Promise and native
+collector semantic controls remain authored and unrun.
+
+Strong collector support does not supply the selected runtime's missing weak
+reference/ephemeron facility. That remains an explicit
+[unavailable capability](weak-unavailable-runtime-boundary.md), with no
+strong-retaining weak substitute or parallel manual object model. The final
+raw heap/helper retirement is written, and the bounded production caller
+census has zero remaining retired-provider or passive-metadata references.
+Final compiler-control and source-guard composition have finished independent
+source review.
+
+The complete source checkpoint includes types, meaningful controls and
+documentation. The complete source and integration repairs pass the
+whole-workspace, all-feature, all-target Rust type check on 2026-10-05 under the
+confirmed 4 GiB aggregate cap. Source guards, emitted Wasm validation and runtime
+proof remain pending; authored Rust controls have not been executed.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 ## Closed passive policy
 
 The passive heap inventory selects exactly one

@@ -23,13 +23,12 @@
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [build]
-# Half of the 16 logical CPUs on the development machine, by request: leave the
-# other half free for interactive work. `LILA_JOBS` can lower it further
-# through `scripts/dev.sh`.
-#
-# Test262 runs have their own knobs and must be capped to match: `--jobs 8` sizes
-# the Cranelift pool and `--threads 4` the case workers, since the two multiply.
-jobs = 8
+# Keep build memory bounded by default. The full implementation pass precedes
+# verification; later verification uses scripts/limited_verification.py for a
+# kernel-enforced process-tree memory cap as well as serial worker defaults.
+# Job count does not change Cargo's artifact fingerprint. Test262 must also use
+# --jobs 1 and --threads 1 because compiler and case pools otherwise multiply.
+jobs = 1
 
 [alias]
 xc = "check --workspace --all-targets"

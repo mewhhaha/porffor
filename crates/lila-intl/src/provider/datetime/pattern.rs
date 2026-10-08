@@ -3,6 +3,8 @@ use crate::datetime::{
 };
 use crate::TimeZoneNameStyle;
 
+mod range_endpoint;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum NameWidth {
     Abbreviated,
@@ -74,6 +76,10 @@ pub(super) enum Field {
         context: NameContext,
         width: NameWidth,
     },
+    NumericWeekday {
+        context: NameContext,
+        width: u8,
+    },
     DayPeriod {
         kind: PeriodKind,
         width: NameWidth,
@@ -120,6 +126,14 @@ impl Field {
                 width,
             }),
             'd' => Ok(Self::Day(numeric()?)),
+            'e' | 'c' if (1..=2).contains(&width) => Ok(Self::NumericWeekday {
+                context: if symbol == 'c' {
+                    NameContext::Standalone
+                } else {
+                    NameContext::Format
+                },
+                width: if symbol == 'c' { 1 } else { width },
+            }),
             'E' | 'e' | 'c' if (symbol == 'E' || width >= 3) && (1..=6).contains(&width) => {
                 Ok(Self::Weekday {
                     context: if symbol == 'c' {
@@ -183,7 +197,7 @@ impl Field {
             Self::CyclicYear(_) => DateTimePartKind::YearName,
             Self::Month { .. } => DateTimePartKind::Month,
             Self::Day(_) => DateTimePartKind::Day,
-            Self::Weekday { .. } => DateTimePartKind::Weekday,
+            Self::Weekday { .. } | Self::NumericWeekday { .. } => DateTimePartKind::Weekday,
             Self::DayPeriod { .. } => DateTimePartKind::DayPeriod,
             Self::Hour { .. } => DateTimePartKind::Hour,
             Self::Minute(_) => DateTimePartKind::Minute,
@@ -206,6 +220,14 @@ impl Field {
                 ..
             } => Some('L'),
             Self::Day(_) => Some('d'),
+            Self::NumericWeekday {
+                context: NameContext::Format,
+                ..
+            } => Some('e'),
+            Self::NumericWeekday {
+                context: NameContext::Standalone,
+                ..
+            } => Some('c'),
             Self::Hour { cycle, .. } => Some(match cycle {
                 DateTimeHourCycle::H11 => 'K',
                 DateTimeHourCycle::H12 => 'h',
@@ -235,6 +257,8 @@ pub(super) enum Token {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Pattern {
+    // Only the checked constructor can attach a genuine default companion.
+    range_pattern: Option<Box<Pattern>>,
     pub(super) tokens: Vec<Token>,
     pub(super) numbering: Vec<(Option<char>, String)>,
     pub(super) skeleton: Vec<Field>,
@@ -249,6 +273,7 @@ impl Pattern {
             })
             .collect();
         Self {
+            range_pattern: None,
             tokens,
             numbering,
             skeleton,
@@ -277,6 +302,9 @@ impl Pattern {
         }
         if fields.is_empty() {
             return Err(invalid());
+        }
+        if let Some(companion) = &mut self.range_pattern {
+            companion.skeleton = fields.clone();
         }
         self.skeleton = fields;
         Ok(self)
@@ -337,7 +365,15 @@ impl Glue {
                 }
             }
         }
+        let range_pattern = if first.range_pattern.is_some() || second.range_pattern.is_some() {
+            Some(Box::new(
+                self.combine(first.range_endpoint(), second.range_endpoint())?,
+            ))
+        } else {
+            None
+        };
         Ok(Pattern {
+            range_pattern,
             tokens,
             numbering,
             skeleton: first

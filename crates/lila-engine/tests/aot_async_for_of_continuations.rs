@@ -150,3 +150,30 @@ fn original_module_loop_catches_both_concurrent_import_rejections() {
         .expect("original module graph compiles and executes");
     assert_output(observed, "undefined import rejection");
 }
+
+fn assert_local_control_modes(source: &str) {
+    for directive in ["", "'use strict';\n"] {
+        assert_script(&format!("{directive}{source}"));
+    }
+}
+
+#[test]
+fn local_branches_retain_cached_next_and_distinct_cells_across_awaited_finalizers() {
+    assert_local_control_modes(include_str!(
+        "fixtures/async_for_of_continuations/local-control-cached-next-cells.js"
+    ));
+}
+
+#[test]
+fn awaited_finalizers_select_the_completion_before_local_branch_close() {
+    assert_local_control_modes(include_str!(
+        "fixtures/async_for_of_continuations/finalizer-replaces-local-control.js"
+    ));
+}
+
+#[test]
+fn local_break_close_failures_route_through_awaiting_outer_clauses_once() {
+    assert_local_control_modes(include_str!(
+        "fixtures/async_for_of_continuations/local-break-close-route.js"
+    ));
+}

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn locale_resolution_preserves_order_keyword_precedence_and_data_locale() {
-    let mut input = locale_request(&["de-DE", "ar-EG-u-ca-chinese-hc-h23-nu-latn", "zh-Hans-CN"]);
+    let mut input = locale_request(&["zz-ZZ", "ar-EG-u-ca-chinese-hc-h23-nu-latn", "zh-Hans-CN"]);
     input.calendar = Some(DateTimeKeyword::parse("gregory").unwrap());
     input.numbering_system = Some(DateTimeKeyword::parse("latn").unwrap());
     let result = provider().resolve_locale(input).unwrap();
@@ -21,7 +21,7 @@ fn locale_resolution_preserves_order_keyword_precedence_and_data_locale() {
 #[test]
 fn available_locale_inventory_and_supported_lists_are_distinct_from_default_fallback() {
     let defaults = provider()
-        .resolve_locale(locale_request(&["de-DE"]))
+        .resolve_locale(locale_request(&["zz-ZZ"]))
         .unwrap();
     assert_eq!(defaults.data_locale.as_str(), "en-US");
     let result = provider()
@@ -37,8 +37,21 @@ fn available_locale_inventory_and_supported_lists_are_distinct_from_default_fall
             .iter()
             .map(CanonicalLocaleId::as_str)
             .collect::<Vec<_>>(),
-        ["ar-EG-u-nu-arab", "zh-Hans-CN", "en-AU"]
+        ["de-DE", "ar-EG-u-nu-arab", "zh-Hans-CN", "en-AU"]
     );
+    for (requested, expected) in [
+        ("de-DE", "de"),
+        ("fr-FR", "fr"),
+        ("it-IT", "it"),
+        ("ja-JP", "ja"),
+        ("ko-KR", "ko"),
+        ("hi-IN", "hi"),
+    ] {
+        let locale = provider()
+            .resolve_locale(locale_request(&[requested]))
+            .unwrap();
+        assert_eq!(locale.data_locale.as_str(), expected, "{requested}");
+    }
     assert_eq!(
         provider()
             .resolve_locale(locale_request(&["ar"]))
@@ -85,13 +98,10 @@ fn original_options_drive_plain_availability_after_legacy_defaulting() {
         selected.components.year,
         Some(DateTimeNumericWidth::Numeric)
     );
-    let error = provider().format_parts(
-        DateTimeFormatRequest {
-            plan: selected.plan,
-            input: date(2020, 1, 25),
-        },
-        zones(),
-    );
+    let error = provider().format_parts(DateTimeFormatRequest {
+        plan: selected.plan,
+        input: date(2020, 1, 25),
+    });
     assert_eq!(error, Err(DateTimeFormatError::UnavailableFormat));
 
     let input = request(
@@ -106,13 +116,10 @@ fn original_options_drive_plain_availability_after_legacy_defaulting() {
         DateTimeValueKind::PlainMonthDay,
     ] {
         let parts = provider()
-            .format_parts(
-                DateTimeFormatRequest {
-                    plan: selected.plan.clone(),
-                    input: plain(kind, 2020, 1, 25),
-                },
-                zones(),
-            )
+            .format_parts(DateTimeFormatRequest {
+                plan: selected.plan.clone(),
+                input: plain(kind, 2020, 1, 25),
+            })
             .unwrap();
         let kinds = parts.parts.iter().map(|part| part.kind).collect::<Vec<_>>();
         assert!(kinds.contains(&DateTimePartKind::Month));
@@ -136,13 +143,10 @@ fn style_rejection_and_plain_filtering_follow_the_caller_and_value_kind() {
         .select_plan(request("en-US", styles.clone()))
         .unwrap();
     assert_eq!(
-        provider().format_parts(
-            DateTimeFormatRequest {
-                plan: selected.plan,
-                input: date(2020, 1, 25)
-            },
-            zones()
-        ),
+        provider().format_parts(DateTimeFormatRequest {
+            plan: selected.plan,
+            input: date(2020, 1, 25)
+        }),
         Err(DateTimeFormatError::UnavailableFormat)
     );
     let mut input = request("en-US", styles);

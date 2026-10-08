@@ -1,12 +1,511 @@
 # T22 — Date and Temporal
 
-**Status:** In progress — Date and initial Temporal adapters exist; complete APIs/data remain open
+## Partial-date reference formatting — 2026-10-07 dry repair
+
+The current-source audit found that PlainMonthDay and PlainYearMonth incorrectly
+suppressed their reference ISO year/day with `calendarName: "never"` for non-ISO
+calendars. The shared reference-field predicate now retains those fields for
+every non-ISO calendar; annotation suppression stays private to its separate
+consumer. Two finite strict/sloppy controls cover all sixteen calendars, all
+four modes, explicit and expanded reference dates, JSON behavior, option order,
+abrupt identity and both borrowed Realm directions. The
+[formatting contract](../docs/rust-rewrite/contracts/temporal-partial-date-reference-format.md)
+records the specification and deferred verification. No compilation or runtime
+tests were run for this dry batch.
+
+The 2026-10-07 upstream recheck still finds Apia issue #3310 open and proposal
+#3318 draft; the integration algorithm retains the affected assertions.
+The owned contextual-window rejection remains pending an accepted result
+policy. Historical “remaining calendars” and “configured default-zone” gaps
+below are superseded by the implemented sixteen-calendar and configured-zone
+batches; complete T22 conformance and independent-host acceptance remain open.
+
+The 2026-10-07 native collection passes all four Duration controls, paired East
+Asian field controls and paired Umm al-Qura arithmetic, limits, projection and
+relative-Duration controls. Three partial-date/limit controls expose missing
+Intl imports for shared converters; the import plan now consumes the same
+calendar-helper gate as emission. Three East Asian runtime failures identify
+Gregorian fallthrough: the arithmetic gate omitted both lunisolar domains.
+The source repair exhaustively classifies every arithmetic domain, including
+East Asian and Hebrew. Umm al-Qura's remaining field failure is a fixture
+accessor copied by Object.assign before the observed call; that fixture and its
+tabular Islamic/thirteen-month counterparts now pass the original bag directly.
+Their assertions and deadlines remain. The joined repair is written; native
+verification of that repair and full T22 acceptance remain open. Earlier results
+below retain their original source scope.
+
+The joined repair passes the 2026-10-07 all-feature/all-target workspace check
+in 49.14 seconds and the converter artifact regression. Paired native controls
+now pass East Asian limits, partial dates and projection; Umm al-Qura fields
+and partial dates; tabular Islamic and thirteen-month fields; and Hebrew
+partial dates and relative Duration. The remaining arithmetic fixtures
+incorrectly equate swapped-endpoint differences across leap months; `since`
+negates the same receiver's difference. The remaining Duration fixture
+incorrectly expects add/subtract to permit calendar units with a second
+argument, which those methods ignore. All three corrected fixtures now pass
+both strict and sloppy modes in `tasks-calendars-resource-repairs1`: East Asian
+arithmetic in 247.05 seconds, East Asian Duration in 229.16 seconds and Hebrew
+arithmetic in 205.66 seconds. Full T22 acceptance remains open.
+
+The ref87 `cargo xc --locked --offline` whole-workspace all-target Rust type
+check passed on 2026-10-04 in 30 seconds of watched wall time, covering Hebrew
+and the shared MonthDay native-year admission correction, including Umm al-Qura
+table and reference-policy const validation. It covers the complete Islamic civil/tabular,
+Coptic/Ethiopic/Ethioaa, Persian and Indian calendar batches, configured-zone
+and selected-window consumers, and their Rust test targets. Formatting, module inventory and
+task-plan checks passed. Emitted Wasm, focused runtime
+regressions, broad suites and full T22 acceptance remain pending. Historical
+execution evidence below retains its original source scope.
+
+The first newer combined check at ref91 stopped on one exhaustive match in
+the shared era accessor: Chinese and Dangi were omitted. Attempt13 retains
+exit101 after 30 seconds of watched wall time. The correction explicitly joins
+both to the no-era undefined-result arm; the closed domain and authored
+projection controls already specify that behavior. The unused image-type
+re-export is also removed. No other diagnostic failed compilation. The corrected
+source subsequently passed the ref93 combined all-target Rust type check in
+30 seconds of watched wall time (Cargo22.73 seconds). Emitted-Wasm/runtime
+verification remains pending; the failed attempt13 supplies no passing proof.
+
+## Chinese and Dangi calendars — 2026-10-04 dry implementation
+
+The closed calendar domain admits both names with related Gregorian arithmetic
+years and no eras. All twelve regular/leap MonthCodes share one spelling,
+number, leap and ordering authority. Suitability precedes supplied-year
+agreement, which retains the original code until requested overflow. Yearless
+MonthDay postpones lunisolar ordinals until reference selection. The sole month
+factory rejects arbitrary years outside the wide arithmetic envelope before
+any native month information; actual full/partial carrier limits remain distinct.
+
+The private compiler-native catalog uses the pinned ICU2.0.6 public Date API.
+Its only constructor validates all retained years, adjacent model years,
+month order/length/count, New Year offsets, July1 containment, exact next starts
+and both day/month-serial joins. One checked immutable image is appended only
+by the existing Temporal emission predicate. Its five typed Duration consumers
+are included before first-pass body emission; later bootstrap/fixpoint discovery
+cannot repair an image absent from an already compiling body. A provider invariant failure is
+an explicit emission error. The emitted non-Copy year owner selects retained
+rows or the exact proleptic mean model before calculation. Paired integer
+moments avoid global-millisecond overflow for genuine wide virtual anchors;
+serial inverse uses bounded search against the actual selected year boundaries.
+
+Shared Add/difference/rounding retain original-code and balanced-ordinal
+Surpasses phases before day clamp. Both partial reference factories consume
+MonthDay's complete table, including M09L2014, M10L1984, split M11L2033/2034,
+absent M01L/M12L and unavailable leap day30 combinations. Supplied native years
+use whole-year intersection before regulation; accepted codes are derived after
+requested overflow and re-resolved in the reference year. Plain/zoned relative
+contexts keep the actual calendar owner.
+
+Six finite strict/sloppy Engine cohorts are authored. The complete newer batch
+passed the ref93 combined all-target Rust type checkpoint. Emitted-Wasm
+validation and semantic execution remain pending; the ref87 proof retains its
+predecessor scope. Apia issue #3310, complete
+T22 and full conformance remain open. See the
+[Chinese/Dangi contract](../docs/rust-rewrite/contracts/temporal-east-asian-calendar-ownership.md).
+
+## MonthDay native-year admission — 2026-10-04 dry implementation
+
+All range-checked calendars admit a supplied native year exactly when any date
+in that year intersects the full supported ISO carrier. The shared owner first
+checks a conservative arithmetic envelope, then compares the actual native
+new-year and next-year starts against the shared full-date bounds, before the
+sole month factory resolves agreement or overflow. The requested month/day
+need not itself fall inside that carrier. ISO retains its specified
+OverflowOnly exemption. The partial-reference factory no longer rejects a
+chosen date merely because its corresponding ISO year lies outside the
+carrier. Five existing finite limit/Realm cohorts own the genuine lower/upper
+boundary regressions.
+
+This batch also repairs the single exhaustive ROC arithmetic arm caught by
+ref86's first Hebrew combined check, retained as failed attempt11. The ref87
+combined whole-workspace/all-target check passed as attempt12; emitted-Wasm
+and runtime acceptance remain pending. No published conformance result changes.
+
+## Hebrew calendar — 2026-10-04 dry implementation
+
+The fourteenth canonical entry admits `hebrew` with signed AM years. One
+private integer leaf owns native new years, six actual year lengths, month
+serials and complete conversion. Closed month/year policies replace calendar-only
+counts and a uniform common-base footer. The exact signed serial inverse is
+proved against both elapsed-month year boundaries; projection corrects its
+estimate against actual starts. Conservative field envelopes and completed
+full-date/partial owners retain their distinct limits.
+
+The sole non-Copy month constructor consumes the resolved-year owner after
+required-field checks and acquisition. It validates calendar suitability,
+compares the supplied ordinal against a constrained code, and retains the
+encoded original code for later requested-overflow validation. Canonical M06
+moves from ordinal 6 to 7 in a leap year; M05L keeps its identity across year
+changes until constrain/reject. Getter output and receiver defaults borrow the
+actual calendar/year/month projection. MonthDay re-resolves its canonical code
+when choosing the reference year and when converting to a supplied full year.
+
+Hebrew MonthDay admits a supplied native year when any date in that year
+intersects the full ISO carrier. It checks exact adjacent new-year starts
+before month resolution and preserves the accepted code after overflow when
+selecting the reference. The successor shared admission batch applies the
+same whole-native-year rule to the earlier range-checked calendars and retires
+their chosen-date ISO-year gate; those finite controls still require execution.
+
+Year addition preserves the code before month addition, and virtual difference
+compares before day clamping. Date and YearMonth rounding retain years and
+months separately and date both brackets from the same origin. Their existing
+emitters now have private difference owners, allowing field and rounding work
+in independent files. Relative plain/zoned consumers keep the shared private
+calendar context. Six finite strict/sloppy Engine cohorts cover the native
+boundaries, fields/order, partials, arithmetic/rounding, relative durations and
+borrowed Realms. The complete source and Rust control targets passed the ref87
+combined all-target type check; emitted-Wasm and runtime acceptance remain
+pending. Remaining calendars, Apia issue
+#3310 and full T22 remain open. See the
+[Hebrew contract](../docs/rust-rewrite/contracts/temporal-hebrew-calendar-ownership.md).
+
+## Umm al-Qura calendar — 2026-10-04 dry implementation
+
+The thirteenth canonical entry admits only `islamic-umalqura`. Separate
+UmmAlQura arithmetic consumes the required AH 1300..1600 literal year table;
+outside the exact table boundaries, real civil emission supplies all fields.
+The Type-II Civil/Tbla arithmetic kind stays closed. A consumed typed Hijri
+era selector shares AH/BH membership and the signed `1-eraYear` involution
+without choosing a Type-II month pattern for the table calendar.
+
+The native data constructor validates each ISO literal, twelve month flags,
+354/355-day total, exact year census, contiguous year starts and both civil
+joins. The original Unicode permission notice and exact source attribution
+remain with the transformed rows. Balanced emitted year/epoch lookups use
+the same validated records and exact boundaries. The actual projection fills
+year, month, day, ordinal, month length and 355-day flag; the consumed parent
+footer adds that flag to the exhaustive common-year authority 354. Count-aware
+add, difference, YearMonth rounding and plain/zoned relative operations remain
+joined through the retained private calendar and completed ISO carriers.
+
+MonthDay has one absent-year regulator and two final reference consumers.
+All twelve day30 reference years are const-derived from actual table rows,
+choosing the latest fully converted candidate in ISO 1900..1972. The absent
+year chooses that month-specific year before overflow regulation, preserving
+valid day30 and constrained day31 even when no single year has every long
+month. Final day1..29 references use 1392 or 1391 at the cutoff; day30 uses the
+derived policy. Supplied years regulate with their actual month length first,
+then retain the converted ISO-year-only check. Full-date and YearMonth month
+boundaries keep their distinct authority.
+
+Six finite strict/sloppy Engine cohorts cover projection and actual table
+lengths, all four field routes and original abrupt identities, both-sign
+arithmetic/virtual anchors/rounding, all latest day30 references and both
+partial factories, relative contexts, carrier limits and borrowed intrinsic
+Realms. Both required table edges, AH1600 and both adjacent civil joins are
+explicit. The prior Islamic cohort now rejects only bare `islamic` in its
+remaining unsupported-ID control. This complete batch passed the ref84
+combined all-target Rust type and const checks. Emitted-Wasm and runtime
+acceptance remain pending; remaining calendars, Apia
+issue #3310 and full T22 remain open. See the
+[Umm al-Qura contract](../docs/rust-rewrite/contracts/temporal-umalqura-calendar-ownership.md).
+
+## Islamic civil and tabular calendars — 2026-10-04 dry implementation
+
+The eleventh and twelfth canonical entries admit `islamic-civil` and
+`islamic-tbla`; `islamicc` canonicalizes to civil. One closed kind binds each
+Unix epoch and MonthDay reference policy. The private emitted leaf uses exact
+Type-II thirty-year arithmetic with signed Euclidean division. Its inverse
+is proved against the actual forward year starts; it does not inherit the
+approximate year-only helper as a completed conversion.
+
+All native projection, month lengths, complete calendar-field conversion,
+regulation, addition, difference and both partial-reference routes join the
+existing ISO carriers. The consumed arithmetic domain states both its fixed
+twelve-month count and common-year length 354. The projection footer adds the
+actual leap flag; existing solar domains state 365. Existing count-aware
+MonthCode decoders, YearMonth rounding and plain/zoned relative contexts retain
+the same canonical calendar, original conversion order and completed owners.
+
+AH maps input eraYear directly and BH maps 1-eraYear. Reporting uses AH for a
+positive arithmetic year and BH otherwise. Non-positive input era years
+remap rather than being rejected; aliases and case-folding remain specific
+to calendar IDs, not era spellings. YearMonth converts calendar day 1 before
+its ISO month limits. MonthDay regulates an absent year with leap year 1390,
+then selects the latest match before the 1972 cutoff: common reference 1392,
+1391 for later common candidates and 1390 for M12 day30. A supplied year first
+regulates in its actual calendar year and checks only the fully converted
+ISO year, independently of full-date boundary days and YearMonth months.
+
+Six finite strict/sloppy Engine cohorts cover literal projection and signed
+era/new-year boundaries, all four field routes, original hooks and errors,
+both-sign arithmetic and virtual anchors, partial references, relative
+durations, complete carrier limits and both borrowed intrinsic Realm
+directions. This complete source batch passed the ref83 combined all-target
+Rust type check; emitted-Wasm and runtime acceptance remain pending.
+Remaining calendars, Apia issue #3310 and full
+T22 acceptance stay open. See the
+[Islamic tabular contract](../docs/rust-rewrite/contracts/temporal-islamic-tabular-calendar-ownership.md).
+
+## Thirteen-month calendars — 2026-10-04 dry implementation
+
+Coptic, Ethiopic and Ethioaa complete the eighth through tenth canonical
+calendar entries, with `ethiopic-amete-alem` canonicalized to Ethioaa. One
+closed kind binds each epoch and reference policy. The private emitted leaf
+uses pinned Euclidean Coptic/Ethiopian integer arithmetic, including negative
+years and the universal four-year leap rule. Complete projection, field
+regulation, addition, difference and both partial-reference factories consume
+that leaf through the existing ISO carriers and completed owners.
+
+The arithmetic domain is the authority for fixed month counts. All four actual
+MonthCode suitability decoders admit M13 only for the thirteen-month calendars;
+syntax coercion, field acquisition and caller-specific errors retain their order.
+Getters, month balance, PlainDate difference and rounding carry, and all
+YearMonth total/quantum/bubble/output operations use the retained count.
+ISO constructors and range checks retain ISO month limits. Relative plain,
+zoned and Duration operations retain the same calendar through their existing
+context owners.
+
+Exact Coptic `am` and Ethioaa `aa` era years are signed. Ethiopian `am` maps by
+identity and `aa` maps by eraYear minus 5500; reported positive years use `am`,
+and nonpositive years use `aa`. Era input is not rejected merely because it
+crosses the reported era boundary. MonthDay missing-year regulation uses a
+leap reference; final selection chooses the latest valid match before the
+1972 cutoff. Supplied years check the fully converted ISO year independently
+of PlainDate boundary days and YearMonth boundary months.
+
+Six finite strict/sloppy Engine cohorts cover pinned projection and leap
+boundaries, observable fields/options, both-sign arithmetic and virtual
+anchors, partial references, relative rounding, full carrier limits and
+borrowed intrinsic Realms. The complete batch passed the ref82 combined
+all-target Rust type check; emitted Wasm and runtime acceptance remain pending.
+Other calendars, Apia issue #3310
+and full T22 acceptance remain open. See the
+[thirteen-month contract](../docs/rust-rewrite/contracts/temporal-thirteen-month-calendar-ownership.md).
+
+## Persian calendar — 2026-10-04 dry implementation
+
+The seventh admitted calendar has one closed PersianSolar arithmetic domain
+and signed `ap` era, including zero. Projection, field resolution, regulation,
+addition, difference anchors and partial-date references join together through
+the existing retained calendar and completed field owners. The private emitted
+leaf follows pinned calendrical_calculations 0.2.4's actual ICU 33-year integer
+policy, sharing its correction years across forward, inverse and leap paths.
+No runtime evaluator or second date representation is introduced.
+
+Euclidean arithmetic preserves negative years. A conservative Persian envelope
+covers the full ISO carrier before integer arithmetic, followed by each
+carrier's actual final range check. A supplied MonthDay year now checks its
+whole native-year interval against the full ISO carrier before month
+resolution. Missing-year regulation uses a leap-capable Persian
+year; the completed reference selects the latest valid match before the 1972
+cutoff. YearMonth uses calendar day one converted to ISO; explicit constructors
+retain explicit ISO references. Plain, zoned and relative Duration consumers
+use the same projected calendar through the already required context owners.
+
+Finite strict/sloppy Engine cohorts cover projection and correction boundaries,
+signed eras, hook/option order, both-sign arithmetic and virtual anchors,
+partial references, relative plain/zoned operations, full carrier limits and
+borrowed intrinsic Realms. This whole batch passed the ref80 combined all-target
+Rust type check; emitted Wasm and runtime acceptance remain pending. Other calendars,
+the upstream Apia rounding-window issue3310 and full T22 acceptance stay open.
+See the [Persian contract](../docs/rust-rewrite/contracts/temporal-persian-calendar-ownership.md).
+
+## Indian calendar — 2026-10-04 dry implementation
+
+The complete additional-calendar batch admits `indian` with full-date
+projection, calendar-coordinate field resolution, arithmetic and partial-date
+references. Calendar-sensitive plain, zoned and relative Duration consumers
+require retained canonical calendar slots. Indian's March year boundary and
+month lengths are emitted integer arithmetic; no identifier-only admission or
+new host evaluator is used. YearMonth and MonthDay allocations consume their
+completed calendar reference dates rather than ISO day 1/year 1972 substitutes.
+
+Six finite Engine cohorts cover twelve sloppy/strict observations, including
+field order, virtual difference anchors, original abrupt identity, carrier
+limits and both called intrinsic Realm directions. Authoring and review do not
+establish a passing execution. The combined all-target Rust type check passed;
+focused regressions and the T22 conformance checkpoint remain pending. See the
+[Indian calendar contract](../docs/rust-rewrite/temporal-indian-calendar.md).
+
+## Configured default-zone source — 2026-10-04 status reconciliation
+
+The working tree already contains the complete authored configured-system-zone
+Date batch. ConfiguredSystemTimeZone validates one immutable UTC/fixed/named
+choice, RealmBuilder consumes it, and the real host primitive and private
+response decoder feed Date local operations, omitted-zone Temporal.Now and
+Intl.DateTimeFormat. Realm clones, workers and created Realms retain that choice.
+The UTC default and injected HostClock remain explicit independent policies.
+
+Actual source and regression controls passed the combined all-target Rust type
+check; execution remains pending. Earlier named-zone-only statements below describe their
+original checkpoint, rather than the current source surface. Additional calendar
+algorithms, Apia contextual-window ownership and full Date/Temporal/Intl
+conformance remain open. See the
+[configured-zone contract](../docs/rust-rewrite/contracts/date-system-time-zone.md).
+
+## Selected rounding-window authority — 2026-10-03 dry source
+
+Contextual rounding now constructs provisional endpoints before selecting the
+prescribed initial or recomputed window. Only final bracket/span validation
+creates the private owner consumed by actual rounding and exact total
+arithmetic. The shared day arm no longer applies the additional shift reserved
+for year/month. Existing calendar, named-zone, inverse and Instant-check
+authorities remain in use. The retained-field origin predicate follows the
+immutable ECMA-262 integration algorithm linked in the contract.
+
+Authored controls cover constrained month/year recomputation, retained
+year/month/week/day fields, exact zone totals, endpoint range errors and signed
+DST ties. The combined all-target Rust type check passed; execution remains
+pending. Adjacent Apia
+collapsed/unbracketed windows retain their T22 semantic gap and issue3310
+ownership. See the
+[selected-window contract](../docs/rust-rewrite/contracts/temporal-selected-rounding-window.md).
+
+The 2026-10-05 primary-source audit found issue3310 still open and both its
+[proposed algorithm change](https://github.com/tc39/proposal-temporal/pull/3318)
+and [Test262 change](https://github.com/tc39/test262/pull/5044) still draft.
+The current integration algorithms retain the assertions that the Apia case
+violates; no accepted replacement behavior was found. Production and the six
+owned Apia controls are unchanged. This audit closes no conformance debt and
+runs no compilation or execution; the dated evidence is retained under
+`.lila-task-work/recovery-20261005/t22-window`.
+
+**Status:** In progress — complete named-zone consumer batch integrated; product verification, full APIs/data and conformance remain open
 
 **Parallel group:** Feature lane; Date and Temporal can be separate sub-owners  
 **Depends on:** T04, T05, T06, T10, T18, T20; locale formatting integrates with T23  
 **Blocks:** Time-related T23/T26 closure
 
 ## Current repository state
+
+The integrated complete consumer batch joins the pinned IANA provider's exact
+offset, inverse-candidate and strict transition operations to real emitted
+Temporal callers. Foundation proofs retain exact epochs, Identifier and
+PrimaryIdentifier, calendar slots and completed options through ZonedDateTime,
+relative Duration arithmetic, conversions and the shared Intl formatter.
+All candidates undergo the prescribed Instant checks before policy selection;
+GetStartOfDay remains distinct from compatible midnight resolution.
+
+The integrated batch replaces the broad available-name lookup rejection. Its remaining
+`RuntimeSemanticGap::TemporalZonedRoundingWindow` is T22 wire 8: a zero,
+wrong-direction or finally unbracketed contextual nudge window after the
+prescribed recomputation. It is an uncatchable compiler semantic rejection,
+not a JavaScript exception, runtime crash or passing negative test. The legal
+Apia controls are owned evidence for unresolved upstream issue 3310; normal
+named-zone operations are not blocked by this diagnostic.
+
+The named-zone predecessor admitted the five closed calendar identifiers
+`iso8601`, `gregory`, `buddhist`, `roc` and `japanese`. The Indian source batch
+above adds its own complete arithmetic domain; its verification is pending.
+T23 owns pinned locale/data services; wider Intl calendar profiles do not
+establish wider Temporal arithmetic.
+The earlier named-zone-only checkpoint kept SystemTimeZoneIdentifier at UTC.
+The newer configured default-zone source above now supplies actual Date, Now
+and omitted-zone Intl consumers; its verification remains pending. The existing
+HostClock remains the clock authority. Additional calendars and full
+Date/Temporal/Intl conformance remain open.
+
+Verification of the newer source is pending. At the earlier named-zone
+checkpoint, its integrated revision passed all-target checking and 74 native
+tests: 37 timezone-provider, 25
+named-provider, six exact-domain and six Engine-host tests. Eight compiler
+structure controls and the arithmetic string-pool regression pass. All nine
+Temporal Engine targets pass their 50 tests in attempt9, including six
+created-Realm controls and seven named conversions. The repaired catalogue
+retains all original brand, descriptor and borrowed-accessor assertions for
+PlainMonthDay/PlainYearMonth getter metadata.
+
+The named-zone Instant string repair retains the resolved zone and projects
+the rounded exact Instant before formatting. Historical offset seconds affect
+civil time while the suffix uses the prescribed nearest-minute rounding.
+Its option reader observes timeZone before unit validation and converts the
+zone after validation, preserving RangeError precedence over a non-string
+zone. All seven named conversion controls pass (14 sloppy/strict observations),
+including DST boundaries, negative nanoseconds, Instant endpoints and
+called-function Realm errors. Both previously failed pinned modes of
+`intl402/Temporal/Instant/prototype/toString/timezone-offset.js` now pass.
+
+Attempt9 passes its first 133 pinned physical files (266 modes), then fails on
+`intl402/Temporal/ZonedDateTime/prototype/getTimeZoneTransition/transition-at-instant-boundaries.js`
+because `Intl.supportedValuesOf` is missing before entering the transition
+loop. Its 171 command receipts and failed terminal result remain retained.
+The 2026-10-01 enumeration checkpoint passes the full transition-boundary loop
+in both modes across all 447 listed primary zones. Its six paired Engine controls
+also pass. Its complete API and consumer cohorts record 54/78 passes, with all
+24 Runtime Bugs owned; five Chinese Temporal calendar-mismatch files account
+for ten failed modes before the expected mismatch assertion. The complete T22 replay and checkpoint remain open. This historical
+three-calendar result precedes the completed Buddhist checkpoint below.
+Neither bounded result establishes an aggregate conformance milestone.
+
+The completed 2026-10-01 Buddhist predecessor checkpoint records 518/558
+real modes across 279 physical files, with all 40 Runtime Bugs retained and no
+exclusions. The five exact Temporal calendar-mismatch files pass 10/10 modes,
+and the complete transition-boundary loop passes 2/2 across 447 primary zones.
+The whole DateTimeFormat cohort records 468/496 passes (248 physical files);
+the whole enumeration cohort records 38/50 passes (25 physical files). The
+separate smoke suite passes 191/191 executions from 190 physical files.
+Calendar and locale coverage, Chinese Temporal construction, range formatting
+and missing Intl consumers retain T22/T23 ownership. These results apply to the
+Buddhist predecessor, before the joined PluralRules, ListFormat, Collator,
+system-zone and Tolong Siki source. That composition requires its own product
+verification; the complete T22 checkpoint and full conformance remain open. See the
+[enumeration contract](../docs/rust-rewrite/intl-supported-values.md) and
+[complete consumer contract](../docs/rust-rewrite/temporal-named-zone-consumer-batch.md).
+The following checkpoints retain their original evidence and capability
+boundaries.
+
+A further authority repair removes the parser branch that trusted a numeric
+string offset for any slash-containing annotation and replaced its named zone
+with a fixed offset. The shared pinned IANA catalogue now decides name
+availability before any Temporal object is constructed: unknown identifiers
+throw an intrinsic `RangeError`; available named identifiers report the typed
+out-of-band `RuntimeSemanticGap::TemporalNamedTimeZone`, owned by T22. This is
+missing compiler inverse resolution and consumer wiring, not missing tzdata or
+a missing Wasmtime capability. UTC and numeric zones retain their existing
+semantics; parse goals that ignore an annotation retain that behavior.
+
+The `aot_temporal_zone_authority` target passes seven tests and 30 fresh sloppy
+and strict Wasm-AOT observations, with an additional Test262 runner control for
+four catch/runtime-negative cases, also passing. All-target checking and the
+full IR suite pass on 2026-09-30; broad verification and pinned replay are
+pending. Neither the typed gap nor the deferred
+named-zone spec fixture counts as conformance. See the
+[named-zone authority contract](../docs/rust-rewrite/contracts/temporal-named-zone-authority.md)
+for the wire domain, pinned controls and remaining T22 acceptance.
+
+The ownership map assigns `intl402/Temporal` consumer cases to T22 by the
+longest-prefix rule. Pure Intl service cases remain T23, and provider defects
+remain shared T23 repair dependencies. Parser, lowering, harness and
+dynamic-source failure precedence is unchanged; ownership is not inferred by
+parsing a diagnostic string.
+
+The active Duration batch now routes `round`, `total` and `compare` through
+real relative-date arithmetic in the dedicated
+`builtins/temporal_duration_relative.rs` codegen owner. It adds calendar-unit
+windows, balancing and exact split nanosecond spans for plain relative dates
+and the existing UTC/fixed-offset zoned values. Two follow-up corrections keep
+that path coherent: calendar rounding reuses the origin only for an entirely
+empty start duration, preserving larger year/month fields when the rounded
+month/week count is zero; `relativeTo` strings with only key/value annotations
+such as `[u-ca=iso8601]` take the plain-date parser rather than requiring a
+time-zone annotation. The ISO parser still owns annotation validation.
+
+The new `lila-engine` target `aot_temporal_duration_relative` exercises the
+product Wasm-AOT path with four independent fixtures. They cover positive and
+negative retained calendar fields, leap/end-of-month arithmetic, calendar-only
+and critical annotations, plain-date-time slot conversion, fixed-offset
+strings, exact nanosecond and wide totals, observable option order, branded
+getter suppression, abrupt identity and both epoch bounds. On 2026-09-29
+workspace/all-target checking passes, and the engine target passes all four
+tests. Two initial fixture expectations were corrected against
+[ISODateSurpasses](https://tc39.es/proposal-temporal/#sec-temporal-isodatesurpasses):
+the raw February 31 candidate surpasses February 29, so the January 31 to
+February 29 difference balances to zero months and 29 days. Broader integration
+remains pending. All five exact rounding-window and relativeTo-string files
+pass their ten sloppy/strict executions on 2026-09-30. The neighboring calendar
+read-order, month-code and fixed-offset parsing controls pass all 12 executions.
+No new Test262 aggregate or
+T22 closure is claimed. The default time-zone provider, complete
+calendar coverage and full pinned Date/Temporal trees remain open.
+
+Refresh the focused Duration evidence with:
+
+```sh
+cargo test -p lila-engine --test aot_temporal_duration_relative -- --test-threads=2
+```
 
 The general Date parsing follow-up replaces the two epoch-only display string
 branches with bounded runtime parsing of the existing UTC display formats. It
@@ -103,14 +602,13 @@ witnesses each pass `1/1`. The shared `cargo xc`, formatting, diff, module-
 boundary and task-plan checks are green. Emitted-Wasm goldens and broad
 conformance suites remain deferred.
 
-The default time-zone boundary is not implemented yet. Current AOT Date local
-operations and `Temporal.Now` defaults remain UTC/fixed-offset behavior.
-`lila-intl` owns the closed `CanonicalTimeZoneId` domain, but no canonical zone
-provider or Wasm host ABI connects it to Date/Temporal yet; a realm setting with
-no semantic consumer would not satisfy this task. The complete Temporal class
-surface, custom calendar/time-zone protocols, pinned deterministic data, Intl
-integration and materialization-free full Date/Temporal trees therefore remain
-open.
+At this earlier checkpoint the configurable default-zone boundary was still
+missing. The current authored configured-system-zone batch now connects the
+injected immutable Realm setting to actual Date, Now and omitted-zone Intl
+consumers, as recorded above; those changes passed the combined Rust type check
+and remain unexecuted.
+The complete Temporal class surface, broader calendar coverage and full pinned
+Date/Temporal trees remain open.
 
 The fourteen Date component-setter entries now select one private seven-case
 `DateComponentSetterOperation` at the standard dispatcher boundary. Five
@@ -590,16 +1088,17 @@ Do not use Rust/OS date parsers for ECMAScript ISO parsing unless wrapped by exh
 
 ## Temporal integration architecture
 
-Create a JavaScript-facing adapter around `temporal_rs` or the selected semantic kernel. The adapter must own:
+Compile JavaScript-observable Temporal algorithms to Wasm. Vendored Rust calendar/time-zone code may supply deterministic data and pure algorithms; the emitted adapter must own:
 
 - ordered option/property access and conversion through T04;
 - Lila object branding/internal slots and prototype dispatch;
 - realm-specific constructors/prototypes/errors;
 - conversion to/from ECMAScript strings, Numbers, BigInts and objects;
-- calendar/time-zone protocol calls, including user-defined objects and abrupt completion;
+- current Stage4 calendar/time-zone identifier conversion, available-name validation and branded Temporal slot recovery where the algorithm permits it;
+- ordinary property-bag and option reads, Proxy/getter effects, coercions and arbitrary abrupt completions;
 - iterable/record construction and property descriptors.
 
-Do not expose Rust library structs directly as JavaScript objects or let the library bypass proxies/getters.
+Do not expose Rust library structs directly as JavaScript objects or let the library bypass proxies/getters. Current Stage4 uses supported calendar/time-zone identifiers; it does not require the retired user-defined Calendar/TimeZone method protocols. Branded carriers and ordinary bags still retain their specified conversion, branding and Realm behavior.
 
 ## Temporal API scope
 
@@ -610,10 +1109,10 @@ Implement every class/function in the pinned suite, including as applicable:
 - `ZonedDateTime`;
 - `Duration`;
 - `Now` operations;
-- calendar and time-zone handling required by the current proposal/revision;
+- known supported calendars, available IANA identifiers, numeric fixed-offset identifiers and distinct observable/primary zone identity under the current Stage4 algorithms;
 - parsing/formatting, arithmetic, comparison, rounding, balancing, total, since/until and field preparation;
 - offset options, disambiguation, overflow, smallest/largest unit, rounding increment/mode and relative-to behavior;
-- protocol interactions with custom calendars/time zones if present in the pin.
+- branded Temporal slot carriers wherever admitted, ordinary bags, Proxy/getter observations and exact abrupt-completion propagation.
 
 Use generated tables/enums for option names and units to prevent inconsistent validation among methods.
 
@@ -627,23 +1126,61 @@ Use generated tables/enums for option names and units to prevent inconsistent va
 
 ## Acceptance criteria
 
-- Full pinned `built-ins/Date` and Temporal trees are green.
+- Full pinned `built-ins/Date`, `built-ins/Temporal` and T22-owned `intl402/Temporal` consumer trees are green through Wasm-AOT.
 - Runs are deterministic under an injected clock/time zone and reproducible across supported hosts.
 - Date parsing, setters and formatting pass DST/extreme-range/coercion-order tests.
 - Temporal option/property access order works with proxies/getters and abrupt completions.
 - All Temporal classes enforce branding, descriptors, subclassing and cross-realm error behavior.
-- Time-zone data version is pinned and surfaced in developer diagnostics.
+- Time-zone data version is pinned and surfaced in developer diagnostics; every named consumer retains zone identity through exact projection and inverse selection.
+- Every conformance failure, including unresolved contextual rounding windows, retains an explicit owner and reason; a semantic gap never satisfies a negative JavaScript test.
 - No exact Test262 date/time materialization remains.
 
 ## Required tests
+
+Complete the coordinated compile, focused native controls and broad checkpoint
+from the batch workflow before the canonical release build and pinned refreshes.
+Keep that source/binary identity fixed through publication.
 
 ```sh
 cargo test -p lila-runtime time_ --quiet
 cargo test -p lila-aot-wasm date_ --quiet
 cargo test -p lila-aot-wasm temporal_ --quiet
 cargo test -p lila-cli wasm_date --quiet
-./target/debug/lila test262 run built-ins/Date --execution-backend wasm --timeout-ms 180000 --threads 4
-./target/debug/lila test262 run built-ins/Temporal --execution-backend wasm --timeout-ms 240000 --threads 4
+cargo build --release --locked -j 2 -p lila-cli
+./target/release/lila --jobs 1 test262 run built-ins/Date --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-date
+./target/release/lila --jobs 1 test262 run built-ins/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 240000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-temporal
+./target/release/lila --jobs 1 test262 run intl402/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 240000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-intl-consumers
 ```
 
-Run with several injected zones—including UTC and zones with DST gaps/folds—and compare deterministic outputs against the spec-exec differential oracle (diagnostic comparison only; the Wasm-AOT results are the product evidence).
+After complete integration, follow the [batch verification ladder](../docs/rust-rewrite/batch-workflow.md), the focused consumer commands and guarded publication command in the [batch contract](../docs/rust-rewrite/temporal-named-zone-consumer-batch.md). These refresh commands are not verification results. Use deterministic injected clocks and explicit UTC, numeric and IANA zone arguments, including DST gaps/folds. The authored configurable default-zone service requires its own combined verification. Spec-exec/reference comparisons are diagnostics only; Wasm-AOT executions provide product evidence.
+
+### Created-Realm Temporal completion follow-up
+
+The named conversion and locale controls exposed a concrete created-Realm omission: only Instant and Duration were published. The integrated completion shares all eight implemented family member lists, publishes the rooted Now namespace, and connects both NewTarget fallback and returned values to immutable realm prototypes. Its six live GC slots extend the realm record to 568 bytes. All-target checking and both compiler structure controls pass. All six paired `aot_temporal_created_realm` controls now pass in attempt8, including the repaired getter metadata. The Instant string failure was repaired in attempt9; the later missing enumeration keeps full verification open; see the [source contract](../docs/rust-rewrite/contracts/temporal-created-realm-completion.md). The prior Instant-only receipt remains historical.
+
+The integrated created-Realm constructor follow-up preserves object-valued NewTarget prototype tags through one opaque checked pair for all eight families. Every actual Temporal allocation caller selects the closed constructor/intrinsic source. All-target checking and the paired Function/Array/Proxy prototype controls pass in attempt8. The Instant string repair now passes its Engine and focused pinned controls in attempt9; full conformance remains open.
+
+## Buddhist formatter assertion follow-up (2026-10-01)
+
+The completed broad workspace command records an actual failure in the
+seven-test Buddhist target: six pass, and the field-error/read-order test
+finishes with false because its final Intl assertion still expects Gregorian
+after explicitly requesting the now-admitted Buddhist formatter. The isolated
+successor changes only that final expected identifier to `buddhist`; all
+preceding error/read-order controls and sibling tests are preserved. Fresh
+target execution and final broad verification remain pending. This is not
+a wider Temporal calendar admission or a conformance milestone.
+
+
+## Duration localized formatting consumer — 2026-10-01
+
+Temporal.Duration.prototype.toLocaleString now has a dedicated compiled
+consumer with Intl host and synchronous user-code effects. It reads the
+receiver's branded ten stored fields, initializes a private DurationFormat
+record through the same locale/option algorithm as the constructor and
+assembles the native partition as a string. Planning roots the real
+DurationFormat initializer dependencies. ISO toString and toJSON retain
+their existing path; localized formatting no longer dispatches to that ISO
+renderer. Source is complete and the coordinated Duration compilation,
+Engine controls and exact pinned locale-method cases remain unexecuted.
+T22's full Temporal conformance gate remains open.

@@ -1,1057 +1,772 @@
-//! `%DisposableStack%` synchronous resource lifecycle.
-//!
-//! See `docs/rust-rewrite/contracts/disposable-stack-synchronous-lifecycle.md`.
-
 use super::super::*;
-use crate::functions::{NewTargetPrototypeFallback, OrdinaryDefaultPrototype};
-
+use crate::functions::OrdinaryDefaultPrototype;
+use crate::gc_types::{
+    CompletionLocals, DisposableResource, DisposableResourceSchema, DisposableResourceStack,
+    DisposableResourceStackSchema, DisposableResourceTable, DisposableStack, DisposableStackSchema,
+    GcI32DomainLocal, GcLocal, GcNullability, GcOperand, I64Local, OrdinaryObject, StoredValue,
+    ValueLocals,
+};
+use crate::objects::PropertyKeyLocals;
+use lila_ir::NativeErrorKind;
 mod capability_transfer;
 
-#[must_use = "a pending DisposableStack record must be consumed by the instance finalizer"]
-struct PendingDisposableStackRecordLocal(u32);
-
-#[must_use = "an active DisposableStack disposal must be consumed by its LIFO walker"]
-struct DisposableStackDisposalLocals {
-    entries_ptr: u32,
-    next_index: u32,
-    has_error: u32,
-    error_payload: u32,
-    error_tag: u32,
+#[must_use]
+struct PendingDisposableStackRecordLocal {
+    header: GcLocal<OrdinaryObject>,
+    resources: GcLocal<DisposableResourceStack>,
 }
 
-enum DisposableStackReturnDisposition {
-    ReturnCurrentFunction,
-    LeaveInCompletion,
-}
-
-enum DisposableStackTypeError {
-    UseValueNotObject,
-    UseValueNotDisposable,
-    AdoptCallbackNotCallable,
-    DeferCallbackNotCallable,
-    DisposeMethodNotCallable,
-    ReceiverNotObject,
-    ReceiverMissingDisposableState,
-}
-
-impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn emit_disposable_stack_constructor(
+impl FunctionBuilder<'_> {
+    fn emit_disposable_stack_push_entry(
         &mut self,
-        function: &mut Function,
+        resources: &GcLocal<DisposableResourceStack>,
+        kind: DisposableStackEntryKind,
+        value: &ValueLocals,
+        method: &ValueLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
-        let stack_object_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "DisposableStack constructor requires new",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_new_target_prototype_to_locals(
-            DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
-                OrdinaryDefaultPrototype::DisposableStack,
+        let s = self.runtime_schema();
+        let count = s.reserve_i64_local(f);
+        let capacity = s.reserve_i32_local(f);
+        let index = s.reserve_i32_local(f);
+        let entries = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableResourceStack>()
+                .field(DisposableResourceStackSchema::RESOURCES)
+                .read(resources, s, f)
+                .reference(),
+            f,
+        );
+        s.struct_type::<DisposableResourceStack>()
+            .field(DisposableResourceStackSchema::ENTRY_COUNT)
+            .read(resources, s, f)
+            .store_i64(count, f);
+        s.array_type::<DisposableResourceTable>()
+            .length(&entries, s, f);
+        capacity.store(f);
+        count.load(f);
+        capacity.load(f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        f.instruction(&Instruction::I64GtU);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        count.load(f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        f.instruction(&Instruction::I64GeU);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        count.load(f);
+        capacity.load(f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        f.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let next_capacity = s.reserve_i64_local(f);
+        capacity.load(f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        f.instruction(&Instruction::I64Const(2));
+        f.instruction(&Instruction::I64Mul);
+        next_capacity.store(f);
+        next_capacity.load(f);
+        f.instruction(&Instruction::I64Const(4));
+        f.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(4));
+        next_capacity.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        next_capacity.load(f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        f.instruction(&Instruction::I64GtU);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        next_capacity.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        next_capacity.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        capacity.store(f);
+        let grown = s.reserve_gc_local(f).initialize(
+            s.array_type::<DisposableResourceTable>()
+                .filled(GcOperand::null(s), capacity, f),
+            f,
+        );
+        f.instruction(&Instruction::I32Const(0));
+        index.store(f);
+        let copied = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        f.instruction(&Instruction::I64ExtendI32U);
+        count.load(f);
+        f.instruction(&Instruction::I64GeU);
+        self.emit_branch_if_to_target(copied, f);
+        let entry = s.reserve_gc_local(f).initialize(
+            s.array_type::<DisposableResourceTable>()
+                .read(&entries, index, s, f)
+                .reference()
+                .require_non_null(f),
+            f,
+        );
+        s.array_type::<DisposableResourceTable>().write(
+            &grown,
+            index,
+            GcOperand::nullable_reference(&entry, s),
+            s,
+            f,
+        );
+        entry.clear(f);
+        index.load(f);
+        f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Add);
+        index.store(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        s.struct_type::<DisposableResourceStack>()
+            .field(DisposableResourceStackSchema::RESOURCES)
+            .write(resources, GcOperand::reference(&grown, s), s, f);
+        entries.replace(grown.load(s, f), f);
+        grown.clear(f);
+        s.release_i64_local(next_capacity, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        count.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        index.store(f);
+        let stored_value = s
+            .reserve_gc_local(f)
+            .initialize(s.struct_type::<StoredValue>().from_value(value, f), f);
+        let stored_method = s
+            .reserve_gc_local(f)
+            .initialize(s.struct_type::<StoredValue>().from_value(method, f), f);
+        let entry = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableResource>().construct(
+                (
+                    GcOperand::constant(kind),
+                    GcOperand::reference(&stored_value, s),
+                    GcOperand::reference(&stored_method, s),
+                ),
+                f,
             ),
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        )?;
-        self.emit_alloc_plain_object_with_prototype_and_tag(
-            Some(prototype_payload_local),
-            Some(prototype_tag_local),
-            None,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(stack_object_local));
-
-        let pending_record = self.emit_alloc_pending_disposable_stack_record(function)?;
-        self.emit_finalize_disposable_stack_instance(stack_object_local, pending_record, function);
-
-        self.release_temp_local(stack_object_local);
-        self.release_temp_local(prototype_tag_local);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
+            f,
+        );
+        s.array_type::<DisposableResourceTable>().write(
+            &entries,
+            index,
+            GcOperand::nullable_reference(&entry, s),
+            s,
+            f,
+        );
+        count.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Add);
+        count.store(f);
+        s.struct_type::<DisposableResourceStack>()
+            .field(DisposableResourceStackSchema::ENTRY_COUNT)
+            .write(resources, GcOperand::i64_local(count), s, f);
+        entry.clear(f);
+        stored_method.clear(f);
+        stored_value.clear(f);
+        entries.clear(f);
+        s.release_i32_local(index, f);
+        s.release_i32_local(capacity, f);
+        s.release_i64_local(count, f);
         Ok(())
     }
+}
+struct PendingDisposableStack<'v>(&'v GcLocal<DisposableStack>);
+#[must_use]
+struct DisposableStackDisposalLocals {
+    resources: GcLocal<DisposableResourceStack>,
+    entries: GcLocal<DisposableResourceTable>,
+    next_index: I64Local,
+}
+enum DisposableStackRegistration {
+    Use,
+    Adopt,
+    Defer,
+}
 
-    pub(crate) fn emit_disposable_stack_use(
+impl FunctionBuilder<'_> {
+    fn emit_empty_disposable_resource_stack(
         &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let stack_record_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-
-        self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
-        self.emit_disposable_stack_require_pending(stack_record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-
-        // Sync-dispose nullish resources do not create an entry.
-        self.emit_disposable_stack_is_nullish_i32(value_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_return_value(
-            value_payload_local,
-            value_tag_local,
-            DisposableStackReturnDisposition::ReturnCurrentFunction,
-            function,
+        f: &mut Function,
+    ) -> GcLocal<DisposableResourceStack> {
+        let s = self.runtime_schema();
+        let entries = s
+            .reserve_gc_local(f)
+            .initialize(s.array_type::<DisposableResourceTable>().fixed([], f), f);
+        let list = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableResourceStack>()
+                .construct((GcOperand::reference(&entries, s), GcOperand::i64(0)), f),
+            f,
         );
-        function.instruction(&Instruction::End);
-
-        self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::UseValueNotObject,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.dispose"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_disposable_stack_get_method(
-            value_payload_local,
-            value_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::UseValueNotDisposable,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_disposable_stack_push_entry(
-            stack_record_local,
-            DisposableStackEntryKind::Use,
-            value_payload_local,
-            value_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_disposable_stack_return_value(
-            value_payload_local,
-            value_tag_local,
-            DisposableStackReturnDisposition::LeaveInCompletion,
-            function,
-        );
-
-        self.release_temp_local(key_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(stack_record_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_disposable_stack_adopt(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let stack_record_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-
-        self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
-        self.emit_disposable_stack_require_pending(stack_record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        self.emit_builtin_arg_to_locals(1, method_payload_local, method_tag_local, function);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::AdoptCallbackNotCallable,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_disposable_stack_push_entry(
-            stack_record_local,
-            DisposableStackEntryKind::Adopt,
-            value_payload_local,
-            value_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_disposable_stack_return_value(
-            value_payload_local,
-            value_tag_local,
-            DisposableStackReturnDisposition::LeaveInCompletion,
-            function,
-        );
-
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(stack_record_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_disposable_stack_defer(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let stack_record_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-
-        self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
-        self.emit_disposable_stack_require_pending(stack_record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, method_payload_local, method_tag_local, function);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::DeferCallbackNotCallable,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_disposable_stack_push_entry(
-            stack_record_local,
-            DisposableStackEntryKind::Defer,
-            value_payload_local,
-            value_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_disposable_stack_return_undefined(function);
-
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(stack_record_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_disposable_stack_move(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let stack_record_local = self.reserve_temp_local();
-        let moved_object_local = self.reserve_temp_local();
-
-        self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
-        self.emit_disposable_stack_require_pending(stack_record_local, function)?;
-        self.emit_alloc_current_function_realm_disposable_stack_object(function)?;
-        function.instruction(&Instruction::LocalSet(moved_object_local));
-
-        // Keep the destination record below the transfer locals so the temp
-        // allocator's LIFO rule mirrors the semantic ownership transfer.
-        let pending_record = self.emit_alloc_pending_disposable_stack_record(function)?;
-        let transfer = self.emit_take_disposable_stack_capability(stack_record_local, function);
-        let pending_record = self.emit_install_transferred_disposable_stack_capability(
-            pending_record,
-            transfer,
-            function,
-        );
-        self.emit_finalize_disposable_stack_instance(moved_object_local, pending_record, function);
-
-        self.release_temp_local(moved_object_local);
-        self.release_temp_local(stack_record_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_disposable_stack_dispose(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let stack_record_local = self.reserve_temp_local();
-        let state_local = self.reserve_temp_local();
-
-        self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            state_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            DisposableStackState::Disposed.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_return_undefined(function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        let disposal = self.emit_begin_disposable_stack_disposal(stack_record_local, function);
-        self.emit_consume_disposable_stack_disposal(disposal, function)?;
-
-        self.release_temp_local(state_local);
-        self.release_temp_local(stack_record_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_disposable_stack_disposed_getter(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let stack_record_local = self.reserve_temp_local();
-        let state_local = self.reserve_temp_local();
-
-        self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            state_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            DisposableStackState::Disposed.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(state_local);
-        self.release_temp_local(stack_record_local);
-        Ok(())
+        entries.clear(f);
+        list
     }
 
     fn emit_alloc_pending_disposable_stack_record(
         &mut self,
-        function: &mut Function,
-    ) -> Result<PendingDisposableStackRecordLocal, EmitError> {
-        let record_local = self.reserve_temp_local();
-
-        self.emit_heap_alloc_const(HEAP_DISPOSABLE_STACK_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        self.store_i64_const_at_offset(
-            record_local,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            DisposableStackState::Pending.word(),
-            function,
-        );
-        for offset in [
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(record_local, offset, 0, function);
-        }
-
-        Ok(PendingDisposableStackRecordLocal(record_local))
+        header: GcLocal<OrdinaryObject>,
+        f: &mut Function,
+    ) -> PendingDisposableStackRecordLocal {
+        let resources = self.emit_empty_disposable_resource_stack(f);
+        PendingDisposableStackRecordLocal { header, resources }
     }
 
     fn emit_finalize_disposable_stack_instance(
         &mut self,
-        object_local: u32,
-        record: PendingDisposableStackRecordLocal,
-        function: &mut Function,
-    ) {
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK,
-            function,
+        pending: PendingDisposableStackRecordLocal,
+        f: &mut Function,
+    ) -> GcLocal<DisposableStack> {
+        let s = self.runtime_schema();
+        let stack = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableStack>().construct(
+                (
+                    GcOperand::reference(&pending.header, s),
+                    GcOperand::reference(&pending.resources, s),
+                    GcOperand::constant(DisposableStackState::Pending),
+                ),
+                f,
+            ),
+            f,
         );
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record.0,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.release_temp_local(record.0);
+        pending.resources.clear(f);
+        pending.header.clear(f);
+        stack
     }
 
-    /// The Pending -> Disposed transition precedes every callback. The record's
-    /// visible length is detached while the non-Copy witness owns the walk.
+    fn emit_disposable_stack_abrupt_exit(
+        &mut self,
+        pending: &CompletionLocals,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) {
+        pending.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        output.copy_from(pending, f);
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+    }
+
+    fn emit_disposable_stack_error_if(
+        &mut self,
+        message: RuntimeErrorMessage,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_throw_current_function_realm_type_error(message, output, f)?;
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn emit_with_disposable_stack(
+        &mut self,
+        f: &mut Function,
+        consume: impl FnOnce(
+            &mut Self,
+            &GcLocal<DisposableStack>,
+            &CompletionLocals,
+            ControlTarget,
+            &mut Function,
+        ) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let receiver = s.reserve_value_local(f);
+        let output = s.reserve_completion(f);
+        output.initialize(f);
+        self.compile_this_to_locals(&receiver, f)?;
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        self.emit_is_heap_object_like_tag_i32(receiver.tag(), f);
+        f.instruction(&Instruction::I32Eqz);
+        self.emit_disposable_stack_error_if(
+            RuntimeErrorMessage::DISPOSABLESTACK_METHOD_RECEIVER_IS_NOT_AN_OBJECT,
+            &output,
+            exit,
+            f,
+        )?;
+        receiver.reference().load(f);
+        f.instruction(&Instruction::RefTestNonNull(
+            s.reference_type::<DisposableStack>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        f.instruction(&Instruction::I32Eqz);
+        self.emit_disposable_stack_error_if(
+            RuntimeErrorMessage::DISPOSABLESTACK_METHOD_RECEIVER_DOES_NOT_HAVE_DISPOSABLESTATE,
+            &output,
+            exit,
+            f,
+        )?;
+        let stack = s
+            .reserve_gc_local(f)
+            .initialize(receiver.cast_reference::<DisposableStack>(s, f), f);
+        consume(self, &stack, &output, exit, f)?;
+        stack.clear(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&output, f);
+        output.clear(f);
+        receiver.clear(f);
+        Ok(())
+    }
+
+    fn emit_with_pending_disposable_stack(
+        &mut self,
+        f: &mut Function,
+        consume: impl FnOnce(
+            &mut Self,
+            PendingDisposableStack<'_>,
+            &CompletionLocals,
+            ControlTarget,
+            &mut Function,
+        ) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        self.emit_with_disposable_stack(f, |b, stack, output, exit, f| {
+            let s = b.runtime_schema();
+            let state = GcI32DomainLocal::new(s, DisposableStackState::Pending, f);
+            s.struct_type::<DisposableStack>()
+                .field(DisposableStackSchema::STATE)
+                .read(stack, s, f)
+                .store_domain(&state, f);
+            state.load(f);
+            f.instruction(&Instruction::I32Const(
+                DisposableStackState::Disposed.word() as i32,
+            ));
+            f.instruction(&Instruction::I32Eq);
+            b.open_frame(ControlFrameKind::If, f);
+            b.emit_throw_current_function_realm_error(
+                NativeErrorKind::ReferenceError,
+                RuntimeErrorMessage::DISPOSABLESTACK_IS_ALREADY_DISPOSED,
+                output,
+                f,
+            )?;
+            b.emit_branch_to_target(exit, f);
+            b.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            state.clear(s, f);
+            consume(b, PendingDisposableStack(stack), output, exit, f)
+        })
+    }
+
+    pub(crate) fn emit_disposable_stack_constructor(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let new_target = s.reserve_value_local(f);
+        let value = s.reserve_value_local(f);
+        let output = s.reserve_completion(f);
+        self.compile_new_target_to_locals(&new_target, f)?;
+        let exit = self.open_frame(ControlFrameKind::Block, f);
+        new_target.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.emit_disposable_stack_error_if(
+            RuntimeErrorMessage::DISPOSABLESTACK_CONSTRUCTOR_REQUIRES_NEW,
+            &output,
+            exit,
+            f,
+        )?;
+        self.emit_get_prototype_from_constructor(
+            &new_target,
+            OrdinaryDefaultPrototype::DisposableStack,
+            &output,
+            f,
+        )?;
+        self.emit_disposable_stack_abrupt_exit(&output, &output, exit, f);
+        let header = s.reserve_gc_local(f).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(output.value()), f)?,
+            f,
+        );
+        let pending = self.emit_alloc_pending_disposable_stack_record(header, f);
+        let stack = self.emit_finalize_disposable_stack_instance(pending, f);
+        value.set_reference(&stack, s, f);
+        output.set_normal(&value, f);
+        stack.clear(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        self.completion().copy_from(&output, f);
+        output.clear(f);
+        value.clear(f);
+        new_target.clear(f);
+        Ok(())
+    }
+
+    fn emit_disposable_stack_registration(
+        &mut self,
+        operation: DisposableStackRegistration,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_with_pending_disposable_stack(f, |b, stack, output, exit, f| {
+            let s = b.runtime_schema();
+            // Capture the actual List before observable GetDisposeMethod.
+            let resources = s.reserve_gc_local(f).initialize(
+                s.struct_type::<DisposableStack>().field(DisposableStackSchema::RESOURCE_STACK).read(stack.0, s, f).reference(), f,
+            );
+            let value = s.reserve_value_local(f);
+            let method = s.reserve_value_local(f);
+            let pending = s.reserve_completion(f);
+            value.set_undefined(f);
+            match operation {
+                DisposableStackRegistration::Use => {
+                    b.emit_builtin_arg_to_value(0, &value, f);
+                    output.set_normal(&value, f);
+                    b.compile_nullish_tagged_i32(value.tag(), f)?;
+                    f.instruction(&Instruction::I32Eqz);
+                    b.open_frame(ControlFrameKind::If, f);
+                    b.emit_is_heap_object_like_tag_i32(value.tag(), f);
+                    f.instruction(&Instruction::I32Eqz);
+                    b.emit_disposable_stack_error_if(RuntimeErrorMessage::DISPOSABLESTACK_PROTOTYPE_USE_VALUE_IS_NOT_AN_OBJECT, output, exit, f)?;
+                    let symbol = s.reserve_gc_local(f).initialize(b.emit_well_known_symbol_reference(lila_ir::WellKnownSymbol::Dispose, f)?, f);
+                    let key = PropertyKeyLocals::from_symbol(s, &symbol, f);
+                    b.emit_object_read(&value, &value, &key, &pending, f)?;
+                    b.emit_disposable_stack_abrupt_exit(&pending, output, exit, f);
+                    method.copy_from(pending.value(), f);
+                    b.compile_nullish_tagged_i32(method.tag(), f)?;
+                    b.emit_disposable_stack_error_if(RuntimeErrorMessage::DISPOSABLESTACK_PROTOTYPE_USE_VALUE_IS_NOT_DISPOSABLE, output, exit, f)?;
+                    b.emit_is_callable_i32(&method, f)?;
+                    f.instruction(&Instruction::I32Eqz);
+                    b.emit_disposable_stack_error_if(RuntimeErrorMessage::DISPOSABLESTACK_PROTOTYPE_USE_DISPOSE_METHOD_IS_NOT_CALLABLE, output, exit, f)?;
+                    b.emit_disposable_stack_push_entry(&resources, DisposableStackEntryKind::Use, &value, &method, f)?;
+                    key.clear(f);
+                    symbol.clear(f);
+                    b.pop_control(ControlFrameKind::If);
+                    f.instruction(&Instruction::End);
+                }
+                DisposableStackRegistration::Adopt => {
+                    b.emit_builtin_arg_to_value(0, &value, f);
+                    b.emit_builtin_arg_to_value(1, &method, f);
+                    b.emit_is_callable_i32(&method, f)?;
+                    f.instruction(&Instruction::I32Eqz);
+                    b.emit_disposable_stack_error_if(RuntimeErrorMessage::DISPOSABLESTACK_PROTOTYPE_ADOPT_ONDISPOSE_IS_NOT_CALLABLE, output, exit, f)?;
+                    b.emit_disposable_stack_push_entry(&resources, DisposableStackEntryKind::Adopt, &value, &method, f)?;
+                    output.set_normal(&value, f);
+                }
+                DisposableStackRegistration::Defer => {
+                    b.emit_builtin_arg_to_value(0, &method, f);
+                    b.emit_is_callable_i32(&method, f)?;
+                    f.instruction(&Instruction::I32Eqz);
+                    b.emit_disposable_stack_error_if(RuntimeErrorMessage::DISPOSABLESTACK_PROTOTYPE_DEFER_ONDISPOSE_IS_NOT_CALLABLE, output, exit, f)?;
+                    b.emit_disposable_stack_push_entry(&resources, DisposableStackEntryKind::Defer, &value, &method, f)?;
+                    output.set_normal(&value, f);
+                }
+            }
+            pending.clear(f);
+            method.clear(f);
+            value.clear(f);
+            resources.clear(f);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn emit_disposable_stack_use(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_disposable_stack_registration(DisposableStackRegistration::Use, f)
+    }
+    pub(crate) fn emit_disposable_stack_adopt(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_disposable_stack_registration(DisposableStackRegistration::Adopt, f)
+    }
+    pub(crate) fn emit_disposable_stack_defer(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_disposable_stack_registration(DisposableStackRegistration::Defer, f)
+    }
+
+    pub(crate) fn emit_disposable_stack_move(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        self.emit_with_pending_disposable_stack(f, |b, source, output, _, f| {
+            let s = b.runtime_schema();
+            let header = s.reserve_gc_local(f).initialize(
+                b.emit_alloc_current_function_realm_disposable_stack_object(f)?,
+                f,
+            );
+            let pending = b.emit_alloc_pending_disposable_stack_record(header, f);
+            let transfer = b.emit_take_disposable_stack_capability(&source, f);
+            let pending =
+                b.emit_install_transferred_disposable_stack_capability(pending, transfer, f);
+            let stack = b.emit_finalize_disposable_stack_instance(pending, f);
+            let value = s.reserve_value_local(f);
+            value.set_reference(&stack, s, f);
+            output.set_normal(&value, f);
+            value.clear(f);
+            stack.clear(f);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn emit_disposable_stack_disposed_getter(
+        &mut self,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_with_disposable_stack(f, |b, stack, output, _, f| {
+            let s = b.runtime_schema();
+            let state = GcI32DomainLocal::new(s, DisposableStackState::Pending, f);
+            let truth = s.reserve_i32_local(f);
+            s.struct_type::<DisposableStack>()
+                .field(DisposableStackSchema::STATE)
+                .read(stack, s, f)
+                .store_domain(&state, f);
+            state.load(f);
+            f.instruction(&Instruction::I32Const(
+                DisposableStackState::Disposed.word() as i32,
+            ));
+            f.instruction(&Instruction::I32Eq);
+            truth.store(f);
+            output.value().set_boolean(truth, f);
+            output.set_normal(output.value(), f);
+            s.release_i32_local(truth, f);
+            state.clear(s, f);
+            Ok(())
+        })
+    }
+}
+
+impl FunctionBuilder<'_> {
     fn emit_begin_disposable_stack_disposal(
         &mut self,
-        stack_record_local: u32,
-        function: &mut Function,
+        stack: &GcLocal<DisposableStack>,
+        f: &mut Function,
     ) -> DisposableStackDisposalLocals {
-        let entries_ptr = self.reserve_temp_local();
-        let next_index = self.reserve_temp_local();
-        let has_error = self.reserve_temp_local();
-        let error_payload = self.reserve_temp_local();
-        let error_tag = self.reserve_temp_local();
-
-        self.store_i64_const_at_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            DisposableStackState::Disposed.word(),
-            function,
+        let s = self.runtime_schema();
+        // Publish disposed before the first user callback.
+        s.struct_type::<DisposableStack>()
+            .field(DisposableStackSchema::STATE)
+            .write(
+                stack,
+                GcOperand::constant(DisposableStackState::Disposed),
+                s,
+                f,
+            );
+        let resources = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableStack>()
+                .field(DisposableStackSchema::RESOURCE_STACK)
+                .read(stack, s, f)
+                .reference(),
+            f,
         );
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            entries_ptr,
-            function,
+        let entries = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableResourceStack>()
+                .field(DisposableResourceStackSchema::RESOURCES)
+                .read(&resources, s, f)
+                .reference(),
+            f,
         );
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            next_index,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            0,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(has_error));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(error_payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(error_tag));
-
+        let next_index = s.reserve_i64_local(f);
+        s.struct_type::<DisposableResourceStack>()
+            .field(DisposableResourceStackSchema::ENTRY_COUNT)
+            .read(&resources, s, f)
+            .store_i64(next_index, f);
         DisposableStackDisposalLocals {
-            entries_ptr,
+            resources,
+            entries,
             next_index,
-            has_error,
-            error_payload,
-            error_tag,
         }
     }
 
     fn emit_consume_disposable_stack_disposal(
         &mut self,
         disposal: DisposableStackDisposalLocals,
-        function: &mut Function,
+        output: &CompletionLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let entry_local = self.reserve_temp_local();
-        let kind_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let call_result_payload_local = self.reserve_temp_local();
-        let call_result_tag_local = self.reserve_temp_local();
-        let thrown_payload_local = self.reserve_temp_local();
-        let thrown_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-
-        // [0] is the loop and [1] its enclosing completion block.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(disposal.next_index));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(disposal.next_index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(disposal.next_index));
-
-        function.instruction(&Instruction::LocalGet(disposal.entries_ptr));
-        function.instruction(&Instruction::LocalGet(disposal.next_index));
-        function.instruction(&Instruction::I64Const(
-            HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-        ));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        for (offset, local) in [
-            (HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET, kind_local),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-                value_payload_local,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-                value_tag_local,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-                method_payload_local,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-                method_tag_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(entry_local, offset, local, function);
-        }
-
-        // Every kind has exactly one call convention; the chain is derived
-        // from ALL and the match is exhaustive over the convention domain.
-        self.set_completion_kind(CompletionKind::Normal, function);
-        let calls = DisposableStackEntryKind::ALL
-            .into_iter()
-            .map(|kind| (kind, kind.dispose_call()))
-            .collect::<Vec<_>>();
-        let last_call_index = calls.len() - 1;
-        let no_arguments: [(u32, u32); 0] = [];
-        let resource_argument = [(value_payload_local, value_tag_local)];
-        for (index, (kind, call)) in calls.iter().enumerate() {
-            if index < last_call_index {
-                function.instruction(&Instruction::LocalGet(kind_local));
-                function.instruction(&Instruction::I64Const(kind.word() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-            }
-            let (this_payload, this_tag, arguments): (u32, u32, &[(u32, u32)]) = match call {
+        let s = self.runtime_schema();
+        let index = s.reserve_i32_local(f);
+        let kind_word = GcI32DomainLocal::new(s, DisposableStackEntryKind::Use, f);
+        let value = s.reserve_value_local(f);
+        let method = s.reserve_value_local(f);
+        let receiver = s.reserve_value_local(f);
+        let called = s.reserve_completion(f);
+        let combined = s.reserve_completion(f);
+        let empty_arguments = self.emit_pre_evaluated_arg_vector(&[], f);
+        let done = self.open_frame(ControlFrameKind::Block, f);
+        let next = self.open_frame(ControlFrameKind::Loop, f);
+        disposal.next_index.load(f);
+        f.instruction(&Instruction::I64Eqz);
+        self.emit_branch_if_to_target(done, f);
+        disposal.next_index.load(f);
+        f.instruction(&Instruction::I64Const(1));
+        f.instruction(&Instruction::I64Sub);
+        disposal.next_index.store(f);
+        disposal.next_index.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        index.store(f);
+        let entry = s.reserve_gc_local(f).initialize(
+            s.array_type::<DisposableResourceTable>()
+                .read(&disposal.entries, index, s, f)
+                .reference()
+                .require_non_null(f),
+            f,
+        );
+        // Detach the entry before executing its callback.
+        s.array_type::<DisposableResourceTable>().write(
+            &disposal.entries,
+            index,
+            GcOperand::null(s),
+            s,
+            f,
+        );
+        s.struct_type::<DisposableResource>()
+            .field(DisposableResourceSchema::KIND)
+            .read(&entry, s, f)
+            .store_domain(&kind_word, f);
+        let stored_value = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableResource>()
+                .field(DisposableResourceSchema::VALUE)
+                .read(&entry, s, f)
+                .reference(),
+            f,
+        );
+        let stored_method = s.reserve_gc_local(f).initialize(
+            s.struct_type::<DisposableResource>()
+                .field(DisposableResourceSchema::METHOD)
+                .read(&entry, s, f)
+                .reference(),
+            f,
+        );
+        s.struct_type::<StoredValue>()
+            .read_into(&stored_value, &value, s, f);
+        s.struct_type::<StoredValue>()
+            .read_into(&stored_method, &method, s, f);
+        stored_method.clear(f);
+        stored_value.clear(f);
+        entry.clear(f);
+        called.initialize(f);
+        for kind in DisposableStackEntryKind::ALL {
+            kind_word.load(f);
+            f.instruction(&Instruction::I32Const(kind.word() as i32));
+            f.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            match kind.dispose_call() {
                 DisposableStackDisposeCall::ResourceReceiver => {
-                    (value_payload_local, value_tag_local, &no_arguments)
+                    self.emit_function_or_proxy_call_with_argv(
+                        &method,
+                        &value,
+                        &empty_arguments,
+                        &called,
+                        f,
+                    )?;
                 }
-                DisposableStackDisposeCall::UndefinedReceiverWithResourceArgument => (
-                    undefined_payload_local,
-                    undefined_tag_local,
-                    &resource_argument,
-                ),
+                DisposableStackDisposeCall::UndefinedReceiverWithResourceArgument => {
+                    receiver.set_undefined(f);
+                    let arguments = self.emit_pre_evaluated_arg_vector(&[&value], f);
+                    self.emit_function_or_proxy_call_with_argv(
+                        &method, &receiver, &arguments, &called, f,
+                    )?;
+                    arguments.clear(f);
+                }
                 DisposableStackDisposeCall::UndefinedReceiverNoArguments => {
-                    (undefined_payload_local, undefined_tag_local, &no_arguments)
+                    receiver.set_undefined(f);
+                    self.emit_function_or_proxy_call_with_argv(
+                        &method,
+                        &receiver,
+                        &empty_arguments,
+                        &called,
+                        f,
+                    )?;
                 }
-            };
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                method_payload_local,
-                method_tag_local,
-                this_payload,
-                this_tag,
-                arguments,
-                call_result_payload_local,
-                call_result_tag_local,
-                function,
-            )?;
-            if index < last_call_index {
-                function.instruction(&Instruction::Else);
             }
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
         }
-        for _ in 0..last_call_index {
-            function.instruction(&Instruction::End);
-        }
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(thrown_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(thrown_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_disposable_stack_record_error(
-            &disposal,
-            thrown_payload_local,
-            thrown_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_disposable_stack_return_undefined(function);
-        function.instruction(&Instruction::LocalGet(disposal.has_error));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(disposal.error_payload));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(disposal.error_tag));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(thrown_tag_local);
-        self.release_temp_local(thrown_payload_local);
-        self.release_temp_local(call_result_tag_local);
-        self.release_temp_local(call_result_payload_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(kind_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(disposal.error_tag);
-        self.release_temp_local(disposal.error_payload);
-        self.release_temp_local(disposal.has_error);
-        self.release_temp_local(disposal.next_index);
-        self.release_temp_local(disposal.entries_ptr);
-        Ok(())
-    }
-
-    fn emit_disposable_stack_record_error(
-        &mut self,
-        disposal: &DisposableStackDisposalLocals,
-        new_error_payload_local: u32,
-        new_error_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let prototype_local = self.reserve_temp_local();
-        let combined_payload_local = self.reserve_temp_local();
-        let combined_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(new_error_payload_local));
-        function.instruction(&Instruction::LocalSet(combined_payload_local));
-        function.instruction(&Instruction::LocalGet(new_error_tag_local));
-        function.instruction(&Instruction::LocalSet(combined_tag_local));
-        function.instruction(&Instruction::LocalGet(disposal.has_error));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // DisposeResources creates the SuppressedError in dispose's own Realm.
-        self.emit_load_active_builtin_realm_prototype(
-            super::errors::ActiveBuiltinRealmPrototype::SuppressedError,
-            prototype_local,
-            function,
+        // This synchronous stack discards normal return values, including Promises.
+        called.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        output.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let realm = self.emit_execution_realm(f);
+        let prototype = s.reserve_value_local(f);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            crate::functions::NonArrayRealmIntrinsicSlot::SuppressedErrorPrototype,
+            &prototype,
+            f,
         );
-        self.emit_alloc_suppressed_error_instance_from_locals(
+        self.emit_alloc_suppressed_error_instance(
             None,
-            new_error_payload_local,
-            new_error_tag_local,
-            disposal.error_payload,
-            disposal.error_tag,
-            prototype_local,
-            combined_payload_local,
-            combined_tag_local,
-            function,
+            called.value(),
+            output.value(),
+            &prototype,
+            &combined,
+            f,
         )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(combined_payload_local));
-        function.instruction(&Instruction::LocalSet(disposal.error_payload));
-        function.instruction(&Instruction::LocalGet(combined_tag_local));
-        function.instruction(&Instruction::LocalSet(disposal.error_tag));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(disposal.has_error));
-
-        self.release_temp_local(combined_tag_local);
-        self.release_temp_local(combined_payload_local);
-        self.release_temp_local(prototype_local);
+        output.set_throw(combined.value(), f);
+        prototype.clear(f);
+        realm.clear(f);
+        f.instruction(&Instruction::Else);
+        output.copy_from(&called, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        method.set_undefined(f);
+        value.set_undefined(f);
+        self.emit_branch_to_target(next, f);
+        self.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        let empty = s
+            .reserve_gc_local(f)
+            .initialize(s.array_type::<DisposableResourceTable>().fixed([], f), f);
+        s.struct_type::<DisposableResourceStack>()
+            .field(DisposableResourceStackSchema::RESOURCES)
+            .write(&disposal.resources, GcOperand::reference(&empty, s), s, f);
+        s.struct_type::<DisposableResourceStack>()
+            .field(DisposableResourceStackSchema::ENTRY_COUNT)
+            .write(&disposal.resources, GcOperand::i64(0), s, f);
+        empty.clear(f);
+        empty_arguments.clear(f);
+        combined.clear(f);
+        called.clear(f);
+        receiver.clear(f);
+        method.clear(f);
+        value.clear(f);
+        kind_word.clear(s, f);
+        s.release_i32_local(index, f);
+        s.release_i64_local(disposal.next_index, f);
+        disposal.entries.clear(f);
+        disposal.resources.clear(f);
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn emit_disposable_stack_push_entry(
+    pub(crate) fn emit_disposable_stack_dispose(
         &mut self,
-        stack_record_local: u32,
-        kind: DisposableStackEntryKind,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        method_payload_local: u32,
-        method_tag_local: u32,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let entries_ptr_local = self.reserve_temp_local();
-        let entries_len_local = self.reserve_temp_local();
-        let entries_cap_local = self.reserve_temp_local();
-        let new_cap_local = self.reserve_temp_local();
-        let allocation_size_local = self.reserve_temp_local();
-        let new_entries_ptr_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let old_entry_local = self.reserve_temp_local();
-        let new_entry_local = self.reserve_temp_local();
-        let copied_value_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            entries_ptr_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            entries_len_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            entries_cap_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::LocalGet(entries_cap_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(entries_cap_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(MIN_HEAP_CAPACITY as i64));
-        function.instruction(&Instruction::LocalSet(new_cap_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(entries_cap_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(new_cap_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(new_cap_local));
-        function.instruction(&Instruction::I64Const(
-            HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-        ));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(allocation_size_local));
-        self.emit_heap_alloc_from_local(allocation_size_local, function)?;
-        function.instruction(&Instruction::LocalSet(new_entries_ptr_local));
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        for (base_local, indexed_entry_local) in [
-            (entries_ptr_local, old_entry_local),
-            (new_entries_ptr_local, new_entry_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(base_local));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(
-                HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
+        self.emit_with_disposable_stack(f, |b, stack, output, exit, f| {
+            let s = b.runtime_schema();
+            let state = GcI32DomainLocal::new(s, DisposableStackState::Pending, f);
+            s.struct_type::<DisposableStack>()
+                .field(DisposableStackSchema::STATE)
+                .read(stack, s, f)
+                .store_domain(&state, f);
+            state.load(f);
+            f.instruction(&Instruction::I32Const(
+                DisposableStackState::Disposed.word() as i32,
             ));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(indexed_entry_local));
-        }
-        for offset in [
-            HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-        ] {
-            self.load_i64_to_local_from_offset(
-                old_entry_local,
-                offset,
-                copied_value_local,
-                function,
-            );
-            self.store_i64_local_at_offset(new_entry_local, offset, copied_value_local, function);
-        }
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.store_i64_local_at_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            new_entries_ptr_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            new_cap_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(new_entries_ptr_local));
-        function.instruction(&Instruction::LocalSet(entries_ptr_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(entries_ptr_local));
-        function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::I64Const(
-            HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-        ));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.store_i64_const_at_offset(
-            entry_local,
-            HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
-            kind.word(),
-            function,
-        );
-        for (offset, local) in [
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-                value_payload_local,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-                value_tag_local,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-                method_payload_local,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-                method_tag_local,
-            ),
-        ] {
-            self.store_i64_local_at_offset(entry_local, offset, local, function);
-        }
-        function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entries_len_local));
-        self.store_i64_local_at_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            entries_len_local,
-            function,
-        );
-
-        self.release_temp_local(entry_local);
-        self.release_temp_local(copied_value_local);
-        self.release_temp_local(new_entry_local);
-        self.release_temp_local(old_entry_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(new_entries_ptr_local);
-        self.release_temp_local(allocation_size_local);
-        self.release_temp_local(new_cap_local);
-        self.release_temp_local(entries_cap_local);
-        self.release_temp_local(entries_len_local);
-        self.release_temp_local(entries_ptr_local);
-        Ok(())
-    }
-
-    fn emit_disposable_stack_get_method(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        key_local: u32,
-        method_payload_local: u32,
-        method_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_object_read_without_throw_propagation(
-            value_payload_local,
-            value_tag_local,
-            value_payload_local,
-            value_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_disposable_stack_is_nullish_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(method_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(method_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::DisposeMethodNotCallable,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    fn emit_disposable_stack_record_from_receiver(
-        &mut self,
-        stack_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::ReceiverNotObject,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_disposable_stack_type_error(
-            DisposableStackTypeError::ReceiverMissingDisposableState,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            stack_record_local,
-            function,
-        );
-
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        Ok(())
-    }
-
-    fn emit_disposable_stack_require_pending(
-        &mut self,
-        stack_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let state_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            stack_record_local,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            state_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            DisposableStackState::Disposed.word() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_error(
-            REFERENCE_ERROR_NAME,
-            "DisposableStack is already disposed",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(state_local);
-        Ok(())
-    }
-
-    fn emit_disposable_stack_is_nullish_i32(&mut self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-    }
-
-    fn emit_disposable_stack_return_value(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        disposition: DisposableStackReturnDisposition,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        match disposition {
-            DisposableStackReturnDisposition::ReturnCurrentFunction => {
-                self.emit_return_current_completion(function);
-            }
-            DisposableStackReturnDisposition::LeaveInCompletion => {}
-        }
-    }
-
-    fn emit_disposable_stack_return_undefined(&mut self, function: &mut Function) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-    }
-
-    fn emit_disposable_stack_type_error(
-        &mut self,
-        error: DisposableStackTypeError,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let message = match error {
-            DisposableStackTypeError::UseValueNotObject => {
-                "DisposableStack.prototype.use value is not an object"
-            }
-            DisposableStackTypeError::UseValueNotDisposable => {
-                "DisposableStack.prototype.use value is not disposable"
-            }
-            DisposableStackTypeError::AdoptCallbackNotCallable => {
-                "DisposableStack.prototype.adopt onDispose is not callable"
-            }
-            DisposableStackTypeError::DeferCallbackNotCallable => {
-                "DisposableStack.prototype.defer onDispose is not callable"
-            }
-            DisposableStackTypeError::DisposeMethodNotCallable => {
-                "DisposableStack.prototype.use dispose method is not callable"
-            }
-            DisposableStackTypeError::ReceiverNotObject => {
-                "DisposableStack method receiver is not an object"
-            }
-            DisposableStackTypeError::ReceiverMissingDisposableState => {
-                "DisposableStack method receiver does not have [[DisposableState]]"
-            }
-        };
-        self.emit_throw_current_function_realm_type_error(
-            message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        Ok(())
+            f.instruction(&Instruction::I32Eq);
+            b.emit_branch_if_to_target(exit, f);
+            state.clear(s, f);
+            let disposal = b.emit_begin_disposable_stack_disposal(stack, f);
+            b.emit_consume_disposable_stack_disposal(disposal, output, f)
+        })
     }
 }

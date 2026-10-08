@@ -1,5 +1,32 @@
 # Created-realm builtin function prototype context
 
+## Current atomic GC source — 2026-10-05
+
+The actual `RealmFunctionMaterializationContext` retains typed Realm and
+FunctionObject roots together. The shared function factory completes immutable
+FunctionContext, capture and specified internal prototype before publication;
+it does not start from an entry-global prototype or repair headers afterward.
+Callable `%Function.prototype%` and the represented generator/async intrinsic
+families now have real GC owners, so the earlier Object-shaped placeholder and
+specialized-family refusal below are historical.
+
+NativeHost's created-Realm path consumes the completed shared bootstrap and
+canonical global publisher. The new Global Environment excludes caller source
+overrides and entry-only host extensions. Its facade callables capture the new
+Realm through the same actual factory. Existing callable/Realm semantic targets
+remain. This source migration does not add a runtime JavaScript parser or relax
+the explicit dynamic-source policy. See
+[NativeHost GC values](native-host-gc-values.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 ECMAScript built-in function objects have the `%Function.prototype%` of their
 defining realm as their initial `[[Prototype]]`, unless an intrinsic explicitly
 specifies another function prototype. `CreateBuiltinFunction` couples these two

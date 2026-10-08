@@ -204,6 +204,26 @@ impl JsSymbol {
         }
     }
 
+    /// Borrowed host inspection; the callback can budget before any copy.
+    pub fn with_raw_description<R>(&self, inspect: impl FnOnce(Option<&[u16]>) -> R) -> R {
+        match self.repr.unwrap() {
+            UnwrappedTagged::Ptr(ptr) => {
+                // SAFETY: self roots the same Arc representation as description().
+                inspect(unsafe { ptr.as_ref().description.as_deref() })
+            }
+            UnwrappedTagged::Tag(tag) => {
+                // SAFETY: a tagged Symbol is one of the closed well-known tags.
+                let description = unsafe { WellKnown::from_tag(tag).unwrap_unchecked() }.description();
+                // All fifteen closed names fit; no candidate-sized allocation.
+                let mut units = [0u16; 32];
+                let length = description.len();
+                assert!(length <= units.len(), "closed well-known Symbol description");
+                for (slot, unit) in units.iter_mut().zip(description.iter()) { *slot = unit; }
+                inspect(Some(&units[..length]))
+            }
+        }
+    }
+
     /// Returns the `Symbol` as a function name.
     ///
     /// Equivalent to `[description]`, but returns the empty string if the symbol doesn't have a

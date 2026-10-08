@@ -35,11 +35,10 @@ positive_integer() {
 for setting in THREADS JOBS MAX_MATRIX_NODES; do
   positive_integer "${!setting}" || fail "$setting must be a positive decimal integer (at most 18 digits)"
 done
-[[ "$ISOLATE_CASES" == 0 || "$ISOLATE_CASES" == 1 ]] || fail "ISOLATE_CASES must be 0 or 1"
+[[ "$ISOLATE_CASES" == 1 ]] || fail "ISOLATE_CASES must be 1: case supervision is mandatory"
 
-if [[ "$ISOLATE_CASES" == 1 ]]; then
-  export LILA_TEST262_FORCE_CASE_RUNNER=1
-fi
+# These historical toggles no longer select compiler execution policy.
+unset LILA_TEST262_FORCE_CASE_RUNNER LILA_TEST262_DISABLE_CASE_RUNNER
 
 if [[ ! -x "$LILA_BIN" ]]; then
   echo "missing executable: $LILA_BIN" >&2
@@ -117,6 +116,7 @@ while true; do
   if [[ -n "$total" && "$completed" == "$total" ]]; then
     cmd=(
       "$LILA_BIN" test262 publish-status
+      --jobs "$JOBS"
       --execution-backend "$BACKEND"
       --suite-root "$SUITE_ROOT"
       --snapshot-dir "$SNAPSHOT_DIR"

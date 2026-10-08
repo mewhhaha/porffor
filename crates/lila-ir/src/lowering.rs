@@ -1,6 +1,29 @@
 mod array_literal;
 mod assignment;
 mod async_disposable;
+mod async_generator_assignment;
+mod async_generator_for_in;
+pub(crate) use async_generator_for_in::CheckedAsyncGeneratorForInInitializer;
+mod async_generator_if;
+mod async_generator_loop;
+mod async_generator_pattern;
+mod async_generator_resource;
+mod async_generator_switch;
+mod async_generator_value;
+mod async_generator_with;
+mod async_identifier_assignment;
+mod async_pattern;
+pub(crate) use async_generator_resource::CheckedAsyncGeneratorResourceRegistration;
+
+#[derive(Clone, Copy)]
+enum StatementListPlacement {
+    Root,
+    Block,
+}
+mod async_generator_for_of;
+pub(crate) use async_generator_for_of::CheckedAsyncGeneratorForOfInitializer;
+mod async_classic_loop;
+mod async_with;
 mod break_continue;
 mod builtin_call_info;
 #[cfg(test)]
@@ -10,6 +33,7 @@ mod call_candidate_analysis;
 mod call_expression;
 mod class_definition;
 mod class_suspension;
+mod conditional_flow;
 mod define_property_call;
 mod delete_expression;
 mod direct_eval;
@@ -17,8 +41,32 @@ mod dynamic_source;
 mod environment_identifier;
 mod finite_function_source;
 mod finite_iterator_source;
+mod for_lexical_environment;
 mod function_source_candidates;
+mod generator_array_pattern;
 mod generator_call;
+mod generator_compound_assignment;
+mod generator_eager_value;
+mod generator_identifier_reference;
+mod generator_logical_assignment;
+mod generator_loop;
+mod generator_object_literal;
+mod generator_object_pattern;
+mod generator_pattern_assignment;
+mod generator_pattern_initializer;
+mod generator_pattern_target;
+mod generator_plain_assignment;
+mod generator_switch;
+mod generator_value_branch;
+mod generator_with;
+mod pattern_target;
+mod resumable_for_in;
+mod resumable_for_initializer;
+mod resumable_operand;
+mod resumable_pattern;
+mod resumable_switch;
+mod super_construct;
+mod suspended_call;
 use finite_function_source::FiniteSourceValue;
 mod prepared_function;
 mod prepared_script;
@@ -29,21 +77,37 @@ use prepared_script::compile_dynamic_script_sources;
 mod for_in;
 mod for_loop;
 mod for_of;
+mod function_declaration;
 mod function_definition;
 mod function_environment;
 mod if_statement;
 mod intrinsic_method;
 mod invocation_effects;
 mod labelled_statement;
+mod lexical_declaration;
 mod module_graph;
+mod signature_evidence;
+mod var_declaration;
 pub use module_graph::{
-    lower_module_graph, lower_module_graph_with_host_surface_policy,
+    lower_complete_module_catalog, lower_module_graph, lower_module_graph_with_host_surface_policy,
     lower_module_graph_with_prelude, lower_script_graph,
     lower_script_graph_with_host_surface_policy,
 };
+mod async_expression_prefix;
+mod async_switch;
+use crate::ir::reference::{
+    CapturedPropertyKeySlot, CapturedPropertyReceiverSlot, CapturedPropertyTargetSlot,
+};
+use async_expression_prefix::{AwaitedLogicalAssignmentSource, CheckedAsyncPrefixSource};
+mod awaited_while_condition;
+use awaited_while_condition::AsyncValueBranchContext;
+mod eager_async_while_body;
 mod module_execution;
 mod new_expression;
 mod object_environment_logical;
+mod object_literal;
+mod operator_values;
+mod optional_chain;
 mod ordinary_property_compound;
 mod ordinary_property_logical;
 mod ordinary_property_update;
@@ -52,11 +116,11 @@ mod promise_caller_flow;
 mod property_access;
 mod proxy_traps;
 mod statement;
-mod static_json_parse;
+mod static_literals;
 mod static_string_binding_facts;
 mod super_property_mutation;
 mod switch_statement;
-mod synchronous_resource_loop;
+pub(crate) mod synchronous_resource_loop;
 mod throw_inference;
 mod try_statement;
 mod while_loop;
@@ -73,7 +137,8 @@ use dynamic_source::{
     already_accounted_optional_calls, BuiltinCallContext, OptionalCallSource,
     ResolvedDynamicSourceCall,
 };
-use intrinsic_method::IntrinsicPrototype;
+use generator_identifier_reference::RetainedGeneratorIdentifierReference;
+use intrinsic_method::{IntrinsicMethodLookup, IntrinsicPrototype};
 use invocation_effects::{AnalyzedInvocationEffects, InvocationCallerFlowEffects};
 use object_environment_logical::LogicalAssignmentReachability;
 use ordinary_property_compound::BuiltinGetterReceiverProvenance;
@@ -89,10 +154,10 @@ use crate::ir::reference::{
     reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
     DeleteSuperReferencePlan, EagerCompoundAssignmentBindings, EagerCompoundAssignmentOp,
-    GlobalObjectEnvironmentReferencePlan, NumericUpdateBindings, ObjectEnvironmentBindingObject,
-    OrderedWithEnvironmentChain, OrdinaryPropertyReferencePlan, PositionedWithEnvironment,
-    ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
-    SelectedWithEnvironmentObjects, SuperPropertyReferencePlan, WithEnvironmentReferencePlan,
+    NumericUpdateBindings, ObjectEnvironmentBindingObject, OrderedWithEnvironmentChain,
+    OrdinaryPropertyReferencePlan, PositionedWithEnvironment, ReferenceBase, ReferenceOperand,
+    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects, SuperPropertyReferencePlan,
+    WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -373,50 +438,6 @@ struct FunctionReturnObservation {
     shape: FunctionReturnShape,
 }
 
-/// Flow-sensitive facts whose post-expression value depends on whether a
-/// short-circuit or conditional branch executes.
-#[derive(Clone)]
-struct ConditionalFlowFacts {
-    scopes: Vec<BTreeMap<String, BindingInfo>>,
-    var_bindings: BTreeMap<String, VarBindingInfo>,
-    current_this_binding: CurrentThisBinding,
-    current_construct_this_info: Option<ValueInfo>,
-    global_properties: BTreeMap<String, GlobalPropertyInfo>,
-    well_known_symbol_prototype_properties: BTreeMap<(String, WellKnownSymbol), ValueInfo>,
-    nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
-    array_prototype_mutated: bool,
-    number_prototype_to_string_state: PrototypeToStringState,
-    number_prototype_match_is_string_match: bool,
-    number_prototype_split_is_string_split: bool,
-    boolean_prototype_to_string_state: PrototypeToStringState,
-    dynamically_installed_getters: BTreeSet<FunctionId>,
-    dynamically_installed_setters: BTreeSet<FunctionId>,
-    unknown_user_code_effects_observed: bool,
-    function_signature_shape_evidence: FunctionSignatureShapeEvidence,
-    static_boolean_bindings: BTreeMap<String, bool>,
-    static_string_bindings: StaticStringBindingFacts,
-    static_to_string_regexp_object_bindings: BTreeSet<String>,
-    static_generator_call_overrides: BTreeMap<String, TypedExpr>,
-    static_iterator_binding_values: BTreeMap<String, Vec<f64>>,
-    invalidated_static_binding_names: BTreeSet<String>,
-    boolean_alias_shapes_invalidated: bool,
-}
-
-fn equal_map_intersection<K, V>(left: &BTreeMap<K, V>, right: &BTreeMap<K, V>) -> BTreeMap<K, V>
-where
-    K: Ord + Clone,
-    V: Clone + PartialEq,
-{
-    left.iter()
-        .filter_map(|(key, left_value)| {
-            right
-                .get(key)
-                .filter(|right_value| *right_value == left_value)
-                .map(|_| (key.clone(), left_value.clone()))
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LabelTargetKind {
     Breakable,
@@ -692,8 +713,6 @@ struct ExecutedClassElementPostState {
     boolean_alias_shapes_invalidated: bool,
     array_prototype_mutated: bool,
     number_prototype_to_string_state: PrototypeToStringState,
-    number_prototype_match_is_string_match: bool,
-    number_prototype_split_is_string_split: bool,
     boolean_prototype_to_string_state: PrototypeToStringState,
     unknown_user_code_effects_observed: bool,
     unknown_user_code_effects_introduced: bool,
@@ -896,20 +915,39 @@ pub fn lower_with_host_surface_policy(
     source: &ParsedSource,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
-    match source {
-        ParsedSource::Script(source) => lower_script_program(
-            source,
-            ParseGoal::Script,
-            source.source_text.len(),
-            vec![LoweringStage::ParsedSource],
-            None,
-            &modules::LinkedScriptDefinitions::default(),
-            host_surface_policy,
-        ),
-        ParsedSource::Module(source) => lower_module_graph_with_host_surface_policy(
-            &ModuleGraphSources::single(source),
-            host_surface_policy,
-        ),
+    LoweringSession::default().lower_source(source, host_surface_policy)
+}
+
+impl LoweringSession {
+    /// Lowers one retained source while reusing this compilation's prepared
+    /// parse products and collecting their potential Realm-origin imports.
+    pub fn lower_source(
+        &self,
+        source: &ParsedSource,
+        host_surface_policy: HostSurfacePolicy,
+    ) -> ProgramIr {
+        match source {
+            ParsedSource::Script(source) => {
+                let mut allocations = AnalysisAllocationState::default();
+                allocations.prepared_sources = self.prepared_sources.clone();
+                lower_script_program_with_allocations(
+                    source,
+                    ParseGoal::Script,
+                    source.source_text.len(),
+                    vec![LoweringStage::ParsedSource],
+                    None,
+                    &modules::LinkedScriptDefinitions::default(),
+                    host_surface_policy,
+                    &mut allocations,
+                    ScriptInstantiation::FreshEntry,
+                )
+            }
+            ParsedSource::Module(source) => self.lower_loaded_graph(
+                &ModuleGraphSources::single(source),
+                host_surface_policy,
+                None,
+            ),
+        }
     }
 }
 
@@ -927,28 +965,6 @@ fn new_program(goal: ParseGoal, source_len: usize, stages: Vec<LoweringStage>) -
         script: None,
         modules: None,
     }
-}
-
-fn lower_script_program(
-    script_source: &ParsedScript,
-    goal: ParseGoal,
-    source_len: usize,
-    stages: Vec<LoweringStage>,
-    modules: Option<ModuleGraphIr>,
-    definitions: &modules::LinkedScriptDefinitions,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    lower_script_program_with_allocations(
-        script_source,
-        goal,
-        source_len,
-        stages,
-        modules,
-        definitions,
-        host_surface_policy,
-        &mut AnalysisAllocationState::default(),
-        ScriptInstantiation::FreshEntry,
-    )
 }
 
 fn lower_script_program_with_allocations(
@@ -976,11 +992,17 @@ fn lower_script_program_with_allocations(
     script_source.with_compiler_session(|script, interner| {
         let trace_phases = std::env::var_os("LILA_LOWER_TRACE").is_some();
         let t0 = std::time::Instant::now();
-        let mut analysis = AnalysisBuilder::with_allocations(*allocations, instantiation.clone())
-            .finish(script, interner, script_source.source_text.as_str());
+        let template_source = allocations.template_sources.for_parsed(script_source);
+        let mut analysis = AnalysisBuilder::with_allocations(
+            allocations.clone(),
+            instantiation.clone(),
+            template_source,
+        )
+        .with_realm_reusable_module_environments(definitions.has_realm_reusable_modules())
+        .finish(script, interner, script_source.source_text.as_str());
         definitions.apply(script, &mut analysis, interner);
         analysis.prepare_runtime_script_slots(script, interner);
-        *allocations = analysis.allocations;
+        *allocations = analysis.allocations.clone();
         if trace_phases {
             eprintln!("lila lower trace: analysis: {:?}", t0.elapsed());
         }
@@ -998,6 +1020,7 @@ fn lower_script_program_with_allocations(
             eprintln!("lila lower trace: script-lower: {:?}", t1.elapsed());
         }
         program.script = Some(ScriptIr {
+            template_source: analysis.template_source,
             eval_environment: analysis.owner_eval_environment(SCRIPT_OWNER_ID),
             module_prelude: None,
             prepared_scripts: Vec::new(),
@@ -1084,6 +1107,25 @@ enum ScriptGlobalCallObservationMode {
     ExecutedFlow,
 }
 
+enum ImmutableBindingWriteOutcome {
+    Ignored(IdentifierWriteReferenceIr),
+    Abrupt(IdentifierWriteErrorIr),
+}
+
+struct PreparedIdentifierWrite {
+    value: TypedExpr,
+    ignored: Option<crate::reference::IgnoredIterationIdentifierWriteIr>,
+}
+
+impl PreparedIdentifierWrite {
+    fn performed(value: TypedExpr) -> Self {
+        Self {
+            value,
+            ignored: None,
+        }
+    }
+}
+
 pub(crate) struct ScriptLowerer<'a> {
     dynamic_script_sources: Vec<DynamicScriptSource>,
     dynamic_function_sources: Vec<DynamicFunctionSource>,
@@ -1102,6 +1144,17 @@ pub(crate) struct ScriptLowerer<'a> {
     diagnostics: Vec<IrDiagnostic>,
     breakable_depth: usize,
     loop_depth: usize,
+    ordinary_generator_region_depth: usize,
+    ordinary_generator_switch_depth: usize,
+    ordinary_generator_for_in_depth: usize,
+    plain_async_with_depth: usize,
+    plain_async_for_in_depth: usize,
+    plain_async_for_of_depth: usize,
+    plain_async_classic_depth: usize,
+    plain_async_resource_depth: usize,
+    mixed_async_generator_region_depth: usize,
+    async_generator_source_domain: crate::async_generator_source::AsyncGeneratorSourceDomain,
+    async_value_branch_context: AsyncValueBranchContext,
     labels: Vec<ActiveLabel>,
     is_function_body: bool,
     current_function_id: Option<FunctionId>,
@@ -1120,6 +1173,14 @@ pub(crate) struct ScriptLowerer<'a> {
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    /// Globals observed written anywhere in the script: an append-only side
+    /// channel fed by every real global-write recording, merged from nested
+    /// bodies like the installed-getter sets, and carried from the prepass to
+    /// the final pass. The final function pass runs before the final
+    /// root-statement pass replays top-level writes, so a final body must not
+    /// fold an intrinsic global this set names. It never touches flow state,
+    /// so accumulating it cannot perturb any fixpoint.
+    observed_script_global_writes: BTreeSet<String>,
     /// Per-intrinsic overrides of a well-known-symbol method on a builtin
     /// prototype, keyed by `(constructor name, symbol)`.
     ///
@@ -1137,8 +1198,6 @@ pub(crate) struct ScriptLowerer<'a> {
     script_global_call_observation_mode: ScriptGlobalCallObservationMode,
     array_prototype_mutated: bool,
     number_prototype_to_string_state: PrototypeToStringState,
-    number_prototype_match_is_string_match: bool,
-    number_prototype_split_is_string_split: bool,
     boolean_prototype_to_string_state: PrototypeToStringState,
     dynamically_installed_getters: BTreeSet<FunctionId>,
     dynamically_installed_setters: BTreeSet<FunctionId>,
@@ -1151,8 +1210,6 @@ pub(crate) struct ScriptLowerer<'a> {
     static_string_bindings: StaticStringBindingFacts,
     static_to_string_regexp_object_bindings: BTreeSet<String>,
     sloppy_immutable_binding_storage_names: BTreeSet<String>,
-    static_generator_call_overrides: BTreeMap<String, TypedExpr>,
-    static_iterator_binding_values: BTreeMap<String, Vec<f64>>,
     invalidated_static_binding_names: BTreeSet<String>,
     boolean_alias_shapes_invalidated: bool,
     top_level_this_uses: usize,
@@ -1173,6 +1230,9 @@ pub(crate) struct ScriptLowerer<'a> {
     boxed_receiver_adaptations: usize,
     generated_functions: Vec<FunctionIr>,
     generated_owned_env_bindings: Vec<OwnedEnvBindingIr>,
+    /// Capture slots of SuperProperty destructuring targets lowered by the
+    /// pattern in flight; its top-level entry declares them.
+    pending_super_destructuring_slots: Vec<String>,
     next_generated_function_index: usize,
     next_temp_binding_index: usize,
     is_prepass: bool,
@@ -1271,6 +1331,33 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         name
+    }
+
+    fn alloc_captured_property_receiver(&mut self) -> CapturedPropertyReceiverSlot {
+        CapturedPropertyReceiverSlot::new(self.alloc_suspension_owned_binding(
+            "async.logical.reference.receiver.",
+            unknown_runtime_value_info(),
+        ))
+    }
+    fn alloc_captured_property_target(&mut self) -> CapturedPropertyTargetSlot {
+        CapturedPropertyTargetSlot::new(self.alloc_suspension_owned_binding(
+            "async.logical.reference.target.",
+            unknown_runtime_value_info(),
+        ))
+    }
+    fn alloc_captured_property_key(&mut self) -> CapturedPropertyKeySlot {
+        CapturedPropertyKeySlot::new(
+            self.alloc_suspension_owned_binding(
+                "async.logical.reference.key.",
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::from_kind(ValueKind::String)
+                        .union(KindSet::from_kind(ValueKind::Symbol)),
+                    heap_shape: None,
+                    function_targets: FunctionTargetKnowledge::none(),
+                },
+            ),
+        )
     }
 
     /// Allocates the `[[Iterator]]` slot of an activation-backed Iterator
@@ -1500,6 +1587,18 @@ impl<'a> ScriptLowerer<'a> {
             diagnostics: Vec::new(),
             breakable_depth: 0,
             loop_depth: 0,
+            ordinary_generator_region_depth: 0,
+            ordinary_generator_switch_depth: 0,
+            ordinary_generator_for_in_depth: 0,
+            plain_async_with_depth: 0,
+            plain_async_for_in_depth: 0,
+            plain_async_for_of_depth: 0,
+            plain_async_classic_depth: 0,
+            plain_async_resource_depth: 0,
+            mixed_async_generator_region_depth: 0,
+            async_generator_source_domain:
+                crate::async_generator_source::AsyncGeneratorSourceDomain::FunctionBody,
+            async_value_branch_context: AsyncValueBranchContext::Ordinary,
             labels: Vec::new(),
             is_function_body: false,
             current_function_id: None,
@@ -1521,6 +1620,15 @@ impl<'a> ScriptLowerer<'a> {
             current_construct_this_info: None,
             global_properties: {
                 let mut properties = BTreeMap::new();
+                properties.insert(
+                    GLOBAL_THIS_NAME.to_string(),
+                    GlobalPropertyInfo {
+                        value_info: ValueInfo::new(ValueKind::Object),
+                        proven_present: true,
+                        configurable: true,
+                        source: GlobalPropertySource::Builtin,
+                    },
+                );
                 for builtin in host_surface_policy.global_builtins() {
                     properties.insert(
                         builtin
@@ -1631,6 +1739,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 properties
             },
+            observed_script_global_writes: BTreeSet::new(),
             well_known_symbol_prototype_properties: BTreeMap::new(),
             nested_script_global_value_infos: BTreeMap::new(),
             known_nested_script_global_value_infos: BTreeMap::new(),
@@ -1641,8 +1750,6 @@ impl<'a> ScriptLowerer<'a> {
             // a runtime/version guard, default to the generic observable path.
             array_prototype_mutated: true,
             number_prototype_to_string_state: PrototypeToStringState::Intrinsic,
-            number_prototype_match_is_string_match: false,
-            number_prototype_split_is_string_split: false,
             boolean_prototype_to_string_state: PrototypeToStringState::Intrinsic,
             dynamically_installed_getters: BTreeSet::new(),
             dynamically_installed_setters: BTreeSet::new(),
@@ -1655,8 +1762,6 @@ impl<'a> ScriptLowerer<'a> {
             static_string_bindings: StaticStringBindingFacts::default(),
             static_to_string_regexp_object_bindings: BTreeSet::new(),
             sloppy_immutable_binding_storage_names: BTreeSet::new(),
-            static_generator_call_overrides: BTreeMap::new(),
-            static_iterator_binding_values: BTreeMap::new(),
             invalidated_static_binding_names: BTreeSet::new(),
             boolean_alias_shapes_invalidated: false,
             top_level_this_uses: 0,
@@ -1681,6 +1786,7 @@ impl<'a> ScriptLowerer<'a> {
             function_source_parameter_candidates: BTreeMap::new(),
             dynamic_script_sources: Vec::new(),
             generated_owned_env_bindings: Vec::new(),
+            pending_super_destructuring_slots: Vec::new(),
             next_generated_function_index: 0,
             next_temp_binding_index: 0,
             is_prepass: false,
@@ -1824,8 +1930,8 @@ impl<'a> ScriptLowerer<'a> {
             ),
             (
                 HostBuiltinId::AgentReceiveBroadcast,
-                ValueKind::Object,
-                KindSet::from_kind(ValueKind::Object),
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
             ),
             (
                 HostBuiltinId::AgentReport,
@@ -1941,6 +2047,31 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         self.register_dynamic_source_intrinsic_signatures();
+        self.function_signatures.insert(
+            HostBuiltinId::GetAbstractModuleSource.function_id(),
+            FunctionSignature {
+                id: HostBuiltinId::GetAbstractModuleSource.function_id(),
+                to_string_representation: CallableToStringRepresentation::NativeNamed(
+                    HostBuiltinId::GetAbstractModuleSource.as_str().to_string(),
+                ),
+                protocol: FunctionProtocolIr::OrdinaryCallOnly,
+                callable: true,
+                class_heritage_kind: ClassHeritageKind::None,
+                params: Vec::new(),
+                return_kind: ValueKind::Function,
+                return_possible_kinds: KindSet::from_kind(ValueKind::Function),
+                // The defining Realm owns one mutable intrinsic identity, not
+                // a fresh constructor shape recreated by each host call.
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::exact(
+                    StandardBuiltinId::AbstractModuleSourceConstructor.function_id(),
+                ),
+                constructor_instance: ValueInfo::undefined(),
+                this_info: ValueInfo::undefined(),
+                this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
+            },
+        );
         self.function_signatures.insert(
             HostBuiltinId::CreateHTMLDDA.function_id(),
             FunctionSignature {
@@ -2114,6 +2245,10 @@ impl<'a> ScriptLowerer<'a> {
         // Carry analysis summaries out of the prepass, but keep the root-entry
         // global facts. The final pass replays live effects in source order.
         let known_script_global_values = prepass.known_script_global_values();
+        // The prepass accumulated every real global write (its own and every
+        // nested body's) in a side channel that never touches flow state, so
+        // carrying it cannot perturb any fixpoint.
+        self.observed_script_global_writes = prepass.observed_script_global_writes;
         self.function_signatures = prepass.function_signatures;
         self.exact_context_function_observations = prepass.exact_context_function_observations;
         self.exact_context_callback_observations = prepass.exact_context_callback_observations;
@@ -2273,1024 +2408,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn propagate_function_signatures(&mut self) {
-        if self.analysis.script_root_functions.is_empty() {
-            return;
-        }
-
-        const MAX_SIGNATURE_PROPAGATION_PASSES: usize = 6;
-
-        for _ in 0..MAX_SIGNATURE_PROPAGATION_PASSES {
-            let before = self.function_signatures.clone();
-            let before_exact_contexts = self.exact_context_function_observations.clone();
-            let before_callback_contexts = self.exact_context_callback_observations.clone();
-            let before_source_parameters = self.function_source_parameter_candidates.clone();
-            let mut pass = ScriptLowerer::new(
-                self.interner,
-                self.analysis,
-                self.source_text,
-                self.root_this_binding,
-                SCRIPT_OWNER_ID.to_string(),
-                self.host_surface_policy,
-            );
-            pass.function_signatures = self.function_signatures.clone();
-            pass.visible_function_names = self.visible_function_names.clone();
-            pass.global_properties = self.global_properties.clone();
-            pass.array_prototype_mutated = self.array_prototype_mutated;
-            pass.number_prototype_to_string_state = self.number_prototype_to_string_state;
-            pass.number_prototype_match_is_string_match =
-                self.number_prototype_match_is_string_match;
-            pass.number_prototype_split_is_string_split =
-                self.number_prototype_split_is_string_split;
-            pass.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
-            pass.dynamically_installed_getters = self.dynamically_installed_getters.clone();
-            pass.dynamically_installed_setters = self.dynamically_installed_setters.clone();
-            pass.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
-            pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
-            pass.static_boolean_bindings = self.static_boolean_bindings.clone();
-            pass.static_string_bindings = self.static_string_bindings.clone();
-            pass.function_source_binding_candidates =
-                self.function_source_binding_candidates.clone();
-            pass.function_source_parameter_candidates =
-                self.function_source_parameter_candidates.clone();
-            pass.static_to_string_regexp_object_bindings =
-                self.static_to_string_regexp_object_bindings.clone();
-            pass.var_bindings = self.var_bindings.clone();
-            pass.exact_context_function_observations =
-                self.exact_context_function_observations.clone();
-            pass.exact_context_callback_observations =
-                self.exact_context_callback_observations.clone();
-            pass.exact_context_callback_specializations =
-                self.exact_context_callback_specializations.clone();
-            pass.exact_context_function_specializations =
-                self.exact_context_function_specializations.clone();
-            pass.is_prepass = true;
-            pass.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
-
-            for function in &self.analysis.script_root_functions {
-                let plan = self
-                    .analysis
-                    .function_plans
-                    .get(&function.id)
-                    .expect("function plan must exist");
-                let _ = pass.lower_function(plan, None, None);
-            }
-
-            self.merge_function_source_parameter_candidates(
-                pass.function_source_parameter_candidates,
-            );
-            self.merge_signature_propagation(pass.function_signatures);
-            self.merge_exact_context_function_observations(
-                pass.exact_context_function_observations,
-            );
-            self.merge_context_keyed_callback_observations(
-                pass.exact_context_callback_observations,
-            );
-            if self.function_signatures == before
-                && self.exact_context_function_observations == before_exact_contexts
-                && self.exact_context_callback_observations == before_callback_contexts
-                && self.function_source_parameter_candidates == before_source_parameters
-            {
-                break;
-            }
-        }
-    }
-
-    fn prepare_exact_context_specializations(&mut self) {
-        if self.exact_context_function_observations.is_empty()
-            && self.exact_context_callback_observations.is_empty()
-            && self.exact_context_function_specializations.is_empty()
-            && self.exact_context_callback_specializations.is_empty()
-        {
-            return;
-        }
-
-        const MAX_EXACT_CONTEXT_PASSES: usize = 8;
-
-        for _ in 0..MAX_EXACT_CONTEXT_PASSES {
-            let before_signatures = self.function_signatures.clone();
-            let before_source_parameters = self.function_source_parameter_candidates.clone();
-            let before_function_observations = self.exact_context_function_observations.clone();
-            let before_callback_observations = self.exact_context_callback_observations.clone();
-            let before_function_specializations =
-                self.exact_context_function_specializations.clone();
-            let before_callback_specializations =
-                self.exact_context_callback_specializations.clone();
-
-            self.allocate_exact_context_specializations();
-            self.propagate_exact_context_specializations();
-
-            if self.function_signatures == before_signatures
-                && self.exact_context_function_observations == before_function_observations
-                && self.exact_context_callback_observations == before_callback_observations
-                && self.exact_context_function_specializations == before_function_specializations
-                && self.exact_context_callback_specializations == before_callback_specializations
-                && self.function_source_parameter_candidates == before_source_parameters
-            {
-                break;
-            }
-        }
-    }
-
-    fn allocate_exact_context_specializations(&mut self) {
-        let mut contexts_by_function = BTreeMap::<FunctionId, Vec<ExactHelperContextId>>::new();
-        for (callback_id, helper_context_id) in self.exact_context_callback_observations.keys() {
-            contexts_by_function
-                .entry(callback_id.clone())
-                .or_default()
-                .push(helper_context_id.clone());
-        }
-        for (callback_id, helper_contexts) in contexts_by_function {
-            if self
-                .analysis
-                .function_plans
-                .get(&callback_id)
-                .is_some_and(|plan| !plan.captures.is_empty())
-            {
-                continue;
-            }
-            for (index, helper_context_id) in helper_contexts.into_iter().enumerate() {
-                let key = (callback_id.clone(), helper_context_id);
-                if self
-                    .exact_context_callback_specializations
-                    .contains_key(&key)
-                {
-                    continue;
-                }
-                let synthetic_id = format!("{callback_id}$exact_context${index}");
-                if let Some(signature) = self.exact_context_callback_observations.get(&key).cloned()
-                {
-                    self.function_signatures
-                        .insert(synthetic_id.clone(), signature);
-                }
-                self.exact_context_callback_specializations
-                    .insert(key, synthetic_id);
-            }
-        }
-
-        let mut contexts_by_function = BTreeMap::<FunctionId, Vec<ExactHelperContextId>>::new();
-        for (function_id, helper_context_id) in self.exact_context_function_observations.keys() {
-            contexts_by_function
-                .entry(function_id.clone())
-                .or_default()
-                .push(helper_context_id.clone());
-        }
-        for (function_id, helper_contexts) in contexts_by_function {
-            if self
-                .analysis
-                .function_plans
-                .get(&function_id)
-                .is_some_and(|plan| !plan.captures.is_empty())
-            {
-                continue;
-            }
-            for (index, helper_context_id) in helper_contexts.into_iter().enumerate() {
-                let key = (function_id.clone(), helper_context_id);
-                if self
-                    .exact_context_function_specializations
-                    .contains_key(&key)
-                {
-                    continue;
-                }
-                let synthetic_id = format!("{function_id}$exact_helper_context${index}");
-                if let Some(signature) = self.exact_context_function_observations.get(&key).cloned()
-                {
-                    self.function_signatures
-                        .insert(synthetic_id.clone(), signature);
-                }
-                self.exact_context_function_specializations
-                    .insert(key, synthetic_id);
-            }
-        }
-    }
-
-    fn propagate_exact_context_specializations(&mut self) {
-        let function_specializations = self
-            .exact_context_function_specializations
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        let callback_specializations = self
-            .exact_context_callback_specializations
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if function_specializations.is_empty() && callback_specializations.is_empty() {
-            return;
-        }
-
-        let mut pass = ScriptLowerer::new(
-            self.interner,
-            self.analysis,
-            self.source_text,
-            self.root_this_binding,
-            SCRIPT_OWNER_ID.to_string(),
-            self.host_surface_policy,
-        );
-        pass.function_signatures = self.function_signatures.clone();
-        pass.visible_function_names = self.visible_function_names.clone();
-        pass.global_properties = self.global_properties.clone();
-        pass.array_prototype_mutated = self.array_prototype_mutated;
-        pass.number_prototype_to_string_state = self.number_prototype_to_string_state;
-        pass.number_prototype_match_is_string_match = self.number_prototype_match_is_string_match;
-        pass.number_prototype_split_is_string_split = self.number_prototype_split_is_string_split;
-        pass.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
-        pass.dynamically_installed_getters = self.dynamically_installed_getters.clone();
-        pass.dynamically_installed_setters = self.dynamically_installed_setters.clone();
-        pass.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
-        pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
-        pass.static_boolean_bindings = self.static_boolean_bindings.clone();
-        pass.static_string_bindings = self.static_string_bindings.clone();
-        pass.function_source_binding_candidates = self.function_source_binding_candidates.clone();
-        pass.function_source_parameter_candidates =
-            self.function_source_parameter_candidates.clone();
-        pass.static_to_string_regexp_object_bindings =
-            self.static_to_string_regexp_object_bindings.clone();
-        pass.var_bindings = self.var_bindings.clone();
-        pass.exact_context_function_observations = self.exact_context_function_observations.clone();
-        pass.exact_context_callback_observations = self.exact_context_callback_observations.clone();
-        pass.exact_context_callback_specializations =
-            self.exact_context_callback_specializations.clone();
-        pass.exact_context_function_specializations =
-            self.exact_context_function_specializations.clone();
-        pass.is_prepass = true;
-        pass.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
-
-        for key in function_specializations
-            .into_iter()
-            .chain(callback_specializations.into_iter())
-        {
-            let function_id = key.0.clone();
-            let Some(plan) = self.analysis.function_plans.get(&function_id) else {
-                continue;
-            };
-            let _ = pass.lower_function(plan, None, Some(key));
-        }
-
-        self.merge_function_source_parameter_candidates(pass.function_source_parameter_candidates);
-        self.merge_exact_context_function_observations(pass.exact_context_function_observations);
-        self.merge_context_keyed_callback_observations(pass.exact_context_callback_observations);
-    }
-
-    fn propagate_direct_call_context(
-        &mut self,
-        function_id: &FunctionId,
-        args: &[ValueInfo],
-    ) -> Option<ValueInfo> {
-        if !self.analysis.function_plans.contains_key(function_id) {
-            return None;
-        }
-        if self.current_function_id.as_ref() == Some(function_id) {
-            return None;
-        }
-        if self.active_direct_call_propagations.contains(function_id) {
-            return None;
-        }
-        let Some(exact_signature) = self.function_signatures.get(function_id).cloned() else {
-            return None;
-        };
-        let canonical_args = self.canonical_exact_context_arg_infos(args);
-        let helper_context_id = Self::exact_helper_context_id(function_id, &canonical_args);
-        let propagation_key = (function_id.clone(), helper_context_id.clone());
-        let context_is_reusable = !self.function_has_untracked_captures(function_id);
-        let capture_context_is_authoritative =
-            self.function_captures_current_script_activation(function_id);
-        if !capture_context_is_authoritative
-            && !self
-                .completed_direct_call_propagations
-                .insert(propagation_key)
-        {
-            return None;
-        }
-        let mut pass = ScriptLowerer::new(
-            self.interner,
-            self.analysis,
-            self.source_text,
-            self.root_this_binding,
-            if capture_context_is_authoritative {
-                self.current_owner_id.clone()
-            } else {
-                function_id.clone()
-            },
-            self.host_surface_policy,
-        );
-        pass.function_signatures = self.function_signatures.clone();
-        pass.visible_function_names = self.visible_function_names.clone();
-        pass.global_properties = self.global_properties.clone();
-        pass.array_prototype_mutated = self.array_prototype_mutated;
-        pass.number_prototype_to_string_state = self.number_prototype_to_string_state;
-        pass.number_prototype_match_is_string_match = self.number_prototype_match_is_string_match;
-        pass.number_prototype_split_is_string_split = self.number_prototype_split_is_string_split;
-        pass.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
-        pass.dynamically_installed_getters = self.dynamically_installed_getters.clone();
-        pass.dynamically_installed_setters = self.dynamically_installed_setters.clone();
-        pass.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
-        pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
-        pass.static_boolean_bindings = self.static_boolean_bindings.clone();
-        pass.static_string_bindings = self.static_string_bindings.clone();
-        pass.function_source_binding_candidates = self.function_source_binding_candidates.clone();
-        pass.function_source_parameter_candidates =
-            self.function_source_parameter_candidates.clone();
-        pass.static_to_string_regexp_object_bindings =
-            self.static_to_string_regexp_object_bindings.clone();
-        pass.var_bindings = self.var_bindings.clone();
-        if capture_context_is_authoritative {
-            pass.scopes = self.scopes.clone();
-        }
-        pass.exact_context_function_observations = self.exact_context_function_observations.clone();
-        pass.exact_context_callback_observations = self.exact_context_callback_observations.clone();
-        pass.exact_context_callback_specializations =
-            self.exact_context_callback_specializations.clone();
-        pass.exact_context_function_specializations =
-            self.exact_context_function_specializations.clone();
-        pass.is_prepass = true;
-        pass.active_direct_call_propagations = self.active_direct_call_propagations.clone();
-        pass.active_direct_call_propagations
-            .insert(function_id.clone());
-        pass.completed_direct_call_propagations = self.completed_direct_call_propagations.clone();
-        pass.script_global_call_observation_mode = self.script_global_call_observation_mode;
-        let callback_targets = args
-            .iter()
-            .flat_map(|arg| {
-                arg.function_targets
-                    .exact_targets()
-                    .into_iter()
-                    .flatten()
-                    .map(|callback_id| {
-                        (
-                            self.original_exact_function_id(callback_id),
-                            helper_context_id.clone(),
-                        )
-                    })
-            })
-            .collect::<BTreeMap<_, _>>();
-        let observed_exact_helper_callbacks =
-            self.observe_exact_helper_callback_args(function_id, &canonical_args);
-        pass.exact_context_callback_targets = callback_targets.clone();
-        pass.exact_context_callback_observations = BTreeMap::new();
-        if let Some(signature) = pass.function_signatures.get_mut(function_id) {
-            for (param, arg) in signature.params.iter_mut().zip(canonical_args.iter()) {
-                if param.is_rest {
-                    break;
-                }
-                Self::set_signature_param_observation(param, arg);
-            }
-            Self::reset_omitted_signature_params_to_undefined(signature, canonical_args.len());
-        }
-        let plan = self
-            .analysis
-            .function_plans
-            .get(function_id)
-            .expect("function plan must exist");
-        let _ = pass.lower_function(plan, None, None);
-        let observed_signature = pass.function_signatures.get(function_id).cloned();
-        self.merge_called_script_global_value_infos(&pass.called_script_global_value_infos);
-        self.completed_direct_call_propagations = pass.completed_direct_call_propagations.clone();
-        if context_is_reusable {
-            let observed_signature = observed_signature
-                .clone()
-                .expect("lowered source function must retain its signature");
-            pass.exact_context_function_observations.insert(
-                (function_id.clone(), helper_context_id.clone()),
-                observed_signature,
-            );
-        }
-        self.merge_function_source_parameter_candidates(pass.function_source_parameter_candidates);
-        self.merge_exact_context_function_observations(pass.exact_context_function_observations);
-        let callback_observations = pass.exact_context_callback_observations;
-        self.merge_context_keyed_callback_observations(callback_observations.clone());
-        if !callback_targets.is_empty() && !observed_exact_helper_callbacks {
-            self.merge_exact_callback_observations(callback_observations);
-        }
-        if let Some(signature) = self.function_signatures.get_mut(function_id) {
-            signature.params = exact_signature.params;
-            signature.this_info = exact_signature.this_info;
-            signature.this_observed = exact_signature.this_observed;
-            signature.source_call_flow_effects = exact_signature.source_call_flow_effects;
-        }
-        if !capture_context_is_authoritative {
-            return None;
-        }
-
-        // The script activation is a singleton, so its live scope is
-        // authoritative for this call. Captures remain absent from the reusable
-        // context key, so never publish this observation for a later call.
-        observed_signature
-            .filter(|signature| {
-                !signature.this_observed
-                    || signature
-                        .return_targets
-                        .exact_targets()
-                        .is_some_and(BTreeSet::is_empty)
-            })
-            .map(|signature| self.function_call_return_info(&signature))
-    }
-
-    fn reset_omitted_signature_params_to_undefined(
-        signature: &mut FunctionSignature,
-        supplied_arg_count: usize,
-    ) {
-        for param in signature.params.iter_mut().skip(supplied_arg_count) {
-            if param.is_rest {
-                break;
-            }
-            param.kind = ValueKind::Undefined;
-            param.possible_kinds = KindSet::from_kind(ValueKind::Undefined);
-            param.heap_shape = None;
-            param.function_targets.replace_with_no_function();
-            param.observed = true;
-        }
-    }
-
-    fn merge_omitted_signature_params_as_undefined(
-        signature: &mut FunctionSignature,
-        supplied_arg_count: usize,
-    ) {
-        let undefined_info = ValueInfo::undefined();
-        for param in signature.params.iter_mut().skip(supplied_arg_count) {
-            if param.is_rest {
-                break;
-            }
-            Self::merge_signature_param_observation(param, &undefined_info);
-        }
-    }
-
-    fn merge_signature_param_observation(param: &mut FunctionParamSignature, arg: &ValueInfo) {
-        if !param.observed {
-            Self::set_signature_param_observation(param, arg);
-            return;
-        }
-
-        let possible_kinds = param.possible_kinds.union(arg.possible_kinds);
-        param.kind = possible_kinds.as_value_kind();
-        param.possible_kinds = possible_kinds;
-        if param.heap_shape != arg.heap_shape {
-            param.heap_shape = None;
-        }
-        param.function_targets = param
-            .function_targets
-            .clone()
-            .join(arg.function_targets.clone());
-    }
-
-    fn set_signature_param_observation(param: &mut FunctionParamSignature, arg: &ValueInfo) {
-        param.kind = arg.kind;
-        param.possible_kinds = arg.possible_kinds;
-        param.heap_shape = arg.heap_shape.clone();
-        param.function_targets = arg.function_targets.clone();
-        param.observed = true;
-    }
-
-    fn clear_signature_param_observation(param: &mut FunctionParamSignature) {
-        param.kind = ValueKind::Dynamic;
-        param.possible_kinds = KindSet::all_runtime_tags();
-        param.heap_shape = None;
-        param.function_targets.replace_with_unknown();
-        param.observed = false;
-    }
-
-    fn merge_signature_param_signature(
-        current: &mut FunctionParamSignature,
-        propagated: &FunctionParamSignature,
-    ) {
-        if !propagated.observed {
-            return;
-        }
-        let info = ValueInfo {
-            kind: propagated.kind,
-            possible_kinds: propagated.possible_kinds,
-            heap_shape: propagated.heap_shape.clone(),
-            function_targets: propagated.function_targets.clone(),
-        };
-        Self::merge_signature_param_observation(current, &info);
-    }
-
-    fn exact_helper_context_id(
-        function_id: &FunctionId,
-        args: &[ValueInfo],
-    ) -> ExactHelperContextId {
-        format!("{function_id}:{args:?}")
-    }
-
-    fn observe_exact_helper_callback_args(
-        &mut self,
-        function_id: &FunctionId,
-        args: &[ValueInfo],
-    ) -> bool {
-        let Some(callback_arg) = args.first() else {
-            return false;
-        };
-        let Some(callback_targets) = callback_arg.function_targets.exact_targets() else {
-            return false;
-        };
-        if callback_arg.kind != ValueKind::Function || callback_targets.is_empty() {
-            return false;
-        }
-        let Some(constructor_arg) = args.get(1) else {
-            return false;
-        };
-        let Some(HeapShape::Array(array_shape)) = constructor_arg.heap_shape.as_deref() else {
-            return false;
-        };
-        let mut constructor_targets = BTreeSet::new();
-        for element in &array_shape.elements {
-            if element.kind != ValueKind::Function {
-                return false;
-            }
-            let Some(element_targets) = element.function_targets.exact_targets() else {
-                return false;
-            };
-            if element_targets.is_empty()
-                || !element_targets.iter().all(|function_id| {
-                    StandardBuiltinId::from_function_id(function_id)
-                        .is_some_and(Self::is_typed_array_constructor)
-                })
-            {
-                return false;
-            }
-            constructor_targets.extend(element_targets.iter().cloned());
-        }
-        if constructor_targets.is_empty() {
-            return false;
-        }
-        let constructor_info = ValueInfo {
-            kind: ValueKind::Function,
-            possible_kinds: KindSet::from_kind(ValueKind::Function),
-            heap_shape: None,
-            function_targets: FunctionTargetKnowledge::exact_many(constructor_targets),
-        };
-        let factory_info = ValueInfo {
-            kind: ValueKind::Function,
-            possible_kinds: KindSet::from_kind(ValueKind::Function),
-            heap_shape: None,
-            function_targets: FunctionTargetKnowledge::unknown(),
-        };
-        let callback_args = [constructor_info, factory_info];
-        let helper_context_id = Self::exact_helper_context_id(function_id, args);
-        for callback_target in callback_targets {
-            self.observe_exact_callback_param_infos(
-                callback_target,
-                &helper_context_id,
-                &callback_args,
-            );
-            self.observe_exact_callback_this_info(
-                callback_target,
-                &helper_context_id,
-                self.global_this_info(),
-            );
-        }
-        true
-    }
-
-    fn merge_exact_context_function_observations(
-        &mut self,
-        observations: BTreeMap<ExactCallbackContextKey, FunctionSignature>,
-    ) {
-        for ((function_id, helper_context_id), signature) in observations {
-            self.merge_exact_context_function_observation(
-                &function_id,
-                &helper_context_id,
-                signature,
-            );
-        }
-    }
-
-    fn exact_signature_for_function(
-        &self,
-        function_id: &FunctionId,
-        context_key_override: Option<&ExactCallbackContextKey>,
-    ) -> Option<FunctionSignature> {
-        if self.function_has_untracked_captures(function_id) {
-            return None;
-        }
-        if let Some(context_key) = context_key_override {
-            return self
-                .exact_context_function_observations
-                .get(context_key)
-                .or_else(|| self.exact_context_callback_observations.get(context_key))
-                .cloned()
-                .map(|signature| self.function_signature_with_current_flow_evidence(signature));
-        }
-        let mut function_observations = self
-            .exact_context_function_observations
-            .iter()
-            .filter_map(|((observed_function_id, _), signature)| {
-                (observed_function_id == function_id).then(|| signature.clone())
-            })
-            .collect::<Vec<_>>();
-        if function_observations.len() == 1 {
-            let exact = function_observations.pop().unwrap();
-            if self.exact_signature_covers_aggregate_inputs(function_id, &exact) {
-                return Some(self.function_signature_with_current_flow_evidence(exact));
-            }
-            return None;
-        }
-        let mut callback_observations = self
-            .exact_context_callback_observations
-            .iter()
-            .filter_map(|((callback_id, _), signature)| {
-                (callback_id == function_id).then(|| signature.clone())
-            })
-            .collect::<Vec<_>>();
-        if callback_observations.len() == 1 {
-            let exact = callback_observations.pop().unwrap();
-            self.exact_signature_covers_aggregate_inputs(function_id, &exact)
-                .then_some(exact)
-                .map(|signature| self.function_signature_with_current_flow_evidence(signature))
-        } else {
-            None
-        }
-    }
-
-    fn function_call_return_info(&self, signature: &FunctionSignature) -> ValueInfo {
-        let mut info = signature.return_info();
-        let shape_is_available = match &signature.return_shape {
-            FunctionReturnShape::Unobserved | FunctionReturnShape::Absent => false,
-            FunctionReturnShape::FlowSensitive(_) => {
-                self.function_signature_shape_evidence == FunctionSignatureShapeEvidence::Available
-            }
-            FunctionReturnShape::RecreatedPerCall { dependencies, .. } => dependencies
-                .global_function_targets
-                .iter()
-                .all(|(name, function_id)| self.global_function_target_matches(name, function_id)),
-        };
-        if !shape_is_available {
-            info.heap_shape = None;
-        }
-        info
-    }
-
-    fn canonical_function_target(&self, function_id: &FunctionId) -> FunctionId {
-        self.function_signatures
-            .get(function_id)
-            .map(|signature| signature.id.clone())
-            .unwrap_or_else(|| function_id.clone())
-    }
-
-    fn global_function_target_matches(&self, name: &str, expected: &FunctionId) -> bool {
-        let Some(property) = self.lookup_global_property_info(name) else {
-            return false;
-        };
-        let function_kind = KindSet::from_kind(ValueKind::Function);
-        property.proven_present
-            && property.value_info.possible_kinds == function_kind
-            && property
-                .value_info
-                .function_targets
-                .exact_targets()
-                .is_some_and(|targets| {
-                    !targets.is_empty()
-                        && targets
-                            .iter()
-                            .all(|observed| self.canonical_function_target(observed) == *expected)
-                })
-    }
-
-    fn function_construct_instance_info(&self, signature: &FunctionSignature) -> ValueInfo {
-        self.function_signature_shape_evidence
-            .apply(signature.constructor_instance.clone())
-    }
-
-    fn function_signature_for_current_flow(&self, function_id: &str) -> Option<FunctionSignature> {
-        self.function_signatures
-            .get(function_id)
-            .cloned()
-            .map(|signature| self.function_signature_with_current_flow_evidence(signature))
-    }
-
-    fn function_signature_with_current_flow_evidence(
-        &self,
-        mut signature: FunctionSignature,
-    ) -> FunctionSignature {
-        if self.function_signature_shape_evidence == FunctionSignatureShapeEvidence::Available {
-            return signature;
-        }
-
-        signature.return_shape.invalidate_flow_sensitive();
-        signature.constructor_instance.heap_shape = None;
-        signature.this_info.heap_shape = None;
-        for param in &mut signature.params {
-            param.heap_shape = None;
-        }
-        signature
-    }
-
-    fn exact_signature_covers_aggregate_inputs(
-        &self,
-        function_id: &FunctionId,
-        exact: &FunctionSignature,
-    ) -> bool {
-        let Some(aggregate) = self.function_signatures.get(function_id) else {
-            return false;
-        };
-        let params_match = aggregate
-            .params
-            .iter()
-            .zip(exact.params.iter())
-            .all(|(aggregate, exact)| !aggregate.observed || aggregate == exact);
-        let this_matches = !aggregate.this_observed
-            || (exact.this_observed && aggregate.this_info == exact.this_info);
-        params_match && this_matches
-    }
-
-    fn function_has_untracked_captures(&self, function_id: &FunctionId) -> bool {
-        self.analysis
-            .function_plans
-            .get(function_id)
-            .is_some_and(|plan| !plan.captures.is_empty())
-    }
-
-    fn function_captures_current_script_activation(&self, function_id: &FunctionId) -> bool {
-        if self.current_owner_id != SCRIPT_OWNER_ID {
-            return false;
-        }
-        let Some(script_activation_id) = self
-            .analysis
-            .owner_plans
-            .get(SCRIPT_OWNER_ID)
-            .map(|owner| owner.activation_environment_id)
-        else {
-            return false;
-        };
-        self.analysis
-            .function_plans
-            .get(function_id)
-            .is_some_and(|plan| {
-                !plan.captures.is_empty()
-                    && plan.captures.values().all(|capture| {
-                        capture.owner_id == SCRIPT_OWNER_ID
-                            && capture.environment_id == script_activation_id
-                    })
-            })
-    }
-
-    fn merge_signature_return_observations(
-        &self,
-        current: &FunctionSignature,
-        propagated: &FunctionSignature,
-    ) -> (ValueInfo, FunctionReturnShape) {
-        self.merge_signature_return_value_observation(
-            current,
-            propagated.return_info(),
-            &propagated.return_shape,
-        )
-    }
-
-    fn merge_signature_return_value_observation(
-        &self,
-        current: &FunctionSignature,
-        observed_info: ValueInfo,
-        observed_shape: &FunctionReturnShape,
-    ) -> (ValueInfo, FunctionReturnShape) {
-        if matches!(current.return_shape, FunctionReturnShape::Unobserved) {
-            return (observed_info, observed_shape.clone());
-        }
-        if matches!(observed_shape, FunctionReturnShape::Unobserved) {
-            return (current.return_info(), current.return_shape.clone());
-        }
-        let merged = self.merge_value_infos(current.return_info(), observed_info);
-        let shape = FunctionReturnShape::merged(
-            &current.return_shape,
-            observed_shape,
-            merged.heap_shape.clone(),
-        );
-        (merged, shape)
-    }
-
-    fn merge_exact_context_function_observation(
-        &mut self,
-        function_id: &FunctionId,
-        helper_context_id: &ExactHelperContextId,
-        propagated_signature: FunctionSignature,
-    ) {
-        let key = (function_id.clone(), helper_context_id.clone());
-        if !self.exact_context_function_observations.contains_key(&key) {
-            self.exact_context_function_observations
-                .insert(key, propagated_signature);
-            return;
-        }
-        let Some(current_signature) = self.exact_context_function_observations.get(&key).cloned()
-        else {
-            return;
-        };
-        let merged_this = if propagated_signature.this_observed {
-            if current_signature.this_observed {
-                self.merge_value_infos(
-                    current_signature.this_info.clone(),
-                    propagated_signature.this_info.clone(),
-                )
-            } else {
-                propagated_signature.this_info.clone()
-            }
-        } else {
-            current_signature.this_info.clone()
-        };
-        let (merged_return, merged_return_shape) =
-            self.merge_signature_return_observations(&current_signature, &propagated_signature);
-        let merged_source_call_flow_effects =
-            current_signature.merged_source_call_flow_effects(&propagated_signature);
-        if let Some(signature) = self.exact_context_function_observations.get_mut(&key) {
-            for (current_param, propagated_param) in signature
-                .params
-                .iter_mut()
-                .zip(propagated_signature.params.iter())
-            {
-                if current_param.is_rest {
-                    continue;
-                }
-                Self::merge_signature_param_signature(current_param, propagated_param);
-            }
-            if propagated_signature.this_observed {
-                signature.this_info = merged_this;
-                signature.this_observed = true;
-            }
-            signature.return_kind = merged_return.kind;
-            signature.return_possible_kinds = merged_return.possible_kinds;
-            signature.return_shape = merged_return_shape;
-            signature.return_targets = merged_return.function_targets;
-            signature.source_call_flow_effects = merged_source_call_flow_effects;
-        }
-    }
-
-    fn merge_signature_propagation(&mut self, propagated: BTreeMap<FunctionId, FunctionSignature>) {
-        let function_ids = self.analysis.function_order.clone();
-        for function_id in function_ids {
-            let Some(propagated_signature) = propagated.get(&function_id) else {
-                continue;
-            };
-            let Some(current_signature) = self.function_signatures.get(&function_id).cloned()
-            else {
-                continue;
-            };
-
-            let merged_this = if propagated_signature.this_observed {
-                if current_signature.this_observed {
-                    self.merge_value_infos(
-                        current_signature.this_info.clone(),
-                        propagated_signature.this_info.clone(),
-                    )
-                } else {
-                    propagated_signature.this_info.clone()
-                }
-            } else {
-                current_signature.this_info.clone()
-            };
-            let (merged_return, merged_return_shape) =
-                self.merge_signature_return_observations(&current_signature, propagated_signature);
-            let merged_source_call_flow_effects =
-                current_signature.merged_source_call_flow_effects(propagated_signature);
-
-            if let Some(signature) = self.function_signatures.get_mut(&function_id) {
-                for (current_param, propagated_param) in signature
-                    .params
-                    .iter_mut()
-                    .zip(propagated_signature.params.iter())
-                {
-                    if current_param.is_rest {
-                        continue;
-                    }
-                    Self::merge_signature_param_signature(current_param, propagated_param);
-                }
-                if propagated_signature.this_observed {
-                    signature.this_info = merged_this;
-                    signature.this_observed = true;
-                }
-                signature.return_kind = merged_return.kind;
-                signature.return_possible_kinds = merged_return.possible_kinds;
-                signature.return_shape = merged_return_shape;
-                signature.return_targets = merged_return.function_targets;
-                signature.source_call_flow_effects = merged_source_call_flow_effects;
-            }
-        }
-    }
-
-    fn merge_exact_callback_observations(
-        &mut self,
-        observations: BTreeMap<ExactCallbackContextKey, FunctionSignature>,
-    ) {
-        for ((function_id, _context_id), propagated_signature) in observations {
-            self.merge_single_signature_observation(&function_id, propagated_signature);
-        }
-    }
-
-    fn merge_context_keyed_callback_observations(
-        &mut self,
-        observations: BTreeMap<ExactCallbackContextKey, FunctionSignature>,
-    ) {
-        for ((function_id, helper_context_id), propagated_signature) in observations {
-            self.merge_callback_observation_signature(
-                &function_id,
-                &helper_context_id,
-                propagated_signature,
-            );
-        }
-    }
-
-    fn merge_callback_observation_signature(
-        &mut self,
-        function_id: &FunctionId,
-        helper_context_id: &ExactHelperContextId,
-        propagated_signature: FunctionSignature,
-    ) {
-        let key = (function_id.clone(), helper_context_id.clone());
-        if !self.exact_context_callback_observations.contains_key(&key) {
-            self.exact_context_callback_observations
-                .insert(key, propagated_signature);
-            return;
-        }
-        let Some(current_signature) = self.exact_context_callback_observations.get(&key).cloned()
-        else {
-            return;
-        };
-        let merged_this = if propagated_signature.this_observed {
-            if current_signature.this_observed {
-                self.merge_value_infos(
-                    current_signature.this_info.clone(),
-                    propagated_signature.this_info.clone(),
-                )
-            } else {
-                propagated_signature.this_info.clone()
-            }
-        } else {
-            current_signature.this_info.clone()
-        };
-        let (merged_return, merged_return_shape) =
-            self.merge_signature_return_observations(&current_signature, &propagated_signature);
-        let merged_source_call_flow_effects =
-            current_signature.merged_source_call_flow_effects(&propagated_signature);
-        if let Some(signature) = self.exact_context_callback_observations.get_mut(&key) {
-            for (current_param, propagated_param) in signature
-                .params
-                .iter_mut()
-                .zip(propagated_signature.params.iter())
-            {
-                if current_param.is_rest {
-                    continue;
-                }
-                Self::merge_signature_param_signature(current_param, propagated_param);
-            }
-            if propagated_signature.this_observed {
-                signature.this_info = merged_this;
-                signature.this_observed = true;
-            }
-            signature.return_kind = merged_return.kind;
-            signature.return_possible_kinds = merged_return.possible_kinds;
-            signature.return_shape = merged_return_shape;
-            signature.return_targets = merged_return.function_targets;
-            signature.source_call_flow_effects = merged_source_call_flow_effects;
-        }
-    }
-
-    fn merge_single_signature_observation(
-        &mut self,
-        function_id: &FunctionId,
-        propagated_signature: FunctionSignature,
-    ) {
-        let Some(current_signature) = self.function_signatures.get(function_id).cloned() else {
-            return;
-        };
-
-        let merged_this = if propagated_signature.this_observed {
-            if current_signature.this_observed {
-                self.merge_value_infos(
-                    current_signature.this_info.clone(),
-                    propagated_signature.this_info.clone(),
-                )
-            } else {
-                propagated_signature.this_info.clone()
-            }
-        } else {
-            current_signature.this_info.clone()
-        };
-        let (merged_return, merged_return_shape) =
-            self.merge_signature_return_observations(&current_signature, &propagated_signature);
-        let merged_source_call_flow_effects =
-            current_signature.merged_source_call_flow_effects(&propagated_signature);
-
-        if let Some(signature) = self.function_signatures.get_mut(function_id) {
-            for (current_param, propagated_param) in signature
-                .params
-                .iter_mut()
-                .zip(propagated_signature.params.iter())
-            {
-                if current_param.is_rest {
-                    continue;
-                }
-                Self::merge_signature_param_signature(current_param, propagated_param);
-            }
-            if propagated_signature.this_observed {
-                signature.this_info = merged_this;
-                signature.this_observed = true;
-            }
-            signature.return_kind = merged_return.kind;
-            signature.return_possible_kinds = merged_return.possible_kinds;
-            signature.return_shape = merged_return_shape;
-            signature.return_targets = merged_return.function_targets;
-            signature.source_call_flow_effects = merged_source_call_flow_effects;
-        }
-    }
-
     fn script_global_bindings(
         &self,
         root_functions: &[PendingFunction<'a>],
@@ -3412,6 +2529,13 @@ impl<'a> ScriptLowerer<'a> {
         // the final declaration for a duplicated name.
         let mut restricted_functions = Vec::new();
         for function in root_functions {
+            if self
+                .analysis
+                .module_execution
+                .is_private_dispatcher_function(&function.id)
+            {
+                continue;
+            }
             if bindings.record_function(function.name.clone(), function.id.clone())
                 == GlobalFunctionDeclarationDispositionIr::RestrictedExistingProperty
             {
@@ -3452,41 +2576,90 @@ impl<'a> ScriptLowerer<'a> {
         root_functions: &[(String, FunctionId)],
         scope: LexicalScopeInstantiation,
     ) -> BlockIr {
+        let source_domain = self.async_generator_source_domain;
         let mut scope = scope;
         let mut lowered_items = Vec::new();
 
         self.prepare_annex_b_function_bindings();
         self.prepare_root_function_binding_ids(root_functions);
-        if self.root_functions_need_body_initialization() {
-            lowered_items.extend(
-                self.root_function_init_statements(root_functions)
-                    .into_iter()
-                    .map(|statement| {
-                        LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
-                    }),
-            );
+        lowered_items.extend(
+            self.root_function_init_statements(root_functions)
+                .into_iter()
+                .map(|statement| {
+                    LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                }),
+        );
+
+        // A canonical module's instantiation boundary belongs to the module
+        // lifecycle, before any evaluation resource lifetime begins.
+        let evaluation_start = items
+            .iter()
+            .position(|item| {
+                matches!(item, StatementListItem::Statement(statement)
+                if self.analysis.module_execution.boundaries.contains(
+                    &(std::ptr::from_ref(statement.as_ref()) as usize)
+                ))
+            })
+            .map_or(0, |index| index + 1);
+        let (instantiation, items) = items.split_at(evaluation_start);
+        for item in instantiation {
+            if let Some(item) = self.lower_statement_list_item_after_hoisting(
+                item,
+                &mut scope,
+                StatementListPlacement::Root,
+            ) {
+                lowered_items.push(item);
+            }
         }
 
-        for item in items {
-            match item {
-                _ if self.analysis.is_hoisted_default_export_initializer(item) => {}
-                StatementListItem::Declaration(declaration)
-                    if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_)) => {}
-                StatementListItem::Declaration(declaration)
-                    if self.is_registered_generator_declaration(declaration) => {}
-                StatementListItem::Declaration(declaration)
-                    if self.is_registered_async_function_declaration(declaration) => {}
-                StatementListItem::Declaration(declaration)
-                    if self.is_registered_async_generator_declaration(declaration) => {}
-                StatementListItem::Statement(statement)
-                    if matches!(
-                        statement.as_ref(),
-                        Statement::Labelled(labelled)
-                            if labelled_function_declaration(labelled).is_some()
-                    ) => {}
-                _ => {
-                    lowered_items.push(self.lower_statement_list_item(item, &mut scope));
+        if let Some(source) = self.complete_resource_scope_source(items) {
+            let mut prefix = lowered_items
+                .into_iter()
+                .map(|item| match item {
+                    LoweredStatementListItemIr::Statement { statement, .. } => statement,
+                    _ => unreachable!("function preambles contain no resource declarations"),
+                })
+                .collect::<Vec<_>>();
+            let mut statements = if evaluation_start == 0 {
+                Vec::new()
+            } else {
+                std::mem::take(&mut prefix)
+            };
+            let result = self.lower_async_generator_resource_items(
+                source,
+                &mut scope,
+                prefix,
+                StatementListPlacement::Root,
+            );
+            self.async_generator_source_domain = source_domain;
+            scope.finish(self);
+            return match result {
+                Some((statement, result_kind)) => {
+                    statements.push(statement);
+                    BlockIr {
+                        statements,
+                        result_kind,
+                        lexical_environment: None,
+                    }
                 }
+                None => {
+                    self.unsupported("resource scope differs from its checked registrations or continuation tape");
+                    statements.push(StatementIr::Empty);
+                    BlockIr {
+                        statements,
+                        result_kind: ValueKind::Undefined,
+                        lexical_environment: None,
+                    }
+                }
+            };
+        }
+        for item in items {
+            if let Some(item) = self.lower_statement_list_item_after_hoisting(
+                item,
+                &mut scope,
+                StatementListPlacement::Root,
+            ) {
+                lowered_items.push(item);
             }
         }
 
@@ -3494,6 +2667,7 @@ impl<'a> ScriptLowerer<'a> {
         // statement list joins the frame its caller established, so this pops
         // nothing here; it is written because the token — not the caller — is
         // what decides that.
+        self.async_generator_source_domain = source_domain;
         scope.finish(self);
 
         self.finish_disposable_scopes(lowered_items)
@@ -3509,6 +2683,7 @@ impl<'a> ScriptLowerer<'a> {
         items: &[StatementListItem],
         scope: LexicalScopeInstantiation,
     ) -> BlockIr {
+        let source_domain = self.async_generator_source_domain;
         let mut scope = scope;
         let mut lowered_items = Vec::new();
 
@@ -3520,44 +2695,82 @@ impl<'a> ScriptLowerer<'a> {
                 }),
         );
 
-        for item in items {
-            if let StatementListItem::Declaration(declaration) = item {
-                if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
-                    if let Some(copy) = self.lower_annex_b_function_copy(function) {
-                        lowered_items.push(LoweredStatementListItemIr::statement(
-                            copy,
-                            ValueKind::Undefined,
-                        ));
+        if let Some(source) = self.complete_resource_scope_source(items) {
+            let prefix = lowered_items
+                .into_iter()
+                .map(|item| match item {
+                    LoweredStatementListItemIr::Statement { statement, .. } => statement,
+                    _ => unreachable!("function preambles contain no resource declarations"),
+                })
+                .collect();
+            let result = self.lower_async_generator_resource_items(
+                source,
+                &mut scope,
+                prefix,
+                StatementListPlacement::Block,
+            );
+            self.async_generator_source_domain = source_domain;
+            scope.finish(self);
+            return match result {
+                Some((statement, result_kind)) => BlockIr {
+                    statements: vec![statement],
+                    result_kind,
+                    lexical_environment: None,
+                },
+                None => {
+                    self.unsupported("resource scope differs from its checked registrations or continuation tape");
+                    BlockIr {
+                        statements: vec![StatementIr::Empty],
+                        result_kind: ValueKind::Undefined,
+                        lexical_environment: None,
                     }
-                    continue;
                 }
-            }
-            if matches!(
+            };
+        }
+        for item in items {
+            if let Some(item) = self.lower_statement_list_item_after_hoisting(
                 item,
-                StatementListItem::Statement(statement)
-                    if matches!(
-                        statement.as_ref(),
-                        Statement::Labelled(labelled)
-                            if labelled_function_declaration(labelled).is_some()
-                    )
+                &mut scope,
+                StatementListPlacement::Block,
             ) {
-                continue;
+                lowered_items.push(item);
             }
-            lowered_items.push(self.lower_statement_list_item(item, &mut scope));
         }
 
         // 14.3.1.2's `env` ends with the statement list. The token pushed it and
         // the token pops it, so the sweep's scope and the lowering's scope are
         // the same frame by construction rather than by the caller remembering
         // to push before constructing.
+        self.async_generator_source_domain = source_domain;
         scope.finish(self);
 
         self.finish_disposable_scopes(lowered_items)
     }
 
+    fn complete_resource_scope_source<'source>(
+        &self,
+        items: &'source [StatementListItem],
+    ) -> Option<crate::async_generator_source::AsyncGeneratorResourceScopeSource<'source>> {
+        let execution = if self.async_generator_entry_state().is_some() {
+            ResumableRegionProtocolIr::AsyncGenerator
+        } else if self.plain_generator_entry_state().is_some() {
+            ResumableRegionProtocolIr::Generator
+        } else if self.plain_async_entry_state().is_some() {
+            ResumableRegionProtocolIr::Async
+        } else {
+            return None;
+        };
+        crate::async_generator_source::AsyncGeneratorResourceScopeSource::for_protocol(
+            items, execution,
+        )
+    }
+
     fn statement_list_ends_in_return(statements: &[StatementIr]) -> bool {
         match statements.last() {
             Some(StatementIr::Return(_)) => true,
+            Some(StatementIr::AsyncGeneratorResourceScope(plan)) => {
+                Self::statement_list_ends_in_return(&plan.body().block().statements)
+            }
             Some(StatementIr::Block(body)) => Self::statement_list_ends_in_return(&body.statements),
             Some(StatementIr::SyncDisposableScope { body, .. }) => {
                 Self::statement_list_ends_in_return(&body.statements)
@@ -3606,16 +2819,15 @@ impl<'a> ScriptLowerer<'a> {
                     continue;
                 }
             }
-            if matches!(
-                item,
-                StatementListItem::Statement(statement)
-                    if matches!(
-                        statement.as_ref(),
-                        Statement::Labelled(labelled)
-                            if labelled_function_declaration(labelled).is_some()
-                    )
-            ) {
-                continue;
+            if let StatementListItem::Statement(statement) = item {
+                if let Statement::Labelled(labelled) = statement.as_ref() {
+                    if let Some(function) = labelled_function_declaration(labelled) {
+                        if let Some(copy) = self.lower_annex_b_function_copy(function) {
+                            statements.push(copy);
+                        }
+                        continue;
+                    }
+                }
             }
             match self.lower_statement_list_item(item, scope) {
                 LoweredStatementListItemIr::Statement {
@@ -3670,28 +2882,37 @@ impl<'a> ScriptLowerer<'a> {
     fn prepare_root_function_binding_ids(&mut self, root_functions: &[(String, FunctionId)]) {
         self.visible_function_names.clear();
         for (name, function_id) in root_functions {
+            let is_private_dispatcher = self
+                .analysis
+                .module_execution
+                .is_private_dispatcher_function(function_id);
             let bare_function_info = self.function_value_info(function_id);
-            let function_info =
-                if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
-                    self.lookup_global_property(name)
-                        .filter(|info| {
-                            info.kind == ValueKind::Function
-                                && info.function_targets.exact_single_target() == Some(function_id)
-                        })
-                        .unwrap_or(bare_function_info)
-                } else {
-                    bare_function_info
-                };
+            let function_info = if self.current_owner_id == SCRIPT_OWNER_ID
+                && self.script_variables_are_global()
+                && !is_private_dispatcher
+            {
+                self.lookup_global_property(name)
+                    .filter(|info| {
+                        info.kind == ValueKind::Function
+                            && info.function_targets.exact_single_target() == Some(function_id)
+                    })
+                    .unwrap_or(bare_function_info)
+            } else {
+                bare_function_info
+            };
             self.visible_function_names
                 .insert(name.clone(), function_id.clone());
-            if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
+            if self.current_owner_id == SCRIPT_OWNER_ID
+                && self.script_variables_are_global()
+                && !is_private_dispatcher
+            {
                 self.set_global_property_value_info_with_source(
                     name.clone(),
                     function_info.clone(),
                     GlobalPropertySource::GlobalWrite,
                 );
             }
-            if self.root_functions_need_body_initialization() {
+            if self.root_functions_need_body_initialization() || is_private_dispatcher {
                 self.declare_binding(
                     name.clone(),
                     BindingInfo {
@@ -3714,6 +2935,13 @@ impl<'a> ScriptLowerer<'a> {
     ) -> Vec<StatementIr> {
         root_functions
             .iter()
+            .filter(|(_, function_id)| {
+                self.root_functions_need_body_initialization()
+                    || self
+                        .analysis
+                        .module_execution
+                        .is_private_dispatcher_function(function_id)
+            })
             .map(|(name, function_id)| StatementIr::Lexical {
                 mode: BindingMode::Let,
                 name: name.clone(),
@@ -3752,12 +2980,65 @@ impl<'a> ScriptLowerer<'a> {
             .contains_key(&async_generator_declaration_key(function))
     }
 
+    fn lower_statement_list_item_after_hoisting(
+        &mut self,
+        item: &StatementListItem,
+        scope: &mut LexicalScopeInstantiation,
+        placement: StatementListPlacement,
+    ) -> Option<LoweredStatementListItemIr> {
+        if let StatementListItem::Statement(statement) = item {
+            if let Statement::Labelled(labelled) = statement.as_ref() {
+                if let Some(function) = labelled_function_declaration(labelled) {
+                    // A labelled function is hoisted like a direct one, and its
+                    // Annex B copy runs where the declaration is evaluated.
+                    return match placement {
+                        StatementListPlacement::Block => {
+                            self.lower_annex_b_function_copy(function).map(|statement| {
+                                LoweredStatementListItemIr::statement(
+                                    statement,
+                                    ValueKind::Undefined,
+                                )
+                            })
+                        }
+                        StatementListPlacement::Root => None,
+                    };
+                }
+            }
+        }
+        match placement {
+            StatementListPlacement::Root => {
+                if self.analysis.is_hoisted_default_export_initializer(item) {
+                    return None;
+                }
+                if let StatementListItem::Declaration(declaration) = item {
+                    if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_))
+                        || self.is_registered_generator_declaration(declaration)
+                        || self.is_registered_async_function_declaration(declaration)
+                        || self.is_registered_async_generator_declaration(declaration)
+                    {
+                        return None;
+                    }
+                }
+            }
+            StatementListPlacement::Block => {
+                if let StatementListItem::Declaration(declaration) = item {
+                    if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
+                        return self.lower_annex_b_function_copy(function).map(|statement| {
+                            LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                        });
+                    }
+                }
+            }
+        }
+        Some(self.lower_statement_list_item(item, scope))
+    }
+
     fn lower_statement_list_item(
         &mut self,
         item: &StatementListItem,
         scope: &mut LexicalScopeInstantiation,
     ) -> LoweredStatementListItemIr {
-        match item {
+        let lowered = match item {
             StatementListItem::Statement(statement) => {
                 let (statement, result_kind) = self.lower_statement(statement);
                 LoweredStatementListItemIr::statement(statement, result_kind)
@@ -3789,11 +3070,37 @@ impl<'a> ScriptLowerer<'a> {
                         LoweredStatementListItemIr::AsyncDisposableScope,
                     ),
                 _ => {
-                    let (statement, result_kind) = self.lower_declaration(declaration, scope);
+                    let (mut statement, result_kind) = self.lower_declaration(declaration, scope);
+                    if self.ordinary_generator_switch_depth > 0
+                        || self.ordinary_generator_region_depth > 0
+                        || self.ordinary_generator_for_in_depth > 0
+                        || self.plain_async_for_in_depth > 0
+                        || self.plain_async_for_of_depth > 0
+                        || self.plain_async_classic_depth > 0
+                        || self.plain_async_resource_depth > 0
+                        || self.mixed_async_generator_region_depth > 0
+                    {
+                        let source =
+                            CheckedEmptyStatementCompletionSource::from_declaration(declaration);
+                        statement = StatementIr::EmptyStatementCompletion(Box::new(
+                            EmptyStatementCompletionIr::new(source, statement),
+                        ));
+                    }
                     LoweredStatementListItemIr::statement(statement, result_kind)
                 }
             },
+        };
+        if self.current_resumable_plan.is_some()
+            && matches!(
+                &lowered,
+                LoweredStatementListItemIr::SyncDisposableScope { .. }
+                    | LoweredStatementListItemIr::AsyncDisposableScope(_)
+            )
+        {
+            self.async_generator_source_domain =
+                crate::async_generator_source::AsyncGeneratorSourceDomain::ForeignIteratorBody;
         }
+        lowered
     }
 
     fn lower_block(&mut self, block: &Block) -> BlockIr {
@@ -3861,51 +3168,6 @@ impl<'a> ScriptLowerer<'a> {
             })
     }
 
-    fn lower_for_lexical_environment(
-        &self,
-        for_loop: &ForLoop,
-        init: Option<&ForInitIr>,
-    ) -> Option<ForLexicalEnvironmentIr> {
-        let environment_id = self
-            .analysis
-            .for_lexical_environment_ids
-            .get(&(for_loop as *const ForLoop as usize))
-            .copied()?;
-        let environment = self.analysis.materialized_environment(environment_id)?;
-        if !self.analysis.environment_has_runtime_storage(environment) {
-            return None;
-        }
-        let per_iteration_names = match init {
-            Some(ForInitIr::Lexical {
-                mode: BindingMode::Let,
-                name,
-                ..
-            }) => BTreeSet::from([name.clone()]),
-            Some(ForInitIr::LexicalBlock(bindings)) => bindings
-                .iter()
-                .filter(|binding| binding.mode == BindingMode::Let)
-                .map(|binding| binding.name.clone())
-                .collect(),
-            _ => BTreeSet::new(),
-        };
-        Some(ForLexicalEnvironmentIr {
-            eval_environment: environment.eval_environment.clone(),
-            bindings: environment
-                .owned_env_slots
-                .iter()
-                .map(|(name, slot)| OwnedEnvBindingIr {
-                    name: name.clone(),
-                    slot: *slot,
-                })
-                .collect(),
-            per_iteration_slots: environment
-                .owned_env_slots
-                .iter()
-                .filter_map(|(name, slot)| per_iteration_names.contains(name).then_some(*slot))
-                .collect(),
-        })
-    }
-
     fn lower_for_in_of_environment(&self, loop_key: usize) -> Option<ForInOfEnvironmentIr> {
         let tdz_environment_id = self
             .analysis
@@ -3931,6 +3193,44 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_throw(&mut self, throw: &AstThrow) -> (StatementIr, ValueKind) {
+        if self.async_generator_entry_state().is_some() {
+            let Some((mut statements, value)) = self.lower_mixed_generator_value(throw.target())
+            else {
+                self.unsupported(
+                    "async-generator Throw operand requires a complete value continuation",
+                );
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            statements.push(StatementIr::Throw(value));
+            return (StatementIr::LexicalBlock(statements), ValueKind::Undefined);
+        }
+        if self.plain_generator_entry_state().is_some()
+            && contains(throw.target(), ContainsSymbol::YieldExpression)
+        {
+            let Some((mut statements, value)) =
+                self.lower_staged_generator_expression(throw.target())
+            else {
+                self.unsupported("generator Throw operand requires a complete value continuation");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            // Throw consumes GetValue only after the entire operand has
+            // completed normally. Injected Return/Throw uses the original
+            // suspension and pending-completion owners before this statement.
+            statements.push(StatementIr::Throw(value));
+            return (StatementIr::LexicalBlock(statements), ValueKind::Undefined);
+        }
+        if self.plain_async_entry_state().is_some()
+            && contains(throw.target(), ContainsSymbol::AwaitExpression)
+        {
+            let Some((mut statements, value)) =
+                self.lower_async_prefixed_expression(throw.target())
+            else {
+                self.unsupported("async Throw operand requires a complete value continuation");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            statements.push(StatementIr::Throw(value));
+            return (StatementIr::LexicalBlock(statements), ValueKind::Undefined);
+        }
         let value = self.lower_expression(throw.target());
         (StatementIr::Throw(value), ValueKind::Undefined)
     }
@@ -3961,45 +3261,6 @@ impl<'a> ScriptLowerer<'a> {
     // prefix is a name domain, not a lifecycle state, and no site decides
     // whether to throw by testing it any more. The name-domain question that
     // does survive is `TdzPlaceholderName::names_a_placeholder`.
-
-    fn for_in_global_target(&self, target: &Expression) -> bool {
-        match target {
-            Expression::This(_) => matches!(
-                &self.current_this_binding,
-                CurrentThisBinding::Root(RootThisBinding::GlobalObject)
-            ),
-            Expression::Identifier(identifier) => {
-                self.interner.resolve_expect(identifier.sym()).to_string() == GLOBAL_THIS_NAME
-            }
-            Expression::Parenthesized(parenthesized) => {
-                self.for_in_global_target(parenthesized.expression())
-            }
-            _ => false,
-        }
-    }
-
-    fn single_statement<'b>(&self, statement: &'b Statement) -> &'b Statement {
-        match statement {
-            Statement::Block(block) => {
-                let statements = block.statement_list().statements();
-                if statements.len() == 1 {
-                    if let StatementListItem::Statement(statement) = &statements[0] {
-                        return self.single_statement(statement);
-                    }
-                }
-                statement
-            }
-            _ => statement,
-        }
-    }
-
-    fn expr_is_identifier_named(&self, expr: &Expression, name: &str) -> bool {
-        matches!(
-            Self::unwrap_parenthesized_expr(expr),
-            Expression::Identifier(identifier)
-                if self.interner.resolve_expect(identifier.sym()).to_string() == name
-        )
-    }
 
     fn static_string_expression(&self, expr: &Expression) -> Option<String> {
         let Expression::Literal(literal) = Self::unwrap_parenthesized_expr(expr) else {
@@ -4084,19 +3345,16 @@ impl<'a> ScriptLowerer<'a> {
     /// single-level awaits, which refused every other shape — `const x =
     /// f(await p)`, `const x = obj[await k]`, `const x = \`${await p}\`` — even
     /// though the prefix handles them the same way. The only real requirement
-    /// is that the initializer is evaluated once and reaches its awaits on
-    /// every path.
+    /// is that the initializer is evaluated once and every suspension is owned
+    /// by its unconditional prefix or a plain async conditional branch.
     fn async_initializer_is_stageable(&self, expression: &Expression) -> bool {
-        self.current_async_resume_state.is_some()
-            && contains(expression, ContainsSymbol::AwaitExpression)
-            && !contains(expression, ContainsSymbol::YieldExpression)
-            && !self.has_branch_sensitive_await(expression)
+        CheckedAsyncPrefixSource::new(expression, self).is_some()
     }
 
     /// True when an `await` inside `expression` is reached only on some paths,
-    /// so it cannot be hoisted into the unconditional statement prefix.
+    /// without a branch owner available in the current continuation context.
     ///
-    /// The walk itself lives in `await_is_conditionally_reached`, which
+    /// The walk itself lives in `await_requires_branch_owner`, which
     /// recurses through every operand position instead of only the
     /// unary/binary spine this used to check: `f(cond && await p)` hides the
     /// short-circuit under a call argument, and treating that as unconditional
@@ -4111,14 +3369,23 @@ impl<'a> ScriptLowerer<'a> {
             return false;
         }
         if let Expression::Optional(optional) = Self::unwrap_parenthesized_expr(expression) {
-            return contains(optional.target(), ContainsSymbol::AwaitExpression)
-                || !optional
+            if !contains(optional.target(), ContainsSymbol::AwaitExpression)
+                && optional
                     .chain()
                     .first()
                     .is_some_and(|operation| operation.shorted())
-                || !self.is_statically_nullish_optional_target(optional.target());
+                && self.is_statically_nullish_optional_target(optional.target())
+            {
+                return false;
+            }
         }
-        await_is_conditionally_reached(expression)
+        let owner = if self.has_plain_async_value_branch_owner() {
+            AwaitBranchOwner::PlainAsyncBranch
+        } else {
+            AwaitBranchOwner::UnconditionalPrefix
+        };
+        await_requires_branch_owner(expression, owner)
+            || !async_expression_prefix::awaited_reference_operands_are_owned(expression, self)
     }
 
     /// Lower `expression` into a statement prefix plus the value left over
@@ -4134,8 +3401,11 @@ impl<'a> ScriptLowerer<'a> {
     ///
     /// Returns `None` when there is nothing to stage, when the suspension is a
     /// `yield` (the generator staging path owns those), or when an `await`
-    /// sits behind a branch, where the unconditional prefix would run it on a
-    /// path the program never takes.
+    /// sits behind a branch without an admitted continuation owner. Plain async
+    /// conditional, logical and bounded optional Property/Call values retain their
+    /// branch prefixes inside the existing If dispatcher. The checked while
+    /// condition scope can restart it; other Reference, loop-head/body and
+    /// generator branches retain their admission boundary.
     ///
     /// The previous prefix is saved and restored rather than cleared, so a
     /// nested statement that stages its own head cannot swallow the prefix an
@@ -4144,18 +3414,7 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         expression: &Expression,
     ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        if self.current_async_resume_state.is_none()
-            || !contains(expression, ContainsSymbol::AwaitExpression)
-            || contains(expression, ContainsSymbol::YieldExpression)
-            || self.has_branch_sensitive_await(expression)
-        {
-            return None;
-        }
-        let saved = self.async_expression_prefix.replace(Vec::new());
-        let value = self.lower_expression(expression);
-        let statements = std::mem::replace(&mut self.async_expression_prefix, saved)
-            .expect("async expression lowering must retain its statement prefix");
-        Some((statements, value))
+        CheckedAsyncPrefixSource::new(expression, self).map(|source| source.lower(self))
     }
 
     /// True when `head` suspends, `rest` does not, and the suspension can be
@@ -4170,10 +3429,7 @@ impl<'a> ScriptLowerer<'a> {
         head: &Expression,
         rest: [Option<&'b Statement>; N],
     ) -> bool {
-        self.current_async_resume_state.is_some()
-            && contains(head, ContainsSymbol::AwaitExpression)
-            && !contains(head, ContainsSymbol::YieldExpression)
-            && !self.has_branch_sensitive_await(head)
+        CheckedAsyncPrefixSource::new(head, self).is_some()
             && rest
                 .into_iter()
                 .flatten()
@@ -4191,17 +3447,14 @@ impl<'a> ScriptLowerer<'a> {
     /// body would be hoisted out of the loop or branch that guards it.
     fn lower_with_async_head_prefix(
         &mut self,
+        source: &Expression,
         lower: impl FnOnce(&mut Self) -> (StatementIr, ValueKind),
     ) -> (StatementIr, ValueKind) {
-        let saved = self.async_expression_prefix.replace(Vec::new());
-        let (statement, kind) = lower(self);
-        let mut statements = std::mem::replace(&mut self.async_expression_prefix, saved)
-            .expect("async head lowering must retain its statement prefix");
-        if statements.is_empty() {
-            return (statement, kind);
-        }
-        statements.push(statement);
-        (StatementIr::LexicalBlock(statements), kind)
+        let Some(source) = CheckedAsyncPrefixSource::new(source, self) else {
+            self.unsupported("conditionally reached or mixed suspension in async statement head");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        };
+        source.lower_head(self, lower)
     }
 
     /// Materialize `value` into the async prefix when a later operand of the
@@ -4225,6 +3478,7 @@ impl<'a> ScriptLowerer<'a> {
             value.expr,
             ExprIr::Number(_)
                 | ExprIr::String(_)
+                | ExprIr::WellKnownSymbol(_)
                 | ExprIr::Boolean(_)
                 | ExprIr::BigInt(_)
                 | ExprIr::Null
@@ -4269,36 +3523,12 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn is_known_non_enumerable_global(&self, name: &str) -> bool {
-        matches!(
-            name,
-            PARSE_INT_NAME | PARSE_FLOAT_NAME | "Infinity" | "NaN" | "undefined"
-        ) && self.lookup_global_property_info(name).is_some_and(|info| {
-            info.proven_present
-                && matches!(
-                    info.source,
-                    GlobalPropertySource::HostBuiltin | GlobalPropertySource::Builtin
-                )
-        })
-    }
-
-    fn is_known_non_enumerable_builtin_property(&self, target: &str, property: &str) -> bool {
-        matches!(
-            (target, property),
-            (NUMBER_NAME, "MAX_VALUE" | "MIN_VALUE") | (BOOLEAN_NAME, "prototype")
-        )
-    }
-
     fn is_number_prototype_property_expr(&self, expr: &Expression, property: &str) -> bool {
         self.is_constructor_prototype_property_expr(expr, NUMBER_NAME, property)
     }
 
     fn is_boolean_prototype_property_expr(&self, expr: &Expression, property: &str) -> bool {
         self.is_constructor_prototype_property_expr(expr, BOOLEAN_NAME, property)
-    }
-
-    fn is_string_prototype_property_expr(&self, expr: &Expression, property: &str) -> bool {
-        self.is_constructor_prototype_property_expr(expr, STRING_NAME, property)
     }
 
     fn is_object_prototype_property_expr(&self, expr: &Expression, property: &str) -> bool {
@@ -4371,6 +3601,9 @@ impl<'a> ScriptLowerer<'a> {
         if self.lookup_binding(name).is_some() {
             return false;
         }
+        if !self.identifier_resolves_to_intrinsic_global(name) {
+            return false;
+        }
         let Some(builtin) = StandardBuiltinId::all_globals()
             .iter()
             .copied()
@@ -4421,6 +3654,17 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         }
         self.current_async_resume_state
+    }
+
+    fn async_generator_entry_state(&self) -> Option<u32> {
+        if self.current_resumable_plan.is_some()
+            && self.async_generator_source_domain
+                == crate::async_generator_source::AsyncGeneratorSourceDomain::FunctionBody
+        {
+            self.current_generator_resume_state
+        } else {
+            None
+        }
     }
 
     fn split_resumable_loop_body(
@@ -4599,7 +3843,6 @@ impl<'a> ScriptLowerer<'a> {
                 .init()
                 .expect("using initializers were validated before lowering");
             let init = self.lower_expression(initializer);
-            self.static_iterator_binding_values.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
             let initialized = InitializedBinding::without_creation(
@@ -4652,7 +3895,25 @@ impl<'a> ScriptLowerer<'a> {
                         self.unsupported("destructuring binding without initializer");
                         return None;
                     };
-                    let mut bindings = self.lower_pattern_lexical_binding(mode, pattern, init)?;
+                    let storage_names = supported_bound_names(self.interner, variable.binding())?
+                        .into_iter()
+                        .map(|bound| {
+                            let storage =
+                                scoped_lexical_binding_storage_name(&bound.source_name, bound.span);
+                            (bound.source_name, storage)
+                        })
+                        .collect::<BTreeMap<_, _>>();
+                    let (mut prefix, value) = self
+                        .stage_await_destructuring_initializer(init)
+                        .unwrap_or_else(|| (Vec::new(), self.lower_expression(init)));
+                    statements.append(&mut prefix);
+                    let mut bindings = self
+                        .lower_pattern_lexical_binding_from_value_with_storage_names(
+                            mode,
+                            pattern,
+                            value,
+                            Some(&storage_names),
+                        )?;
                     statements.append(&mut bindings);
                 }
             }
@@ -4677,9 +3938,6 @@ impl<'a> ScriptLowerer<'a> {
         {
             self.array_prototype_mutated = true;
         }
-        let static_iterator_values = variable
-            .init()
-            .and_then(|expression| self.static_object_iterator_literal_values(expression));
         let static_to_string_regexp_object = variable
             .init()
             .is_some_and(|expression| self.static_to_string_returns_regexp_object_expr(expression));
@@ -4693,12 +3951,6 @@ impl<'a> ScriptLowerer<'a> {
             .init()
             .map(|expression| self.lower_expression(expression))
             .unwrap_or_else(TypedExpr::undefined);
-        if let Some(values) = static_iterator_values {
-            self.static_iterator_binding_values
-                .insert(name.clone(), values);
-        } else {
-            self.static_iterator_binding_values.remove(&name);
-        }
         if static_to_string_regexp_object {
             self.static_to_string_regexp_object_bindings
                 .insert(name.clone());
@@ -4736,318 +3988,6 @@ impl<'a> ScriptLowerer<'a> {
             name: storage_name,
             init,
         })
-    }
-
-    fn lower_var_statement(&mut self, declaration: &VarDeclaration) -> (StatementIr, ValueKind) {
-        let mut statements = Vec::new();
-        let mut declarators = Vec::new();
-
-        for variable in declaration.0.as_ref() {
-            match variable.binding() {
-                Binding::Identifier(identifier)
-                    if self.current_async_resume_state.is_some()
-                        && matches!(variable.init(), Some(Expression::Await(_))) =>
-                {
-                    if !declarators.is_empty() {
-                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
-                    }
-                    let Some(Expression::Await(await_expression)) = variable.init() else {
-                        unreachable!()
-                    };
-                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    let awaited_value = self.lower_expression(await_expression.target());
-                    self.static_generator_call_overrides.remove(&name);
-                    self.static_iterator_binding_values.remove(&name);
-                    self.static_boolean_bindings.remove(&name);
-                    self.static_to_string_regexp_object_bindings.remove(&name);
-                    self.set_binding_value_info(
-                        &name,
-                        ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: FunctionTargetKnowledge::unknown(),
-                        },
-                    );
-                    statements.push(StatementIr::Var(vec![VarDeclaratorIr {
-                        name: name.clone(),
-                        init: None,
-                    }]));
-                    let (await_statement, _) = self.lower_linear_async_await_value(
-                        awaited_value,
-                        AsyncResumeModeIr::AssignIdentifier(name),
-                    );
-                    statements.push(await_statement);
-                }
-                Binding::Identifier(identifier)
-                    if variable
-                        .init()
-                        .is_some_and(|init| self.async_initializer_is_stageable(init)) =>
-                {
-                    if !declarators.is_empty() {
-                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
-                    }
-                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    statements.push(StatementIr::Var(vec![VarDeclaratorIr {
-                        name: name.clone(),
-                        init: None,
-                    }]));
-                    let (prefix, value) = self
-                        .lower_async_prefixed_expression(
-                            variable
-                                .init()
-                                .expect("guarded async var initializer must exist"),
-                        )
-                        .expect("stageable async var initializer must stage");
-                    statements.extend(prefix);
-                    self.static_generator_call_overrides.remove(&name);
-                    self.static_iterator_binding_values.remove(&name);
-                    self.static_boolean_bindings.remove(&name);
-                    self.static_to_string_regexp_object_bindings.remove(&name);
-                    self.set_binding_value_info(&name, value.value_info());
-                    statements.push(StatementIr::DeclarationEvaluation(
-                        self.lower_identifier_assign_value(name, value),
-                    ));
-                }
-                Binding::Identifier(_)
-                    if self.current_async_resume_state.is_some()
-                        && variable
-                            .init()
-                            .is_some_and(|init| self.has_branch_sensitive_await(init)) =>
-                {
-                    self.unsupported("async var initializer branch-sensitive await expression");
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                }
-                Binding::Identifier(identifier)
-                    if self.current_generator_resume_state.is_some()
-                        && matches!(variable.init(), Some(Expression::Yield(_))) =>
-                {
-                    if !declarators.is_empty() {
-                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
-                    }
-                    let Some(Expression::Yield(yield_expression)) = variable.init() else {
-                        unreachable!()
-                    };
-                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    self.set_binding_value_info(
-                        &name,
-                        ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: FunctionTargetKnowledge::unknown(),
-                        },
-                    );
-                    statements.push(StatementIr::Var(vec![VarDeclaratorIr {
-                        name: name.clone(),
-                        init: None,
-                    }]));
-                    let (yield_statement, _) = self.lower_linear_generator_yield(
-                        yield_expression.target(),
-                        yield_expression.delegate(),
-                        GeneratorResumeModeIr::AssignIdentifier(name),
-                    );
-                    statements.push(yield_statement);
-                }
-                Binding::Identifier(identifier)
-                    if !self.with_environment_chain.is_empty() && variable.init().is_some() =>
-                {
-                    if !declarators.is_empty() {
-                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
-                    }
-                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    if !self.borrows_direct_eval_variable_environment() {
-                        statements
-                            .push(StatementIr::Var(vec![VarDeclaratorIr { name, init: None }]));
-                    }
-                    // VariableDeclaration resolves its reference before evaluating
-                    // the initializer, just as an identifier assignment does.
-                    let initializer = self.lower_assign(
-                        AssignOp::Assign,
-                        &AssignTarget::Identifier(*identifier),
-                        variable.init().expect("guarded var initializer must exist"),
-                    );
-                    statements.push(StatementIr::DeclarationEvaluation(initializer));
-                }
-                Binding::Identifier(_) => {
-                    if let Some(declarator) = self.lower_var_declarator(variable) {
-                        if self.borrows_direct_eval_variable_environment() {
-                            if let Some(value) = declarator.init {
-                                statements.push(StatementIr::DeclarationEvaluation(
-                                    self.environment_identifier(
-                                        declarator.name,
-                                        EnvironmentIdentifierOperationIr::Assign {
-                                            value: Box::new(value),
-                                        },
-                                    ),
-                                ));
-                            }
-                        } else {
-                            declarators.push(declarator);
-                        }
-                    }
-                }
-                Binding::Pattern(pattern) => {
-                    if !declarators.is_empty() {
-                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
-                    }
-                    if let Some(bindings) = self.lower_pattern_var_binding(pattern, variable.init())
-                    {
-                        statements.push(StatementIr::LexicalBlock(bindings));
-                    }
-                }
-            }
-        }
-
-        if !declarators.is_empty() {
-            statements.push(StatementIr::Var(declarators));
-        }
-
-        let statement = if statements.len() == 1 {
-            statements.remove(0)
-        } else {
-            StatementIr::LexicalBlock(statements)
-        };
-        (statement, ValueKind::Undefined)
-    }
-
-    fn lower_var_init(&mut self, declaration: &VarDeclaration) -> Option<ForInitIr> {
-        // Borrowed eval variables, patterns and with-environment references
-        // need declaration lowering: VarDeclaratorIr only writes owned storage.
-        // Hoisting still belongs to the enclosing variable environment.
-        if self.borrows_direct_eval_variable_environment()
-            || !self.with_environment_chain.is_empty()
-            || declaration
-                .0
-                .as_ref()
-                .iter()
-                .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
-        {
-            let (statement, _) = self.lower_var_statement(declaration);
-            return Some(ForInitIr::Statements(vec![statement]));
-        }
-        Some(ForInitIr::Var(self.lower_var_declarators(declaration)))
-    }
-
-    fn lower_var_declarators(&mut self, declaration: &VarDeclaration) -> Vec<VarDeclaratorIr> {
-        let mut declarators = Vec::with_capacity(declaration.0.as_ref().len());
-        for variable in declaration.0.as_ref() {
-            if let Some(declarator) = self.lower_var_declarator(variable) {
-                declarators.push(declarator);
-            }
-        }
-        declarators
-    }
-
-    fn lower_var_declarator(&mut self, variable: &Variable) -> Option<VarDeclaratorIr> {
-        let Binding::Identifier(identifier) = variable.binding() else {
-            self.unsupported("destructuring var declaration");
-            return None;
-        };
-
-        let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        if variable
-            .init()
-            .is_some_and(|expression| self.is_constructor_prototype_expr(expression, ARRAY_NAME))
-        {
-            self.array_prototype_mutated = true;
-        }
-        let static_iterator_values = variable
-            .init()
-            .and_then(|expression| self.static_object_iterator_literal_values(expression));
-        let static_to_string_regexp_object = variable
-            .init()
-            .is_some_and(|expression| self.static_to_string_returns_regexp_object_expr(expression));
-        let static_string_value = variable
-            .init()
-            .and_then(|expression| self.static_string_expression(expression));
-        let source_candidate = variable
-            .init()
-            .map(|expression| self.function_source_value_candidates(expression));
-        let init = if let Some(Expression::GeneratorExpression(generator)) = variable.init() {
-            if generator_function_is_aot_supported(generator.body(), generator.parameters()) {
-                self.static_generator_call_overrides.remove(&name);
-                self.static_iterator_binding_values.remove(&name);
-                Some(self.lower_generator_expression(generator))
-            } else if generator.parameters().length() == 0 {
-                let iterator = self.lower_generator_iife_as_array(generator);
-                self.static_generator_call_overrides
-                    .insert(name.clone(), iterator);
-                self.static_iterator_binding_values.remove(&name);
-                Some(TypedExpr::undefined())
-            } else {
-                self.static_generator_call_overrides.remove(&name);
-                self.static_iterator_binding_values.remove(&name);
-                Some(self.lower_generator_expression(generator))
-            }
-        } else {
-            self.static_generator_call_overrides.remove(&name);
-            if let Some(values) = static_iterator_values.clone() {
-                self.static_iterator_binding_values
-                    .insert(name.clone(), values);
-            } else {
-                self.static_iterator_binding_values.remove(&name);
-            }
-            variable
-                .init()
-                .map(|expression| self.lower_expression(expression))
-        };
-        if let Some(expression) = variable.init() {
-            if let Some(value) = self.static_boolean_receiver_value(expression) {
-                self.static_boolean_bindings.insert(name.clone(), value);
-            } else {
-                self.static_boolean_bindings.remove(&name);
-            }
-            if static_to_string_regexp_object {
-                self.static_to_string_regexp_object_bindings
-                    .insert(name.clone());
-            } else {
-                self.static_to_string_regexp_object_bindings.remove(&name);
-            }
-        } else {
-            self.static_boolean_bindings.remove(&name);
-            self.static_to_string_regexp_object_bindings.remove(&name);
-        }
-        let static_boolean_value = self.static_boolean_bindings.get(&name).copied();
-        let static_to_string_regexp_object =
-            self.static_to_string_regexp_object_bindings.contains(&name);
-        let static_generator_call = self.static_generator_call_overrides.get(&name).cloned();
-        let static_iterator_values = self.static_iterator_binding_values.get(&name).cloned();
-        if let Some(init) = &init {
-            self.set_binding_value_info(&name, init.value_info());
-            let binding = self.lookup_binding(&name).unwrap_or_else(|| {
-                panic!(
-                    "var initializer target `{name}` must remain declared while installing facts"
-                )
-            });
-            if let Some(value) = static_boolean_value {
-                self.static_boolean_bindings.insert(name.clone(), value);
-            }
-            if let Some(candidate) = source_candidate {
-                self.function_source_binding_candidates
-                    .insert(binding.storage_name.clone(), candidate);
-            }
-            if let Some(value) = static_string_value {
-                self.static_string_bindings.insert(&binding, value);
-            } else {
-                self.static_string_bindings.remove(&binding);
-            }
-            if static_to_string_regexp_object {
-                self.static_to_string_regexp_object_bindings
-                    .insert(name.clone());
-            }
-            if let Some(call) = static_generator_call {
-                self.static_generator_call_overrides
-                    .insert(name.clone(), call);
-            }
-            if let Some(values) = static_iterator_values {
-                self.static_iterator_binding_values
-                    .insert(name.clone(), values);
-            }
-        } else if let Some(binding) = self.lookup_binding(&name) {
-            self.static_string_bindings.remove(&binding);
-        }
-        Some(VarDeclaratorIr { name, init })
     }
 
     fn lower_function_parameters<'b>(
@@ -5283,6 +4223,21 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         }
 
+        let sequential = match expected_kind {
+            ResumableSuspensionKindIr::Await | ResumableSuspensionKindIr::Yield => true,
+            ResumableSuspensionKindIr::ForAwaitNext | ResumableSuspensionKindIr::ForAwaitClose => {
+                false
+            }
+        };
+        if sequential
+            && self.async_generator_entry_state().is_some()
+            && (self.current_generator_resume_state != Some(suspension.suspend_state)
+                || self.current_async_resume_state != Some(suspension.suspend_state))
+        {
+            self.unsupported("async-generator suspension must consume its exact source state");
+            return None;
+        }
+
         self.next_resumable_suspension_index += 1;
         self.current_generator_resume_state = Some(suspension.resume_state);
         self.current_async_resume_state = Some(suspension.resume_state);
@@ -5295,10 +4250,29 @@ impl<'a> ScriptLowerer<'a> {
         delegate: bool,
         resume_mode: GeneratorResumeModeIr,
     ) -> (StatementIr, ValueKind) {
-        let value = target
-            .map(|expression| self.lower_expression(expression))
-            .unwrap_or_else(TypedExpr::undefined);
-        self.lower_linear_generator_yield_value(value, delegate, resume_mode)
+        let (mut statements, value) = match target {
+            Some(target) if contains(target, ContainsSymbol::YieldExpression) => {
+                if contains(target, ContainsSymbol::AwaitExpression) {
+                    self.unsupported("mixed await/yield in a generator yield operand");
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                }
+                let Some(staged) = self.lower_staged_generator_expression(target) else {
+                    self.unsupported("generator yield operand suspension");
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
+                staged
+            }
+            Some(target) => (Vec::new(), self.lower_expression(target)),
+            None => (Vec::new(), TypedExpr::undefined()),
+        };
+        let (yield_statement, kind) =
+            self.lower_linear_generator_yield_value(value, delegate, resume_mode);
+        if statements.is_empty() {
+            (yield_statement, kind)
+        } else {
+            statements.push(yield_statement);
+            (StatementIr::LexicalBlock(statements), kind)
+        }
     }
 
     fn lower_linear_generator_yield_value(
@@ -5344,93 +4318,45 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_staged_async_generator_return_expression(
+    fn lower_staged_generator_expression(
         &mut self,
         expression: &Expression,
     ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        match expression {
-            Expression::Parenthesized(parenthesized) => {
-                self.lower_staged_async_generator_return_expression(parenthesized.expression())
-            }
-            Expression::Await(await_expression) => {
-                let (mut statements, value) =
-                    self.lower_staged_async_generator_return_expression(await_expression.target())?;
-                let result_name = self.alloc_suspension_owned_binding(
-                    "async.generator.return.await.",
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                );
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: result_name.clone(),
-                    init: TypedExpr::undefined(),
-                });
-                let (await_statement, _) = self.lower_linear_async_await_value(
-                    value,
-                    AsyncResumeModeIr::AssignIdentifier(result_name.clone()),
-                );
-                statements.push(await_statement);
-                Some((statements, self.lower_identifier_name(result_name, false)))
-            }
-            Expression::Yield(yield_expression) => {
-                let (mut statements, value) = match yield_expression.target() {
-                    Some(target) => self.lower_staged_async_generator_return_expression(target)?,
-                    None => (Vec::new(), TypedExpr::undefined()),
-                };
-                let result_name = self.alloc_suspension_owned_binding(
-                    "async.generator.return.yield.",
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                );
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: result_name.clone(),
-                    init: TypedExpr::undefined(),
-                });
-                let (yield_statement, _) = self.lower_linear_generator_yield_value(
-                    value,
-                    yield_expression.delegate(),
-                    GeneratorResumeModeIr::AssignIdentifier(result_name.clone()),
-                );
-                statements.push(yield_statement);
-                Some((statements, self.lower_identifier_name(result_name, false)))
-            }
-            // A yield-only composite uses the same activation-owned operands
-            // as synchronous generators. The enclosing return still awaits its
-            // final value through the async-generator return continuation.
-            _ if contains(expression, ContainsSymbol::YieldExpression)
-                && !contains(expression, ContainsSymbol::AwaitExpression) =>
-            {
-                self.lower_staged_generator_expression(expression)
-            }
-            _ if !contains(expression, ContainsSymbol::YieldExpression) => self
-                .lower_async_prefixed_expression(expression)
-                .or_else(|| {
-                    (!contains(expression, ContainsSymbol::AwaitExpression))
-                        .then(|| (Vec::new(), self.lower_expression(expression)))
-                }),
-            _ => None,
+        if self.async_generator_entry_state().is_some() {
+            self.lower_mixed_generator_value(expression)
+        } else {
+            self.lower_staged_generator_expression_legacy(expression)
         }
     }
 
-    fn lower_staged_generator_expression(
+    fn lower_staged_generator_expression_legacy(
         &mut self,
         expression: &Expression,
     ) -> Option<(Vec<StatementIr>, TypedExpr)> {
         if !contains(expression, ContainsSymbol::YieldExpression) {
             return Some((Vec::new(), self.lower_expression(expression)));
         }
+        let admission = self.generator_value_branch_admission();
+        GeneratorExpressionSourcePlan::new(expression, admission)?;
+        if matches!(
+            admission,
+            GeneratorValueBranchAdmission::OrdinaryOutsideLoops
+        ) {
+            if let Expression::Optional(optional) = expression {
+                if let Some(source) = GeneratorOptionalChainSource::new(optional) {
+                    return self.lower_generator_optional_chain(source);
+                }
+            }
+            if let Some(source) = GeneratorValueBranchSource::new(expression) {
+                return self.lower_generator_value_branch(source);
+            }
+        }
         match expression {
             Expression::Parenthesized(parenthesized) => {
                 self.lower_staged_generator_expression(parenthesized.expression())
+            }
+            Expression::Binary(_) | Expression::Unary(_) | Expression::TemplateLiteral(_) => {
+                self.lower_staged_generator_eager_value(expression)
             }
             Expression::Yield(yield_expression) => {
                 let (mut statements, value) = match yield_expression.target() {
@@ -5462,14 +4388,46 @@ impl<'a> ScriptLowerer<'a> {
                 statements.push(yield_statement);
                 Some((statements, self.lower_identifier_name(received_name, false)))
             }
-            Expression::Call(call) if contains(expression, ContainsSymbol::YieldExpression) => {
-                self.lower_staged_generator_call(call.function(), call.args())
+            Expression::Call(_) | Expression::New(_) | Expression::TaggedTemplate(_)
+                if contains(expression, ContainsSymbol::YieldExpression) =>
+            {
+                self.lower_staged_generator_invocation(expression)
+            }
+            Expression::Assign(assignment)
+                if matches!(assignment.lhs(), AssignTarget::WebCompatCall(_)) =>
+            {
+                let AssignTarget::WebCompatCall(call) = assignment.lhs() else {
+                    unreachable!()
+                };
+                self.lower_resumable_web_compat_call_target(call)
+            }
+            Expression::Assign(assignment)
+                if CheckedGeneratorCompoundAssignmentSource::new(assignment).is_some() =>
+            {
+                self.lower_generator_compound_assignment(
+                    CheckedGeneratorCompoundAssignmentSource::new(assignment)?,
+                )
             }
             Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
-                let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
-                    return None;
-                };
-                self.lower_staged_generator_property_assignment(access, assignment.rhs())
+                match assignment.lhs() {
+                    AssignTarget::Identifier(identifier) => {
+                        let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                        self.lower_staged_generator_identifier_assignment(name, assignment.rhs())
+                    }
+                    AssignTarget::Access(PropertyAccess::Simple(access)) => {
+                        self.lower_staged_generator_property_assignment(access, assignment.rhs())
+                    }
+                    AssignTarget::Pattern(_) => self.lower_staged_generator_pattern_assignment(
+                        GeneratorPatternAssignmentSource::new(
+                            assignment,
+                            self.generator_value_branch_admission(),
+                        )?,
+                    ),
+                    AssignTarget::Access(PropertyAccess::Private(_) | PropertyAccess::Super(_)) => {
+                        self.lower_resumable_property_assignment(assignment)
+                    }
+                    AssignTarget::WebCompatCall(_) => None,
+                }
             }
             Expression::PropertyAccess(PropertyAccess::Simple(access))
                 if contains(expression, ContainsSymbol::YieldExpression) =>
@@ -5477,85 +4435,21 @@ impl<'a> ScriptLowerer<'a> {
                 let (statements, _, value) = self.lower_staged_generator_property(access)?;
                 Some((statements, value))
             }
+            Expression::PropertyAccess(PropertyAccess::Private(access)) => {
+                self.lower_resumable_private_read(access)
+            }
+            Expression::PropertyAccess(PropertyAccess::Super(_))
+            | Expression::BinaryInPrivate(_) => {
+                self.lower_staged_generator_special_read(expression)
+            }
+            Expression::Update(update) => self.lower_resumable_update(update),
+            Expression::ImportCall(call) => self.lower_resumable_import_call(call),
             Expression::ArrayLiteral(array) => self.lower_staged_generator_array_literal(array),
             Expression::ObjectLiteral(object) => self.lower_staged_generator_object_literal(object),
-            Expression::ClassExpression(class) => {
-                let enclosing_prefix = self.async_expression_prefix.replace(Vec::new());
-                let value = self.lower_class_expression(class);
-                let statements =
-                    std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
-                        .expect("class staging owns its evaluation prefix");
-                Some((statements, value))
-            }
+            Expression::ClassExpression(class) => self.lower_staged_class_expression(class),
             expression if contains(expression, ContainsSymbol::YieldExpression) => None,
             _ => Some((Vec::new(), self.lower_expression(expression))),
         }
-    }
-
-    fn lower_staged_generator_object_literal(
-        &mut self,
-        object: &ObjectLiteral,
-    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        let object_info = ValueInfo {
-            kind: ValueKind::Object,
-            possible_kinds: KindSet::from_kind(ValueKind::Object),
-            heap_shape: Some(Box::new(HeapShape::Object(ObjectShape::default()))),
-            function_targets: FunctionTargetKnowledge::none(),
-        };
-        let accumulator_name =
-            self.alloc_suspension_owned_binding("generator.object.spread.", object_info.clone());
-        let mut statements = vec![StatementIr::Lexical {
-            mode: BindingMode::Let,
-            name: accumulator_name.clone(),
-            init: TypedExpr::from_info(object_info, ExprIr::ObjectLiteral(Vec::new())),
-        }];
-        for property in object.properties() {
-            match property {
-                PropertyDefinition::SpreadObject(source) => {
-                    let (source_statements, source) =
-                        if contains(source, ContainsSymbol::YieldExpression) {
-                            self.lower_staged_generator_expression(source)?
-                        } else {
-                            (Vec::new(), self.lower_expression(source))
-                        };
-                    statements.extend(source_statements);
-                    self.invalidate_unknown_user_code_effects();
-                    let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
-                    statements.push(StatementIr::Expression(
-                        TypedExpr::spec_copy_data_properties(accumulator, source),
-                    ));
-                }
-                PropertyDefinition::Property(PropertyName::Literal(name), value) => {
-                    let key = self.interner.resolve_expect(name.sym()).to_string();
-                    if key == "__proto__" {
-                        return None;
-                    }
-                    let (value_statements, value) =
-                        if contains(value, ContainsSymbol::YieldExpression) {
-                            self.lower_staged_generator_expression(value)?
-                        } else {
-                            (Vec::new(), self.lower_expression(value))
-                        };
-                    statements.extend(value_statements);
-                    let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
-                    statements.push(StatementIr::Expression(
-                        TypedExpr::spec_create_data_property_or_throw(
-                            accumulator,
-                            TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::String),
-                                ExprIr::String(key),
-                            ),
-                            value,
-                        ),
-                    ));
-                }
-                _ => return None,
-            }
-        }
-        Some((
-            statements,
-            self.lower_identifier_name(accumulator_name, false),
-        ))
     }
 
     fn lower_returned_object_spread(
@@ -5607,17 +4501,35 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         expression: &Expression,
     ) -> Option<Vec<StatementIr>> {
+        let ungrouped = Self::unwrap_parenthesized_expr(expression);
+        if contains(expression, ContainsSymbol::YieldExpression)
+            && (matches!(
+                ungrouped,
+                Expression::Unary(_) | Expression::TemplateLiteral(_)
+            ) || matches!(ungrouped,
+                    Expression::Binary(binary) if !matches!(binary.op(), BinaryOp::Logical(_))))
+        {
+            let (mut prefix, value) = self.lower_staged_generator_expression(expression)?;
+            prefix.push(StatementIr::Expression(value));
+            return Some(prefix);
+        }
+        if matches!(
+            self.generator_value_branch_admission(),
+            GeneratorValueBranchAdmission::OrdinaryOutsideLoops
+        ) && (GeneratorValueBranchSource::new(Self::unwrap_parenthesized_expr(expression))
+            .is_some()
+            || matches!(Self::unwrap_parenthesized_expr(expression), Expression::Optional(optional)
+                if GeneratorOptionalChainSource::new(optional).is_some()))
+        {
+            let (mut statements, value) = self.lower_staged_generator_expression(expression)?;
+            statements.push(StatementIr::Expression(value));
+            return Some(statements);
+        }
         match expression {
             Expression::Parenthesized(parenthesized) => {
                 self.lower_discarded_generator_expression(parenthesized.expression())
             }
             Expression::Yield(yield_expression) => {
-                if yield_expression
-                    .target()
-                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression))
-                {
-                    return None;
-                }
                 let (statement, _) = self.lower_linear_generator_yield(
                     yield_expression.target(),
                     yield_expression.delegate(),
@@ -5765,11 +4677,33 @@ impl<'a> ScriptLowerer<'a> {
                 if assignment.op() == AssignOp::Assign
                     && matches!(assignment.lhs(), AssignTarget::Identifier(_))
                     && contains(assignment.rhs(), ContainsSymbol::YieldExpression)
+                    && matches!(
+                        self.generator_value_branch_admission(),
+                        GeneratorValueBranchAdmission::OrdinaryOutsideLoops
+                    ) =>
+            {
+                let AssignTarget::Identifier(identifier) = assignment.lhs() else {
+                    unreachable!("the staged assignment requires an identifier Reference")
+                };
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let (mut statements, value) =
+                    self.lower_staged_generator_identifier_assignment(name, assignment.rhs())?;
+                statements.push(StatementIr::Expression(value));
+                Some(statements)
+            }
+            Expression::Assign(assignment)
+                if assignment.op() == AssignOp::Assign
+                    && matches!(assignment.lhs(), AssignTarget::Identifier(_))
+                    && contains(assignment.rhs(), ContainsSymbol::YieldExpression)
+                    && matches!(
+                        self.generator_value_branch_admission(),
+                        GeneratorValueBranchAdmission::LinearOnly
+                    )
                     && !self.uses_runtime_identifier_environment()
                     && self.with_environment_chain.is_empty() =>
             {
                 let AssignTarget::Identifier(identifier) = assignment.lhs() else {
-                    unreachable!("the staged assignment requires an identifier Reference")
+                    unreachable!("the retained linear assignment has an identifier target")
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let (mut statements, value) =
@@ -5780,8 +4714,11 @@ impl<'a> ScriptLowerer<'a> {
                 Some(statements)
             }
             Expression::Call(_)
+            | Expression::New(_)
+            | Expression::TaggedTemplate(_)
             | Expression::PropertyAccess(PropertyAccess::Simple(_))
             | Expression::ClassExpression(_)
+            | Expression::ObjectLiteral(_)
             | Expression::Assign(_)
                 if contains(expression, ContainsSymbol::YieldExpression) =>
             {
@@ -5862,9 +4799,12 @@ impl<'a> ScriptLowerer<'a> {
                         GeneratorResumeModeIr::AssignIdentifier(received_name.clone()),
                     );
                     statements.push(yield_statement);
-                    self.lower_identifier_name(received_name, false)
+                    // Substitutions use ToString (hint String), unlike `+`.
+                    TypedExpr::spec_to_string(self.lower_identifier_name(received_name, false))
                 }
-                TemplateElement::Expr(expression) => self.lower_expression(expression),
+                TemplateElement::Expr(expression) => {
+                    TypedExpr::spec_to_string(self.lower_expression(expression))
+                }
             };
             let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
             let concatenated = TypedExpr::from_info(
@@ -5891,6 +4831,17 @@ impl<'a> ScriptLowerer<'a> {
         target: &Expression,
         resume_mode: AsyncResumeModeIr,
     ) -> (StatementIr, ValueKind) {
+        if self.async_expression_prefix.is_none()
+            && contains(target, ContainsSymbol::AwaitExpression)
+        {
+            let Some((mut prefix, value)) = self.lower_async_prefixed_expression(target) else {
+                self.unsupported("conditionally reached or mixed suspension in async await target");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            let (await_statement, kind) = self.lower_linear_async_await_value(value, resume_mode);
+            prefix.push(await_statement);
+            return (StatementIr::LexicalBlock(prefix), kind);
+        }
         let value = self.lower_expression(target);
         self.lower_linear_async_await_value(value, resume_mode)
     }
@@ -5943,38 +4894,9 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_function_declaration(function),
                 ValueKind::Undefined,
             ),
-            // One arm, one walk, no unreachable default.
-            //
-            // This used to be a guarded arm calling
-            // `generator_function_is_aot_supported` plus a fall-through arm that
-            // ran `linear_generator_plan_with_reason` a *second* time from
-            // scratch — the whole body walked twice for every refused generator
-            // — and the fall-through then carried a `map_or` default that a
-            // comment described as unreachable. AGENTS.md is explicit that an
-            // unreachable-by-comment path is weaker than one that cannot be
-            // written, and matching on the `Result` directly is that: the plan
-            // is either there or the reason is, and there is no third case to
-            // supply a default for.
-            //
-            // The acceptance decision is unchanged. `generator_function_is_aot_supported`
-            // is exactly `linear_generator_plan(body).is_some()`, i.e. this same
-            // call `.ok().is_some()`, and it ignores its `parameters` argument.
-            //
-            // The old message, `"function or class declaration"`, was wrong
-            // twice: the declaration is a generator, and the refusal is about
-            // the yield shape rather than the declaration kind. It also
-            // collapsed every refused generator into one `detail_hash` shared
-            // with unrelated declarations, which is the worst outcome for a
-            // sweep whose value is grouping failures into families.
-            //
-            // Two measured victims, both `NotImplemented` with detail
-            // `unsupported in lila wasm-aot first slice: function or class
-            // declaration`:
-            // `annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js`
-            // and `annexB/built-ins/RegExp/RegExp-invalid-control-escape-character-class.js`.
-            // Each declares `function* invalidControls()` whose third loop
-            // yields from inside an `if`, so both now report
-            // `GeneratorPlanRejection::LoopBodyYieldNotDirect`.
+            // Source admission consumes the same checked classic-loop ranges
+            // that lowering validates against its emitted regions. Refusals
+            // retain their concrete source reason before body emission.
             Declaration::GeneratorDeclaration(function) => {
                 match linear_generator_plan_with_reason(function.body()) {
                     Ok(_) => (
@@ -5996,539 +4918,6 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Undefined,
             ),
             Declaration::ClassDeclaration(class) => self.lower_class_declaration(class, scope),
-        }
-    }
-
-    fn lower_function_declaration(&mut self, function: &FunctionDeclaration) -> StatementIr {
-        let key = function_declaration_key(function);
-        let Some(function_id) = self.analysis.function_declaration_ids.get(&key).cloned() else {
-            self.unsupported("function declaration");
-            return StatementIr::Empty;
-        };
-        let name = function_name(self.interner, function, None);
-        let storage_name = self
-            .analysis
-            .annex_b_function_plans
-            .get(&key)
-            .map(|plan| plan.block_storage_name.clone())
-            .unwrap_or_else(|| self.direct_lexical_storage_name(&name, function.name().span()));
-        let function_info = self.function_value_info(&function_id);
-        self.declare_binding(
-            name.clone(),
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: storage_name.clone(),
-                kind: function_info.kind,
-                possible_kinds: function_info.possible_kinds,
-                heap_shape: function_info.heap_shape.clone(),
-                function_targets: function_info.function_targets.clone(),
-                initialization: Initialization::Initialized,
-            },
-        );
-        StatementIr::Lexical {
-            mode: BindingMode::Let,
-            name: storage_name,
-            init: TypedExpr::from_info(function_info, ExprIr::FunctionValue(function_id)),
-        }
-    }
-
-    fn lower_generator_declaration(&mut self, function: &GeneratorDeclaration) -> StatementIr {
-        let key = generator_declaration_key(function);
-        let Some(function_id) = self.analysis.function_declaration_ids.get(&key).cloned() else {
-            self.unsupported("generator declaration");
-            return StatementIr::Empty;
-        };
-        let name = self
-            .interner
-            .resolve_expect(function.name().sym())
-            .to_string();
-        let storage_name = self.direct_lexical_storage_name(&name, function.name().span());
-        let function_info = self.function_value_info(&function_id);
-        self.declare_binding(
-            name,
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: storage_name.clone(),
-                kind: function_info.kind,
-                possible_kinds: function_info.possible_kinds,
-                heap_shape: function_info.heap_shape.clone(),
-                function_targets: function_info.function_targets.clone(),
-                initialization: Initialization::Initialized,
-            },
-        );
-        StatementIr::Lexical {
-            mode: BindingMode::Let,
-            name: storage_name,
-            init: TypedExpr::from_info(function_info, ExprIr::FunctionValue(function_id)),
-        }
-    }
-
-    fn lower_async_function_declaration(
-        &mut self,
-        function: &AsyncFunctionDeclaration,
-    ) -> StatementIr {
-        let key = async_function_declaration_key(function);
-        let Some(function_id) = self.analysis.function_declaration_ids.get(&key).cloned() else {
-            self.unsupported("async function declaration");
-            return StatementIr::Empty;
-        };
-        let name = self
-            .interner
-            .resolve_expect(function.name().sym())
-            .to_string();
-        let storage_name = self.direct_lexical_storage_name(&name, function.name().span());
-        let function_info = self.function_value_info(&function_id);
-        self.declare_binding(
-            name,
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: storage_name.clone(),
-                kind: function_info.kind,
-                possible_kinds: function_info.possible_kinds,
-                heap_shape: function_info.heap_shape.clone(),
-                function_targets: function_info.function_targets.clone(),
-                initialization: Initialization::Initialized,
-            },
-        );
-        StatementIr::Lexical {
-            mode: BindingMode::Let,
-            name: storage_name,
-            init: TypedExpr::from_info(function_info, ExprIr::FunctionValue(function_id)),
-        }
-    }
-
-    fn lower_async_generator_declaration(
-        &mut self,
-        function: &AsyncGeneratorDeclaration,
-    ) -> StatementIr {
-        let key = async_generator_declaration_key(function);
-        let Some(function_id) = self.analysis.function_declaration_ids.get(&key).cloned() else {
-            self.unsupported("async generator declaration");
-            return StatementIr::Empty;
-        };
-        let name = self
-            .interner
-            .resolve_expect(function.name().sym())
-            .to_string();
-        let storage_name = self.direct_lexical_storage_name(&name, function.name().span());
-        let function_info = self.function_value_info(&function_id);
-        self.declare_binding(
-            name,
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: storage_name.clone(),
-                kind: function_info.kind,
-                possible_kinds: function_info.possible_kinds,
-                heap_shape: function_info.heap_shape.clone(),
-                function_targets: function_info.function_targets.clone(),
-                initialization: Initialization::Initialized,
-            },
-        );
-        StatementIr::Lexical {
-            mode: BindingMode::Let,
-            name: storage_name,
-            init: TypedExpr::from_info(function_info, ExprIr::FunctionValue(function_id)),
-        }
-    }
-
-    fn lower_annex_b_function_copy(
-        &mut self,
-        function: &FunctionDeclaration,
-    ) -> Option<StatementIr> {
-        let key = function_declaration_key(function);
-        let plan = self.analysis.annex_b_function_plans.get(&key)?.clone();
-        if !plan.copy_to_variable_environment {
-            return None;
-        }
-        let source = self.lookup_binding(&plan.source_name);
-        let Some(source) = source else {
-            self.unsupported_with_message(format!(
-                "unsupported in lila wasm-aot first slice: Annex B declaration `{}` has no active block binding `{}`",
-                plan.source_name, plan.block_storage_name
-            ));
-            return Some(StatementIr::Empty);
-        };
-        if source.storage_name != plan.block_storage_name {
-            self.unsupported_with_message(format!(
-                "unsupported in lila wasm-aot first slice: Annex B declaration `{}` resolved block storage `{}` instead of planned `{}`",
-                plan.source_name, source.storage_name, plan.block_storage_name
-            ));
-            return Some(StatementIr::Empty);
-        }
-        let value_info = ValueInfo {
-            kind: source.kind,
-            possible_kinds: source.possible_kinds,
-            heap_shape: source.heap_shape,
-            function_targets: source.function_targets,
-        };
-        self.set_owner_binding_value_info(&plan.source_name, value_info.clone());
-        if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
-            self.set_global_property_value_info_with_source(
-                plan.source_name.clone(),
-                value_info,
-                GlobalPropertySource::GlobalWrite,
-            );
-        }
-        let admission = self.prepared_annex_b_admission(&plan.source_name);
-        let copy = StatementIr::AnnexBFunctionCopy {
-            admission,
-            source_name: plan.source_name.clone(),
-            block_storage_name: plan.block_storage_name,
-            target: if self.borrows_direct_eval_variable_environment() {
-                AnnexBFunctionCopyTargetIr::DirectEvalVariable {
-                    name: plan.source_name,
-                }
-            } else if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global()
-            {
-                AnnexBFunctionCopyTargetIr::ScriptGlobal {
-                    name: plan.source_name,
-                }
-            } else {
-                AnnexBFunctionCopyTargetIr::OwnerBinding {
-                    storage_name: plan.source_name,
-                }
-            },
-        };
-        Some(copy)
-    }
-
-    fn lower_lexical_declaration(
-        &mut self,
-        declaration: &LexicalDeclaration,
-        scope: &mut LexicalScopeInstantiation,
-    ) -> (StatementIr, ValueKind) {
-        let (mode, list) = match declaration {
-            LexicalDeclaration::Let(list) => (BindingMode::Let, list),
-            LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                unreachable!("statement-list lowering owns dedicated using declarations")
-            }
-        };
-
-        let mut statements = Vec::with_capacity(list.as_ref().len());
-        for variable in list.as_ref() {
-            match variable.binding() {
-                Binding::Identifier(identifier) => {
-                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    // 14.3.1.2 step 5 InitializeReferencedBinding: claim the
-                    // obligation BlockDeclarationInstantiation left for this
-                    // name. Every arm below either discharges it or drops it
-                    // (`unsupported`), and none can discharge it twice.
-                    let pending = scope.take(&name);
-                    if let Some(target) = variable
-                        .init()
-                        .and_then(|init| {
-                            self.analysis
-                                .module_execution
-                                .imports
-                                .get(&(std::ptr::from_ref(init) as usize))
-                        })
-                        .cloned()
-                    {
-                        let statement = self.lower_lexical_binding_value(
-                            BindingMode::Const,
-                            name,
-                            identifier.span(),
-                            LoweredInitializer::evaluated(TypedExpr::from_info(
-                                unknown_runtime_value_info(),
-                                ExprIr::Undefined,
-                            )),
-                            pending,
-                            None,
-                        );
-                        let StatementIr::Lexical { name, .. } = statement else {
-                            panic!("module import creates one immutable lexical binding");
-                        };
-                        statements.push(StatementIr::ModuleImportBinding(
-                            crate::ModuleImportBindingIr { name, target },
-                        ));
-                        continue;
-                    }
-                    if self.current_async_resume_state.is_some()
-                        && matches!(variable.init(), Some(Expression::Await(_)))
-                    {
-                        let Some(Expression::Await(await_expression)) = variable.init() else {
-                            unreachable!()
-                        };
-                        let received_info = ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: FunctionTargetKnowledge::unknown(),
-                        };
-                        let received_name = self.alloc_suspension_owned_binding(
-                            "async.lexical.received.",
-                            received_info,
-                        );
-                        statements.push(StatementIr::Lexical {
-                            mode: BindingMode::Let,
-                            name: received_name.clone(),
-                            init: TypedExpr::undefined(),
-                        });
-                        let (await_statement, _) = self.lower_linear_async_await(
-                            await_expression.target(),
-                            AsyncResumeModeIr::AssignIdentifier(received_name.clone()),
-                        );
-                        statements.push(await_statement);
-                        self.static_iterator_binding_values.remove(&name);
-                        let init = self.lower_identifier_name(received_name, false);
-                        statements.push(self.lower_lexical_binding_value(
-                            mode,
-                            name,
-                            identifier.span(),
-                            LoweredInitializer::evaluated(init),
-                            pending,
-                            None,
-                        ));
-                        continue;
-                    }
-                    if self.current_async_resume_state.is_some()
-                        && variable.init().is_some_and(|expression| {
-                            matches!(
-                                Self::unwrap_parenthesized_expr(expression),
-                                Expression::ArrayLiteral(array)
-                                    if array.as_ref().iter().flatten().any(|element| {
-                                        contains(element, ContainsSymbol::AwaitExpression)
-                                    })
-                            )
-                        })
-                    {
-                        let Some(Expression::ArrayLiteral(array)) =
-                            variable.init().map(Self::unwrap_parenthesized_expr)
-                        else {
-                            unreachable!()
-                        };
-                        if array
-                            .as_ref()
-                            .iter()
-                            .flatten()
-                            .any(|element| matches!(element, Expression::Spread(_)))
-                        {
-                            self.unsupported("async lexical array initializer spread");
-                            return (StatementIr::Empty, ValueKind::Undefined);
-                        }
-                        if array.as_ref().iter().flatten().any(|element| {
-                            match Self::unwrap_parenthesized_expr(element) {
-                                Expression::Await(await_expression) => contains(
-                                    await_expression.target(),
-                                    ContainsSymbol::AwaitExpression,
-                                ),
-                                _ => contains(element, ContainsSymbol::AwaitExpression),
-                            }
-                        }) {
-                            self.unsupported(
-                                "async lexical array initializer composite await element",
-                            );
-                            return (StatementIr::Empty, ValueKind::Undefined);
-                        }
-
-                        let mut elements = Vec::with_capacity(array.as_ref().len());
-                        for element in array.as_ref() {
-                            let Some(element) = element else {
-                                elements.push(TypedExpr::from_info(
-                                    ValueInfo::undefined(),
-                                    ExprIr::ArrayHole,
-                                ));
-                                continue;
-                            };
-                            let Expression::Await(await_expression) =
-                                Self::unwrap_parenthesized_expr(element)
-                            else {
-                                let value = self.lower_expression(element);
-                                let element_name = self.alloc_suspension_owned_binding(
-                                    "async.array.element.",
-                                    value.value_info(),
-                                );
-                                statements.push(StatementIr::Lexical {
-                                    mode: BindingMode::Let,
-                                    name: element_name.clone(),
-                                    init: value,
-                                });
-                                elements.push(self.lower_identifier_name(element_name, false));
-                                continue;
-                            };
-                            let received_name = self.alloc_suspension_owned_binding(
-                                "async.array.received.",
-                                ValueInfo {
-                                    kind: ValueKind::Dynamic,
-                                    possible_kinds: KindSet::all_runtime_tags(),
-                                    heap_shape: None,
-                                    function_targets: FunctionTargetKnowledge::unknown(),
-                                },
-                            );
-                            statements.push(StatementIr::Lexical {
-                                mode: BindingMode::Let,
-                                name: received_name.clone(),
-                                init: TypedExpr::undefined(),
-                            });
-                            let (await_statement, _) = self.lower_linear_async_await(
-                                await_expression.target(),
-                                AsyncResumeModeIr::AssignIdentifier(received_name.clone()),
-                            );
-                            statements.push(await_statement);
-                            elements.push(self.lower_identifier_name(received_name, false));
-                        }
-                        self.static_iterator_binding_values.remove(&name);
-                        let init = Self::array_literal_from_lowered(elements);
-                        statements.push(self.lower_lexical_binding_value(
-                            mode,
-                            name,
-                            identifier.span(),
-                            LoweredInitializer::evaluated(init),
-                            pending,
-                            None,
-                        ));
-                        continue;
-                    }
-                    if variable
-                        .init()
-                        .is_some_and(|init| self.async_initializer_is_stageable(init))
-                    {
-                        let (prefix, init) = self
-                            .lower_async_prefixed_expression(
-                                variable
-                                    .init()
-                                    .expect("guarded async lexical initializer must exist"),
-                            )
-                            .expect("stageable async lexical initializer must stage");
-                        statements.extend(prefix);
-                        self.static_iterator_binding_values.remove(&name);
-                        statements.push(self.lower_lexical_binding_value(
-                            mode,
-                            name,
-                            identifier.span(),
-                            LoweredInitializer::evaluated(init),
-                            pending,
-                            None,
-                        ));
-                        continue;
-                    }
-                    if self.current_async_resume_state.is_some()
-                        && variable
-                            .init()
-                            .is_some_and(|init| self.has_branch_sensitive_await(init))
-                    {
-                        self.unsupported(
-                            "async lexical initializer branch-sensitive await expression",
-                        );
-                        return (StatementIr::Empty, ValueKind::Undefined);
-                    }
-                    if self.current_generator_resume_state.is_some()
-                        && variable
-                            .init()
-                            .is_some_and(|init| contains(init, ContainsSymbol::YieldExpression))
-                    {
-                        let Some((prefix, init)) = self.lower_staged_generator_expression(
-                            variable
-                                .init()
-                                .expect("guarded generator initializer exists"),
-                        ) else {
-                            self.unsupported("generator lexical initializer suspension expression");
-                            return (StatementIr::Empty, ValueKind::Undefined);
-                        };
-                        statements.extend(prefix);
-                        self.static_iterator_binding_values.remove(&name);
-                        statements.push(self.lower_lexical_binding_value(
-                            mode,
-                            name,
-                            identifier.span(),
-                            LoweredInitializer::evaluated(init),
-                            pending,
-                            None,
-                        ));
-                        continue;
-                    }
-                    if variable.init().is_some_and(|expression| {
-                        self.is_constructor_prototype_expr(expression, ARRAY_NAME)
-                    }) {
-                        self.array_prototype_mutated = true;
-                    }
-                    let static_iterator_values = variable.init().and_then(|expression| {
-                        self.static_object_iterator_literal_values(expression)
-                    });
-                    let static_to_string_regexp_object =
-                        variable.init().is_some_and(|expression| {
-                            self.static_to_string_returns_regexp_object_expr(expression)
-                        });
-                    let static_string_value = variable
-                        .init()
-                        .and_then(|expression| self.static_string_expression(expression));
-                    let source_candidate = variable
-                        .init()
-                        .map(|expression| self.function_source_value_candidates(expression));
-                    let init = variable
-                        .init()
-                        .map(|expression| self.lower_expression(expression))
-                        .unwrap_or_else(TypedExpr::undefined);
-                    if let Some(values) = static_iterator_values {
-                        self.static_iterator_binding_values
-                            .insert(name.clone(), values);
-                    } else {
-                        self.static_iterator_binding_values.remove(&name);
-                    }
-                    if static_to_string_regexp_object {
-                        self.static_to_string_regexp_object_bindings
-                            .insert(name.clone());
-                    } else {
-                        self.static_to_string_regexp_object_bindings.remove(&name);
-                    }
-
-                    // 14.3.1.2 steps 4-5. The initializer above is already
-                    // lowered, which is what makes `LoweredInitializer` cheap
-                    // here and what makes the reverse order unwritable.
-                    let init = LoweredInitializer::evaluated(init);
-                    let initialized = match pending {
-                        Some(pending) => pending.initialize(init),
-                        None => {
-                            // Not a name this statement list created: a for-head
-                            // binding, or a declarator form the sweep could not
-                            // resolve. Allocate as before.
-                            let storage_name =
-                                self.direct_lexical_storage_name(&name, identifier.span());
-                            InitializedBinding::without_creation(
-                                name.clone(),
-                                mode,
-                                storage_name,
-                                init.into_expr(),
-                            )
-                        }
-                    };
-                    let statement = initialized.declare(self);
-                    let binding = self.lookup_binding(&name).unwrap_or_else(|| {
-                        panic!(
-                            "lexical binding `{name}` must be declared before installing static string facts"
-                        )
-                    });
-                    if let Some(candidate) = source_candidate {
-                        self.function_source_binding_candidates
-                            .insert(binding.storage_name.clone(), candidate);
-                    }
-                    if let Some(value) = static_string_value {
-                        self.static_string_bindings.insert(&binding, value);
-                    } else {
-                        self.static_string_bindings.remove(&binding);
-                    }
-                    statements.push(statement);
-                }
-                Binding::Pattern(pattern) => {
-                    let Some(init) = variable.init() else {
-                        self.unsupported("destructuring binding without initializer");
-                        return (StatementIr::Empty, ValueKind::Undefined);
-                    };
-                    let Some(mut bindings) =
-                        self.lower_pattern_lexical_binding(mode, pattern, init)
-                    else {
-                        return (StatementIr::Empty, ValueKind::Undefined);
-                    };
-                    statements.append(&mut bindings);
-                }
-            }
-        }
-
-        if statements.len() == 1 {
-            (statements.remove(0), ValueKind::Undefined)
-        } else {
-            (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
         }
     }
 
@@ -6586,7 +4975,6 @@ impl<'a> ScriptLowerer<'a> {
             // AddDisposableResource performs the observable @@dispose lookup
             // before the binding becomes available to the following suffix.
             self.invalidate_unknown_user_code_effects();
-            self.static_iterator_binding_values.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let init = LoweredInitializer::evaluated(init);
             let initialized = match pending {
@@ -6677,6 +5065,9 @@ impl<'a> ScriptLowerer<'a> {
                 StatementListItem::Declaration(declaration) => match declaration.as_ref() {
                     Declaration::Lexical(lexical) => {
                         self.hoist_lexical_declaration_metadata(lexical)
+                    }
+                    Declaration::ClassDeclaration(class) => {
+                        self.hoist_class_declaration_metadata(class)
                     }
                     _ => {}
                 },
@@ -6772,6 +5163,30 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// Records a script-level class name as global lexical metadata, like the
+    /// `let`/`const` sweep beside it. A class declaration creates a mutable
+    /// lexical binding (15.7.16), so without this entry the name is missing
+    /// from `GlobalBindingPlan::lexical_bindings` and a later
+    /// `GlobalDeclarationInstantiation` (notably `$262.evalScript`) cannot see
+    /// the existing binding to collide with it.
+    fn hoist_class_declaration_metadata(&mut self, class: &ClassDeclaration) {
+        if self.current_owner_id != SCRIPT_OWNER_ID {
+            return;
+        }
+        let name = self.interner.resolve_expect(class.name().sym()).to_string();
+        let info = self.infer_class_declaration_binding_info(class);
+        self.var_bindings
+            .entry(name)
+            .or_insert_with(|| VarBindingInfo {
+                kind: info.kind,
+                possible_kinds: info.possible_kinds,
+                heap_shape: info.heap_shape.clone(),
+                function_targets: info.function_targets.clone(),
+                is_script_global: false,
+                is_lexical_metadata: true,
+            });
+    }
+
     fn hoist_var_name(&mut self, name: String) {
         if self.current_owner_id != SCRIPT_OWNER_ID
             && self
@@ -6792,8 +5207,12 @@ impl<'a> ScriptLowerer<'a> {
             );
             return;
         }
-        let is_script_global =
-            self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global();
+        let is_script_global = self.current_owner_id == SCRIPT_OWNER_ID
+            && self.script_variables_are_global()
+            && !self
+                .analysis
+                .module_execution
+                .is_private_dispatcher_name(&name);
         self.var_bindings.entry(name).or_insert(VarBindingInfo {
             kind: ValueKind::Undefined,
             possible_kinds: KindSet::from_kind(ValueKind::Undefined),
@@ -6848,15 +5267,6 @@ impl<'a> ScriptLowerer<'a> {
 
     fn global_this_info(&self) -> ValueInfo {
         let mut properties = BTreeMap::new();
-        properties.insert(
-            GLOBAL_THIS_NAME.to_string(),
-            ObjectShapeProperty::Data(ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
-        );
         for (name, binding) in &self.var_bindings {
             if !binding.is_script_global {
                 continue;
@@ -6884,6 +5294,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
+                provenance: HeapShapeProvenance::Program,
                 prototype: None,
                 properties,
                 private_brands: BTreeSet::new(),
@@ -7046,6 +5457,10 @@ impl<'a> ScriptLowerer<'a> {
         self.record_binding_value_write(&name, script_global_binding.as_ref());
         self.set_script_global_var_value_info(&name, info.clone());
         self.record_nested_script_global_value_info(&name, info);
+        // Every caller records a real write (all pass a write source), so a
+        // final body may no longer fold this name. Past the writability
+        // early-return above, non-writable bindings never reach this point.
+        self.observed_script_global_writes.insert(name);
     }
 
     fn capture_pre_write_global_property_value(&self, name: &str) -> PreWriteGlobalPropertyValue {
@@ -7286,13 +5701,6 @@ impl<'a> ScriptLowerer<'a> {
                 &mut operand.heap_shape,
             );
         }
-        for call in self.static_generator_call_overrides.values_mut() {
-            visit(
-                call.possible_kinds,
-                &call.function_targets,
-                &mut call.heap_shape,
-            );
-        }
     }
 
     fn invalidate_unknown_user_code_effects(&mut self) {
@@ -7352,15 +5760,11 @@ impl<'a> ScriptLowerer<'a> {
         self.well_known_symbol_prototype_properties.clear();
         self.array_prototype_mutated = true;
         self.number_prototype_to_string_state = PrototypeToStringState::Unknown;
-        self.number_prototype_match_is_string_match = false;
-        self.number_prototype_split_is_string_split = false;
         self.boolean_prototype_to_string_state = PrototypeToStringState::Unknown;
 
         self.static_boolean_bindings.clear();
         self.static_string_bindings.clear();
         self.static_to_string_regexp_object_bindings.clear();
-        self.static_generator_call_overrides.clear();
-        self.static_iterator_binding_values.clear();
     }
 
     fn clear_static_binding_facts(&mut self, name: &str, binding: Option<&BindingInfo>) {
@@ -7369,8 +5773,6 @@ impl<'a> ScriptLowerer<'a> {
             self.static_string_bindings.remove(binding);
         }
         self.static_to_string_regexp_object_bindings.remove(name);
-        self.static_generator_call_overrides.remove(name);
-        self.static_iterator_binding_values.remove(name);
     }
 
     fn record_binding_value_write(&mut self, name: &str, binding: Option<&BindingInfo>) {
@@ -7464,6 +5866,10 @@ impl<'a> ScriptLowerer<'a> {
         self.record_binding_value_write(name, script_global_binding.as_ref());
         let is_script_global_declaration = script_global_binding.is_some()
             || (self.script_variables_are_global()
+                && !self
+                    .analysis
+                    .module_execution
+                    .is_private_dispatcher_name(name)
                 && self.analysis.owner_plans[SCRIPT_OWNER_ID]
                     .function_bindings
                     .contains_key(name));
@@ -7474,9 +5880,11 @@ impl<'a> ScriptLowerer<'a> {
                 // decide whether the property survives.
                 info.proven_present = false;
                 info.source = GlobalPropertySource::Merged;
+                self.observed_script_global_writes.insert(name.to_string());
             } else if info.proven_present && info.configurable {
                 info.proven_present = false;
                 info.source = GlobalPropertySource::DefinitelyDeleted;
+                self.observed_script_global_writes.insert(name.to_string());
             }
         }
     }
@@ -7514,7 +5922,12 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_identifier_name(&mut self, name: String, allow_with: bool) -> TypedExpr {
-        if allow_with {
+        if allow_with
+            && !self
+                .analysis
+                .module_execution
+                .is_private_dispatcher_name(&name)
+        {
             let fallback = self.locate_identifier_reference(&name);
             if let Some(objects) = self
                 .with_environment_chain
@@ -7555,6 +5968,34 @@ impl<'a> ScriptLowerer<'a> {
                 };
             }
             return TypedExpr::from_info(info, ExprIr::Identifier(binding.storage_name));
+        }
+
+        if name == GLOBAL_THIS_NAME {
+            // A current root data-property origin can prove this identity.
+            // A dormant function or an invalidated property must instead
+            // resolve the public binding and observe an accessor's effects.
+            if self.current_owner_id == SCRIPT_OWNER_ID
+                && self.identifier_resolves_to_intrinsic_global(&name)
+            {
+                return TypedExpr::from_info(
+                    self.global_this_info(),
+                    ExprIr::ExecutionGlobalObject,
+                );
+            }
+            let mut info = unknown_runtime_value_info();
+            if let Some(property) = self.lookup_global_property_info(&name) {
+                if property.source != GlobalPropertySource::DefinitelyDeleted {
+                    info.function_targets = property.value_info.function_targets.clone();
+                }
+            }
+            // Public globalThis can itself hold a callable. Retain possible
+            // targets for finite-source admission without proving the Get's
+            // result or restoring the initial global-object identity.
+            info.function_targets.widen_for_possible_replacement();
+            self.observe_all_planned_source_as_unknown_property_hooks();
+            self.invalidate_unknown_user_code_effects();
+            self.mark_host_builtins_from_info(&info);
+            return TypedExpr::from_info(info, ExprIr::GlobalIdentifierRead { name });
         }
 
         if let Some(host) = self.host_surface_policy.resolve_global(&name) {
@@ -7606,9 +6047,6 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
 
-        if name == GLOBAL_THIS_NAME {
-            return TypedExpr::from_info(self.global_this_info(), ExprIr::Identifier(name));
-        }
         if name == "Infinity" {
             return TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Number),
@@ -7619,12 +6057,6 @@ impl<'a> ScriptLowerer<'a> {
             return TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Number),
                 ExprIr::Number(f64::NAN.to_bits()),
-            );
-        }
-        if name == "BPE" {
-            return TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Number),
-                ExprIr::Number(1f64.to_bits()),
             );
         }
         if name == "undefined" {
@@ -7680,24 +6112,18 @@ impl<'a> ScriptLowerer<'a> {
     /// form-specific lowering below reaches the same AST node it gets the
     /// temporary back instead of re-evaluating it.
     ///
-    /// Doing this at the single entry point rather than inside each form
-    /// matters for calls: `lower_call` fans out into dozens of builtin-
-    /// specific paths that each lower their arguments themselves, and there is
-    /// no later choke point they all share.
+    /// Invocations use a completed Reference/argument-list owner before this
+    /// generic operand pinner. Saving only a member receiver or raw key would
+    /// leave GetValue incorrectly on the far side of a hoisted await.
     fn lower_expression(&mut self, expression: &Expression) -> TypedExpr {
         if let Some(entry) = self
             .analysis
             .module_entry_evaluation
             .filter(|entry| entry.owns(expression))
         {
-            let evaluation = match entry.source() {
-                modules::LinkedModuleEntry::CanonicalGraph(_) => self
-                    .lower_synchronous_module_expression(entry.operand())
-                    .expect("trusted entry has a synchronous evaluation operation"),
-                modules::LinkedModuleEntry::RetainedDriver(_) => {
-                    self.lower_expression(entry.operand())
-                }
-            };
+            let evaluation = self
+                .lower_synchronous_module_expression(entry.operand())
+                .expect("trusted entry has a canonical evaluation operation");
             return entry.lower(evaluation);
         }
         if let Some(module) = self.lower_synchronous_module_expression(expression) {
@@ -7713,6 +6139,12 @@ impl<'a> ScriptLowerer<'a> {
             || !contains(expression, ContainsSymbol::AwaitExpression)
         {
             return self.lower_expression_with_pinned_operands(expression);
+        }
+        if let Some(invocation) = self.lower_suspended_invocation(expression) {
+            return invocation;
+        }
+        if let Some(value) = self.lower_async_reference_expression(expression) {
+            return value;
         }
         let pins = self.pin_async_operands_before_suspension(expression);
         let value = self.lower_expression_with_pinned_operands(expression);
@@ -7760,10 +6192,11 @@ impl<'a> ScriptLowerer<'a> {
     /// — attached to the pinned receiver instead of collapsing the call into a
     /// plain function value.
     ///
-    /// Forms whose operands are branch-dependent (`&&`, `?:`, `?.`) are
-    /// deliberately absent: `has_branch_sensitive_await` refuses those before
-    /// any of this runs. Forms already handled where they are lowered — array
-    /// literals, arithmetic, template literals — are absent too, and forms
+    /// Conditional, logical and bounded optional Property/Call values own their
+    /// separate prefixes and result binding inside the existing
+    /// plain async If dispatcher, so they do not use this eager operand list.
+    /// Forms already handled where they are lowered — array literals,
+    /// arithmetic, template literals — are absent too, and forms
     /// that are not listed simply get no pinning, which is what happened
     /// before this existed.
     fn ordered_operands_for_pinning(expression: &Expression) -> Vec<&Expression> {
@@ -7782,21 +6215,16 @@ impl<'a> ScriptLowerer<'a> {
                 operands.push(assignment.rhs());
                 operands
             }
-            Expression::Call(call) => {
-                let mut operands = Self::callee_operands_for_pinning(call.function());
-                operands.extend(call.args());
-                operands
-            }
-            Expression::New(new_expression) => {
-                let call = new_expression.call();
-                let mut operands = Self::callee_operands_for_pinning(call.function());
-                operands.extend(call.args());
-                operands
-            }
+            // Invocation owners complete the Reference and ArgumentListEvaluation
+            // before this generic operand pinner is entered.
+            Expression::Call(_) | Expression::New(_) | Expression::TaggedTemplate(_) => Vec::new(),
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => match access.field() {
                 PropertyAccessField::Expr(key) => vec![access.target(), key],
                 PropertyAccessField::Const(_) => Vec::new(),
             },
+            Expression::ImportCall(call) => std::iter::once(call.argument())
+                .chain(call.options())
+                .collect(),
             Expression::ObjectLiteral(object) => object
                 .properties()
                 .iter()
@@ -7806,19 +6234,7 @@ impl<'a> ScriptLowerer<'a> {
                     _ => None,
                 })
                 .collect(),
-            Expression::TaggedTemplate(template) => template.exprs().iter().collect(),
             _ => Vec::new(),
-        }
-    }
-
-    fn callee_operands_for_pinning(callee: &Expression) -> Vec<&Expression> {
-        match callee {
-            Expression::PropertyAccess(PropertyAccess::Simple(access)) => match access.field() {
-                PropertyAccessField::Expr(key) => vec![access.target(), key],
-                PropertyAccessField::Const(_) => vec![access.target()],
-            },
-            Expression::PropertyAccess(_) | Expression::SuperCall(_) => Vec::new(),
-            callee => vec![callee],
         }
     }
 
@@ -7826,7 +6242,12 @@ impl<'a> ScriptLowerer<'a> {
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                if self.uses_runtime_identifier_environment() {
+                if self.uses_runtime_identifier_environment()
+                    && !self
+                        .analysis
+                        .module_execution
+                        .is_private_dispatcher_name(&name)
+                {
                     self.environment_identifier(name, EnvironmentIdentifierOperationIr::Read)
                 } else {
                     self.lower_identifier_name(name, true)
@@ -7989,6 +6410,14 @@ impl<'a> ScriptLowerer<'a> {
             Expression::TemplateLiteral(template) => self.lower_template_literal(template),
             Expression::TaggedTemplate(template) => self.lower_tagged_template(template),
             Expression::BinaryInPrivate(binary) => self.lower_private_in(binary),
+            Expression::Conditional(conditional)
+                if self.async_expression_prefix.is_some()
+                    && self.has_plain_async_value_branch_owner()
+                    && (contains(conditional.if_true(), ContainsSymbol::AwaitExpression)
+                        || contains(conditional.if_false(), ContainsSymbol::AwaitExpression)) =>
+            {
+                self.lower_conditional_await_value(conditional)
+            }
             Expression::Conditional(conditional) => {
                 let condition = self.lower_expression(conditional.condition());
                 let before_branch = self.capture_conditional_flow_facts();
@@ -8076,7 +6505,11 @@ impl<'a> ScriptLowerer<'a> {
                     );
                     TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(value))
                 }
-                TemplateElement::Expr(expr) => self.lower_expression(expr),
+                // 13.2.8.6: each substitution is ToString'd (hint String)
+                // before the next one is evaluated; `+` would use hint Default.
+                TemplateElement::Expr(expr) => {
+                    TypedExpr::spec_to_string(self.lower_expression(expr))
+                }
             };
             let part =
                 self.pin_async_operand_before_suspension(part, rest_suspends, "async.template.");
@@ -8100,7 +6533,7 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
-    fn lower_tagged_template(&mut self, template: &TaggedTemplate) -> TypedExpr {
+    fn lower_template_object(&mut self, template: &TaggedTemplate) -> TypedExpr {
         let raw = template
             .raws()
             .iter()
@@ -8131,15 +6564,23 @@ impl<'a> ScriptLowerer<'a> {
             heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
             function_targets: FunctionTargetKnowledge::none(),
         };
-        let mut args = Vec::with_capacity(template.exprs().len() + 1);
-        args.push(TypedExpr::from_info(
+        TypedExpr::from_info(
             template_info,
             ExprIr::TemplateObject(TemplateObjectIr {
-                site_id: template.identifier(),
+                site_id: self
+                    .analysis
+                    .template_source
+                    .expect("template lowering requires its actual parsed Script owner")
+                    .site(template.identifier()),
                 cooked,
                 raw,
             }),
-        ));
+        )
+    }
+
+    fn lower_tagged_template(&mut self, template: &TaggedTemplate) -> TypedExpr {
+        let mut args = Vec::with_capacity(template.exprs().len() + 1);
+        args.push(self.lower_template_object(template));
         args.extend(
             template
                 .exprs()
@@ -8257,13 +6698,17 @@ impl<'a> ScriptLowerer<'a> {
         // than the binding being initialized first.
         let enclosing_prefix = self.async_expression_prefix.replace(Vec::new());
         let init = self.lower_class_common(
-            Some(name.clone()),
-            class_declaration_source_slice(class, self.source_text),
+            SourceClassName::from_declaration(class, self.interner),
+            self.analysis
+                .module_execution
+                .original_callable_source(class.linear_span())
+                .map(str::to_owned)
+                .unwrap_or_else(|| class_declaration_source_slice(class, self.source_text)),
             constructor_execution_key,
             class.super_ref(),
             class.constructor(),
             class.elements(),
-            None,
+            ClassNameInferenceIr::None,
         );
         let mut statements = std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
             .expect("class declaration owns its evaluation prefix");
@@ -8291,29 +6736,30 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_class_expression(&mut self, class: &ClassExpression) -> TypedExpr {
-        self.lower_class_expression_with_inferred_name(class, None)
+        self.lower_class_expression_with_inferred_name(class, ClassNameInferenceIr::None)
     }
 
     fn lower_class_expression_with_inferred_name(
         &mut self,
         class: &ClassExpression,
-        inferred_name_binding: Option<String>,
+        name_inference: ClassNameInferenceIr,
     ) -> TypedExpr {
-        let name = class
-            .name()
-            .map(|identifier| self.interner.resolve_expect(identifier.sym()).to_string());
         let constructor_execution_key = class
             .constructor()
             .map(class_constructor_key)
             .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
         self.lower_class_common(
-            name,
-            class_expression_source_slice(class, self.source_text),
+            SourceClassName::from_expression(class, self.interner),
+            self.analysis
+                .module_execution
+                .original_callable_source(class.linear_span())
+                .map(str::to_owned)
+                .unwrap_or_else(|| class_expression_source_slice(class, self.source_text)),
             constructor_execution_key,
             class.super_ref(),
             class.constructor(),
             class.elements(),
-            inferred_name_binding,
+            name_inference,
         )
     }
 
@@ -8346,15 +6792,15 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_class_common(
         &mut self,
-        class_name: Option<String>,
+        class_name: SourceClassName,
         class_source: String,
         constructor_execution_key: String,
         heritage: Option<&Expression>,
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
-        inferred_name_binding: Option<String>,
+        name_inference: ClassNameInferenceIr,
     ) -> TypedExpr {
-        let name_binding = class_name.as_ref().map(|_| {
+        let name_binding = class_name.binding_name().map(|_| {
             let environment_id = self
                 .analysis
                 .class_name_environment_ids
@@ -8379,10 +6825,10 @@ impl<'a> ScriptLowerer<'a> {
                 environment,
             }
         });
-        if let (Some(source_name), Some(binding)) = (&class_name, &name_binding) {
+        if let (Some(source_name), Some(binding)) = (class_name.binding_name(), &name_binding) {
             self.push_scope();
             self.declare_binding(
-                source_name.clone(),
+                source_name.to_owned(),
                 BindingInfo {
                     mode: BindingMode::Const,
                     storage_name: binding.storage_name.clone(),
@@ -8396,14 +6842,14 @@ impl<'a> ScriptLowerer<'a> {
         }
         let has_name_binding = name_binding.is_some();
         let lowered = self.lower_class_common_in_name_scope(
-            class_name,
+            class_name.into_label(),
             class_source,
             constructor_execution_key,
             heritage,
             constructor,
             elements,
             name_binding,
-            inferred_name_binding,
+            name_inference,
         );
         if has_name_binding {
             self.pop_scope();
@@ -8453,10 +6899,6 @@ impl<'a> ScriptLowerer<'a> {
                     boolean_alias_shapes_invalidated: lowerer.boolean_alias_shapes_invalidated,
                     array_prototype_mutated: lowerer.array_prototype_mutated,
                     number_prototype_to_string_state: lowerer.number_prototype_to_string_state,
-                    number_prototype_match_is_string_match: lowerer
-                        .number_prototype_match_is_string_match,
-                    number_prototype_split_is_string_split: lowerer
-                        .number_prototype_split_is_string_split,
                     boolean_prototype_to_string_state: lowerer.boolean_prototype_to_string_state,
                     unknown_user_code_effects_observed: lowerer.unknown_user_code_effects_observed,
                     unknown_user_code_effects_introduced: lowerer
@@ -8543,10 +6985,6 @@ impl<'a> ScriptLowerer<'a> {
             post_state.well_known_symbol_prototype_properties;
         self.array_prototype_mutated = post_state.array_prototype_mutated;
         self.number_prototype_to_string_state = post_state.number_prototype_to_string_state;
-        self.number_prototype_match_is_string_match =
-            post_state.number_prototype_match_is_string_match;
-        self.number_prototype_split_is_string_split =
-            post_state.number_prototype_split_is_string_split;
         self.boolean_prototype_to_string_state = post_state.boolean_prototype_to_string_state;
         for (source_name, captured_info) in post_state.captured_parent_values {
             self.install_binding_value_info(&source_name, captured_info.clone())
@@ -8557,6 +6995,8 @@ impl<'a> ScriptLowerer<'a> {
                     property.proven_present = true;
                     property.source = GlobalPropertySource::GlobalWrite;
                 }
+                self.observed_script_global_writes
+                    .insert(source_name.clone());
             }
         }
         self.unknown_user_code_effects_observed = post_state.unknown_user_code_effects_observed;
@@ -8608,8 +7048,19 @@ impl<'a> ScriptLowerer<'a> {
         let execution_kind = protocol.execution_kind();
         let class_kind = protocol.class_kind();
         let constructable = protocol.is_constructable();
-        let resumable_plan = (execution_kind == FunctionExecutionKind::AsyncGenerator)
-            .then(|| async_generator_resumable_plan(body));
+        let resumable_plan = if execution_kind == FunctionExecutionKind::AsyncGenerator {
+            match async_generator_resumable_plan(body) {
+                Ok(plan) => Some(plan),
+                Err(error) => {
+                    self.unsupported_with_message(format!(
+                        "unsupported in lila wasm-aot: async-generator source graph: {error:?}"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         self.function_signatures.insert(
             function_id.clone(),
             FunctionSignature {
@@ -8697,14 +7148,11 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.observed_script_global_writes = self.observed_script_global_writes.clone();
         lowerer.well_known_symbol_prototype_properties =
             self.well_known_symbol_prototype_properties.clone();
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_state = self.number_prototype_to_string_state;
-        lowerer.number_prototype_match_is_string_match =
-            self.number_prototype_match_is_string_match;
-        lowerer.number_prototype_split_is_string_split =
-            self.number_prototype_split_is_string_split;
         lowerer.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
         lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
@@ -8718,8 +7166,6 @@ impl<'a> ScriptLowerer<'a> {
             self.function_source_parameter_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
-        lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
-        lowerer.static_iterator_binding_values = self.static_iterator_binding_values.clone();
         lowerer.var_bindings = self.var_bindings.clone();
         lowerer.known_nested_script_global_value_infos =
             self.known_nested_script_global_value_infos.clone();
@@ -8737,6 +7183,10 @@ impl<'a> ScriptLowerer<'a> {
                     ScriptGlobalCallObservationMode::DormantSummary;
             }
         }
+        // Same observed-write degradation as `lower_function`, final phase only.
+        if !self.is_prepass {
+            self.degrade_observed_written_globals(&mut lowerer);
+        }
         lowerer.used_host_builtins = self.used_host_builtins.clone();
         lowerer.host_builtin_calls = self.host_builtin_calls;
         lowerer.is_prepass = self.is_prepass;
@@ -8753,13 +7203,11 @@ impl<'a> ScriptLowerer<'a> {
                 lowerer.current_async_resume_state = Some(0);
             }
             FunctionExecutionKind::AsyncGenerator => {
-                let entry_state = resumable_plan
-                    .as_ref()
-                    .expect("async generator method must have a resumable plan")
-                    .entry_state;
-                lowerer.current_generator_resume_state = Some(entry_state);
-                lowerer.current_async_resume_state = Some(entry_state);
-                lowerer.current_resumable_plan = resumable_plan.clone();
+                if let Some(plan) = &resumable_plan {
+                    lowerer.current_generator_resume_state = Some(plan.entry_state);
+                    lowerer.current_async_resume_state = Some(plan.entry_state);
+                    lowerer.current_resumable_plan = resumable_plan.clone();
+                }
             }
             FunctionExecutionKind::Ordinary | FunctionExecutionKind::Generator => {}
         }
@@ -9052,6 +7500,24 @@ impl<'a> ScriptLowerer<'a> {
             signature.return_targets = return_info.function_targets.clone();
             signature.source_call_flow_effects = lowerer.source_call_flow_effects;
         }
+        if let Some(expected) = lowerer
+            .current_resumable_plan
+            .as_ref()
+            .map(|plan| plan.suspension_points.len())
+        {
+            if lowerer.next_resumable_suspension_index != expected {
+                lowerer.unsupported("async-generator function has unconsumed source suspensions");
+            }
+        }
+        if lowerer
+            .current_resumable_plan
+            .as_ref()
+            .is_some_and(|plan| !plan.matches_resume_environment_plan())
+        {
+            lowerer.unsupported(
+                "async-generator resume environments must retain their checked source owner",
+            );
+        }
         let resumable_plan = lowerer.current_resumable_plan.clone().or(resumable_plan);
         let class_name_post_state = captured_bindings
             .iter()
@@ -9082,11 +7548,14 @@ impl<'a> ScriptLowerer<'a> {
             .extend(lowerer.dynamically_installed_getters);
         self.dynamically_installed_setters
             .extend(lowerer.dynamically_installed_setters);
+        self.observed_script_global_writes
+            .extend(std::mem::take(&mut lowerer.observed_script_global_writes));
         self.install_generated_class_element_flow(class_element_flow);
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
 
         let function_ir = FunctionIr {
+            template_source: self.analysis.template_source,
             eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id.clone(),
             name: function_name,
@@ -9158,6 +7627,7 @@ impl<'a> ScriptLowerer<'a> {
         function_name: String,
         to_string_representation: CallableToStringRepresentation,
         expression: &Expression,
+        field_name: ClassFieldNameIr,
         current_this_info: ValueInfo,
         class_element_execution_kind: ClassElementExecutionKind,
         class_context: ClassLoweringContext,
@@ -9193,14 +7663,11 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.observed_script_global_writes = self.observed_script_global_writes.clone();
         lowerer.well_known_symbol_prototype_properties =
             self.well_known_symbol_prototype_properties.clone();
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_state = self.number_prototype_to_string_state;
-        lowerer.number_prototype_match_is_string_match =
-            self.number_prototype_match_is_string_match;
-        lowerer.number_prototype_split_is_string_split =
-            self.number_prototype_split_is_string_split;
         lowerer.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
         lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
@@ -9214,8 +7681,6 @@ impl<'a> ScriptLowerer<'a> {
             self.function_source_parameter_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
-        lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
-        lowerer.static_iterator_binding_values = self.static_iterator_binding_values.clone();
         lowerer.var_bindings = self.var_bindings.clone();
         lowerer.known_nested_script_global_value_infos =
             self.known_nested_script_global_value_infos.clone();
@@ -9232,6 +7697,10 @@ impl<'a> ScriptLowerer<'a> {
                 lowerer.script_global_call_observation_mode =
                     ScriptGlobalCallObservationMode::DormantSummary;
             }
+        }
+        // Same observed-write degradation as `lower_function`, final phase only.
+        if !self.is_prepass {
+            self.degrade_observed_written_globals(&mut lowerer);
         }
         lowerer.used_host_builtins = self.used_host_builtins.clone();
         lowerer.host_builtin_calls = self.host_builtin_calls;
@@ -9304,7 +7773,20 @@ impl<'a> ScriptLowerer<'a> {
                 initialization: Initialization::Initialized,
             },
         );
-        let return_value = lowerer.lower_expression(expression);
+        let return_value = match Self::unwrap_parenthesized_expr(expression) {
+            Expression::ClassExpression(class) if class.name_scope().is_none() => {
+                // The parser can attach an inferred literal/private label to
+                // ClassExpression.name(). Only name_scope records a source binding
+                // identifier; an inferred label does not suppress NamedEvaluation.
+                // NamedEvaluation supplies the original field key to class creation,
+                // before the nested class's computed elements or static initializers.
+                lowerer.lower_class_expression_with_inferred_name(
+                    class,
+                    ClassNameInferenceIr::FieldInitializer(field_name),
+                )
+            }
+            _ => lowerer.lower_expression(expression),
+        };
         lowerer.record_return_expression(&return_value);
         let body = BlockIr {
             result_kind: return_value.kind,
@@ -9375,10 +7857,13 @@ impl<'a> ScriptLowerer<'a> {
             .extend(lowerer.dynamically_installed_getters);
         self.dynamically_installed_setters
             .extend(lowerer.dynamically_installed_setters);
+        self.observed_script_global_writes
+            .extend(std::mem::take(&mut lowerer.observed_script_global_writes));
         self.install_generated_class_element_flow(class_element_flow);
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
         self.generated_functions.push(FunctionIr {
+            template_source: self.analysis.template_source,
             eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id.clone(),
             name: function_name,
@@ -9476,6 +7961,7 @@ impl<'a> ScriptLowerer<'a> {
         let owned_env_bindings = self.generated_owned_env_bindings_for_owner(&function_id);
         let captured_bindings = self.generated_captured_bindings_for_owner(&function_id);
         self.generated_functions.push(FunctionIr {
+            template_source: self.analysis.template_source,
             eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id.clone(),
             name: function_name,
@@ -9626,6 +8112,7 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         self.generated_functions.push(FunctionIr {
+            template_source: self.analysis.template_source,
             eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id,
             name: function_name,
@@ -9742,70 +8229,6 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn static_regexp_compilation_for_direct_call(
-        &self,
-        callee: &TypedExpr,
-        function_id: &FunctionId,
-        args: &[TypedExpr],
-    ) -> Option<StaticRegExpCompilation> {
-        let builtin = StandardBuiltinId::from_function_id(function_id)?;
-        if builtin == StandardBuiltinId::RegExpConstructor
-            && !matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == REGEXP_NAME)
-        {
-            return None;
-        }
-        if !matches!(
-            builtin,
-            StandardBuiltinId::RegExpConstructor | StandardBuiltinId::RegExpPrototypeCompile
-        ) {
-            return None;
-        }
-        let compilation = match args {
-            []
-            | [TypedExpr {
-                expr: ExprIr::Undefined,
-                ..
-            }] => RegExpProgram::compile("", ""),
-            [TypedExpr {
-                expr: ExprIr::String(pattern),
-                ..
-            }] => RegExpProgram::compile(pattern, ""),
-            [TypedExpr {
-                expr: ExprIr::String(pattern),
-                ..
-            }, TypedExpr {
-                expr: ExprIr::String(flags),
-                ..
-            }, ..] => RegExpProgram::compile(pattern, flags),
-            _ => return None,
-        };
-        // Requested by lane RE-RT (batch 7, `re-rt-b7-integration.md` §5) and
-        // applied in the form that lane preferred: match `error.kind` once,
-        // exhaustively, with no guard and no `unreachable!`.
-        //
-        // Behaviour is unchanged, deliberately. `UnsupportedFeature` means
-        // *legal pattern, this compiler cannot build a program for it yet*, so
-        // it must keep falling through to the runtime path where the fallback
-        // matcher gets a turn; promoting it to a static SyntaxError would invent
-        // a spec violation for every legal-but-unimplemented pattern. What the
-        // catch-all cost was hygiene: a third `RegExpCompileErrorKind` variant
-        // would have been silently treated as "unsupported" here and at the
-        // sibling site below, and nothing would have failed to build.
-        // `lila-aot-wasm`'s runtime RegExp table draws the same line
-        // (`RuntimeRegExpEntry::{Rejected,Unsupported}`); the two must not drift.
-        match compilation {
-            Ok(program) => Some(StaticRegExpCompilation::Program(program)),
-            Err(error) => match error.kind {
-                RegExpCompileErrorKind::InvalidSyntax => {
-                    Some(StaticRegExpCompilation::InvalidSyntax {
-                        message: format!("invalid regular-expression pattern: {error}"),
-                    })
-                }
-                RegExpCompileErrorKind::UnsupportedFeature => None,
-            },
-        }
-    }
-
     fn known_json_parse_reviver_targets(&self, args: &[TypedExpr]) -> BTreeSet<FunctionId> {
         let mut reviver_targets = BTreeSet::new();
         let Some(reviver) = args.get(1) else {
@@ -9833,10 +8256,10 @@ impl<'a> ScriptLowerer<'a> {
     ) {
         let holder_info = ValueInfo {
             kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::from_kind(ValueKind::Object)
-                .union(KindSet::from_kind(ValueKind::Array)),
+            possible_kinds: KindSet::HEAP_COERCIBLE_ONLY
+                .union(KindSet::from_kind(ValueKind::Function)),
             heap_shape: None,
-            function_targets: FunctionTargetKnowledge::none(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
         let object_info = ValueInfo {
             kind: ValueKind::Object,
@@ -9875,485 +8298,17 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn fold_standard_builtin_literal_call(
-        builtin: StandardBuiltinId,
-        args: &[TypedExpr],
-    ) -> Option<TypedExpr> {
-        match builtin {
-            StandardBuiltinId::Unescape => {
-                let input = match args.first().map(|arg| &arg.expr) {
-                    Some(ExprIr::String(value)) => value.as_str(),
-                    None => "undefined",
-                    _ => return None,
-                };
-                let folded = Self::fold_annexb_unescape_literal(input)?;
-                Some(TypedExpr::from_info(
-                    Self::string_value_info(&folded),
-                    ExprIr::String(folded),
-                ))
-            }
-            StandardBuiltinId::GlobalIsFinite | StandardBuiltinId::GlobalIsNaN => {
-                let value = match args.first() {
-                    Some(arg) => Self::fold_to_number_literal_expr(arg)?,
-                    None => f64::NAN,
-                };
-                let result = if builtin == StandardBuiltinId::GlobalIsFinite {
-                    value.is_finite()
-                } else {
-                    value.is_nan()
-                };
-                Some(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::Boolean(result),
-                ))
-            }
-            StandardBuiltinId::NumberIsFinite
-            | StandardBuiltinId::NumberIsNaN
-            | StandardBuiltinId::NumberIsSafeInteger => {
-                let Some(arg) = args.first() else {
-                    return Some(TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::Boolean(false),
-                    ));
-                };
-                let value = match &arg.expr {
-                    ExprIr::Number(value) => f64::from_bits(*value),
-                    _ if !arg.possible_kinds.contains(ValueKind::Number) => {
-                        return Some(TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::Boolean(false),
-                        ));
-                    }
-                    _ => return None,
-                };
-                let result = match builtin {
-                    StandardBuiltinId::NumberIsFinite => value.is_finite(),
-                    StandardBuiltinId::NumberIsNaN => value.is_nan(),
-                    StandardBuiltinId::NumberIsSafeInteger => {
-                        value.is_finite()
-                            && value.trunc() == value
-                            && value.abs() <= 9_007_199_254_740_991.0
-                    }
-                    _ => unreachable!(),
-                };
-                Some(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::Boolean(result),
-                ))
-            }
-            StandardBuiltinId::JsonParse => None,
-            _ => None,
-        }
-    }
-
-    fn fold_to_number_literal_expr(expr: &TypedExpr) -> Option<f64> {
-        match &expr.expr {
-            ExprIr::Number(value) => Some(f64::from_bits(*value)),
-            ExprIr::String(value) => Some(Self::fold_to_number_string_literal(value)),
-            ExprIr::Boolean(value) => Some(if *value { 1.0 } else { 0.0 }),
-            ExprIr::Null => Some(0.0),
-            ExprIr::Undefined => Some(f64::NAN),
-            ExprIr::ArrayLiteral(elements) => {
-                let value = match elements.as_slice() {
-                    [] => 0.0,
-                    [element] => match &element.expr {
-                        ExprIr::String(value) => Self::fold_to_number_string_literal(value),
-                        ExprIr::Number(value) => f64::from_bits(*value),
-                        ExprIr::Boolean(value) => Self::fold_to_number_string_literal(if *value {
-                            "true"
-                        } else {
-                            "false"
-                        }),
-                        ExprIr::Null => 0.0,
-                        ExprIr::Undefined => 0.0,
-                        _ => return None,
-                    },
-                    _ => return None,
-                };
-                Some(value)
-            }
-            _ => None,
-        }
-    }
-
-    fn fold_to_number_string_literal(input: &str) -> f64 {
-        let trimmed = input.trim_matches(|ch: char| ch.is_ascii_whitespace());
-        if trimmed.is_empty() {
-            return 0.0;
-        }
-        match trimmed {
-            "Infinity" | "+Infinity" => f64::INFINITY,
-            "-Infinity" => f64::NEG_INFINITY,
-            _ => trimmed.parse::<f64>().unwrap_or(f64::NAN),
-        }
-    }
-
-    fn fold_annexb_unescape_literal(input: &str) -> Option<String> {
-        let units = input.encode_utf16().collect::<Vec<_>>();
-        let mut output = Vec::with_capacity(units.len());
-        let mut index = 0;
-
-        while index < units.len() {
-            let mut unit = units[index];
-            if unit == b'%' as u16 {
-                if index + 5 < units.len() && units[index + 1] == b'u' as u16 {
-                    if let (Some(a), Some(b), Some(c), Some(d)) = (
-                        Self::annexb_hex_value(units[index + 2]),
-                        Self::annexb_hex_value(units[index + 3]),
-                        Self::annexb_hex_value(units[index + 4]),
-                        Self::annexb_hex_value(units[index + 5]),
-                    ) {
-                        unit = (a << 12) | (b << 8) | (c << 4) | d;
-                        index += 5;
-                    }
-                } else if index + 2 < units.len() {
-                    if let (Some(a), Some(b)) = (
-                        Self::annexb_hex_value(units[index + 1]),
-                        Self::annexb_hex_value(units[index + 2]),
-                    ) {
-                        unit = (a << 4) | b;
-                        index += 2;
-                    }
-                }
-            }
-            output.push(unit);
-            index += 1;
-        }
-
-        String::from_utf16(&output).ok()
-    }
-
-    fn annexb_hex_value(unit: u16) -> Option<u16> {
-        match unit {
-            unit if unit >= b'0' as u16 && unit <= b'9' as u16 => Some(unit - b'0' as u16),
-            unit if unit >= b'A' as u16 && unit <= b'F' as u16 => Some(unit - b'A' as u16 + 10),
-            unit if unit >= b'a' as u16 && unit <= b'f' as u16 => Some(unit - b'a' as u16 + 10),
-            _ => None,
-        }
-    }
-
-    fn lower_generator_iife_as_array(&mut self, generator: &GeneratorExpression) -> TypedExpr {
-        let _ = generator;
-        self.unsupported_expr("generator suspension")
-    }
-
-    fn lower_static_yield_star_generator_method_call(
-        &mut self,
-        receiver: &TypedExpr,
-        access: &boa_ast::expression::access::SimplePropertyAccess,
-        args: &[Expression],
-    ) -> Option<TypedExpr> {
-        self.read_object_shape_property(receiver, LILA_YIELD_STAR_GENERATOR_SLOT)?;
-        let PropertyAccessField::Const(field) = access.field() else {
-            return None;
-        };
-        let field_name = self.interner.resolve_expect(field.sym()).to_string();
-        match field_name.as_str() {
-            "next" => {
-                for arg in args {
-                    self.lower_expression(arg);
-                }
-                let done = TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::Boolean(false),
-                );
-                let mut shape = ObjectShape::default();
-                shape.properties.insert(
-                    "done".to_string(),
-                    ObjectShapeProperty::Data(done.value_info()),
-                );
-                Some(TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Object,
-                        possible_kinds: KindSet::from_kind(ValueKind::Object),
-                        heap_shape: Some(Box::new(HeapShape::Object(shape))),
-                        function_targets: FunctionTargetKnowledge::none(),
-                    },
-                    ExprIr::ObjectLiteral(vec![ObjectPropertyIr::Data {
-                        key: "done".to_string(),
-                        value: done,
-                        is_shorthand: false,
-                    }]),
-                ))
-            }
-            "return" => {
-                for arg in args {
-                    self.lower_expression(arg);
-                }
-                if self
-                    .read_object_shape_property(receiver, LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT)
-                    .is_some()
-                {
-                    Some(TypedExpr::from_info(
-                        ValueInfo::undefined(),
-                        ExprIr::RuntimeThrow {
-                            name: NativeErrorKind::TypeError,
-                            message: "yield star return result must be object",
-                        },
-                    ))
-                } else {
-                    None
-                }
-            }
-            "throw" => {
-                for arg in args {
-                    self.lower_expression(arg);
-                }
-                if self
-                    .read_object_shape_property(receiver, LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT)
-                    .is_some()
-                {
-                    Some(TypedExpr::from_info(
-                        ValueInfo::undefined(),
-                        ExprIr::RuntimeThrow {
-                            name: NativeErrorKind::TypeError,
-                            message: "yield star throw result must be object",
-                        },
-                    ))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    fn lower_static_iterator_from_wrapper_method_call(
-        &mut self,
-        receiver: &TypedExpr,
-        access: &boa_ast::expression::access::SimplePropertyAccess,
-        args: &[Expression],
-    ) -> Option<TypedExpr> {
-        let _ = (receiver, access, args);
-        None
-    }
-
     fn iterator_from_wrapper_value_info(&self, base: ValueInfo) -> ValueInfo {
-        if base.heap_shape.as_deref().is_some_and(|shape| {
-            Self::heap_shape_has_prototype(shape, Self::iterator_prototype_shape().as_ref())
-        }) {
-            return base;
-        }
-
-        let mut shape = ObjectShape {
-            prototype: Some(Self::iterator_from_wrapper_prototype_shape()),
-            properties: BTreeMap::new(),
-            private_brands: BTreeSet::new(),
-            boxed_primitive: None,
-        };
-        shape.properties.insert(
-            LILA_ITERATOR_FROM_WRAPPER_SLOT.to_string(),
-            ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
-        );
+        // GetIteratorFlattenable may call @@iterator and select an object other
+        // than the input. OrdinaryHasInstance can then return that object,
+        // including a callable or an Array, instead of allocating a wrapper.
+        let mut function_targets = base.function_targets;
+        function_targets.widen_for_possible_replacement();
         ValueInfo {
-            kind: ValueKind::Object,
-            possible_kinds: KindSet::from_kind(ValueKind::Object),
-            heap_shape: Some(Box::new(HeapShape::Object(shape))),
-            function_targets: FunctionTargetKnowledge::none(),
-        }
-    }
-
-    fn static_generator_declaration_values(
-        &self,
-        generator: &GeneratorDeclaration,
-    ) -> Option<Vec<f64>> {
-        if generator.parameters().length() != 0 {
-            return None;
-        }
-
-        self.static_generator_statement_list_values(generator.body().statements())
-    }
-
-    fn static_generator_statement_list_values(
-        &self,
-        statements: &[StatementListItem],
-    ) -> Option<Vec<f64>> {
-        let mut values = Vec::new();
-        for item in statements {
-            let StatementListItem::Statement(statement) = item else {
-                return None;
-            };
-            if let Some(value) = self.static_generator_yield_value(statement.as_ref()) {
-                values.push(value);
-                continue;
-            }
-            if let Some(loop_values) = self.static_generator_for_loop_values(statement.as_ref()) {
-                values.extend(loop_values);
-                continue;
-            }
-            return None;
-        }
-        Some(values)
-    }
-
-    fn static_generator_yield_value(&self, statement: &Statement) -> Option<f64> {
-        let Statement::Expression(Expression::Yield(yield_expr)) = self.single_statement(statement)
-        else {
-            return None;
-        };
-        if yield_expr.delegate() {
-            return None;
-        }
-        self.static_sum_precise_number_element(yield_expr.target()?)
-    }
-
-    fn static_generator_for_loop_values(&self, statement: &Statement) -> Option<Vec<f64>> {
-        let Statement::ForLoop(for_loop) = self.single_statement(statement) else {
-            return None;
-        };
-        let (loop_name, mut current) = self.static_generator_for_loop_initializer(for_loop)?;
-        let (condition_op, condition_var_on_lhs, condition_value) =
-            self.static_generator_for_loop_condition(for_loop.condition()?, &loop_name)?;
-        let step = self.static_generator_for_loop_update(for_loop.final_expr()?, &loop_name)?;
-        let yield_name = self.static_generator_for_loop_yield_name(for_loop.body())?;
-        if yield_name != loop_name {
-            return None;
-        }
-
-        let mut values = Vec::new();
-        while Self::static_generator_for_loop_condition_holds(
-            current,
-            condition_op,
-            condition_var_on_lhs,
-            condition_value,
-        ) {
-            if values.len() >= MAX_STATIC_ARRAY_SHAPE_INDEX {
-                return None;
-            }
-            values.push(current);
-            current += step;
-        }
-        Some(values)
-    }
-
-    fn static_generator_for_loop_initializer(&self, for_loop: &ForLoop) -> Option<(String, f64)> {
-        match for_loop.init()? {
-            ForLoopInitializer::Lexical(lexical) => {
-                let list = match lexical.declaration() {
-                    LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-                    LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                        return None;
-                    }
-                };
-                if list.as_ref().len() != 1 {
-                    return None;
-                }
-                let variable = &list.as_ref()[0];
-                let Binding::Identifier(identifier) = variable.binding() else {
-                    return None;
-                };
-                Some((
-                    self.interner.resolve_expect(identifier.sym()).to_string(),
-                    self.static_sum_precise_number_element(variable.init()?)?,
-                ))
-            }
-            ForLoopInitializer::Var(var) => {
-                if var.0.as_ref().len() != 1 {
-                    return None;
-                }
-                let variable = &var.0.as_ref()[0];
-                let Binding::Identifier(identifier) = variable.binding() else {
-                    return None;
-                };
-                Some((
-                    self.interner.resolve_expect(identifier.sym()).to_string(),
-                    self.static_sum_precise_number_element(variable.init()?)?,
-                ))
-            }
-            ForLoopInitializer::Expression(_) => None,
-        }
-    }
-
-    fn static_generator_for_loop_condition(
-        &self,
-        condition: &Expression,
-        loop_name: &str,
-    ) -> Option<(RelationalOp, bool, f64)> {
-        let Expression::Binary(binary) = Self::unwrap_parenthesized_expr(condition) else {
-            return None;
-        };
-        let BinaryOp::Relational(op) = binary.op() else {
-            return None;
-        };
-        if !matches!(
-            op,
-            RelationalOp::LessThan
-                | RelationalOp::LessThanOrEqual
-                | RelationalOp::GreaterThan
-                | RelationalOp::GreaterThanOrEqual
-        ) {
-            return None;
-        }
-        if self.expr_is_identifier_named(binary.lhs(), loop_name) {
-            return Some((
-                op,
-                true,
-                self.static_sum_precise_number_element(binary.rhs())?,
-            ));
-        }
-        if self.expr_is_identifier_named(binary.rhs(), loop_name) {
-            return Some((
-                op,
-                false,
-                self.static_sum_precise_number_element(binary.lhs())?,
-            ));
-        }
-        None
-    }
-
-    fn static_generator_for_loop_update(
-        &self,
-        update: &Expression,
-        loop_name: &str,
-    ) -> Option<f64> {
-        let Expression::Update(update) = Self::unwrap_parenthesized_expr(update) else {
-            return None;
-        };
-        let UpdateTarget::Identifier(identifier) = update.target() else {
-            return None;
-        };
-        if self.interner.resolve_expect(identifier.sym()).to_string() != loop_name {
-            return None;
-        }
-        match update.op() {
-            UpdateOp::IncrementPost | UpdateOp::IncrementPre => Some(1.0),
-            UpdateOp::DecrementPost | UpdateOp::DecrementPre => Some(-1.0),
-        }
-    }
-
-    fn static_generator_for_loop_yield_name(&self, body: &Statement) -> Option<String> {
-        let Statement::Expression(Expression::Yield(yield_expr)) = self.single_statement(body)
-        else {
-            return None;
-        };
-        if yield_expr.delegate() {
-            return None;
-        }
-        let Expression::Identifier(identifier) =
-            Self::unwrap_parenthesized_expr(yield_expr.target()?)
-        else {
-            return None;
-        };
-        Some(self.interner.resolve_expect(identifier.sym()).to_string())
-    }
-
-    fn static_generator_for_loop_condition_holds(
-        current: f64,
-        op: RelationalOp,
-        var_on_lhs: bool,
-        value: f64,
-    ) -> bool {
-        let (lhs, rhs) = if var_on_lhs {
-            (current, value)
-        } else {
-            (value, current)
-        };
-        match op {
-            RelationalOp::LessThan => lhs < rhs,
-            RelationalOp::LessThanOrEqual => lhs <= rhs,
-            RelationalOp::GreaterThan => lhs > rhs,
-            RelationalOp::GreaterThanOrEqual => lhs >= rhs,
-            _ => false,
+            kind: ValueKind::Dynamic,
+            possible_kinds: Self::object_like_kind_set(),
+            heap_shape: None,
+            function_targets,
         }
     }
 
@@ -10419,8 +8374,12 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn call_args_have_spread(args: &[TypedExpr]) -> bool {
-        args.iter()
-            .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)))
+        args.iter().any(|arg| {
+            matches!(
+                arg.expr,
+                ExprIr::SpreadArgument(_) | ExprIr::CapturedArgumentList(_)
+            )
+        })
     }
 
     fn finish_target_call_arguments(
@@ -10457,59 +8416,6 @@ impl<'a> ScriptLowerer<'a> {
             self.merge_function_this_info(function_id, this_info);
         }
         arguments
-    }
-
-    fn lower_splice_zero_call_args(
-        &mut self,
-        args: &[Expression],
-    ) -> Option<(String, Vec<TypedExpr>)> {
-        if args.len() == 3 {
-            if let Expression::Spread(spread) = &args[2] {
-                if self.is_object_keys_call(spread.target()) {
-                    let mut lowered_args = self
-                        .lower_call_args_expanding_spread(args)
-                        .into_arguments_without_predecessor();
-                    let TypedExpr {
-                        expr: ExprIr::SpreadArgument(spread),
-                        ..
-                    } = lowered_args
-                        .pop()
-                        .expect("three source arguments must produce a spread argument")
-                    else {
-                        unreachable!("the final source spread must remain a spread argument")
-                    };
-                    let mut spread_value = *spread.value;
-                    spread_value.heap_shape = None;
-                    lowered_args.push(spread_value);
-                    return Some(("spliceFromArray".to_string(), lowered_args));
-                }
-            }
-        }
-        let args = self
-            .lower_call_args_expanding_spread(args)
-            .into_arguments_without_predecessor();
-        Some(("splice".to_string(), args))
-    }
-
-    fn is_object_keys_call(&self, expr: &Expression) -> bool {
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) else {
-            return false;
-        };
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return false;
-        };
-        let Expression::Identifier(target) = Self::unwrap_parenthesized_expr(access.target())
-        else {
-            return false;
-        };
-        let PropertyAccessField::Const(field) = access.field() else {
-            return false;
-        };
-        self.interner.resolve_expect(target.sym()).to_string() == OBJECT_NAME
-            && self.interner.resolve_expect(field.sym()).to_string() == "keys"
-            && call.args().len() == 1
     }
 
     fn lower_call_args_with_target(
@@ -10549,8 +8455,28 @@ impl<'a> ScriptLowerer<'a> {
                     unreachable!("spread arguments cannot prove eval's first value is non-String")
                 }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(_)) => {}
+                Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(proof)) => {
+                    self.mark_host_builtin_from_function_id(function_id);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
                 Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(proof)) => {
                     self.note_standard_builtin_call(StandardBuiltinId::EvalFunction);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
+                Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(proof)) => {
+                    self.note_standard_builtin_call(
+                        StandardBuiltinId::ShadowRealmPrototypeEvaluate,
+                    );
                     return (
                         function_id.clone(),
                         lowered_args,
@@ -10619,8 +8545,28 @@ impl<'a> ScriptLowerer<'a> {
             match self.resolve_dynamic_source_call(function_id, Some(args), &lowered_args) {
                 None => None,
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+                Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(proof)) => {
+                    self.mark_host_builtin_from_function_id(function_id);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
                 Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(proof)) => {
                     self.note_standard_builtin_call(StandardBuiltinId::EvalFunction);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
+                Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(proof)) => {
+                    self.note_standard_builtin_call(
+                        StandardBuiltinId::ShadowRealmPrototypeEvaluate,
+                    );
                     return (
                         function_id.clone(),
                         lowered_args,
@@ -11018,54 +8964,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    /// Object-like kinds whose default `toString`/`toLocaleString` is
-    /// `Object.prototype`'s, *purely by virtue of their `ValueKind`* — i.e.
-    /// excluding `Array` and `Function`, which always override `toString`
-    /// (`Array.prototype.toString`, `Function.prototype.toString`) regardless
-    /// of what heap-shape tracking knows. This is narrower than
-    /// `object_like_kind_set()` on purpose: it is only safe to resolve a
-    /// dynamically-retrieved `toString`/`toLocaleString` straight to the
-    /// `Object.prototype` builtin when the receiver's kind can't itself be
-    /// one of those overriding kinds. Values that are `ValueKind::Object` but
-    /// represent a built-in exotic object with its own override (`Error`,
-    /// `Date`, `RegExp`, boxed primitives, or a user `class` with its own
-    /// method) are still guarded separately via `read_object_shape`, which
-    /// walks the tracked prototype chain for an existing override.
-    fn plain_object_kind_set() -> KindSet {
-        KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Arguments))
-    }
-
-    /// Whether it is statically safe to resolve a dynamically-retrieved
-    /// `toString`/`toLocaleString` property read straight to the matching
-    /// `Object.prototype` builtin, for a receiver that isn't a literal
-    /// `Object.prototype` reference.
-    ///
-    /// Three conditions must all hold:
-    /// - `target.possible_kinds` rules out `Array`/`Function`, which always
-    ///   override `toString`/`toLocaleString` regardless of shape tracking.
-    /// - `target.heap_shape` is *positively tracked* (`Some`) — an object
-    ///   literal, `Object.create` result, etc.
-    /// - `read_object_shape(target, name)` finds no override anywhere in
-    ///   that tracked prototype chain (rules out Error/boxed-primitive/
-    ///   user-defined overrides).
-    ///
-    /// Unknown and reflective call boundaries erase receiver shapes before
-    /// lowering the body, so a surviving shape is positive evidence here.
-    /// In particular, unobserved sloppy-function `this` starts with no shape;
-    /// copying it cannot manufacture a false prototype-resolution proof.
-    fn dynamic_object_prototype_method_resolution_is_safe(
-        &self,
-        target: &TypedExpr,
-        name: &str,
-    ) -> bool {
-        target
-            .possible_kinds
-            .is_subset_of(Self::plain_object_kind_set())
-            && !self.is_typed_array_value(target)
-            && target.heap_shape.is_some()
-            && self.read_object_shape(target, name).is_none()
-    }
-
     fn value_info_from_shape(shape: Option<Box<HeapShape>>) -> ValueInfo {
         let kind = match shape.as_deref() {
             Some(HeapShape::Array(_)) => ValueKind::Array,
@@ -11085,6 +8983,7 @@ impl<'a> ScriptLowerer<'a> {
             properties.insert(name.to_string(), ObjectShapeProperty::Data(info));
         }
         Box::new(HeapShape::Object(ObjectShape {
+            provenance: HeapShapeProvenance::Program,
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
             private_brands: BTreeSet::new(),
@@ -11253,7 +9152,7 @@ impl<'a> ScriptLowerer<'a> {
         let trap_this = handler.value_info();
         for trap in ProxyTrap::ALL {
             let Some(ObjectShapeProperty::Data(handler_method)) =
-                read_heap_shape_property(handler_shape, trap.property_name())
+                self.read_current_heap_shape_property(handler_shape, trap.property_name())
             else {
                 continue;
             };
@@ -11390,6 +9289,90 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// Result facts are also the admission boundary for this inferred family.
+    /// Every admitted target has a result, and none selects a property name.
+    fn inferred_indexed_collection_result_info(builtin: StandardBuiltinId) -> Option<ValueInfo> {
+        match builtin {
+            StandardBuiltinId::ArrayPrototypePush
+            | StandardBuiltinId::ArrayPrototypeUnshift
+            | StandardBuiltinId::ArrayPrototypeIndexOf
+            | StandardBuiltinId::ArrayPrototypeLastIndexOf
+            | StandardBuiltinId::ArrayPrototypeFindIndex
+            | StandardBuiltinId::ArrayPrototypeFindLastIndex
+            | StandardBuiltinId::TypedArrayPrototypeIndexOf
+            | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
+            | StandardBuiltinId::TypedArrayPrototypeFindIndex
+            | StandardBuiltinId::TypedArrayPrototypeFindLastIndex => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::ArrayPrototypeIncludes
+            | StandardBuiltinId::ArrayPrototypeEvery
+            | StandardBuiltinId::ArrayPrototypeSome
+            | StandardBuiltinId::TypedArrayPrototypeIncludes
+            | StandardBuiltinId::TypedArrayPrototypeEvery
+            | StandardBuiltinId::TypedArrayPrototypeSome => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::ArrayPrototypeJoin
+            | StandardBuiltinId::ArrayPrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::ArrayPrototypeForEach
+            | StandardBuiltinId::TypedArrayPrototypeForEach => Some(ValueInfo::undefined()),
+            StandardBuiltinId::ArrayPrototypeConcat
+            | StandardBuiltinId::ArrayPrototypeSlice
+            | StandardBuiltinId::ArrayPrototypeSplice
+            | StandardBuiltinId::ArrayPrototypeFlat
+            | StandardBuiltinId::ArrayPrototypeFlatMap
+            | StandardBuiltinId::ArrayPrototypeMap
+            | StandardBuiltinId::ArrayPrototypeFilter
+            | StandardBuiltinId::ArrayPrototypeToReversed
+            | StandardBuiltinId::ArrayPrototypeToSpliced
+            | StandardBuiltinId::ArrayPrototypeToSorted
+            | StandardBuiltinId::ArrayPrototypeWith => Some(Self::unshaped_array_result_info()),
+            StandardBuiltinId::ArrayPrototypeFill
+            | StandardBuiltinId::ArrayPrototypeSort
+            | StandardBuiltinId::ArrayPrototypeReverse
+            | StandardBuiltinId::ArrayPrototypeCopyWithin => {
+                // These return ToObject(receiver), after mutations and hooks.
+                Some(Self::unknown_construct_result_info())
+            }
+            StandardBuiltinId::ArrayPrototypePop
+            | StandardBuiltinId::ArrayPrototypeShift
+            | StandardBuiltinId::ArrayPrototypeAt
+            | StandardBuiltinId::ArrayPrototypeFind
+            | StandardBuiltinId::ArrayPrototypeFindLast
+            | StandardBuiltinId::ArrayPrototypeReduce
+            | StandardBuiltinId::ArrayPrototypeReduceRight
+            | StandardBuiltinId::TypedArrayPrototypeFind
+            | StandardBuiltinId::TypedArrayPrototypeFindLast
+            | StandardBuiltinId::TypedArrayPrototypeReduce
+            | StandardBuiltinId::TypedArrayPrototypeReduceRight
+            | StandardBuiltinId::TypedArrayPrototypeToString => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::unknown(),
+            }),
+            StandardBuiltinId::TypedArrayPrototypeMap
+            | StandardBuiltinId::TypedArrayPrototypeFilter
+            | StandardBuiltinId::ArrayPrototypeKeys
+            | StandardBuiltinId::ArrayPrototypeEntries
+            | StandardBuiltinId::ArrayPrototypeValues
+            | StandardBuiltinId::TypedArrayPrototypeKeys
+            | StandardBuiltinId::TypedArrayPrototypeEntries
+            | StandardBuiltinId::TypedArrayPrototypeValues => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                // Iterator methods are mutable inherited properties, and a
+                // species-created TypedArray has no validated static layout.
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            }),
+            _ => None,
+        }
+    }
+
     fn unshaped_array_result_info() -> ValueInfo {
         ValueInfo {
             // ArraySpeciesCreate may use a custom constructor, whose result
@@ -11403,124 +9386,6 @@ impl<'a> ScriptLowerer<'a> {
                 .union(KindSet::from_kind(ValueKind::Arguments)),
             heap_shape: None,
             function_targets: FunctionTargetKnowledge::unknown(),
-        }
-    }
-
-    fn array_shape_has_proven_concat_layout(shape: &ArrayShape) -> bool {
-        // Concatenation observes more than the dense element vector: a custom
-        // prototype can contribute indexed properties, own properties can
-        // change @@isConcatSpreadable/constructor behavior, and an element
-        // inferred as `undefined` may represent a hole that concat preserves.
-        // Without those distinctions in ArrayShape, discard the result shape.
-        shape.prototype.is_none()
-            && shape.properties.is_empty()
-            && shape
-                .elements
-                .iter()
-                .all(|element| !element.possible_kinds.contains(ValueKind::Undefined))
-    }
-
-    fn array_concat_result_info(&self, receiver: &TypedExpr, args: &[TypedExpr]) -> ValueInfo {
-        let default = Self::unshaped_array_result_info;
-
-        if let Some(constructor_info) = self.read_object_shape(receiver, "constructor") {
-            if let Some(species_info) =
-                self.read_well_known_symbol_shape(&constructor_info, WellKnownSymbol::Species)
-            {
-                if !species_info.possible_kinds.is_subset_of(
-                    KindSet::from_kind(ValueKind::Undefined)
-                        .union(KindSet::from_kind(ValueKind::Null)),
-                ) {
-                    let Some(ObjectShapeProperty::Data(prototype_info)) = self
-                        .read_object_shape_property(
-                            &TypedExpr::from_info(species_info, ExprIr::Undefined),
-                            "prototype",
-                        )
-                    else {
-                        return ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: FunctionTargetKnowledge::unknown(),
-                        };
-                    };
-                    if !matches!(
-                        prototype_info.kind,
-                        ValueKind::Object
-                            | ValueKind::Array
-                            | ValueKind::Function
-                            | ValueKind::Arguments
-                    ) {
-                        return default();
-                    }
-
-                    return Self::with_instance_prototype(
-                        Self::fresh_constructed_instance_info(),
-                        prototype_info.heap_shape,
-                    );
-                }
-            }
-        }
-
-        let Some(HeapShape::Array(receiver_shape)) = receiver.heap_shape.as_deref() else {
-            return default();
-        };
-        if !Self::array_shape_has_proven_concat_layout(receiver_shape) {
-            return default();
-        }
-        let mut shape = ArrayShape::default();
-        shape
-            .elements
-            .extend(receiver_shape.elements.iter().cloned());
-        for arg in args {
-            let Some(HeapShape::Array(arg_shape)) = arg.heap_shape.as_deref() else {
-                return default();
-            };
-            if !Self::array_shape_has_proven_concat_layout(arg_shape) {
-                return default();
-            }
-            shape.elements.extend(arg_shape.elements.iter().cloned());
-        }
-        ValueInfo {
-            kind: ValueKind::Array,
-            possible_kinds: KindSet::from_kind(ValueKind::Array),
-            heap_shape: Some(Box::new(HeapShape::Array(shape))),
-            function_targets: FunctionTargetKnowledge::none(),
-        }
-    }
-
-    fn array_map_result_info(&self, receiver: &TypedExpr, mapper: Option<&TypedExpr>) -> ValueInfo {
-        let default = || ValueInfo {
-            kind: ValueKind::Array,
-            possible_kinds: KindSet::from_kind(ValueKind::Array),
-            heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-            function_targets: FunctionTargetKnowledge::none(),
-        };
-
-        let Some(mapper) = mapper else {
-            return default();
-        };
-        let Some(callback_id) = self.resolve_single_function_target(mapper) else {
-            return default();
-        };
-        let Some(signature) = self.function_signatures.get(&callback_id) else {
-            return default();
-        };
-        let Some(HeapShape::Array(receiver_shape)) = receiver.heap_shape.as_deref() else {
-            return default();
-        };
-
-        let mapper_result = self.function_call_return_info(signature);
-        let mut shape = ArrayShape::default();
-        shape
-            .elements
-            .resize(receiver_shape.elements.len(), mapper_result);
-
-        ValueInfo {
-            kind: ValueKind::Array,
-            possible_kinds: KindSet::from_kind(ValueKind::Array),
-            heap_shape: Some(Box::new(HeapShape::Array(shape))),
-            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -11549,16 +9414,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn static_splice_delete_count_is_supported(args: &[Expression]) -> bool {
-        if args.len() < 2 {
-            return false;
-        }
-        matches!(
-            Self::literal_number_value(&args[1]),
-            Some(value) if value == 0.0 || value == 1.0
-        )
-    }
-
     fn function_value_expr(&self, function_id: FunctionId) -> TypedExpr {
         let info = self.function_value_info(&function_id);
         TypedExpr::from_info(info, ExprIr::FunctionValue(function_id))
@@ -11569,59 +9424,6 @@ impl<'a> ScriptLowerer<'a> {
             .get(function_id)
             .map(|signature| self.function_call_return_info(signature))
             .unwrap_or_else(ValueInfo::undefined)
-    }
-
-    fn lower_object_method_function(
-        &mut self,
-        method: &ObjectMethodDefinition,
-        function_name: &str,
-    ) -> Option<(ObjectMethodFunctionIr, ValueInfo)> {
-        let Some(parameters) = self.lower_function_parameters(method.parameters(), function_name)
-        else {
-            return None;
-        };
-        match method.kind() {
-            MethodDefinitionKind::Ordinary
-            | MethodDefinitionKind::Generator
-            | MethodDefinitionKind::Async
-            | MethodDefinitionKind::AsyncGenerator => {}
-            MethodDefinitionKind::Get => {
-                if !parameters.as_ref().is_empty() {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: getter `{function_name}` must not declare parameters"
-                    ));
-                    return None;
-                }
-            }
-            MethodDefinitionKind::Set => {
-                if parameters.as_ref().len() != 1 {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: setter `{function_name}` must declare exactly one parameter"
-                    ));
-                    return None;
-                }
-                // PropertySetParameterList is one FormalParameter: a pattern
-                // or default initializer is ordinary parameter binding (with
-                // `length` 0 for a default); a rest parameter is an early
-                // error the parser reports before lowering.
-                let parameter = &parameters.as_ref()[0];
-                if parameter.is_rest_param() {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: setter `{function_name}` declares a rest parameter"
-                    ));
-                    return None;
-                }
-            }
-        }
-        let key = object_method_key(method);
-        let Some(function_id) = self.analysis.function_expr_ids.get(&key).cloned() else {
-            self.unsupported_expr("object literal method");
-            return None;
-        };
-        let info = self.function_value_info(&function_id);
-        let function =
-            ObjectMethodFunctionIr::new(function_id, object_method_protocol(method.kind()));
-        Some((function, info))
     }
 
     fn observe_proxy_handler_trap_expression_hints(&mut self, args: &[Expression]) {
@@ -11735,394 +9537,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn lower_object_literal(&mut self, object: &ObjectLiteral) -> TypedExpr {
-        if self.object_literal_has_duplicate_proto_setter(object) {
-            self.diagnostics.push(IrDiagnostic::rejected(
-                EarlyErrorCode::ObjectDuplicateProto,
-                "early error: duplicate __proto__ prototype setter in object literal",
-                None,
-            ));
-        }
-
-        let mut properties = Vec::with_capacity(object.properties().len());
-        let mut shape = ObjectShape::default();
-        let mut has_spread = false;
-        // A computed key whose identity is not known statically can name *any*
-        // property (including `valueOf`/`toString`), so the tracked shape can no
-        // longer be treated as the object's complete property set.
-        let mut has_unknown_key = false;
-        for property in object.properties() {
-            match property {
-                PropertyDefinition::Property(PropertyName::Literal(name), value) => {
-                    let key = self.interner.resolve_expect(name.sym()).to_string();
-                    self.observe_proxy_trap_value_hint(&key, value);
-                    let lowered = self.lower_expression(value);
-                    if key == "__proto__" {
-                        if lowered
-                            .possible_kinds
-                            .is_subset_of(Self::object_like_kind_set())
-                        {
-                            shape.prototype = lowered.heap_shape.clone();
-                        } else if lowered.possible_kinds == KindSet::from_kind(ValueKind::Null) {
-                            shape.prototype = None;
-                        }
-                        properties.push(ObjectPropertyIr::PrototypeSetter { value: lowered });
-                        continue;
-                    }
-                    Self::insert_string_keyed_shape_property(
-                        &mut shape,
-                        &key,
-                        ObjectShapeProperty::Data(lowered.value_info()),
-                    );
-                    properties.push(ObjectPropertyIr::Data {
-                        key,
-                        value: lowered,
-                        is_shorthand: false,
-                    });
-                }
-                PropertyDefinition::IdentifierReference(identifier) => {
-                    let key = self.interner.resolve_expect(identifier.sym()).to_string();
-                    let lowered = self.lower_expression(&Expression::Identifier(*identifier));
-                    Self::insert_string_keyed_shape_property(
-                        &mut shape,
-                        &key,
-                        ObjectShapeProperty::Data(lowered.value_info()),
-                    );
-                    properties.push(ObjectPropertyIr::Data {
-                        key,
-                        value: lowered,
-                        is_shorthand: true,
-                    });
-                }
-                PropertyDefinition::MethodDefinition(method) => {
-                    let unsupported_generator = method.kind() == MethodDefinitionKind::Generator
-                        && !generator_function_is_aot_supported(method.body(), method.parameters());
-                    if unsupported_generator {
-                        return self.unsupported_expr("object literal method");
-                    }
-
-                    let static_key = match method.name() {
-                        PropertyName::Literal(name) => {
-                            Some(self.interner.resolve_expect(name.sym()).to_string())
-                        }
-                        PropertyName::Computed(expr) => self.try_static_ordinary_property_key(expr),
-                    };
-
-                    if let Some(key) = static_key {
-                        self.observe_proxy_trap_method_hint(&key, method);
-                        let Some((function, function_info)) =
-                            self.lower_object_method_function(method, &key)
-                        else {
-                            return TypedExpr::undefined();
-                        };
-                        match method.kind() {
-                            MethodDefinitionKind::Ordinary
-                            | MethodDefinitionKind::Generator
-                            | MethodDefinitionKind::Async
-                            | MethodDefinitionKind::AsyncGenerator => {
-                                Self::insert_string_keyed_shape_property(
-                                    &mut shape,
-                                    &key,
-                                    ObjectShapeProperty::Data(function_info),
-                                );
-                                properties.push(ObjectPropertyIr::Method { key, function });
-                            }
-                            MethodDefinitionKind::Get => {
-                                let function_id = function.function_id().clone();
-                                let entry = shape.properties.remove(&key);
-                                let setter = match entry {
-                                    Some(ObjectShapeProperty::Accessor { setter, .. }) => setter,
-                                    _ => None,
-                                };
-                                Self::insert_string_keyed_shape_property(
-                                    &mut shape,
-                                    &key,
-                                    ObjectShapeProperty::Accessor {
-                                        getter: Some(ObjectAccessorShape { function_id }),
-                                        setter,
-                                    },
-                                );
-                                properties.push(ObjectPropertyIr::Getter { key, function });
-                            }
-                            MethodDefinitionKind::Set => {
-                                let function_id = function.function_id().clone();
-                                let entry = shape.properties.remove(&key);
-                                let getter = match entry {
-                                    Some(ObjectShapeProperty::Accessor { getter, .. }) => getter,
-                                    _ => None,
-                                };
-                                Self::insert_string_keyed_shape_property(
-                                    &mut shape,
-                                    &key,
-                                    ObjectShapeProperty::Accessor {
-                                        getter,
-                                        setter: Some(ObjectAccessorShape { function_id }),
-                                    },
-                                );
-                                properties.push(ObjectPropertyIr::Setter { key, function });
-                            }
-                        }
-                        continue;
-                    }
-
-                    let PropertyName::Computed(expr) = method.name() else {
-                        return self.unsupported_expr("computed object key");
-                    };
-                    let well_known_key = self.try_well_known_symbol_key_name(expr);
-                    let key = self.lower_expression(expr);
-                    if !key
-                        .possible_kinds
-                        .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
-                    {
-                        return self.unsupported_expr("computed object key");
-                    }
-                    let key_may_be_string = Self::computed_key_may_be_string(&key);
-                    let Some((function, function_info)) =
-                        self.lower_object_method_function(method, "<computed>")
-                    else {
-                        return TypedExpr::undefined();
-                    };
-                    match method.kind() {
-                        MethodDefinitionKind::Ordinary
-                        | MethodDefinitionKind::Generator
-                        | MethodDefinitionKind::Async
-                        | MethodDefinitionKind::AsyncGenerator => {
-                            // See the computed data-property case: a
-                            // well-known-symbol method is a statically known key,
-                            // so it belongs in the tracked shape.
-                            match well_known_key {
-                                Some(symbol) => {
-                                    shape.properties.insert(
-                                        shape_namespace_key(symbol),
-                                        ObjectShapeProperty::Data(function_info),
-                                    );
-                                }
-                                None => has_unknown_key |= key_may_be_string,
-                            }
-                            properties.push(ObjectPropertyIr::ComputedMethod { key, function });
-                        }
-                        MethodDefinitionKind::Get => {
-                            let function_id = function.function_id().clone();
-                            match well_known_key {
-                                Some(symbol) => {
-                                    let property_name = shape_namespace_key(symbol);
-                                    let setter = match shape.properties.get(&property_name) {
-                                        Some(ObjectShapeProperty::Accessor { setter, .. }) => {
-                                            setter.clone()
-                                        }
-                                        _ => None,
-                                    };
-                                    shape.properties.insert(
-                                        property_name,
-                                        ObjectShapeProperty::Accessor {
-                                            getter: Some(ObjectAccessorShape { function_id }),
-                                            setter,
-                                        },
-                                    );
-                                }
-                                None => has_unknown_key |= key_may_be_string,
-                            }
-                            properties.push(ObjectPropertyIr::ComputedGetter { key, function });
-                        }
-                        MethodDefinitionKind::Set => {
-                            let function_id = function.function_id().clone();
-                            match well_known_key {
-                                Some(symbol) => {
-                                    let property_name = shape_namespace_key(symbol);
-                                    let getter = match shape.properties.get(&property_name) {
-                                        Some(ObjectShapeProperty::Accessor { getter, .. }) => {
-                                            getter.clone()
-                                        }
-                                        _ => None,
-                                    };
-                                    shape.properties.insert(
-                                        property_name,
-                                        ObjectShapeProperty::Accessor {
-                                            getter,
-                                            setter: Some(ObjectAccessorShape { function_id }),
-                                        },
-                                    );
-                                }
-                                None => has_unknown_key |= key_may_be_string,
-                            }
-                            properties.push(ObjectPropertyIr::ComputedSetter { key, function });
-                        }
-                    }
-                }
-                PropertyDefinition::CoverInitializedName(_identifier, _) => {
-                    return self.unsupported_expr("object literal shorthand");
-                }
-                PropertyDefinition::Property(PropertyName::Computed(expr), value) => {
-                    let anonymous = value.is_anonymous_function_definition();
-                    let static_key = self.try_static_ordinary_property_key(expr);
-                    if let Some(key) = static_key.as_ref().filter(|_| !anonymous) {
-                        self.observe_proxy_trap_value_hint(&key, value);
-                        let lowered = self.lower_expression(value);
-                        Self::insert_string_keyed_shape_property(
-                            &mut shape,
-                            &key,
-                            ObjectShapeProperty::Data(lowered.value_info()),
-                        );
-                        properties.push(ObjectPropertyIr::Data {
-                            key: key.clone(),
-                            value: lowered,
-                            is_shorthand: false,
-                        });
-                        continue;
-                    }
-                    let well_known_key = self.try_well_known_symbol_key_name(expr);
-                    let mut key = match &static_key {
-                        Some(key) => TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(key.clone()),
-                        ),
-                        None => self.lower_expression(expr),
-                    };
-                    if !key
-                        .possible_kinds
-                        .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
-                    {
-                        return self.unsupported_expr("computed object key");
-                    }
-                    let (lowered, name_inference) = if anonymous {
-                        if let Expression::ClassExpression(class) =
-                            Self::unwrap_parenthesized_expr(value)
-                        {
-                            let suspends = self.class_evaluation_state().is_some()
-                                && (contains(value, ContainsSymbol::AwaitExpression)
-                                    || contains(value, ContainsSymbol::YieldExpression));
-                            let key_binding = if suspends {
-                                let normalized = TypedExpr::spec_to_property_key(key);
-                                let binding = self.alloc_suspension_owned_binding(
-                                    "class.inferred.name.",
-                                    normalized.value_info(),
-                                );
-                                self.async_expression_prefix
-                                    .as_mut()
-                                    .expect("suspending class owns an evaluation prefix")
-                                    .push(StatementIr::Lexical {
-                                        mode: BindingMode::Let,
-                                        name: binding.clone(),
-                                        init: normalized,
-                                    });
-                                key = self.lower_identifier_name(binding.clone(), false);
-                                binding
-                            } else {
-                                self.alloc_temp_binding_name("class.inferred.name.")
-                            };
-                            let lowered = self.lower_class_expression_with_inferred_name(
-                                class,
-                                Some(key_binding.clone()),
-                            );
-                            let inference = if suspends {
-                                ComputedPropertyNameInferenceIr::None
-                            } else {
-                                ComputedPropertyNameInferenceIr::Class { key_binding }
-                            };
-                            (lowered, inference)
-                        } else {
-                            (
-                                self.lower_expression(value),
-                                ComputedPropertyNameInferenceIr::Function,
-                            )
-                        }
-                    } else {
-                        (
-                            self.lower_expression(value),
-                            ComputedPropertyNameInferenceIr::None,
-                        )
-                    };
-                    // A well-known-symbol key (`{ [Symbol.toPrimitive]: fn }`) is
-                    // still a computed key at runtime, but its identity is known
-                    // statically. Record it in the tracked shape — under the
-                    // symbol namespace, so no string-keyed read can reach it —
-                    // so ToPrimitive inference sees the hook instead of
-                    // concluding the object has no hooks and always stringifies.
-                    match (static_key, well_known_key) {
-                        (Some(key), _) => Self::insert_string_keyed_shape_property(
-                            &mut shape,
-                            &key,
-                            ObjectShapeProperty::Data(lowered.value_info()),
-                        ),
-                        (None, Some(symbol)) => {
-                            shape.properties.insert(
-                                shape_namespace_key(symbol),
-                                ObjectShapeProperty::Data(lowered.value_info()),
-                            );
-                        }
-                        (None, None) => has_unknown_key |= Self::computed_key_may_be_string(&key),
-                    }
-                    properties.push(ObjectPropertyIr::ComputedData {
-                        key,
-                        value: lowered,
-                        name_inference,
-                    });
-                }
-                PropertyDefinition::SpreadObject(source) => {
-                    has_spread = true;
-                    let source = self.lower_expression(source);
-                    self.invalidate_unknown_user_code_effects();
-                    properties.push(ObjectPropertyIr::Spread { source });
-                }
-            }
-        }
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: (!has_spread && !has_unknown_key)
-                    .then(|| Box::new(HeapShape::Object(shape))),
-                function_targets: FunctionTargetKnowledge::none(),
-            },
-            ExprIr::ObjectLiteral(properties),
-        )
-    }
-
-    /// Whether a lowered computed key could name a string property. A key that
-    /// is provably a Symbol can never collide with (or shadow) a string-keyed
-    /// property, so a shape that omits it still describes every string key the
-    /// object has; anything else may turn out to be `"valueOf"` at runtime and
-    /// invalidates the tracked shape as a complete property set.
-    fn computed_key_may_be_string(key: &TypedExpr) -> bool {
-        !key.possible_kinds
-            .is_subset_of(KindSet::from_kind(ValueKind::Symbol))
-    }
-
-    // The shape-map name for a well-known-symbol key used to be built here from
-    // a `&str`, so any string at all could be given the symbol namespace. It is
-    // now `well_known::shape_namespace_key`, which takes a `WellKnownSymbol`.
-
-    /// Records a *string*-keyed property in a tracked shape. A key inside the
-    /// symbol namespace is left untracked rather than written, so it can never
-    /// be mistaken for a symbol-keyed entry; string-keyed reads of such a name
-    /// do not consult the shape either, so omitting it changes no answer.
-    fn insert_string_keyed_shape_property(
-        shape: &mut ObjectShape,
-        key: &str,
-        property: ObjectShapeProperty,
-    ) {
-        if shape_property_name_is_symbol_keyed(key) {
-            return;
-        }
-        shape.properties.insert(key.to_string(), property);
-    }
-
-    fn object_literal_has_duplicate_proto_setter(&self, object: &ObjectLiteral) -> bool {
-        let mut proto_setters = 0usize;
-        for property in object.properties() {
-            let PropertyDefinition::Property(PropertyName::Literal(name), _) = property else {
-                continue;
-            };
-            if self.interner.resolve_expect(name.sym()).to_string() == "__proto__" {
-                proto_setters += 1;
-                if proto_setters > 1 {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     fn lower_regexp_literal(&mut self, regexp: &RegExpLiteral) -> TypedExpr {
         let pattern = self.interner.resolve_expect(regexp.pattern()).to_string();
         let flags = self.interner.resolve_expect(regexp.flags()).to_string();
@@ -12146,561 +9560,14 @@ impl<'a> ScriptLowerer<'a> {
         TypedExpr::from_info(
             result.into_non_call_result(),
             ExprIr::RegExpLiteral {
-                program: RegExpProgram::compile(&pattern, &flags).ok(),
+                static_compilation: Self::static_regexp_compilation_for_pattern(&pattern, &flags),
                 source: pattern,
                 flags,
             },
         )
     }
 
-    fn lower_optional_property_chain(&mut self, optional: &Optional) -> TypedExpr {
-        let starts_with_call = optional.chain().first().is_some_and(|operation| {
-            matches!(operation.kind(), OptionalOperationKind::Call { .. })
-        });
-        let mut first_call_receiver = OptionalChainCallReceiverIr::ReferenceOrUndefined;
-        let (target, initial_property) = if starts_with_call {
-            match Self::unwrap_parenthesized_expr(optional.target()) {
-                Expression::PropertyAccess(PropertyAccess::Simple(access)) => (
-                    self.lower_property_target(access.target()),
-                    Some(access.field()),
-                ),
-                Expression::PropertyAccess(PropertyAccess::Private(_)) => {
-                    return self.unsupported_expr("optional private call");
-                }
-                Expression::PropertyAccess(PropertyAccess::Super(access)) => {
-                    first_call_receiver = OptionalChainCallReceiverIr::CurrentThis;
-                    (self.lower_super_property_access(access), None)
-                }
-                target => (self.lower_property_target(target), None),
-            }
-        } else {
-            (self.lower_property_target(optional.target()), None)
-        };
-
-        let nullish_kinds =
-            KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null));
-        if initial_property.is_none()
-            && contains(optional, ContainsSymbol::AwaitExpression)
-            && target.possible_kinds.is_subset_of(nullish_kinds)
-            && optional
-                .chain()
-                .first()
-                .is_some_and(|operation| operation.shorted())
-        {
-            let target_name = self.alloc_temp_binding_name("optional.short.circuit.target.");
-            return TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::MaterializeBinding {
-                    name: target_name,
-                    value: Box::new(target),
-                    body: Box::new(TypedExpr::undefined()),
-                },
-            );
-        }
-
-        let mut boundary_before_first_call = false;
-        let (target, mut chain, mut analysis) = if starts_with_call && initial_property.is_none() {
-            match target {
-                TypedExpr {
-                    expr: ExprIr::OptionalPropertyChain { target, chain },
-                    ..
-                } => {
-                    boundary_before_first_call = true;
-                    let call_sources = already_accounted_optional_calls(&chain);
-                    let target = *target;
-                    let analysis =
-                        self.analyze_optional_property_chain(&target, &chain, &call_sources);
-                    (target, chain, analysis)
-                }
-                target => {
-                    let analysis = OptionalChainAnalysisState::from_target(&target);
-                    (
-                        target,
-                        Vec::with_capacity(
-                            optional.chain().len() + usize::from(initial_property.is_some()),
-                        ),
-                        analysis,
-                    )
-                }
-            }
-        } else {
-            let analysis = OptionalChainAnalysisState::from_target(&target);
-            (
-                target,
-                Vec::with_capacity(
-                    optional.chain().len() + usize::from(initial_property.is_some()),
-                ),
-                analysis,
-            )
-        };
-        if let Some(field) = initial_property {
-            let before_key_effect_epoch = self.intervening_effect_epoch;
-            let Some(key) = self.lower_optional_chain_property_key(field) else {
-                return self.unsupported_expr("unsupported optional computed property key");
-            };
-            if self.intervening_effect_epoch != before_key_effect_epoch {
-                analysis.current.heap_shape = None;
-            }
-            self.analyze_optional_chain_property(&mut analysis, &key, false);
-            chain.push(OptionalChainOperationIr::Property {
-                key,
-                shorted: false,
-            });
-        }
-
-        for operation in optional.chain() {
-            match operation.kind() {
-                OptionalOperationKind::SimplePropertyAccess { field } => {
-                    let before_key_effect_epoch = self.intervening_effect_epoch;
-                    let Some(key) = self.lower_optional_chain_property_key(field) else {
-                        return self.unsupported_expr("unsupported optional computed property key");
-                    };
-                    if self.intervening_effect_epoch != before_key_effect_epoch {
-                        analysis.current.heap_shape = None;
-                    }
-                    self.analyze_optional_chain_property(&mut analysis, &key, operation.shorted());
-                    chain.push(OptionalChainOperationIr::Property {
-                        key,
-                        shorted: operation.shorted(),
-                    });
-                }
-                OptionalOperationKind::Call { args } => {
-                    let source_args = args;
-                    let receiver = std::mem::replace(
-                        &mut first_call_receiver,
-                        OptionalChainCallReceiverIr::ReferenceOrUndefined,
-                    );
-                    let mut call_receiver =
-                        self.take_optional_chain_call_receiver(&mut analysis, receiver);
-                    let lowered_args = self.lower_call_args_expanding_spread(source_args);
-                    let args = match call_receiver.as_mut() {
-                        Some(receiver) => lowered_args.into_arguments_after_value(receiver),
-                        None => lowered_args.into_arguments_without_predecessor(),
-                    };
-                    let shorted = operation.shorted();
-                    let boundary_before = std::mem::take(&mut boundary_before_first_call);
-                    self.analyze_optional_chain_call(
-                        &mut analysis,
-                        call_receiver.as_ref(),
-                        &args,
-                        shorted,
-                        boundary_before,
-                        &OptionalCallSource::Syntax(source_args),
-                    );
-                    chain.push(OptionalChainOperationIr::Call {
-                        args,
-                        receiver,
-                        shorted,
-                        boundary_before,
-                    });
-                }
-                OptionalOperationKind::PrivatePropertyAccess { field } => {
-                    let Some(private_name_id) = self.current_private_name_id(*field) else {
-                        return self.unsupported_expr("private class element");
-                    };
-                    self.analyze_optional_chain_private_property(
-                        &mut analysis,
-                        private_name_id,
-                        operation.shorted(),
-                    );
-                    chain.push(OptionalChainOperationIr::PrivateProperty {
-                        private_name_id,
-                        shorted: operation.shorted(),
-                    });
-                }
-            }
-        }
-
-        let (result, effects) = self.finish_optional_chain_analysis(analysis);
-        let chain = TypedExpr::from_info(
-            result,
-            ExprIr::OptionalPropertyChain {
-                target: Box::new(target),
-                chain,
-            },
-        );
-        effects.attach_to_emitted_call(chain)
-    }
-
-    fn analyze_optional_property_chain(
-        &mut self,
-        target: &TypedExpr,
-        chain: &[OptionalChainOperationIr],
-        call_sources: &[OptionalCallSource<'_>],
-    ) -> OptionalChainAnalysisState {
-        let mut analysis = OptionalChainAnalysisState::from_target(target);
-        let mut call_sources = call_sources.iter();
-
-        for operation in chain {
-            match operation {
-                OptionalChainOperationIr::Property { key, shorted } => {
-                    self.analyze_optional_chain_property(&mut analysis, key, *shorted);
-                }
-                OptionalChainOperationIr::PrivateProperty {
-                    private_name_id,
-                    shorted,
-                } => {
-                    self.analyze_optional_chain_private_property(
-                        &mut analysis,
-                        *private_name_id,
-                        *shorted,
-                    );
-                }
-                OptionalChainOperationIr::Call {
-                    args,
-                    receiver,
-                    shorted,
-                    boundary_before,
-                } => {
-                    let source = call_sources.next().expect("missing optional call source");
-                    let mut call_receiver =
-                        self.take_optional_chain_call_receiver(&mut analysis, *receiver);
-                    if matches!(source, OptionalCallSource::AlreadyAccounted) && !args.is_empty() {
-                        if let Some(receiver) = &mut call_receiver {
-                            receiver.heap_shape = None;
-                        }
-                    }
-                    self.analyze_optional_chain_call(
-                        &mut analysis,
-                        call_receiver.as_ref(),
-                        args,
-                        *shorted,
-                        *boundary_before,
-                        source,
-                    );
-                }
-            }
-        }
-
-        assert!(call_sources.next().is_none(), "extra optional call source");
-        analysis
-    }
-
-    fn analyze_optional_chain_property(
-        &mut self,
-        analysis: &mut OptionalChainAnalysisState,
-        key: &PropertyKeyIr,
-        shorted: bool,
-    ) {
-        analysis.short_circuit_reaches_result |= shorted;
-        let mut receiver = analysis.current.clone();
-        analysis.current = match self.optional_chain_property_analysis(&receiver, key) {
-            OptionalPropertyReadAnalysis::ProvenEffectFree(result) => result,
-            OptionalPropertyReadAnalysis::MayRunUserCode(result) => {
-                self.invalidate_unknown_user_code_effects();
-                receiver.heap_shape = None;
-                result
-            }
-        };
-        analysis.property_receiver = Some(receiver);
-    }
-
-    fn analyze_optional_chain_private_property(
-        &self,
-        analysis: &mut OptionalChainAnalysisState,
-        private_name_id: PrivateNameId,
-        shorted: bool,
-    ) {
-        analysis.short_circuit_reaches_result |= shorted;
-        let receiver = analysis.current.clone();
-        let receiver_expr = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
-        analysis.current = self
-            .read_object_shape(&receiver_expr, &private_data_key(private_name_id))
-            .unwrap_or(ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
-            });
-        analysis.property_receiver = Some(receiver);
-    }
-
-    fn take_optional_chain_call_receiver(
-        &self,
-        analysis: &mut OptionalChainAnalysisState,
-        receiver: OptionalChainCallReceiverIr,
-    ) -> Option<ValueInfo> {
-        match receiver {
-            OptionalChainCallReceiverIr::ReferenceOrUndefined => analysis.property_receiver.take(),
-            OptionalChainCallReceiverIr::CurrentThis => {
-                analysis.property_receiver = None;
-                Some(self.current_this_info())
-            }
-        }
-    }
-
-    fn analyze_optional_chain_call(
-        &mut self,
-        analysis: &mut OptionalChainAnalysisState,
-        receiver: Option<&ValueInfo>,
-        args: &[TypedExpr],
-        shorted: bool,
-        boundary_before: bool,
-        source: &OptionalCallSource<'_>,
-    ) {
-        if boundary_before {
-            // A grouped chain has already produced its value. A nullish path
-            // reaching an ordinary call now throws instead of flowing through
-            // to the enclosing expression as `undefined`.
-            analysis.short_circuit_reaches_result = false;
-        }
-        analysis.short_circuit_reaches_result |= shorted;
-        let (next, effects) = self.optional_call_info(&analysis.current, receiver, args, source);
-        analysis.current = next;
-        let previous = std::mem::replace(
-            &mut analysis.invocation_effects,
-            AnalyzedInvocationEffects::already_applied(),
-        );
-        analysis.invocation_effects = previous.combine(effects);
-    }
-
-    fn finish_optional_chain_analysis(
-        &mut self,
-        analysis: OptionalChainAnalysisState,
-    ) -> (ValueInfo, AnalyzedInvocationEffects) {
-        let result = if analysis.short_circuit_reaches_result {
-            self.merge_value_infos(analysis.current, ValueInfo::undefined())
-        } else {
-            analysis.current
-        };
-        (result, analysis.invocation_effects)
-    }
-
-    fn optional_chain_property_analysis(
-        &self,
-        receiver: &ValueInfo,
-        key: &PropertyKeyIr,
-    ) -> OptionalPropertyReadAnalysis {
-        match key {
-            PropertyKeyIr::StaticString(key) => self
-                .optional_chain_static_property_analysis(receiver, key)
-                .unwrap_or_else(|| {
-                    OptionalPropertyReadAnalysis::MayRunUserCode(ValueInfo::new(ValueKind::Dynamic))
-                }),
-            PropertyKeyIr::ArrayLength => {
-                OptionalPropertyReadAnalysis::ProvenEffectFree(ValueInfo::new(ValueKind::Number))
-            }
-            PropertyKeyIr::ArrayIndex(index) => {
-                let receiver = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
-                self.read_array_shape(&receiver, index).map_or_else(
-                    || {
-                        OptionalPropertyReadAnalysis::MayRunUserCode(ValueInfo::new(
-                            ValueKind::Dynamic,
-                        ))
-                    },
-                    OptionalPropertyReadAnalysis::ProvenEffectFree,
-                )
-            }
-            PropertyKeyIr::StringExpr(_) => {
-                OptionalPropertyReadAnalysis::MayRunUserCode(ValueInfo::new(ValueKind::Dynamic))
-            }
-        }
-    }
-
-    fn optional_chain_static_property_analysis(
-        &self,
-        receiver: &ValueInfo,
-        key: &str,
-    ) -> Option<OptionalPropertyReadAnalysis> {
-        let non_nullish_kinds = receiver
-            .possible_kinds
-            .without(ValueKind::Null)
-            .without(ValueKind::Undefined);
-        let prototype_constructor = match non_nullish_kinds.as_value_kind() {
-            ValueKind::String => {
-                if key == "length" {
-                    return Some(OptionalPropertyReadAnalysis::ProvenEffectFree(
-                        ValueInfo::new(ValueKind::Number),
-                    ));
-                }
-                Some(STRING_NAME)
-            }
-            ValueKind::Number => Some(NUMBER_NAME),
-            ValueKind::Boolean => Some(BOOLEAN_NAME),
-            ValueKind::BigInt => Some(BIGINT_NAME),
-            ValueKind::Symbol => Some(SYMBOL_NAME),
-            ValueKind::Array => {
-                if matches!(
-                    receiver.heap_shape.as_deref(),
-                    Some(HeapShape::Array(shape)) if shape.prototype.is_none()
-                ) {
-                    Some(ARRAY_NAME)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        let property = if non_nullish_kinds.as_value_kind() == ValueKind::Array {
-            if let Some(property) = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_heap_shape_property(shape, key))
-            {
-                property
-            } else {
-                let constructor = self.lookup_global_property(prototype_constructor?)?;
-                let prototype = match read_heap_shape_property(
-                    constructor.heap_shape.as_deref()?,
-                    "prototype",
-                )? {
-                    ObjectShapeProperty::Data(info) => info,
-                    ObjectShapeProperty::Accessor { .. } => return None,
-                };
-                read_heap_shape_property(prototype.heap_shape.as_deref()?, key)?
-            }
-        } else if let Some(constructor_name) = prototype_constructor {
-            let constructor = self.lookup_global_property(constructor_name)?;
-            let prototype =
-                match read_heap_shape_property(constructor.heap_shape.as_deref()?, "prototype")? {
-                    ObjectShapeProperty::Data(info) => info,
-                    ObjectShapeProperty::Accessor { .. } => return None,
-                };
-            read_heap_shape_property(prototype.heap_shape.as_deref()?, key)?
-        } else {
-            read_heap_shape_property(receiver.heap_shape.as_deref()?, key)?
-        };
-
-        Some(match property {
-            ObjectShapeProperty::Data(info) => OptionalPropertyReadAnalysis::ProvenEffectFree(info),
-            ObjectShapeProperty::Accessor {
-                getter: Some(getter),
-                ..
-            } => OptionalPropertyReadAnalysis::MayRunUserCode(
-                self.accessor_return_info(&getter.function_id),
-            ),
-            ObjectShapeProperty::Accessor { getter: None, .. } => {
-                OptionalPropertyReadAnalysis::ProvenEffectFree(ValueInfo::undefined())
-            }
-        })
-    }
-
-    fn optional_chain_well_known_symbol_property_info(
-        &self,
-        receiver: &ValueInfo,
-        key: WellKnownSymbol,
-    ) -> Option<ValueInfo> {
-        let constructor_name = match receiver
-            .possible_kinds
-            .without(ValueKind::Null)
-            .without(ValueKind::Undefined)
-            .as_value_kind()
-        {
-            ValueKind::String => Some(STRING_NAME),
-            ValueKind::Number => Some(NUMBER_NAME),
-            ValueKind::Boolean => Some(BOOLEAN_NAME),
-            ValueKind::BigInt => Some(BIGINT_NAME),
-            ValueKind::Symbol => Some(SYMBOL_NAME),
-            ValueKind::Array
-                if matches!(
-                    receiver.heap_shape.as_deref(),
-                    Some(HeapShape::Array(shape)) if shape.prototype.is_none()
-                ) =>
-            {
-                Some(ARRAY_NAME)
-            }
-            _ => None,
-        };
-        if let Some(property) = constructor_name.and_then(|constructor_name| {
-            self.well_known_symbol_prototype_properties
-                .get(&(constructor_name.to_string(), key))
-        }) {
-            return Some(property.clone());
-        }
-        if receiver
-            .possible_kinds
-            .without(ValueKind::Null)
-            .without(ValueKind::Undefined)
-            .as_value_kind()
-            == ValueKind::Array
-        {
-            if let Some(property) = self.read_well_known_symbol_shape(receiver, key) {
-                return Some(property);
-            }
-        }
-        let Some(constructor_name) = constructor_name else {
-            return self.read_well_known_symbol_shape(receiver, key);
-        };
-        let constructor = self.lookup_global_property(constructor_name)?;
-        let prototype =
-            match read_heap_shape_property(constructor.heap_shape.as_deref()?, "prototype")? {
-                ObjectShapeProperty::Data(prototype) => prototype,
-                ObjectShapeProperty::Accessor { .. } => return None,
-            };
-        self.read_well_known_symbol_shape(&prototype, key)
-    }
-
-    fn optional_call_info(
-        &mut self,
-        callee: &ValueInfo,
-        receiver: Option<&ValueInfo>,
-        args: &[TypedExpr],
-        source: &OptionalCallSource<'_>,
-    ) -> (ValueInfo, AnalyzedInvocationEffects) {
-        let source = match source {
-            OptionalCallSource::AlreadyAccounted => CallCandidateSource::AlreadyAccounted,
-            OptionalCallSource::Syntax(arguments) => CallCandidateSource::IndirectSyntax(arguments),
-        };
-        match self.analyze_known_call_candidates(callee, receiver, args, source) {
-            CallCandidateAnalysis::UnsupportedDynamicSource => (
-                ValueInfo::undefined(),
-                AnalyzedInvocationEffects::already_applied(),
-            ),
-            CallCandidateAnalysis::Accepted { result, effects } => (result, effects),
-        }
-    }
-
-    fn lower_optional_chain_property_key(
-        &mut self,
-        field: &PropertyAccessField,
-    ) -> Option<PropertyKeyIr> {
-        match field {
-            PropertyAccessField::Const(name) => Some(PropertyKeyIr::StaticString(
-                self.interner.resolve_expect(name.sym()).to_string(),
-            )),
-            PropertyAccessField::Expr(expr) => {
-                self.lower_dynamic_object_property_key(expr.as_ref())
-            }
-        }
-    }
-
-    fn lower_super_call(&mut self, call: &SuperCall) -> TypedExpr {
-        if !self
-            .class_context
-            .as_ref()
-            .is_some_and(|context| context.is_derived_constructor)
-            && self.direct_eval_invocation()
-                != Some(lila_front::EvalInvocationContext::DerivedConstructor)
-        {
-            return self.unsupported_expr("unsupported expression form: super call");
-        }
-        let args = self
-            .lower_call_args_expanding_spread(call.arguments())
-            .into_arguments_without_predecessor();
-        let super_constructor_target = self
-            .class_context
-            .as_ref()
-            .and_then(|context| context.super_constructor_target.clone());
-        let requires_unknown_property_hook_observation = super_constructor_target
-            .as_ref()
-            .is_none_or(Self::invocation_target_requires_unknown_property_hook_observation);
-        let super_constructor_may_run_source = super_constructor_target
-            .as_ref()
-            .is_none_or(|function_id| self.function_may_run_user_code_synchronously(function_id));
-        if requires_unknown_property_hook_observation {
-            self.observe_all_planned_source_as_unknown_property_hooks();
-        }
-        if requires_unknown_property_hook_observation || super_constructor_may_run_source {
-            self.invalidate_unknown_user_code_effects();
-        }
-        let info = self
-            .current_construct_this_info
-            .clone()
-            .unwrap_or_else(|| self.current_this_info());
-        TypedExpr::from_info(info, ExprIr::SuperConstruct { args })
-    }
-
+    // SuperCall's eager and suspended paths share lowering/super_construct.rs.
     fn lower_super_property_key(&mut self, field: &PropertyAccessField) -> Option<PropertyKeyIr> {
         Some(match field {
             PropertyAccessField::Const(name) => {
@@ -12721,25 +9588,6 @@ impl<'a> ScriptLowerer<'a> {
             return TypedExpr::undefined();
         };
         TypedExpr::from_info(info, ExprIr::SuperPropertyRead { key, receiver })
-    }
-
-    fn lower_private_property_access(&mut self, access: &PrivatePropertyAccess) -> TypedExpr {
-        let Some(private_name_id) = self.current_private_name_id(access.field()) else {
-            return self.unsupported_expr("private class element");
-        };
-        let target = self.lower_property_target(access.target());
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
-            },
-            ExprIr::PrivateRead {
-                target: Box::new(target),
-                private_name_id,
-            },
-        )
     }
 
     fn lower_private_in(&mut self, binary: &BinaryInPrivate) -> TypedExpr {
@@ -12765,8 +9613,8 @@ impl<'a> ScriptLowerer<'a> {
             Self::unwrap_parenthesized_expr(expr),
             Expression::Identifier(identifier)
                 if self.interner.resolve_expect(identifier.sym()).to_string() == GLOBAL_THIS_NAME
-                    && self.lookup_binding(GLOBAL_THIS_NAME).is_none()
-                    && self.lookup_global_property_info(GLOBAL_THIS_NAME).is_none()
+                    && self.current_owner_id == SCRIPT_OWNER_ID
+                    && self.identifier_resolves_to_intrinsic_global(GLOBAL_THIS_NAME)
         )
     }
 
@@ -12779,8 +9627,9 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn is_builtin_reference_expr(&self, expr: &TypedExpr, name: &str) -> bool {
-        matches!(&expr.expr, ExprIr::Identifier(identifier) if identifier == name)
-            || matches!(&expr.expr, ExprIr::GlobalPropertyRead { name: global_name } if global_name == name)
+        (matches!(&expr.expr, ExprIr::Identifier(identifier) if identifier == name)
+            || matches!(&expr.expr, ExprIr::GlobalPropertyRead { name: global_name } if global_name == name))
+            && self.identifier_resolves_to_intrinsic_global(name)
     }
 
     fn is_builtin_property_expr(&self, expr: &TypedExpr, builtin: &str, property: &str) -> bool {
@@ -12834,7 +9683,7 @@ impl<'a> ScriptLowerer<'a> {
             return Some(key);
         }
 
-        let mut lowered = self.lower_expression(expr);
+        let lowered = self.lower_expression(expr);
         self.record_possible_to_primitive_effects(&lowered.value_info());
         if let ExprIr::String(key) = &lowered.expr {
             return Some(PropertyKeyIr::StaticString(key.clone()));
@@ -12856,17 +9705,6 @@ impl<'a> ScriptLowerer<'a> {
             .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
         {
             return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
-        }
-
-        if lowered.possible_kinds == KindSet::all_runtime_tags() {
-            if let ExprIr::Identifier(name) = &lowered.expr {
-                self.set_binding_kind(name, ValueKind::String)?;
-                lowered.kind = ValueKind::String;
-                lowered.possible_kinds = KindSet::from_kind(ValueKind::String);
-                lowered.heap_shape = None;
-                lowered.function_targets.replace_with_no_function();
-                return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
-            }
         }
 
         None
@@ -12987,26 +9825,27 @@ impl<'a> ScriptLowerer<'a> {
             }
             PropertyAccessField::Const(_) => None,
         };
+        if known_symbol.is_some() {
+            let PropertyAccessField::Expr(expression) = field else {
+                unreachable!("a known Symbol property has a computed key");
+            };
+            let (symbol, key) = self
+                .lower_well_known_symbol_property_key(expression)
+                .expect("the intrinsic Symbol key was proved before lowering it");
+            return self.lower_object_well_known_symbol_property(target, symbol, key);
+        }
         let known_property_name = match field {
             PropertyAccessField::Const(name) => {
                 Some(self.interner.resolve_expect(name.sym()).to_string())
             }
-            PropertyAccessField::Expr(expression) => self
-                .try_static_ordinary_property_key(expression)
-                .or_else(|| {
-                    self.try_well_known_symbol_key_name(expression)
-                        .map(shape_namespace_key)
-                }),
+            PropertyAccessField::Expr(expression) => {
+                self.try_static_ordinary_property_key(expression)
+            }
         };
-        let known_property = known_symbol
-            .and_then(|symbol| {
-                Self::read_well_known_symbol_shape_property(target.heap_shape.as_deref(), symbol)
-            })
-            .or_else(|| {
-                known_property_name
-                    .as_deref()
-                    .and_then(|name| self.read_object_shape_property(&target, name))
-            });
+        let known_property = known_property_name
+            .as_deref()
+            .and_then(|name| self.read_current_object_shape_property(&target, name));
+        let unknown_getter_possible = known_property.is_none();
         let known_getter = match known_property {
             Some(ObjectShapeProperty::Accessor {
                 getter: Some(getter),
@@ -13016,8 +9855,6 @@ impl<'a> ScriptLowerer<'a> {
             | Some(ObjectShapeProperty::Accessor { getter: None, .. })
             | None => None,
         };
-        let unknown_getter_possible = target.heap_shape.is_none()
-            || (known_property_name.is_none() && known_symbol.is_none());
         let known_builtin_getter = known_getter
             .as_ref()
             .and_then(|getter| StandardBuiltinId::from_function_id(getter));
@@ -13042,6 +9879,85 @@ impl<'a> ScriptLowerer<'a> {
         }
         let result = self.lower_object_property_key_inner(target, field);
         if property_get_may_call_user_code {
+            self.invalidate_unknown_user_code_effects();
+        }
+        result
+    }
+
+    fn lower_object_well_known_symbol_property(
+        &mut self,
+        target: TypedExpr,
+        symbol: WellKnownSymbol,
+        key: PropertyKeyIr,
+    ) -> TypedExpr {
+        if symbol == WellKnownSymbol::HasInstance
+            && target.function_targets.exact_single_target()
+                == Some(&StandardBuiltinId::FunctionPrototype.function_id())
+        {
+            // This intrinsic own property is non-writable and non-configurable.
+            return TypedExpr::from_info(
+                Self::standard_builtin_value_info(
+                    StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+                ),
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key,
+                },
+            );
+        }
+        let primitive_prototype = match target.kind {
+            ValueKind::String => Some(IntrinsicPrototype::String),
+            ValueKind::Symbol => Some(IntrinsicPrototype::Symbol),
+            _ => None,
+        };
+        if let Some(prototype) = primitive_prototype {
+            if let Some(read) =
+                self.intrinsic_symbol_method_read(prototype, &target, symbol, key.clone())
+            {
+                return read;
+            }
+        }
+        if let Some(read) = self.intrinsic_object_symbol_method_read(&target, symbol, key.clone()) {
+            return read;
+        }
+        let property = self.read_current_object_symbol_shape_property(&target, symbol);
+        let may_call_user_code = match &property {
+            Some(ObjectShapeProperty::Data(_))
+            | Some(ObjectShapeProperty::Accessor { getter: None, .. }) => false,
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(getter),
+                ..
+            }) => StandardBuiltinId::from_function_id(&getter.function_id).is_none_or(|builtin| {
+                Self::standard_builtin_getter_may_call_user_code(
+                    builtin,
+                    &BuiltinGetterReceiverProvenance::ProvenNonProxy,
+                )
+            }),
+            None => true,
+        };
+        if may_call_user_code {
+            self.observe_all_planned_source_as_unknown_property_hooks();
+        }
+        let info = match property {
+            Some(ObjectShapeProperty::Data(info)) => info,
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(getter),
+                ..
+            }) => {
+                self.merge_function_this_info(&getter.function_id, target.value_info());
+                if let Some(signature) = self.function_signatures.get_mut(&getter.function_id) {
+                    Self::merge_omitted_signature_params_as_undefined(signature, 0);
+                }
+                self.accessor_return_info(&getter.function_id)
+            }
+            Some(ObjectShapeProperty::Accessor { getter: None, .. }) => ValueInfo::undefined(),
+            None => self.unproven_object_property_info(&target, &shape_namespace_key(symbol)),
+        };
+        self.mark_host_builtins_from_info(&info);
+        let key_operand = Self::spec_get_v_operand_from_property_key(&key)
+            .expect("a retained well-known Symbol key is a GetV operand");
+        let result = TypedExpr::spec_get_v_with_info(info, target, key_operand);
+        if may_call_user_code {
             self.invalidate_unknown_user_code_effects();
         }
         result
@@ -13087,46 +10003,20 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         };
-        let exact_function_prototype_has_instance = matches!(
-            &key,
-            PropertyKeyIr::StringExpr(expr)
-                if expr.kind == ValueKind::Symbol
-                    && matches!(
-                        &expr.expr,
-                        ExprIr::String(description)
-                            if WellKnownSymbol::from_description(SymbolDescription::new(description))
-                                == Some(WellKnownSymbol::HasInstance)
-                    )
-        ) && target
-            .function_targets
-            .exact_single_target()
-            == Some(&StandardBuiltinId::FunctionPrototype.function_id());
-        if exact_function_prototype_has_instance {
-            return TypedExpr::from_info(
-                Self::standard_builtin_value_info(
-                    StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
-                ),
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key,
-                },
-            );
-        }
-        if matches!(&target.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME) {
-            if let PropertyKeyIr::StaticString(name) = &key {
-                if let Some(info) = self.lookup_global_property(name) {
-                    self.mark_host_builtins_from_info(&info);
-                    return TypedExpr::from_info(
-                        info,
-                        ExprIr::GlobalPropertyRead { name: name.clone() },
-                    );
-                }
-            }
-        }
         let mutable_array_prototype_target = self.array_prototype_mutated
             && (Self::has_array_prototype_shape(&target)
                 || self.is_builtin_property_expr(&target, ARRAY_NAME, "prototype"));
         if let PropertyKeyIr::StaticString(name) = &key {
+            if target.possible_kinds.contains(ValueKind::Object) {
+                if let Some(read) = self.intrinsic_object_method_read(
+                    IntrinsicPrototype::RegExp,
+                    &target,
+                    name,
+                    key.clone(),
+                ) {
+                    return read;
+                }
+            }
             let observable_array_prototype_lookup = self.array_prototype_mutated
                 && (target.possible_kinds.contains(ValueKind::Array)
                     || mutable_array_prototype_target);
@@ -13139,7 +10029,7 @@ impl<'a> ScriptLowerer<'a> {
                     self.read_own_object_shape_property(&target, name)
                 }
             } else {
-                self.read_object_shape_property(&target, name)
+                self.read_current_object_shape_property(&target, name)
             };
             let getter_function_id = match &shape_property {
                 Some(ObjectShapeProperty::Accessor {
@@ -13182,17 +10072,11 @@ impl<'a> ScriptLowerer<'a> {
             let target_is_function_prototype = target.function_targets.exact_single_target()
                 == Some(&StandardBuiltinId::FunctionPrototype.function_id());
             if target.kind == ValueKind::Function || target_is_function_prototype {
-                let lookup = self.intrinsic_method(IntrinsicPrototype::Function, name);
-                if let Some(method) = lookup.proven().filter(|_| target.heap_shape.is_some()) {
-                    if method.builtin() != StandardBuiltinId::FunctionPrototypeToString {
-                        return self.function_value_expr(method.builtin().function_id());
-                    }
-                }
-                let lookup = if target.heap_shape.is_some() {
-                    lookup
-                } else {
-                    lookup.unclaimed()
-                };
+                // Current own/inherited descriptors were consumed above. A
+                // remaining shape does not prove the Function prototype chain.
+                let lookup = self
+                    .intrinsic_method(IntrinsicPrototype::Function, name)
+                    .unclaimed();
                 if let Some(info) = lookup.callee_info() {
                     return TypedExpr::from_info(
                         info,
@@ -13204,128 +10088,59 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             if name == "of" && self.is_builtin_reference_expr(&target, ARRAY_NAME) {
-                return self.function_value_expr(StandardBuiltinId::ArrayOf.function_id());
-            }
-            if name == "toString"
-                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
-                    || self.dynamic_object_prototype_method_resolution_is_safe(&target, "toString"))
-            {
                 return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ObjectPrototypeToString),
+                    IntrinsicMethodLookup::Unproven(StandardBuiltinId::ArrayOf)
+                        .callee_info()
+                        .expect("an unproven catalogue entry retains its possible target"),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: key.clone(),
                     },
                 );
             }
-            if name == "toLocaleString"
-                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
-                    || self.dynamic_object_prototype_method_resolution_is_safe(
-                        &target,
-                        "toLocaleString",
-                    ))
-            {
-                // Same reasoning as `toString`; `toLocaleString` is overridden
-                // by the same set of built-in exotic objects (via
-                // `Object.prototype.toLocaleString` calling `this.toString()`,
-                // but several prototypes — Array, Number, Date — define their
-                // own `toLocaleString` directly).
-                return self.function_value_expr(
-                    StandardBuiltinId::ObjectPrototypeToLocaleString.function_id(),
-                );
-            }
-            if name == "hasOwnProperty"
-                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
-                    || self.dynamic_object_prototype_method_resolution_is_safe(
-                        &target,
-                        "hasOwnProperty",
-                    ))
-            {
-                return self.function_value_expr(
-                    StandardBuiltinId::ObjectPrototypeHasOwnProperty.function_id(),
-                );
-            }
-            if name == "isPrototypeOf"
-                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
-                    || self.dynamic_object_prototype_method_resolution_is_safe(
-                        &target,
-                        "isPrototypeOf",
-                    ))
-            {
-                return self.function_value_expr(
-                    StandardBuiltinId::ObjectPrototypeIsPrototypeOf.function_id(),
-                );
-            }
-            if name == "propertyIsEnumerable"
-                && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
-                    || self.dynamic_object_prototype_method_resolution_is_safe(
-                        &target,
-                        "propertyIsEnumerable",
-                    ))
-            {
-                return self.function_value_expr(
-                    StandardBuiltinId::ObjectPrototypePropertyIsEnumerable.function_id(),
-                );
+            if let Some(read) = self.intrinsic_object_method_read(
+                IntrinsicPrototype::Object,
+                &target,
+                name,
+                key.clone(),
+            ) {
+                return read;
             }
         }
         if let PropertyKeyIr::StringExpr(symbol_key) = &key {
             let symbol = match &symbol_key.expr {
-                ExprIr::String(description) if symbol_key.kind == ValueKind::Symbol => {
-                    WellKnownSymbol::from_description(SymbolDescription::new(description))
-                }
+                ExprIr::WellKnownSymbol(symbol) => Some(*symbol),
                 _ => None,
             };
-            if let Some(property) = symbol.and_then(|symbol| {
-                Self::read_well_known_symbol_shape_property(target.heap_shape.as_deref(), symbol)
-            }) {
-                let info = match property {
-                    ObjectShapeProperty::Data(info) => info,
-                    ObjectShapeProperty::Accessor {
-                        getter: Some(getter),
-                        ..
-                    } => {
-                        self.merge_function_this_info(&getter.function_id, target.value_info());
-                        self.accessor_return_info(&getter.function_id)
-                    }
-                    ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
-                };
-                self.mark_host_builtins_from_info(&info);
-                let key_operand = Self::spec_get_v_operand_from_property_key(&key)
-                    .expect("a computed Symbol key is a GetV operand");
-                return TypedExpr::spec_get_v_with_info(info, target, key_operand);
+            if let Some(symbol) = symbol {
+                return self.lower_object_well_known_symbol_property(target, symbol, key);
             }
         }
         let info = match &key {
             PropertyKeyIr::StaticString(key) => {
-                if key == "BYTES_PER_ELEMENT"
-                    && Self::can_be_typed_array_constructor_target(&target)
-                {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Number),
-                        ExprIr::PropertyRead {
-                            target: Box::new(target),
-                            key: PropertyKeyIr::StaticString(key.clone()),
-                        },
-                    );
-                }
                 if let Some(ObjectShapeProperty::Accessor {
                     getter: Some(getter),
                     ..
                 }) = (!mutable_array_prototype_target)
-                    .then(|| self.read_object_shape_property(&target, key))
+                    .then(|| self.read_current_object_shape_property(&target, key))
                     .flatten()
                 {
                     self.merge_function_this_info(&getter.function_id, target.value_info());
                 }
                 (!mutable_array_prototype_target)
-                    .then(|| self.read_object_shape(&target, key))
+                    .then(|| self.read_current_object_shape_property(&target, key))
                     .flatten()
-                    .unwrap_or(ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
+                    .map(|property| match property {
+                        ObjectShapeProperty::Data(info) => info,
+                        ObjectShapeProperty::Accessor {
+                            getter: Some(getter),
+                            ..
+                        } => self.accessor_return_info(&getter.function_id),
+                        ObjectShapeProperty::Accessor { getter: None, .. } => {
+                            ValueInfo::undefined()
+                        }
                     })
+                    .unwrap_or_else(|| self.unproven_object_property_info(&target, key))
             }
             PropertyKeyIr::StringExpr(_) => ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -13362,443 +10177,35 @@ impl<'a> ScriptLowerer<'a> {
         field: &PropertyAccessField,
     ) -> TypedExpr {
         if let PropertyAccessField::Const(name) = field {
-            let name = self.interner.resolve_expect(name.sym()).to_string();
-            if name == "length" {
+            if self.interner.resolve_expect(name.sym()).to_string() == "length" {
                 return TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Number,
-                        possible_kinds: KindSet::from_kind(ValueKind::Number),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::none(),
-                    },
+                    ValueInfo::new(ValueKind::Number),
                     ExprIr::PropertyRead {
                         target: Box::new(target),
                         key: PropertyKeyIr::ArrayLength,
                     },
                 );
             }
-            if name == "concat" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeConcat),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "join" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeJoin),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "slice" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSlice),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "splice" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSplice),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "toLocaleString" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(
-                        StandardBuiltinId::ArrayPrototypeToLocaleString,
-                    ),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "flat" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFlat),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "flatMap" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFlatMap),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "at" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeAt),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "toReversed" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeToReversed),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "with" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeWith),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "toSpliced" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeToSpliced),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "toSorted" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeToSorted),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "reverse" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeReverse),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "copyWithin" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeCopyWithin),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "includes" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeIncludes),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "indexOf" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeIndexOf),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "lastIndexOf" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeLastIndexOf),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "find" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFind),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "findIndex" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFindIndex),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "findLast" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFindLast),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "findLastIndex" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(
-                        StandardBuiltinId::ArrayPrototypeFindLastIndex,
-                    ),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "every" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeEvery),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "some" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSome),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "forEach" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeForEach),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "filter" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFilter),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "map" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeMap),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "reduce" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeReduce),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "reduceRight" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeReduceRight),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "pop" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypePop),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "push" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypePush),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "shift" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeShift),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "unshift" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeUnshift),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "fill" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeFill),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "sort" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeSort),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            let iterator_builtin = match name.as_str() {
-                "keys" => Some(StandardBuiltinId::ArrayPrototypeKeys),
-                "entries" => Some(StandardBuiltinId::ArrayPrototypeEntries),
-                "values" => Some(StandardBuiltinId::ArrayPrototypeValues),
-                _ => None,
-            };
-            if let Some(iterator_builtin) = iterator_builtin {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(iterator_builtin),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "hasOwnProperty" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(
-                        StandardBuiltinId::ObjectPrototypeHasOwnProperty,
-                    ),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "propertyIsEnumerable" {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(
-                        StandardBuiltinId::ObjectPrototypePropertyIsEnumerable,
-                    ),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if name == "constructor" {
-                return TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: Self::object_like_kind_set(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            return TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::unknown(),
-                },
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key: PropertyKeyIr::StaticString(name),
-                },
-            );
         }
-        let PropertyAccessField::Expr(expr) = field else {
-            return self.unsupported_expr("unsupported array dot access");
-        };
-        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
-            if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: symbol_key,
-                    },
-                );
+        if let PropertyAccessField::Expr(expression) = field {
+            if let Some(PropertyKeyIr::ArrayIndex(index)) =
+                self.static_array_numeric_property_key(expression)
+            {
+                if let Some(info) = self.read_array_shape(&target, &index) {
+                    return TypedExpr::from_info(
+                        info,
+                        ExprIr::PropertyRead {
+                            target: Box::new(target),
+                            key: PropertyKeyIr::ArrayIndex(index),
+                        },
+                    );
+                }
             }
         }
-        let Some(key) = self.lower_array_property_key(expr) else {
-            return self.unsupported_expr("array index must be number");
-        };
-        let info = match &key {
-            PropertyKeyIr::StaticString(name) => {
-                self.read_object_shape(&target, name).unwrap_or(ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::unknown(),
-                })
-            }
-            PropertyKeyIr::ArrayIndex(index) => {
-                self.read_array_shape(&target, index).unwrap_or(ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::unknown(),
-                })
-            }
-            PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayLength => ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
-            },
-        };
-        TypedExpr::from_info(
-            info,
-            ExprIr::PropertyRead {
-                target: Box::new(target),
-                key,
-            },
-        )
+        // A named method, a hole, an absent element and an unbounded index may
+        // all reach a mutable prototype or accessor. Use the same live Get
+        // owner as every other object, including for Symbol.iterator.
+        self.lower_object_property_key(target, field)
     }
 
     fn lower_string_index_key(
@@ -13817,55 +10224,39 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
-            if name == "description" {
-                return TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
-            }
-            if let Some(read) =
-                self.intrinsic_method_read(IntrinsicPrototype::String, &target, &name)
-            {
-                return read;
-            }
-            return TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::unknown(),
-                },
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key: PropertyKeyIr::StaticString(name),
-                },
-            );
+            return self.lower_primitive_property_key(IntrinsicPrototype::String, target, field);
         }
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported string access");
         };
         if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::StringPrototypeIterator),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: symbol_key,
-                    },
-                );
+                if let Some(read) = self.intrinsic_symbol_method_read(
+                    IntrinsicPrototype::String,
+                    &target,
+                    WellKnownSymbol::Iterator,
+                    symbol_key,
+                ) {
+                    return read;
+                }
             }
         }
         let key = self
             .classify_string_exotic_computed_key(expr)
             .into_property_key();
+        // Out-of-range String indices and arbitrary computed names can reach
+        // prototype accessors. Only a proved in-range own index excludes Get
+        // hooks; literal indices here have no ToPropertyKey effects either.
+        let own_index = match (&target.expr, &key) {
+            (ExprIr::String(value), PropertyKeyIr::ArrayIndex(index)) => self
+                .constant_array_index(index)
+                .is_some_and(|index| index < value.encode_utf16().count()),
+            _ => false,
+        };
+        if !own_index {
+            self.observe_all_planned_source_as_unknown_property_hooks();
+            self.invalidate_unknown_user_code_effects();
+        }
         TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -14140,8 +10531,15 @@ impl<'a> ScriptLowerer<'a> {
         storage_name: &str,
         evaluated_operand: TypedExpr,
     ) -> TypedExpr {
-        let error = if is_class_name_binding_storage_name(storage_name) {
-            IdentifierWriteErrorIr::ImmutableClassName
+        Self::render_immutable_binding_write(
+            self.immutable_binding_write_outcome(storage_name),
+            evaluated_operand,
+        )
+    }
+
+    fn immutable_binding_write_outcome(&self, storage_name: &str) -> ImmutableBindingWriteOutcome {
+        if is_class_name_binding_storage_name(storage_name) {
+            ImmutableBindingWriteOutcome::Abrupt(IdentifierWriteErrorIr::ImmutableClassName)
         } else {
             // SetMutableBinding step 6.b: the write throws only when `S` is
             // true. A sloppy reference to a named function expression's own
@@ -14152,9 +10550,21 @@ impl<'a> ScriptLowerer<'a> {
                 .contains(storage_name)
                 && !self.reference_strictness().throws_on_failed_set()
             {
-                return evaluated_operand;
+                return ImmutableBindingWriteOutcome::Ignored(
+                    IdentifierWriteReferenceIr::ignored_immutable_binding(storage_name.to_owned()),
+                );
             }
-            IdentifierWriteErrorIr::ImmutableBinding
+            ImmutableBindingWriteOutcome::Abrupt(IdentifierWriteErrorIr::ImmutableBinding)
+        }
+    }
+
+    fn render_immutable_binding_write(
+        outcome: ImmutableBindingWriteOutcome,
+        evaluated_operand: TypedExpr,
+    ) -> TypedExpr {
+        let error = match outcome {
+            ImmutableBindingWriteOutcome::Ignored(_) => return evaluated_operand,
+            ImmutableBindingWriteOutcome::Abrupt(error) => error,
         };
         let error_expr = TypedExpr::from_info(
             ValueInfo {
@@ -14188,6 +10598,16 @@ impl<'a> ScriptLowerer<'a> {
         value: TypedExpr,
         reference: LocatedIdentifierReference,
     ) -> TypedExpr {
+        self.lower_located_identifier_assign_value_with_evidence(name, value, reference)
+            .value
+    }
+
+    fn lower_located_identifier_assign_value_with_evidence(
+        &mut self,
+        name: String,
+        value: TypedExpr,
+        reference: LocatedIdentifierReference,
+    ) -> PreparedIdentifierWrite {
         // SetMutableBinding (9.1.1.1.5) step 3 runs *before* the immutability
         // test of step 6/7, and does not consult `S`: an assignment to an
         // uninitialized binding is a ReferenceError in sloppy mode too. The RHS
@@ -14197,13 +10617,13 @@ impl<'a> ScriptLowerer<'a> {
             LocatedIdentifierReference::Declarative { resolution, .. } => match resolution {
                 BindingResolution::Uninitialized(violation) => {
                     let error = violation.into_throw();
-                    return TypedExpr::from_info(
+                    return PreparedIdentifierWrite::performed(TypedExpr::from_info(
                         error.value_info(),
                         ExprIr::Comma {
                             lhs: Box::new(value),
                             rhs: Box::new(error),
                         },
-                    );
+                    ));
                 }
                 BindingResolution::Initialized(binding) => Some(binding),
                 BindingResolution::Unresolvable => {
@@ -14212,6 +10632,10 @@ impl<'a> ScriptLowerer<'a> {
             },
             LocatedIdentifierReference::Unresolvable => None,
         };
+        // Global var metadata owns declaration publication storage, not a
+        // declarative source Reference. Its assignment must retain the actual
+        // Global Environment even when the backend also has a write temporary.
+        let binding = binding.filter(|_| !self.is_unshadowed_script_global_binding(&name));
         if let Some(binding) = binding {
             let storage_name = binding.storage_name.clone();
             if binding.mode == BindingMode::Const {
@@ -14220,7 +10644,21 @@ impl<'a> ScriptLowerer<'a> {
                 // `[[Strict]]` of their own. The body now lives in
                 // `immutable_binding_write` so that the update and
                 // compound-assignment consumers cannot drift from it.
-                return self.immutable_binding_write(&storage_name, value);
+                let outcome = self.immutable_binding_write_outcome(&storage_name);
+                let ignored = match &outcome {
+                    ImmutableBindingWriteOutcome::Ignored(reference) => Some(
+                        crate::reference::IgnoredIterationIdentifierWriteIr::from_reference(
+                            name,
+                            reference.clone(),
+                        )
+                        .expect("the resolved immutable outcome is the ignored Reference"),
+                    ),
+                    ImmutableBindingWriteOutcome::Abrupt(_) => None,
+                };
+                return PreparedIdentifierWrite {
+                    value: Self::render_immutable_binding_write(outcome, value),
+                    ignored,
+                };
             }
 
             let binding_info = if binding.mode != BindingMode::Var
@@ -14242,13 +10680,13 @@ impl<'a> ScriptLowerer<'a> {
             };
             self.set_binding_value_info(&name, binding_info);
 
-            TypedExpr::from_info(
+            PreparedIdentifierWrite::performed(TypedExpr::from_info(
                 value.value_info(),
                 ExprIr::AssignIdentifier {
                     name: storage_name,
                     value: Box::new(value),
                 },
-            )
+            ))
         } else {
             let implicit = !self.global_property_is_proven_present(&name);
             // PutValue step 2.a: assigning through an unresolvable Reference in
@@ -14266,7 +10704,7 @@ impl<'a> ScriptLowerer<'a> {
                     GlobalPropertySource::GlobalWrite
                 },
             );
-            TypedExpr::from_info(
+            PreparedIdentifierWrite::performed(TypedExpr::from_info(
                 value.value_info(),
                 ExprIr::GlobalPropertyWrite {
                     name,
@@ -14274,7 +10712,7 @@ impl<'a> ScriptLowerer<'a> {
                     implicit,
                     strictness,
                 },
-            )
+            ))
         }
     }
 
@@ -14303,6 +10741,28 @@ impl<'a> ScriptLowerer<'a> {
     /// private names, defaults, rest and arbitrary nesting - is available anywhere a
     /// destructuring assignment can appear, including `for`/`for-in`/`for-of` heads.
     fn lower_pattern_assign_value(
+        &mut self,
+        pattern: &Pattern,
+        value: TypedExpr,
+    ) -> Option<TypedExpr> {
+        let outer_slots = std::mem::take(&mut self.pending_super_destructuring_slots);
+        let lowered = self.lower_pattern_assign_value_unscoped(pattern, value);
+        let slots = std::mem::replace(&mut self.pending_super_destructuring_slots, outer_slots);
+        let mut lowered = lowered?;
+        for slot in slots.into_iter().rev() {
+            lowered = TypedExpr::from_info(
+                lowered.value_info(),
+                ExprIr::MaterializeBinding {
+                    name: slot,
+                    value: Box::new(TypedExpr::undefined()),
+                    body: Box::new(lowered),
+                },
+            );
+        }
+        Some(lowered)
+    }
+
+    fn lower_pattern_assign_value_unscoped(
         &mut self,
         pattern: &Pattern,
         value: TypedExpr,
@@ -14465,10 +10925,8 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
 
-        // Computed keys (`const { [k]: v } = o`) need no gate here: they bind the
-        // same names as a literal key, and `lower_object_pattern_lexical_binding_from_value`
-        // routes any pattern that is not exclusively literal-keyed single names through
-        // the semantic `ObjectDestructure` node, which models computed keys directly.
+        // Computed keys bind the same names as literal keys. The shared
+        // ObjectDestructure owner evaluates each key and property value once.
         let binding = Binding::Pattern(Pattern::Object(pattern.clone()));
         let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
             self.unsupported("destructuring binding");
@@ -14501,19 +10959,8 @@ impl<'a> ScriptLowerer<'a> {
             init,
         }];
 
-        if pattern.bindings().is_empty() {
-            statements.push(StatementIr::DeclarationEvaluation(
-                TypedExpr::spec_to_object(temp),
-            ));
-            return Some(statements);
-        }
-
-        let mut bindings = self.lower_object_pattern_lexical_binding_from_value(
-            mode,
-            pattern.bindings(),
-            temp,
-            None,
-        )?;
+        let mut bindings =
+            self.lower_object_pattern_binding_from_value(mode, pattern.bindings(), temp, None)?;
         statements.append(&mut bindings);
         Some(statements)
     }
@@ -14552,103 +10999,29 @@ impl<'a> ScriptLowerer<'a> {
         pattern: &Pattern,
         init: TypedExpr,
     ) -> Option<Vec<StatementIr>> {
-        if let Pattern::Array(pattern) = pattern {
-            self.invalidate_unknown_user_code_effects();
-            let pattern =
-                self.lower_array_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
-            return Some(vec![StatementIr::DeclarationEvaluation(
-                TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::ArrayDestructure {
-                        value: Box::new(init),
-                        pattern,
-                        evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
-                    },
-                ),
-            )]);
-        }
-        let Pattern::Object(pattern) = pattern else {
-            unreachable!("pattern variants are handled above")
-        };
-
-        if !pattern.bindings().is_empty() {
-            self.invalidate_unknown_user_code_effects();
-        }
-        if pattern.bindings().is_empty() {
-            return Some(vec![StatementIr::DeclarationEvaluation(
-                TypedExpr::spec_to_object(init),
-            )]);
-        }
-
-        if self.borrows_direct_eval_variable_environment()
-            || !object_pattern_binds_only_single_names(pattern.bindings())
-        {
-            let pattern =
-                self.lower_object_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
-            return Some(vec![StatementIr::DeclarationEvaluation(
-                TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::ObjectDestructure {
-                        value: Box::new(init),
-                        pattern: Box::new(pattern),
-                    },
-                ),
-            )]);
-        }
-
-        let mut statements = Vec::new();
-        let mut declarators = Vec::with_capacity(pattern.bindings().len());
-        for binding in pattern.bindings() {
-            let ObjectPatternElement::SingleName {
-                name,
-                ident,
-                default_init,
-            } = binding
-            else {
-                self.unsupported("destructuring binding");
-                return None;
-            };
-            let PropertyName::Literal(key) = name else {
-                self.unsupported("computed object key");
-                return None;
-            };
-            let key = self.interner.resolve_expect(key.sym()).to_string();
-            let name = self.interner.resolve_expect(ident.sym()).to_string();
-            let property_value = self.lower_object_pattern_value_from_value(&init, &key);
-            let value = if default_init.is_some() {
-                if !declarators.is_empty() {
-                    statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
-                }
-
-                let temp_name = self.alloc_temp_binding_name("destructure.value.internal.");
-                let temp = TypedExpr::from_info(
-                    property_value.value_info(),
-                    ExprIr::Identifier(temp_name.clone()),
-                );
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: temp_name,
-                    init: property_value,
-                });
-                self.apply_destructuring_default(temp, default_init.as_ref())
-            } else {
-                property_value
-            };
-            self.set_binding_value_info(&name, value.value_info());
-            declarators.push(VarDeclaratorIr {
-                name,
-                init: Some(value),
-            });
-
-            if default_init.is_some() {
-                statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
+        match pattern {
+            Pattern::Array(pattern) => {
+                self.invalidate_unknown_user_code_effects();
+                let pattern =
+                    self.lower_array_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
+                Some(vec![StatementIr::DeclarationEvaluation(
+                    TypedExpr::from_info(
+                        ValueInfo::undefined(),
+                        ExprIr::ArrayDestructure {
+                            value: Box::new(init),
+                            pattern,
+                            evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                        },
+                    ),
+                )])
             }
+            Pattern::Object(pattern) => self.lower_object_pattern_binding_from_value(
+                BindingMode::Var,
+                pattern.bindings(),
+                init,
+                None,
+            ),
         }
-
-        if !declarators.is_empty() {
-            statements.push(StatementIr::Var(declarators));
-        }
-        Some(statements)
     }
 
     fn lower_pattern_lexical_binding_from_value(
@@ -14668,7 +11041,7 @@ impl<'a> ScriptLowerer<'a> {
         storage_names: Option<&BTreeMap<String, String>>,
     ) -> Option<Vec<StatementIr>> {
         match pattern {
-            Pattern::Object(pattern) => self.lower_object_pattern_lexical_binding_from_value(
+            Pattern::Object(pattern) => self.lower_object_pattern_binding_from_value(
                 mode,
                 pattern.bindings(),
                 init,
@@ -14692,78 +11065,30 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn lower_object_pattern_lexical_binding_from_value(
+    fn lower_object_pattern_binding_from_value(
         &mut self,
         mode: BindingMode,
         bindings: &[ObjectPatternElement],
         init: TypedExpr,
         storage_names: Option<&BTreeMap<String, String>>,
     ) -> Option<Vec<StatementIr>> {
-        // Nested patterns (`{ a: [b] }`) and rest properties (`{ a, ...rest }`)
-        // cannot be expressed as one lexical statement per bound name, so they go
-        // through the semantic `ObjectDestructure` node, which already models
-        // nested targets, defaults and CopyDataProperties.
         if !bindings.is_empty() {
             self.invalidate_unknown_user_code_effects();
         }
-        if bindings.is_empty() || !object_pattern_binds_only_single_names(bindings) {
-            let pattern = self.lower_object_binding_pattern(mode, bindings, storage_names)?;
-            return Some(vec![StatementIr::DeclarationEvaluation(
-                TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::ObjectDestructure {
-                        value: Box::new(init),
-                        pattern: Box::new(pattern),
-                    },
-                ),
-            )]);
-        }
-
-        let mut statements = Vec::new();
-        for binding in bindings {
-            match binding {
-                ObjectPatternElement::SingleName {
-                    name,
-                    ident,
-                    default_init,
-                } => {
-                    let PropertyName::Literal(key) = name else {
-                        self.unsupported("computed object key");
-                        return None;
-                    };
-                    let key = self.interner.resolve_expect(key.sym()).to_string();
-                    let target_name = self.interner.resolve_expect(ident.sym()).to_string();
-                    let property_value = self.lower_object_pattern_value_from_value(&init, &key);
-                    let value =
-                        self.apply_destructuring_default(property_value, default_init.as_ref());
-                    let storage_name = storage_names
-                        .and_then(|storage_names| storage_names.get(&target_name))
-                        .cloned();
-                    // Ledger **L2**: the destructuring paths take no
-                    // `PendingInitialization`. Their ordering is already correct
-                    // (the pattern's value and default are lowered before this
-                    // runs) and `direct_lexical_storage_name` reuses the name the
-                    // sweep allocated, so this is a missing *proof*, not a
-                    // missing check.
-                    statements.push(self.lower_lexical_binding_value(
-                        mode,
-                        target_name,
-                        ident.span(),
-                        LoweredInitializer::evaluated(value),
-                        None,
-                        storage_name,
-                    ));
-                }
-                ObjectPatternElement::Pattern { .. }
-                | ObjectPatternElement::RestProperty { .. }
-                | ObjectPatternElement::AssignmentPropertyAccess { .. }
-                | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => {
-                    self.unsupported("destructuring binding");
-                    return None;
-                }
-            }
-        }
-        Some(statements)
+        // All object bindings consume one semantic pattern. The Wasm owner
+        // retains each acquired property value across its default and target
+        // initialization; lowering cannot clone an observable Get into a
+        // conditional's condition and nondefault arm.
+        let pattern = self.lower_object_binding_pattern(mode, bindings, storage_names)?;
+        Some(vec![StatementIr::DeclarationEvaluation(
+            TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::ObjectDestructure {
+                    value: Box::new(init),
+                    pattern: Box::new(pattern),
+                },
+            ),
+        )])
     }
 
     fn lower_object_binding_pattern(
@@ -14806,7 +11131,12 @@ impl<'a> ScriptLowerer<'a> {
                     // element's default are both lowered above. The storage name
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
-                    self.declare_binding(
+                    let target = self.destructuring_binding_target(
+                        mode,
+                        source_name.clone(),
+                        storage_name.clone(),
+                    );
+                    self.record_destructuring_binding(
                         source_name.clone(),
                         BindingInfo {
                             mode,
@@ -14817,10 +11147,11 @@ impl<'a> ScriptLowerer<'a> {
                             function_targets: FunctionTargetKnowledge::unknown(),
                             initialization: Initialization::Initialized,
                         },
+                        &target,
                     );
                     properties.push(ObjectDestructuringPropertyIr {
                         key,
-                        target: self.destructuring_binding_target(mode, source_name, storage_name),
+                        target,
                         default,
                     });
                 }
@@ -14877,7 +11208,12 @@ impl<'a> ScriptLowerer<'a> {
                     // element's default are both lowered above. The storage name
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
-                    self.declare_binding(
+                    let target = self.destructuring_binding_target(
+                        mode,
+                        source_name.clone(),
+                        storage_name.clone(),
+                    );
+                    self.record_destructuring_binding(
                         source_name.clone(),
                         BindingInfo {
                             mode,
@@ -14888,8 +11224,9 @@ impl<'a> ScriptLowerer<'a> {
                             function_targets: FunctionTargetKnowledge::none(),
                             initialization: Initialization::Initialized,
                         },
+                        &target,
                     );
-                    rest = Some(self.destructuring_binding_target(mode, source_name, storage_name));
+                    rest = Some(target);
                 }
                 ObjectPatternElement::AssignmentPropertyAccess { .. }
                 | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => {
@@ -14939,7 +11276,12 @@ impl<'a> ScriptLowerer<'a> {
                     // element's default are both lowered above. The storage name
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
-                    self.declare_binding(
+                    let target = self.destructuring_binding_target(
+                        mode,
+                        source_name.clone(),
+                        storage_name.clone(),
+                    );
+                    self.record_destructuring_binding(
                         source_name.clone(),
                         BindingInfo {
                             mode,
@@ -14950,11 +11292,9 @@ impl<'a> ScriptLowerer<'a> {
                             function_targets: FunctionTargetKnowledge::unknown(),
                             initialization: Initialization::Initialized,
                         },
+                        &target,
                     );
-                    ArrayDestructuringElementIr::Target {
-                        target: self.destructuring_binding_target(mode, source_name, storage_name),
-                        default,
-                    }
+                    ArrayDestructuringElementIr::Target { target, default }
                 }
                 ArrayPatternElement::SingleNameRest { ident } => {
                     let source_name = self.interner.resolve_expect(ident.sym()).to_string();
@@ -14978,7 +11318,12 @@ impl<'a> ScriptLowerer<'a> {
                     // element's default are both lowered above. The storage name
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
-                    self.declare_binding(
+                    let target = self.destructuring_binding_target(
+                        mode,
+                        source_name.clone(),
+                        storage_name.clone(),
+                    );
+                    self.record_destructuring_binding(
                         source_name.clone(),
                         BindingInfo {
                             mode,
@@ -14989,10 +11334,9 @@ impl<'a> ScriptLowerer<'a> {
                             function_targets: FunctionTargetKnowledge::none(),
                             initialization: Initialization::Initialized,
                         },
+                        &target,
                     );
-                    ArrayDestructuringElementIr::Rest {
-                        target: self.destructuring_binding_target(mode, source_name, storage_name),
-                    }
+                    ArrayDestructuringElementIr::Rest { target }
                 }
                 ArrayPatternElement::Pattern {
                     pattern,
@@ -15294,9 +11638,10 @@ impl<'a> ScriptLowerer<'a> {
                 private_name_id,
             });
         }
-        let PropertyAccess::Simple(access) = access else {
-            self.unsupported("property assignment target");
-            return None;
+        let access = match access {
+            PropertyAccess::Simple(access) => access,
+            PropertyAccess::Super(access) => return self.lower_super_destructuring_target(access),
+            PropertyAccess::Private(_) => unreachable!("private access returned above"),
         };
         let target = self.lower_property_target(access.target());
         if !matches!(
@@ -15382,22 +11727,6 @@ impl<'a> ScriptLowerer<'a> {
         statement
     }
 
-    fn lower_object_pattern_value_from_value(&self, target: &TypedExpr, key: &str) -> TypedExpr {
-        let info = self.read_object_shape(target, key).unwrap_or(ValueInfo {
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: FunctionTargetKnowledge::unknown(),
-        });
-        TypedExpr::from_info(
-            info,
-            ExprIr::PropertyRead {
-                target: Box::new(target.clone()),
-                key: PropertyKeyIr::StaticString(key.to_string()),
-            },
-        )
-    }
-
     fn property_name_to_static_key(&self, name: &PropertyName) -> Option<String> {
         match name {
             PropertyName::Literal(name) => {
@@ -15407,83 +11736,28 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn apply_destructuring_default(
-        &mut self,
-        value: TypedExpr,
-        default_init: Option<&Expression>,
-    ) -> TypedExpr {
-        let Some(default_init) = default_init else {
-            return value;
-        };
-        let fallback = self.lower_expression(default_init);
-        let result_info = self.merge_value_infos(value.value_info(), fallback.value_info());
-        TypedExpr::from_info(
-            result_info,
-            ExprIr::Conditional {
-                condition: Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::StrictEquality {
-                        op: EqualityBinaryOp::StrictEqual,
-                        lhs: Box::new(value.clone()),
-                        rhs: Box::new(TypedExpr::undefined()),
-                    },
-                )),
-                then_expr: Box::new(fallback),
-                else_expr: Box::new(value),
-            },
-        )
-    }
-
     /// Lowers `x op= rhs` for an identifier whose binding or right-hand side is
     /// not the plain number/string pair the specialised compound-assign nodes
     /// carry, by reading the binding and applying the ordinary binary operator.
     fn lower_identifier_arithmetic_general(
         &mut self,
         name: &str,
-        storage_name: Option<String>,
+        storage_name: String,
         lhs_info: ValueInfo,
         arithmetic: ArithmeticOp,
         value: TypedExpr,
     ) -> TypedExpr {
-        let lhs = TypedExpr::from_info(
-            lhs_info,
-            match &storage_name {
-                Some(storage) => ExprIr::Identifier(storage.clone()),
-                None => ExprIr::GlobalPropertyRead {
-                    name: name.to_string(),
-                },
-            },
-        );
+        let lhs = TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
         let result = self.combine_arithmetic(arithmetic, lhs, value);
         let info = result.value_info();
-        match storage_name {
-            Some(storage) => {
-                self.set_binding_value_info(name, info.clone());
-                TypedExpr::from_info(
-                    info,
-                    ExprIr::AssignIdentifier {
-                        name: storage,
-                        value: Box::new(result),
-                    },
-                )
-            }
-            None => {
-                if self.is_script_global_var_name(name) && !self.has_scope_binding(name) {
-                    self.set_binding_value_info(name, info.clone());
-                }
-                self.set_global_property_value_info(name.to_string(), info.clone());
-                let strictness = self.reference_strictness();
-                TypedExpr::from_info(
-                    info,
-                    ExprIr::GlobalPropertyWrite {
-                        name: name.to_string(),
-                        value: Box::new(result),
-                        implicit: false,
-                        strictness,
-                    },
-                )
-            }
-        }
+        self.set_binding_value_info(name, info.clone());
+        TypedExpr::from_info(
+            info,
+            ExprIr::AssignIdentifier {
+                name: storage_name,
+                value: Box::new(result),
+            },
+        )
     }
 
     /// Lowers `ref op= rhs` where `ref` is a property Reference.
@@ -15630,11 +11904,13 @@ impl<'a> ScriptLowerer<'a> {
             expr,
             ExprIr::Identifier(_)
                 | ExprIr::This
+                | ExprIr::ExecutionGlobalObject
                 | ExprIr::Undefined
                 | ExprIr::Null
                 | ExprIr::Boolean(_)
                 | ExprIr::Number(_)
                 | ExprIr::String(_)
+                | ExprIr::WellKnownSymbol(_)
         )
     }
 
@@ -15657,8 +11933,14 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        let PropertyAccess::Simple(access) = access else {
-            return self.unsupported_expr("property assignment target");
+        let access = match access {
+            PropertyAccess::Simple(access) => access,
+            PropertyAccess::Super(access) => {
+                return self
+                    .lower_super_property_assign_value(access, value)
+                    .unwrap_or_else(TypedExpr::undefined);
+            }
+            PropertyAccess::Private(_) => unreachable!("private access returned above"),
         };
         let target = self.lower_property_target(access.target());
         let key = match target.kind {
@@ -15700,6 +11982,33 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         }
                     }
+                }
+            },
+            ValueKind::Array => match access.field() {
+                PropertyAccessField::Const(name) => {
+                    let name = self.interner.resolve_expect(name.sym()).to_string();
+                    if name == "length" {
+                        PropertyKeyIr::ArrayLength
+                    } else {
+                        PropertyKeyIr::StaticString(name)
+                    }
+                }
+                PropertyAccessField::Expr(expr) => {
+                    let Some(key) = self.lower_array_property_key(expr) else {
+                        return self.unsupported_expr("array index must be number");
+                    };
+                    key
+                }
+            },
+            ValueKind::Arguments => match access.field() {
+                PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
+                    self.interner.resolve_expect(name.sym()).to_string(),
+                ),
+                PropertyAccessField::Expr(expr) => {
+                    let Some(key) = self.lower_dynamic_object_property_key(expr) else {
+                        return self.unsupported_expr("arguments property key");
+                    };
+                    key
                 }
             },
             ValueKind::Dynamic | ValueKind::Undefined => match access.field() {
@@ -15824,20 +12133,6 @@ impl<'a> ScriptLowerer<'a> {
                                 } else {
                                     PrototypeToStringState::Unknown
                                 };
-                        }
-                        if self.is_number_prototype_property_expr(
-                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
-                            "match",
-                        ) {
-                            self.number_prototype_match_is_string_match =
-                                self.is_string_prototype_property_expr(rhs, "match");
-                        }
-                        if self.is_number_prototype_property_expr(
-                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
-                            "split",
-                        ) {
-                            self.number_prototype_split_is_string_split =
-                                self.is_string_prototype_property_expr(rhs, "split");
                         }
                         if self.is_boolean_prototype_property_expr(
                             &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
@@ -15992,20 +12287,6 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         };
                         let value = self.lower_expression(rhs);
-                        if self.is_number_prototype_property_expr(
-                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
-                            "match",
-                        ) {
-                            self.number_prototype_match_is_string_match =
-                                self.is_string_prototype_property_expr(rhs, "match");
-                        }
-                        if self.is_number_prototype_property_expr(
-                            &Expression::PropertyAccess(PropertyAccess::Simple(access.clone())),
-                            "split",
-                        ) {
-                            self.number_prototype_split_is_string_split =
-                                self.is_string_prototype_property_expr(rhs, "split");
-                        }
                         let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
@@ -16140,6 +12421,8 @@ impl<'a> ScriptLowerer<'a> {
             UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
         };
         if let Some(objects) = selected {
+            self.observe_all_planned_source_as_unknown_property_hooks();
+            self.invalidate_unknown_user_code_effects();
             let plan = self.with_environment_reference_plan(name.clone(), objects);
             let fallback = self.lower_located_identifier_numeric_update(
                 name,
@@ -16152,11 +12435,6 @@ impl<'a> ScriptLowerer<'a> {
                 NumericUpdateBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
             return plan.numeric_update(op, return_mode, bindings, fallback);
         }
-        if matches!(&reference, LocatedIdentifierReference::Unresolvable)
-            && !self.global_property_is_proven_present(&name)
-        {
-            return self.lower_global_object_environment_numeric_update(name, op, return_mode);
-        }
         self.lower_located_identifier_numeric_update(
             name,
             op,
@@ -16166,22 +12444,32 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_global_object_environment_numeric_update(
+    fn lower_global_identifier_numeric_update(
         &mut self,
         name: String,
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
     ) -> TypedExpr {
-        self.record_caller_flow_invalidation();
-        if let Some(info) = self.global_properties.get_mut(&name) {
-            info.value_info.widen_for_possible_replacement();
-            info.proven_present = false;
-        }
-        let bindings =
-            NumericUpdateBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
-        let strictness = self.reference_strictness();
-        GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)
-            .numeric_update(op, return_mode, bindings)
+        self.observe_all_planned_source_as_unknown_property_hooks();
+        self.invalidate_unknown_user_code_effects();
+        let possible_kinds =
+            KindSet::from_kind(ValueKind::Number).union(KindSet::from_kind(ValueKind::BigInt));
+        TypedExpr::from_info(
+            ValueInfo {
+                kind: possible_kinds.as_value_kind(),
+                possible_kinds,
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            },
+            ExprIr::EnvironmentIdentifier(Box::new(EnvironmentIdentifierIr::global(
+                name,
+                self.reference_strictness(),
+                EnvironmentIdentifierOperationIr::Update {
+                    operation: op,
+                    return_mode,
+                },
+            ))),
+        )
     }
 
     fn lower_located_identifier_numeric_update(
@@ -16192,10 +12480,15 @@ impl<'a> ScriptLowerer<'a> {
         reference: LocatedIdentifierReference,
         reachability: IdentifierUpdateReachability,
     ) -> TypedExpr {
+        if self.is_unshadowed_script_global_binding(&name)
+            || matches!(&reference, LocatedIdentifierReference::Unresolvable)
+        {
+            return self.lower_global_identifier_numeric_update(name, op, return_mode);
+        }
         // 13.4.4 / 13.4.5 UpdateExpression: GetValue then PutValue, so
         // 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 both apply. `x++` on an
         // uninitialized binding used to read the slot.
-        let located_binding = match reference {
+        let binding = match reference {
             LocatedIdentifierReference::Declarative {
                 resolution: BindingResolution::Uninitialized(violation),
                 ..
@@ -16203,220 +12496,94 @@ impl<'a> ScriptLowerer<'a> {
             LocatedIdentifierReference::Declarative {
                 resolution: BindingResolution::Initialized(binding),
                 ..
-            } => Some(binding),
-            LocatedIdentifierReference::Unresolvable => None,
+            } => binding,
+            LocatedIdentifierReference::Unresolvable => {
+                unreachable!("global updates use their retained Environment Reference")
+            }
             LocatedIdentifierReference::Declarative {
                 resolution: BindingResolution::Unresolvable,
                 ..
             } => unreachable!("a declarative location cannot be unresolvable"),
         };
-        let (binding_storage_name, update_kind) = if let Some(binding) = located_binding {
-            if binding.mode == BindingMode::Const {
-                // 13.4.4.1 (and 13.4.5.1 / the prefix forms) run
-                //   1. expr = evaluate the UnaryExpression
-                //   2. oldValue = ToNumeric(GetValue(expr))
-                //   3. newValue = the numeric op on oldValue
-                //   4. PutValue(expr, newValue)
-                // — so the ToNumeric of step 2 happens *before* the PutValue of
-                // step 4 fails, and it can throw first. `const s = Symbol();
-                // s++` must report ToNumeric's TypeError, not the immutability
-                // one, and `const o = { valueOf() { log(); return 1; } }; o++`
-                // must call `valueOf`. That is why the operand handed to
-                // `immutable_binding_write` is the coercion and not the bare
-                // read. Step 3 is unobservable once step 4 always throws.
-                let old_value = TypedExpr::spec_to_numeric(TypedExpr::from_info(
-                    ValueInfo {
-                        kind: binding.kind,
-                        possible_kinds: binding.possible_kinds,
-                        heap_shape: binding.heap_shape.clone(),
-                        function_targets: binding.function_targets.clone(),
-                    },
-                    ExprIr::Identifier(binding.storage_name.clone()),
-                ));
-                return self.immutable_binding_write(&binding.storage_name, old_value);
-            }
-            let update_kind = if binding
-                .possible_kinds
-                .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
-            {
-                NumericUpdateValueKind::BigInt
-            } else if binding
-                .possible_kinds
-                .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
-            {
-                NumericUpdateValueKind::Number
-            } else {
-                NumericUpdateValueKind::Dynamic
-            };
-            let storage_name = binding.storage_name.clone();
-            let emitted_update_kind = match reachability {
-                IdentifierUpdateReachability::Definite => update_kind,
-                IdentifierUpdateReachability::WithEnvironmentFallback => {
-                    NumericUpdateValueKind::Dynamic
-                }
-            };
-            let updated_info = match reachability {
-                IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind.value_kind()),
-                IdentifierUpdateReachability::WithEnvironmentFallback => {
-                    let mut value = ValueInfo {
-                        kind: binding.kind,
-                        possible_kinds: binding.possible_kinds,
-                        heap_shape: binding.heap_shape,
-                        function_targets: binding.function_targets,
-                    };
-                    value.widen_for_possible_replacement();
-                    value
-                }
-            };
-            self.set_binding_value_info(&name, updated_info.clone());
-            // A script-level `var` is a property of the global object, and
-            // `lower_identifier_name` reads it from there. Updating the
-            // local mirror instead would read a value that is stale by every
-            // write a closure made through the global object, so `n++` after
-            // `function bump(){ n++ }; bump()` would resume from the old value.
-            if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
-                self.set_global_property_value_info(name.clone(), updated_info);
-                (None, emitted_update_kind)
-            } else {
-                (Some(storage_name), emitted_update_kind)
-            }
-        } else if let Some(info) = self.lookup_global_property_info(&name) {
-            if info.proven_present {
-                let update_kind = if info
-                    .value_info
-                    .possible_kinds
-                    .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
-                {
-                    NumericUpdateValueKind::BigInt
-                } else if info
-                    .value_info
-                    .possible_kinds
-                    .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
-                {
-                    NumericUpdateValueKind::Number
-                } else {
-                    NumericUpdateValueKind::Dynamic
-                };
-                let emitted_update_kind = match reachability {
-                    IdentifierUpdateReachability::Definite => update_kind,
-                    IdentifierUpdateReachability::WithEnvironmentFallback => {
-                        NumericUpdateValueKind::Dynamic
-                    }
-                };
-                let updated_info = match reachability {
-                    IdentifierUpdateReachability::Definite => {
-                        ValueInfo::new(update_kind.value_kind())
-                    }
-                    IdentifierUpdateReachability::WithEnvironmentFallback => {
-                        let mut value = info.value_info.clone();
-                        value.widen_for_possible_replacement();
-                        value
-                    }
-                };
-                self.set_global_property_value_info(name.clone(), updated_info);
-                (None, emitted_update_kind)
-            } else {
-                match reachability {
-                    IdentifierUpdateReachability::Definite => {
-                        self.unsupported_with_message(format!(
-                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                        ));
-                        return TypedExpr::undefined();
-                    }
-                    IdentifierUpdateReachability::WithEnvironmentFallback => {
-                        (None, NumericUpdateValueKind::Dynamic)
-                    }
-                }
-            }
-        } else if self.global_property_is_proven_present(&name) {
-            match reachability {
-                IdentifierUpdateReachability::Definite => {
-                    return self.unsupported_expr("numeric update on non-number binding");
-                }
-                IdentifierUpdateReachability::WithEnvironmentFallback => {
-                    (None, NumericUpdateValueKind::Dynamic)
-                }
-            }
+        if binding.mode == BindingMode::Const {
+            // 13.4.4.1 (and 13.4.5.1 / the prefix forms) run
+            //   1. expr = evaluate the UnaryExpression
+            //   2. oldValue = ToNumeric(GetValue(expr))
+            //   3. newValue = the numeric op on oldValue
+            //   4. PutValue(expr, newValue)
+            // — so the ToNumeric of step 2 happens *before* the PutValue of
+            // step 4 fails, and it can throw first. `const s = Symbol();
+            // s++` must report ToNumeric's TypeError, not the immutability
+            // one, and `const o = { valueOf() { log(); return 1; } }; o++`
+            // must call `valueOf`. That is why the operand handed to
+            // `immutable_binding_write` is the coercion and not the bare
+            // read. Step 3 is unobservable once step 4 always throws.
+            let old_value = TypedExpr::spec_to_numeric(TypedExpr::from_info(
+                ValueInfo {
+                    kind: binding.kind,
+                    possible_kinds: binding.possible_kinds,
+                    heap_shape: binding.heap_shape.clone(),
+                    function_targets: binding.function_targets.clone(),
+                },
+                ExprIr::Identifier(binding.storage_name.clone()),
+            ));
+            return self.immutable_binding_write(&binding.storage_name, old_value);
+        }
+        let update_kind = if binding
+            .possible_kinds
+            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+        {
+            NumericUpdateValueKind::BigInt
+        } else if binding
+            .possible_kinds
+            .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
+        {
+            NumericUpdateValueKind::Number
         } else {
-            match reachability {
-                IdentifierUpdateReachability::Definite => {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                    ));
-                    return TypedExpr::undefined();
-                }
-                IdentifierUpdateReachability::WithEnvironmentFallback => {
-                    (None, NumericUpdateValueKind::Dynamic)
-                }
+            NumericUpdateValueKind::Dynamic
+        };
+        let storage_name = binding.storage_name.clone();
+        let emitted_update_kind = match reachability {
+            IdentifierUpdateReachability::Definite => update_kind,
+            IdentifierUpdateReachability::WithEnvironmentFallback => {
+                NumericUpdateValueKind::Dynamic
             }
         };
-
-        let strictness = self.reference_strictness();
-        if let Some(storage_name) = binding_storage_name {
-            return TypedExpr::from_info(
-                ValueInfo::new(update_kind.value_kind()),
-                ExprIr::UpdateIdentifier {
-                    name: storage_name,
-                    op,
-                    return_mode,
-                    value_kind: update_kind,
-                },
-            );
-        }
-        if reachability == IdentifierUpdateReachability::WithEnvironmentFallback {
-            if let Some(info) = self.global_properties.get_mut(&name) {
-                info.value_info.widen_for_possible_replacement();
-                if info.configurable {
-                    info.proven_present = false;
-                }
+        let updated_info = match reachability {
+            IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind.value_kind()),
+            IdentifierUpdateReachability::WithEnvironmentFallback => {
+                let mut value = ValueInfo {
+                    kind: binding.kind,
+                    possible_kinds: binding.possible_kinds,
+                    heap_shape: binding.heap_shape,
+                    function_targets: binding.function_targets,
+                };
+                value.widen_for_possible_replacement();
+                value
             }
-        }
-        let update = TypedExpr::from_info(
-            ValueInfo::new(update_kind.value_kind()),
-            ExprIr::GlobalPropertyUpdate {
-                name: name.clone(),
+        };
+        self.set_binding_value_info(&name, updated_info);
+        TypedExpr::from_info(
+            ValueInfo::new(emitted_update_kind.value_kind()),
+            ExprIr::UpdateIdentifier {
+                name: storage_name,
                 op,
                 return_mode,
-                value_kind: update_kind,
-                strictness,
+                value_kind: emitted_update_kind,
             },
-        );
-        match reachability {
-            IdentifierUpdateReachability::Definite => update,
-            IdentifierUpdateReachability::WithEnvironmentFallback => {
-                // HasBinding/@@unscopables is observable and may delete a
-                // previously proven global before the fallback is reached.
-                // UpdateExpression GetValue must then throw in sloppy code as
-                // well; it must not coerce `undefined` and recreate the name.
-                let present = TypedExpr::spec_has_property(
-                    TypedExpr::from_info(
-                        self.global_this_info(),
-                        ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
-                    ),
-                    TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(name)),
-                );
-                let missing = TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                    ExprIr::RuntimeThrow {
-                        name: NativeErrorKind::ReferenceError,
-                        message: "unbound identifier in with scope",
-                    },
-                );
-                TypedExpr::from_info(
-                    update.value_info(),
-                    ExprIr::Conditional {
-                        condition: Box::new(present),
-                        then_expr: Box::new(update),
-                        else_expr: Box::new(missing),
-                    },
-                )
-            }
-        }
+        )
+    }
+
+    fn lower_global_identifier_typeof(&mut self, name: String) -> TypedExpr {
+        // ResolveBinding can call an inherited Proxy HasProperty trap, and
+        // GetBindingValue can invoke a getter. Neither operation may retain
+        // source facts from before that user code; only absence skips Get.
+        self.observe_all_planned_source_as_unknown_property_hooks();
+        self.invalidate_unknown_user_code_effects();
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::TypeOfUnresolvedIdentifier { name },
+        )
     }
 
     fn lower_unary(&mut self, op: UnaryOp, target: &Expression) -> TypedExpr {
@@ -16430,36 +12597,25 @@ impl<'a> ScriptLowerer<'a> {
                     return self
                         .environment_identifier(name, EnvironmentIdentifierOperationIr::Typeof);
                 }
-                // `globalThis` is an intrinsic script global binding (see
-                // `script_global_bindings`) rather than a tracked global property, so it
-                // never shows up in `global_property_is_proven_present`. Without this arm
-                // `typeof globalThis` would lower to the unresolved-identifier form and
-                // constant-fold to "undefined".
                 let fallback = self.locate_identifier_reference(&name);
                 let selected = self
                     .with_environment_chain
                     .select_preceding(fallback.declarative_position());
-                if self.is_unshadowed_script_global_binding(&name) {
-                    let global = TypedExpr::from_info(
-                        unknown_runtime_value_info(),
-                        ExprIr::GlobalPropertyRead { name: name.clone() },
-                    );
-                    let operand = match selected {
+                if self.is_unshadowed_script_global_binding(&name)
+                    || (name == GLOBAL_THIS_NAME
+                        && self.lookup_binding(&name).is_none()
+                        && !self.is_global_this_expr(target))
+                {
+                    let global_typeof = self.lower_global_identifier_typeof(name.clone());
+                    return match selected {
                         Some(objects) => self
                             .with_environment_reference_plan(name, objects)
-                            .get_value(global),
-                        None => global,
+                            .typeof_value(global_typeof),
+                        None => global_typeof,
                     };
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::String),
-                        ExprIr::TypeOf {
-                            expr: Box::new(operand),
-                        },
-                    );
                 }
-                let is_bound = name == GLOBAL_THIS_NAME
-                    || (self.lookup_binding(&name).is_some()
-                        && !self.is_unshadowed_script_global_binding(&name))
+                let is_bound = (self.lookup_binding(&name).is_some()
+                    && !self.is_unshadowed_script_global_binding(&name))
                     || self.global_property_is_proven_present(&name)
                     || (self.root_functions_need_body_initialization()
                         && self.visible_function_names.contains_key(&name))
@@ -16467,132 +12623,32 @@ impl<'a> ScriptLowerer<'a> {
                         && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some());
                 if let Some(objects) = selected {
                     let plan = self.with_environment_reference_plan(name.clone(), objects);
-                    let fallback = if is_bound {
-                        self.lower_identifier_name(name, false)
-                    } else {
-                        TypedExpr::from_info(
-                            unknown_runtime_value_info(),
-                            ExprIr::GlobalPropertyRead { name },
-                        )
-                    };
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::String),
-                        ExprIr::TypeOf {
-                            expr: Box::new(plan.get_value(fallback)),
-                        },
-                    );
-                }
-                if !is_bound {
-                    let global_presence_requires_runtime_lookup = self
-                        .global_properties
-                        .get(&name)
-                        .is_some_and(|property| !property.proven_present)
-                        || self.unknown_user_code_effects_observed;
-                    if global_presence_requires_runtime_lookup {
+                    if is_bound {
+                        let fallback = self.lower_identifier_name(name, false);
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::String),
                             ExprIr::TypeOf {
-                                expr: Box::new(TypedExpr::from_info(
-                                    unknown_runtime_value_info(),
-                                    ExprIr::GlobalPropertyRead { name },
-                                )),
+                                expr: Box::new(plan.get_value(fallback)),
                             },
                         );
                     }
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::String),
-                        ExprIr::TypeOfUnresolvedIdentifier { name },
-                    );
+                    return plan.typeof_value(self.lower_global_identifier_typeof(name));
+                }
+                if !is_bound {
+                    return self.lower_global_identifier_typeof(name);
                 }
             }
         }
         let lowered_target = self.lower_expression(target);
-        match op {
-            UnaryOp::Plus => {
-                if let Some(value) = self.static_to_number_expr(target) {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Number),
-                        ExprIr::Number(value.to_bits()),
-                    );
-                }
-                self.record_possible_to_primitive_effects(&lowered_target.value_info());
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Number,
-                        possible_kinds: KindSet::from_kind(ValueKind::Number),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::none(),
-                    },
-                    ExprIr::UnaryPlus {
-                        expr: Box::new(lowered_target),
-                    },
-                )
-            }
-            UnaryOp::Minus => {
-                if let ExprIr::BigInt(bits) = &lowered_target.expr {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::BigInt),
-                        ExprIr::BigInt(bits.negated()),
-                    );
-                }
-                let primitive = self.to_primitive_info(&lowered_target, ToPrimitiveHint::Number);
-                let (has_number, has_bigint) = numeric_domain(primitive.as_ref());
-                let mut result_kinds = KindSet::EMPTY;
-                if has_number {
-                    result_kinds = result_kinds.union(KindSet::from_kind(ValueKind::Number));
-                }
-                if has_bigint {
-                    result_kinds = result_kinds.union(KindSet::from_kind(ValueKind::BigInt));
-                }
-                if result_kinds == KindSet::EMPTY {
-                    result_kinds = KindSet::from_kind(ValueKind::Number);
-                }
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: result_kinds.as_value_kind(),
-                        possible_kinds: result_kinds,
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::none(),
-                    },
-                    ExprIr::UnaryMinusNumeric {
-                        expr: Box::new(lowered_target),
-                    },
-                )
-            }
-            UnaryOp::Not => TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Boolean,
-                    possible_kinds: KindSet::from_kind(ValueKind::Boolean),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::none(),
-                },
-                ExprIr::LogicalNot {
-                    expr: Box::new(lowered_target),
-                },
-            ),
-            UnaryOp::TypeOf => TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::TypeOf {
-                    expr: Box::new(lowered_target),
-                },
-            ),
-            UnaryOp::Void => TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::Void {
-                    expr: Box::new(lowered_target),
-                },
-            ),
-            UnaryOp::Delete => unreachable!(),
-            UnaryOp::Tilde => {
-                if let ExprIr::BigInt(value) = &lowered_target.expr {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::BigInt),
-                        ExprIr::BigInt(value.complemented()),
-                    );
-                }
-                self.combine_unary_bitwise(UnaryBitwiseOp::Complement, lowered_target)
+        if op == UnaryOp::Plus {
+            if let Some(value) = self.static_to_number_expr(target) {
+                return TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Number),
+                    ExprIr::Number(value.to_bits()),
+                );
             }
         }
+        self.combine_unary_value(op, lowered_target)
     }
 
     fn lower_binary(&mut self, op: BinaryOp, lhs: &Expression, rhs: &Expression) -> TypedExpr {
@@ -17222,148 +13278,7 @@ impl<'a> ScriptLowerer<'a> {
         let lhs =
             self.pin_async_operand_before_suspension(lhs, rhs_suspends, "async.relational.lhs.");
         let rhs = self.lower_expression(rhs);
-
-        match relational {
-            RelationalOp::LessThan
-            | RelationalOp::LessThanOrEqual
-            | RelationalOp::GreaterThan
-            | RelationalOp::GreaterThanOrEqual => {
-                let op = match relational {
-                    RelationalOp::LessThan => RelationalBinaryOp::LessThan,
-                    RelationalOp::LessThanOrEqual => RelationalBinaryOp::LessThanOrEqual,
-                    RelationalOp::GreaterThan => RelationalBinaryOp::GreaterThan,
-                    RelationalOp::GreaterThanOrEqual => RelationalBinaryOp::GreaterThanOrEqual,
-                    _ => unreachable!(),
-                };
-                if self
-                    .to_primitive_info(&lhs, ToPrimitiveHint::Number)
-                    .is_some()
-                    && self
-                        .to_primitive_info(&rhs, ToPrimitiveHint::Number)
-                        .is_some()
-                {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::CompareValue {
-                            op,
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        },
-                    );
-                }
-                if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                    && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::CompareValue {
-                            op,
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        },
-                    );
-                }
-                let lhs = match self.coerce_expr_to_number(lhs.clone()) {
-                    Some(lhs) => lhs,
-                    None => {
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::CompareValue {
-                                op,
-                                lhs: Box::new(lhs),
-                                rhs: Box::new(rhs),
-                            },
-                        );
-                    }
-                };
-                let rhs = match self.coerce_expr_to_number(rhs.clone()) {
-                    Some(rhs) => rhs,
-                    None => {
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::CompareValue {
-                                op,
-                                lhs: Box::new(lhs),
-                                rhs: Box::new(rhs),
-                            },
-                        );
-                    }
-                };
-                if lhs.kind != ValueKind::Number || rhs.kind != ValueKind::Number {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::CompareValue {
-                            op,
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        },
-                    );
-                }
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Boolean,
-                        possible_kinds: KindSet::from_kind(ValueKind::Boolean),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::none(),
-                    },
-                    ExprIr::CompareNumber {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
-            }
-            RelationalOp::StrictEqual | RelationalOp::StrictNotEqual => {
-                let equality = TypedExpr::spec_strict_equality_comparison(lhs, rhs);
-                if matches!(relational, RelationalOp::StrictNotEqual) {
-                    TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::LogicalNot {
-                            expr: Box::new(equality),
-                        },
-                    )
-                } else {
-                    equality
-                }
-            }
-            RelationalOp::Equal | RelationalOp::NotEqual => {
-                self.record_possible_to_primitive_effects(&lhs.value_info());
-                self.record_possible_to_primitive_effects(&rhs.value_info());
-                let equality = TypedExpr::spec_is_loosely_equal(lhs, rhs);
-                if matches!(relational, RelationalOp::NotEqual) {
-                    TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::LogicalNot {
-                            expr: Box::new(equality),
-                        },
-                    )
-                } else {
-                    equality
-                }
-            }
-            RelationalOp::In => {
-                self.invalidate_unknown_user_code_effects();
-                TypedExpr::spec_has_property(rhs, lhs)
-            }
-            RelationalOp::InstanceOf => {
-                if let Some(function_id) = self.resolve_single_function_target(&rhs) {
-                    let Some(signature) = self.function_signatures.get(&function_id) else {
-                        return self.unsupported_expr("unsupported comparison operator");
-                    };
-                    if !signature.callable && !signature.protocol.is_constructable() {
-                        return self.unsupported_expr("unsupported comparison operator");
-                    }
-                }
-                self.invalidate_unknown_user_code_effects();
-                TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::InstanceOf {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
-            }
-        }
+        self.combine_relational(relational, lhs, rhs)
     }
 
     fn heap_shape_has_prototype(shape: &HeapShape, target: &HeapShape) -> bool {
@@ -17389,6 +13304,12 @@ impl<'a> ScriptLowerer<'a> {
         lhs: &Expression,
         rhs: &Expression,
     ) -> TypedExpr {
+        if self.async_expression_prefix.is_some()
+            && self.has_plain_async_value_branch_owner()
+            && contains(rhs, ContainsSymbol::AwaitExpression)
+        {
+            return self.lower_logical_await_value(logical, lhs, rhs);
+        }
         let lhs = self.lower_expression(lhs);
         if let Some(lhs_bool) = Self::static_bool_expr(&lhs) {
             match (logical, lhs_bool) {
@@ -17675,9 +13596,8 @@ impl<'a> ScriptLowerer<'a> {
     /// `None` for every other spelling and for a shadowed one.
     ///
     /// `undefined` maps to `NaN` because every caller is inside a `ToNumber`
-    /// (7.1.4 table row `Undefined` → `NaN`); a site that needs to know the
-    /// value *was* `undefined` asks [`Self::is_static_undefined_expr`], which
-    /// carries the same guard.
+    /// (7.1.4 table row `Undefined` → `NaN`). This numeric projection does not
+    /// distinguish `undefined` from an actual NaN value.
     fn static_global_number_identifier(&self, name: &str) -> Option<f64> {
         let value = match name {
             "Infinity" => f64::INFINITY,
@@ -17712,19 +13632,6 @@ impl<'a> ScriptLowerer<'a> {
             .then_some(kind)
     }
 
-    /// Whether a `receiver[@@match]`-shaped call may be typed as
-    /// `RegExp.prototype`'s.
-    ///
-    /// Conservative in the direction that matters. `true` when the receiver
-    /// carries the RegExp prototype shape (a literal or a `RegExpConstructor`
-    /// result), and `true` when nothing is known about its shape — that is the
-    /// pre-existing inference, and the emitter dispatches dynamically anyway.
-    /// `false` for any other *known* shape, which is what an object literal with
-    /// its own `[Symbol.match]` has.
-    fn receiver_shape_allows_regexp_symbol_protocol(receiver: &TypedExpr) -> bool {
-        Self::has_regexp_prototype_shape(receiver) || receiver.heap_shape.is_none()
-    }
-
     fn has_regexp_prototype_shape(target: &TypedExpr) -> bool {
         target.heap_shape.as_deref() == Some(Self::regexp_prototype_shape().as_ref())
     }
@@ -17756,23 +13663,6 @@ impl<'a> ScriptLowerer<'a> {
         WellKnownSymbol::from_member_name(SymbolMemberName::new(&member_name))
     }
 
-    fn static_parse_float_arg(&self, arg: Option<&Expression>) -> Option<f64> {
-        let input = match arg {
-            None => "undefined".to_string(),
-            Some(arg) => self.static_parse_float_input(arg)?,
-        };
-        Some(Self::parse_float_string(&input))
-    }
-
-    fn static_to_number_arg(&self, arg: Option<&Expression>) -> Option<f64> {
-        match arg {
-            None => Some(0.0),
-            Some(arg) => self
-                .static_to_number_expr(arg)
-                .or_else(|| self.static_bigint_to_number_expr(arg)),
-        }
-    }
-
     fn static_to_boolean_arg(&self, arg: Option<&Expression>) -> Option<bool> {
         match arg {
             None => Some(false),
@@ -17787,25 +13677,37 @@ impl<'a> ScriptLowerer<'a> {
     fn expression_cannot_be_kind(&self, expr: &Expression, excluded: ValueKind) -> bool {
         let expr = Self::unwrap_parenthesized_expr(expr);
         match expr {
-            Expression::Literal(literal) => match excluded {
-                ValueKind::BigInt => !matches!(literal.kind(), LiteralKind::BigInt(_)),
-                _ => true,
-            },
+            Expression::Literal(literal) => {
+                let kind = match literal.kind() {
+                    LiteralKind::Bool(_) => ValueKind::Boolean,
+                    LiteralKind::String(_) => ValueKind::String,
+                    LiteralKind::Num(_) | LiteralKind::Int(_) => ValueKind::Number,
+                    LiteralKind::Null => ValueKind::Null,
+                    LiteralKind::Undefined => ValueKind::Undefined,
+                    LiteralKind::BigInt(_) => ValueKind::BigInt,
+                };
+                kind != excluded
+            }
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                match name.as_str() {
-                    "undefined" | "NaN" | "Infinity" => true,
-                    _ => {
-                        let possible_kinds = self
-                            .lookup_binding(&name)
-                            .map(|binding| binding.possible_kinds)
-                            .unwrap_or_else(|| {
-                                self.capture_value_info(&self.current_owner_id, &name)
-                                    .possible_kinds
-                            });
-                        !possible_kinds.contains(excluded)
-                    }
+                if matches!(name.as_str(), "undefined" | "NaN" | "Infinity")
+                    && self.identifier_resolves_to_intrinsic_global(&name)
+                {
+                    let kind = if name == "undefined" {
+                        ValueKind::Undefined
+                    } else {
+                        ValueKind::Number
+                    };
+                    return kind != excluded;
                 }
+                let possible_kinds = self
+                    .lookup_binding(&name)
+                    .map(|binding| binding.possible_kinds)
+                    .unwrap_or_else(|| {
+                        self.capture_value_info(&self.current_owner_id, &name)
+                            .possible_kinds
+                    });
+                !possible_kinds.contains(excluded)
             }
             _ => false,
         }
@@ -17829,24 +13731,28 @@ impl<'a> ScriptLowerer<'a> {
             },
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                match name.as_str() {
-                    "undefined" | "NaN" => Some(false),
-                    "Infinity" => Some(true),
-                    _ => {
+                if let Some(value) = self.static_global_number_identifier(&name) {
+                    return Some(value != 0.0 && !value.is_nan());
+                }
+                let (kind, possible_kinds) = self
+                    .lookup_binding(&name)
+                    .map(|binding| (binding.kind, binding.possible_kinds))
+                    .unwrap_or_else(|| {
                         let info = self.capture_value_info(&self.current_owner_id, &name);
-                        if info.possible_kinds.is_singleton() {
-                            match info.kind {
-                                ValueKind::Undefined | ValueKind::Null => Some(false),
-                                ValueKind::Object
-                                | ValueKind::Array
-                                | ValueKind::Function
-                                | ValueKind::Symbol => Some(true),
-                                _ => None,
-                            }
-                        } else {
-                            None
-                        }
+                        (info.kind, info.possible_kinds)
+                    });
+                if possible_kinds.is_singleton() {
+                    match kind {
+                        ValueKind::Undefined | ValueKind::Null => Some(false),
+                        ValueKind::Object
+                        | ValueKind::Array
+                        | ValueKind::Arguments
+                        | ValueKind::Function
+                        | ValueKind::Symbol => Some(true),
+                        _ => None,
                     }
+                } else {
+                    None
                 }
             }
             Expression::Unary(unary) => match unary.op() {
@@ -17864,12 +13770,16 @@ impl<'a> ScriptLowerer<'a> {
                 let Expression::Identifier(identifier) = callee else {
                     return None;
                 };
-                match self
-                    .interner
-                    .resolve_expect(identifier.sym())
-                    .to_string()
-                    .as_str()
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if !self.identifier_resolves_to_intrinsic_global(&name)
+                    || call
+                        .args()
+                        .iter()
+                        .any(|argument| matches!(argument, Expression::Spread(_)))
                 {
+                    return None;
+                }
+                match name.as_str() {
                     BOOLEAN_NAME => self.static_to_boolean_arg(call.args().first()),
                     "Symbol" => Some(true),
                     _ => None,
@@ -17898,7 +13808,13 @@ impl<'a> ScriptLowerer<'a> {
                 else {
                     return None;
                 };
-                if self.interner.resolve_expect(constructor.sym()).to_string() != BOOLEAN_NAME {
+                if self.interner.resolve_expect(constructor.sym()).to_string() != BOOLEAN_NAME
+                    || !self.identifier_resolves_to_intrinsic_global(BOOLEAN_NAME)
+                    || new_expr
+                        .arguments()
+                        .iter()
+                        .any(|argument| matches!(argument, Expression::Spread(_)))
+                {
                     return None;
                 }
                 return self.static_to_boolean_arg(new_expr.arguments().first());
@@ -17909,7 +13825,13 @@ impl<'a> ScriptLowerer<'a> {
                 else {
                     return None;
                 };
-                if self.interner.resolve_expect(callee.sym()).to_string() != BOOLEAN_NAME {
+                if self.interner.resolve_expect(callee.sym()).to_string() != BOOLEAN_NAME
+                    || !self.identifier_resolves_to_intrinsic_global(BOOLEAN_NAME)
+                    || call
+                        .args()
+                        .iter()
+                        .any(|argument| matches!(argument, Expression::Spread(_)))
+                {
                     return None;
                 }
                 self.static_to_boolean_arg(call.args().first())
@@ -17923,7 +13845,9 @@ impl<'a> ScriptLowerer<'a> {
                 else {
                     return None;
                 };
-                if self.interner.resolve_expect(target.sym()).to_string() != BOOLEAN_NAME {
+                if self.interner.resolve_expect(target.sym()).to_string() != BOOLEAN_NAME
+                    || !self.identifier_resolves_to_intrinsic_global(BOOLEAN_NAME)
+                {
                     return None;
                 }
                 let PropertyAccessField::Const(field) = access.field() else {
@@ -17939,69 +13863,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn boolean_receiver_uses_intrinsic_method(
-        &self,
-        receiver: &Expression,
-        property_name: &str,
-        builtin: StandardBuiltinId,
-    ) -> bool {
-        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(receiver) else {
-            return true;
-        };
-        let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        let Some(binding) = self.lookup_binding(&name) else {
-            return true;
-        };
-        let Some(shape) = binding.heap_shape.as_deref() else {
-            return binding
-                .possible_kinds
-                .is_subset_of(KindSet::from_kind(ValueKind::Boolean));
-        };
-        let Some(ObjectShapeProperty::Data(method)) =
-            read_heap_shape_property(shape, property_name)
-        else {
-            return false;
-        };
-        method.function_targets.exact_single_target() == Some(&builtin.function_id())
-    }
-
-    fn static_bigint_to_number_expr(&self, expr: &Expression) -> Option<f64> {
-        self.static_bigint_i128_expr(expr).map(|value| value as f64)
-    }
-
-    fn static_bigint_i128_expr(&self, expr: &Expression) -> Option<i128> {
-        let expr = Self::unwrap_parenthesized_expr(expr);
-        match expr {
-            Expression::Literal(literal) => {
-                let LiteralKind::BigInt(value) = literal.kind() else {
-                    return None;
-                };
-                value
-                    .as_ref()
-                    .to_string()
-                    .trim_end_matches('n')
-                    .parse::<i128>()
-                    .ok()
-            }
-            Expression::Unary(unary) if unary.op() == UnaryOp::Minus => {
-                self.static_bigint_i128_expr(unary.target())?.checked_neg()
-            }
-            Expression::Binary(binary) => {
-                let lhs = self.static_bigint_i128_expr(binary.lhs())?;
-                let rhs = self.static_bigint_i128_expr(binary.rhs())?;
-                match binary.op() {
-                    BinaryOp::Arithmetic(ArithmeticOp::Add) => lhs.checked_add(rhs),
-                    BinaryOp::Arithmetic(ArithmeticOp::Exp) => {
-                        let exponent = u32::try_from(rhs).ok()?;
-                        lhs.checked_pow(exponent)
-                    }
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
-    }
-
     fn static_to_number_expr(&self, expr: &Expression) -> Option<f64> {
         let expr = Self::unwrap_parenthesized_expr(expr);
         if let Some(value) = Self::literal_number_value(expr) {
@@ -18009,9 +13870,9 @@ impl<'a> ScriptLowerer<'a> {
         }
         match expr {
             Expression::Literal(literal) => match literal.kind() {
-                LiteralKind::String(sym) => Some(Self::parse_number_string(
-                    &self.interner.resolve_expect(*sym).to_string(),
-                )),
+                LiteralKind::String(sym) => {
+                    Self::parse_number_string(&self.interner.resolve_expect(*sym).to_string())
+                }
                 LiteralKind::Bool(true) => Some(1.0),
                 LiteralKind::Bool(false) | LiteralKind::Null => Some(0.0),
                 LiteralKind::Undefined => Some(f64::NAN),
@@ -18038,7 +13899,9 @@ impl<'a> ScriptLowerer<'a> {
                     return None;
                 };
                 let target_name = self.interner.resolve_expect(target.sym()).to_string();
-                if target_name != NUMBER_NAME {
+                if target_name != NUMBER_NAME
+                    || !self.identifier_resolves_to_intrinsic_global(NUMBER_NAME)
+                {
                     return None;
                 }
                 let PropertyAccessField::Const(field) = access.field() else {
@@ -18060,597 +13923,54 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn parse_number_string(input: &str) -> f64 {
+    fn parse_number_string(input: &str) -> Option<f64> {
         let trimmed = input
             .trim_start_matches(is_ecmascript_whitespace)
             .trim_end_matches(is_ecmascript_whitespace);
         if trimmed.is_empty() {
-            return 0.0;
+            return Some(0.0);
         }
         match trimmed {
-            "Infinity" | "+Infinity" => return f64::INFINITY,
-            "-Infinity" => return f64::NEG_INFINITY,
+            "Infinity" | "+Infinity" => return Some(f64::INFINITY),
+            "-Infinity" => return Some(f64::NEG_INFINITY),
             _ => {}
         }
         if let Some(hex) = trimmed
             .strip_prefix("0x")
             .or_else(|| trimmed.strip_prefix("0X"))
         {
-            if hex.is_empty() {
-                return f64::NAN;
+            if hex.is_empty() || !hex.bytes().all(|digit| digit.is_ascii_hexdigit()) {
+                return Some(f64::NAN);
             }
-            return u64::from_str_radix(hex, 16)
-                .map(|value| value as f64)
-                .unwrap_or(f64::NAN);
+            return u64::from_str_radix(hex, 16).ok().map(|value| value as f64);
         }
         if let Some(binary) = trimmed
             .strip_prefix("0b")
             .or_else(|| trimmed.strip_prefix("0B"))
         {
-            if binary.is_empty() {
-                return f64::NAN;
+            if binary.is_empty() || !binary.bytes().all(|digit| matches!(digit, b'0' | b'1')) {
+                return Some(f64::NAN);
             }
             return u64::from_str_radix(binary, 2)
-                .map(|value| value as f64)
-                .unwrap_or(f64::NAN);
+                .ok()
+                .map(|value| value as f64);
         }
         if let Some(octal) = trimmed
             .strip_prefix("0o")
             .or_else(|| trimmed.strip_prefix("0O"))
         {
-            if octal.is_empty() {
-                return f64::NAN;
+            if octal.is_empty() || !octal.bytes().all(|digit| matches!(digit, b'0'..=b'7')) {
+                return Some(f64::NAN);
             }
-            return u64::from_str_radix(octal, 8)
-                .map(|value| value as f64)
-                .unwrap_or(f64::NAN);
+            return u64::from_str_radix(octal, 8).ok().map(|value| value as f64);
         }
         if trimmed
             .bytes()
             .any(|byte| !matches!(byte, b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E'))
         {
-            return f64::NAN;
+            return Some(f64::NAN);
         }
-        trimmed.parse::<f64>().unwrap_or(f64::NAN)
-    }
-
-    fn static_number_to_string_call(
-        &self,
-        receiver: &Expression,
-        args: &[Expression],
-    ) -> Option<String> {
-        if args.len() > 1 {
-            return None;
-        }
-        if let Some(radix) = args.first() {
-            let radix = Self::unwrap_parenthesized_expr(radix);
-            if !self.is_static_undefined_expr(radix) {
-                let value = self.static_to_number_expr(radix)?;
-                if !(2.0..=36.0).contains(&value) || value.fract() != 0.0 {
-                    return None;
-                }
-                // `js_number_to_string` below only implements the base-10
-                // (ToString) algorithm. A radix other than 10 must fall
-                // through to the general call path, which threads the
-                // radix into `emit_number_to_radix_string_payload` at
-                // runtime; folding it here would silently drop the radix
-                // argument and always emit decimal digits.
-                if value != 10.0 {
-                    return None;
-                }
-            }
-        }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
-        Some(Self::js_number_to_string(value))
-    }
-
-    fn static_number_to_string_radix_is_invalid(&self, args: &[Expression]) -> bool {
-        if args.len() != 1 {
-            return false;
-        }
-        let radix = Self::unwrap_parenthesized_expr(&args[0]);
-        if self.is_static_undefined_expr(radix) {
-            return false;
-        }
-        self.static_to_number_expr(radix)
-            .is_some_and(|value| !(2.0..=36.0).contains(&value) || value.fract() != 0.0)
-    }
-
-    fn static_number_to_string_receiver_value(&self, receiver: &Expression) -> Option<f64> {
-        let receiver = Self::unwrap_parenthesized_expr(receiver);
-        if let Some(value) = Self::literal_number_value(receiver) {
-            return Some(value);
-        }
-        match receiver {
-            Expression::Identifier(identifier) => {
-                // Same guard as `static_to_number_expr`: `undefined` is not a
-                // receiver this fold accepts, but `Infinity` and `NaN` are, and
-                // both can be shadowed.
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                match name.as_str() {
-                    "Infinity" | "NaN" => self.static_global_number_identifier(&name),
-                    _ => None,
-                }
-            }
-            Expression::Unary(unary) => match unary.op() {
-                UnaryOp::Plus => self.static_to_number_expr(unary.target()),
-                UnaryOp::Minus => self
-                    .static_to_number_expr(unary.target())
-                    .map(|value| -value),
-                _ => None,
-            },
-            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-                let Expression::Identifier(target) =
-                    Self::unwrap_parenthesized_expr(access.target())
-                else {
-                    return None;
-                };
-                if self.interner.resolve_expect(target.sym()).to_string() != NUMBER_NAME {
-                    return None;
-                }
-                let PropertyAccessField::Const(field) = access.field() else {
-                    return None;
-                };
-                match self
-                    .interner
-                    .resolve_expect(field.sym())
-                    .to_string()
-                    .as_str()
-                {
-                    "prototype" => Some(0.0),
-                    "NaN" => Some(f64::NAN),
-                    "POSITIVE_INFINITY" => Some(f64::INFINITY),
-                    "NEGATIVE_INFINITY" => Some(f64::NEG_INFINITY),
-                    _ => None,
-                }
-            }
-            Expression::Call(call) => {
-                let Expression::Identifier(callee) =
-                    Self::unwrap_parenthesized_expr(call.function())
-                else {
-                    return None;
-                };
-                if self.interner.resolve_expect(callee.sym()).to_string() != NUMBER_NAME {
-                    return None;
-                }
-                self.static_to_number_arg(call.args().first())
-            }
-            Expression::New(new_expr) => {
-                let Expression::Identifier(constructor) =
-                    Self::unwrap_parenthesized_expr(new_expr.constructor())
-                else {
-                    return None;
-                };
-                if self.interner.resolve_expect(constructor.sym()).to_string() != NUMBER_NAME {
-                    return None;
-                }
-                self.static_to_number_arg(new_expr.arguments().first())
-            }
-            _ => None,
-        }
-    }
-
-    /// The folded form of a 21.1.3.x RangeError.
-    ///
-    /// One builder, three call sites, so the `ExprIr::RuntimeThrow` shape
-    /// cannot drift between the clauses. The message is no longer a literal any
-    /// of the three arms spells: it is carried out of the fold as
-    /// `NumberFormatFold::RangeError(<C as NumberFormatClause>::RANGE_ERROR)`,
-    /// so a clause cannot be given another clause's text.
-    fn static_number_format_range_error(message: &'static str) -> TypedExpr {
-        TypedExpr::from_info(
-            ValueInfo::undefined(),
-            ExprIr::RuntimeThrow {
-                name: NativeErrorKind::RangeError,
-                message,
-            },
-        )
-    }
-
-    /// 21.1.3.2 `Number.prototype.toExponential ( fractionDigits )`, folded.
-    ///
-    /// The clause's ordering — step 4 (non-finite receiver) before step 5 (the
-    /// range check) — is named once, as `NonFiniteReceiverOrder::ReceiverFirst`,
-    /// instead of being an emergent property of a guard at the dispatch site.
-    fn static_number_to_exponential_call(
-        &self,
-        receiver: &Expression,
-        args: &[Expression],
-    ) -> NumberFormatFold {
-        if args.len() > 1 {
-            return NumberFormatFold::NotStatic;
-        }
-        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
-            return NumberFormatFold::NotStatic;
-        };
-        // 21.1.3.2 step 12.a distinguishes `fractionDigits === undefined` from
-        // `f === 0`, so the `Option` inside the `RangeChecked` is spec-shaped
-        // and not a convenience.
-        let digits = match args.first() {
-            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                let Some(f) = self.static_to_integer_or_infinity_expr(arg) else {
-                    return NumberFormatFold::NotStatic;
-                };
-                f.fraction_digits().map(Some)
-            }
-            _ => RangeChecked::InBounds(None),
-        };
-        fold_number_format::<ToExponential>(
-            value,
-            digits,
-            Self::js_number_to_string,
-            |value, digits: Option<FractionDigits>| {
-                Self::static_number_to_exponential(value, digits.map(FractionDigits::as_usize))
-            },
-        )
-    }
-
-    /// 21.1.3.3 `Number.prototype.toFixed ( fractionDigits )`, folded.
-    ///
-    /// Steps 4–5 (the range check) precede step 6 (the non-finite receiver
-    /// return), which is why `Infinity.toFixed(101)` is a **RangeError** and
-    /// `Infinity.toExponential(101)` is `"Infinity"`. The two clauses differ
-    /// here and the difference is observable; that is the whole reason
-    /// `NonFiniteReceiverOrder` is a required argument.
-    fn static_number_to_fixed_call(
-        &self,
-        receiver: &Expression,
-        args: &[Expression],
-    ) -> NumberFormatFold {
-        if args.len() > 1 {
-            return NumberFormatFold::NotStatic;
-        }
-        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
-            return NumberFormatFold::NotStatic;
-        };
-        let digits = match args.first() {
-            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                let Some(f) = self.static_to_integer_or_infinity_expr(arg) else {
-                    return NumberFormatFold::NotStatic;
-                };
-                f.fraction_digits()
-            }
-            // Step 3: `fractionDigits` undefined ⇒ `f` is 0.
-            _ => RangeChecked::InBounds(FractionDigits::ZERO),
-        };
-        fold_number_format::<ToFixed>(
-            value,
-            digits,
-            Self::js_number_to_string,
-            |value, digits: FractionDigits| Self::static_number_to_fixed(value, digits.as_usize()),
-        )
-    }
-
-    /// 21.1.3.5 `Number.prototype.toPrecision ( precision )`, folded.
-    ///
-    /// The accepted interval here is `[1, 100]`, not `[0, 100]`, which is why
-    /// this calls `precision()` and gets a [`Precision`] rather than calling
-    /// `fraction_digits()` and getting a [`FractionDigits`]. The deleted
-    /// `static_number_fraction_digits_is_invalid` hard-coded `[0, 100]` and was
-    /// therefore never callable here: doing so would have made
-    /// `(1.5).toPrecision(0)` fold instead of throw.
-    fn static_number_to_precision_call(
-        &self,
-        receiver: &Expression,
-        args: &[Expression],
-    ) -> NumberFormatFold {
-        if args.len() > 1 {
-            return NumberFormatFold::NotStatic;
-        }
-        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
-            return NumberFormatFold::NotStatic;
-        };
-        let precision = match args.first() {
-            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                let Some(p) = self.static_to_integer_or_infinity_expr(arg) else {
-                    return NumberFormatFold::NotStatic;
-                };
-                p.precision()
-            }
-            // Step 2: `precision` undefined returns `! ToString(x)` *before*
-            // step 3's coercion, so `undefined` never reaches 7.1.5 here.
-            _ => return NumberFormatFold::Formatted(Self::js_number_to_string(value)),
-        };
-        fold_number_format::<ToPrecision>(
-            value,
-            precision,
-            Self::js_number_to_string,
-            |value, precision: Precision| Self::static_number_to_precision(value, precision.get()),
-        )
-    }
-
-    /// 7.1.5 ToIntegerOrInfinity over a statically-known argument.
-    ///
-    /// The `Option` means "not statically decidable", which is this compiler's
-    /// business; 7.1.5 itself is **total**, so the payload is an
-    /// [`IntegerOrInfinity`] and not an `Option<IntegerOrInfinity>` on the
-    /// inside.
-    ///
-    /// This replaces `static_to_integer_or_zero_expr`, which had three defects
-    /// in six lines and all three are now unrepresentable: its `Option<i32>`
-    /// codomain could not hold `±∞`; it tested `!value.is_finite()` *before*
-    /// distinguishing the two infinities, collapsing both onto `Some(0)`; and
-    /// its `value.trunc() as i32` saturated, turning `truncate(1e300)` into
-    /// `i32::MAX` — the same mechanism as the backend defect where a
-    /// saturating truncation precedes 5.2.5's modulo.
-    fn static_to_integer_or_infinity_expr(&self, expr: &Expression) -> Option<IntegerOrInfinity> {
-        Some(IntegerOrInfinity::of_number(
-            self.static_to_number_like_expr(expr)?,
-        ))
-    }
-
-    fn static_to_number_like_expr(&self, expr: &Expression) -> Option<f64> {
-        let expr = Self::unwrap_parenthesized_expr(expr);
-        if let Some(value) = self.static_to_number_expr(expr) {
-            return Some(value);
-        }
-        match expr {
-            Expression::ArrayLiteral(array) => {
-                let mut elements = array.as_ref().iter().flatten();
-                let Some(first) = elements.next() else {
-                    return Some(0.0);
-                };
-                if elements.next().is_some() {
-                    return Some(f64::NAN);
-                }
-                self.static_to_number_like_expr(first)
-            }
-            _ => None,
-        }
-    }
-
-    /// 21.1.3.2 steps 6 onward. Step 4's non-finite return is discharged by
-    /// [`FiniteReceiver`]: the `±Infinity` arms this used to open with were
-    /// unreachable once `fold_number_format` owned the ordering, and are now
-    /// unwritable as well.
-    fn static_number_to_exponential(
-        value: FiniteReceiver,
-        fraction_digits: Option<usize>,
-    ) -> Option<String> {
-        let value = value.get();
-        if value.fract() == 0.0 && value.abs() > 0.0 && value.abs() < 10.0 {
-            if let Some(fraction_digits) = fraction_digits {
-                let sign = if value.is_sign_negative() { "-" } else { "" };
-                let digit = value.abs() as u64;
-                return Some(if fraction_digits == 0 {
-                    format!("{sign}{digit}e+0")
-                } else {
-                    format!("{sign}{digit}.{}e+0", "0".repeat(fraction_digits))
-                });
-            }
-        }
-        if value == 0.0 {
-            let fraction_digits = fraction_digits.unwrap_or(0);
-            return Some(if fraction_digits == 0 {
-                "0e+0".to_string()
-            } else {
-                format!("0.{}e+0", "0".repeat(fraction_digits))
-            });
-        }
-        if (value.abs() - 123.456).abs() < f64::EPSILON {
-            let sign = if value.is_sign_negative() { "-" } else { "" };
-            return Some(match fraction_digits {
-                None => format!("{sign}1.23456e+2"),
-                Some(0) => format!("{sign}1e+2"),
-                Some(1) => format!("{sign}1.2e+2"),
-                Some(2) => format!("{sign}1.23e+2"),
-                Some(3) => format!("{sign}1.235e+2"),
-                Some(4) => format!("{sign}1.2346e+2"),
-                Some(5) => format!("{sign}1.23456e+2"),
-                Some(6) => format!("{sign}1.234560e+2"),
-                Some(7) => format!("{sign}1.2345600e+2"),
-                Some(17) => format!("{sign}1.23456000000000003e+2"),
-                Some(20) => format!("{sign}1.23456000000000003070e+2"),
-                _ => return None,
-            });
-        }
-        if value == 0.0001 {
-            return Some(match fraction_digits {
-                None => "1e-4".to_string(),
-                Some(0) => "1e-4".to_string(),
-                Some(1) => "1.0e-4".to_string(),
-                Some(2) => "1.00e-4".to_string(),
-                Some(3) => "1.000e-4".to_string(),
-                Some(4) => "1.0000e-4".to_string(),
-                Some(16) => "1.0000000000000000e-4".to_string(),
-                Some(17) => "1.00000000000000005e-4".to_string(),
-                Some(18) => "1.000000000000000048e-4".to_string(),
-                Some(19) => "1.0000000000000000479e-4".to_string(),
-                Some(20) => "1.00000000000000004792e-4".to_string(),
-                _ => return None,
-            });
-        }
-        if value == 0.9999 {
-            return Some(match fraction_digits {
-                None => "9.999e-1".to_string(),
-                Some(0) => "1e+0".to_string(),
-                Some(1) => "1.0e+0".to_string(),
-                Some(2) => "1.00e+0".to_string(),
-                Some(3) => "9.999e-1".to_string(),
-                Some(4) => "9.9990e-1".to_string(),
-                Some(16) => "9.9990000000000001e-1".to_string(),
-                Some(17) => "9.99900000000000011e-1".to_string(),
-                Some(18) => "9.999000000000000110e-1".to_string(),
-                Some(19) => "9.9990000000000001101e-1".to_string(),
-                Some(20) => "9.99900000000000011013e-1".to_string(),
-                _ => return None,
-            });
-        }
-        if value == 25.0 && fraction_digits == Some(0) {
-            return Some("3e+1".to_string());
-        }
-        if value == 12345.0 && fraction_digits == Some(3) {
-            return Some("1.235e+4".to_string());
-        }
-        if (value - 1.1e-32).abs() < f64::EPSILON {
-            return Some(match fraction_digits {
-                None => "1.1e-32".to_string(),
-                Some(0) => "1e-32".to_string(),
-                _ => return None,
-            });
-        }
-        if value == 100.0 {
-            return Some(match fraction_digits {
-                None | Some(0) => "1e+2".to_string(),
-                _ => return None,
-            });
-        }
-        None
-    }
-
-    /// 21.1.3.3 steps 7 onward. Step 6's non-finite return is discharged by
-    /// [`FiniteReceiver`], so the `NaN` arm this used to open with is gone —
-    /// and this is the clause where that matters most: `ToFixed`'s
-    /// `RangeCheckFirst` ordering means a `NaN` arm here would answer `"NaN"`
-    /// for `NaN.toFixed(101)`, where 21.1.3.3 steps 4–5 require a RangeError.
-    fn static_number_to_fixed(value: FiniteReceiver, fraction_digits: usize) -> Option<String> {
-        let value = value.get();
-        if value != 0.0 && value.fract() == 0.0 && value.abs() < 1e21 {
-            let sign = if value.is_sign_negative() { "-" } else { "" };
-            let integer = value.abs() as u64;
-            return Some(if fraction_digits == 0 {
-                format!("{sign}{integer}")
-            } else {
-                format!("{sign}{integer}.{}", "0".repeat(fraction_digits))
-            });
-        }
-        if value == 0.0 {
-            return Some(if fraction_digits == 0 {
-                "0".to_string()
-            } else {
-                format!("0.{}", "0".repeat(fraction_digits))
-            });
-        }
-        if value == 1.0 {
-            return Some(if fraction_digits == 0 {
-                "1".to_string()
-            } else {
-                format!("1.{}", "0".repeat(fraction_digits))
-            });
-        }
-        None
-    }
-
-    /// 21.1.3.5 steps 6 onward.
-    fn static_number_to_precision(value: FiniteReceiver, precision: u8) -> Option<String> {
-        // 21.1.3.5 step 5 (`p < 1 or p > 100`) is discharged by `Precision`'s
-        // one constructor before this is reached, and step 4's non-finite
-        // receiver return is discharged by [`FiniteReceiver`], whose only
-        // producer is the branch of `fold_number_format` that has already
-        // applied `NonFiniteReceiverOrder::ReceiverFirst`.
-        // Ledger **LN3**: `precision` is still a primitive because the rest of
-        // this body is outside this area's owned region, so the lower bound is
-        // re-stated here as an assertion rather than re-tested as a branch.
-        //
-        // The former `!(1..=100).contains(&precision)` guard also *preceded*
-        // the `±Infinity` arms this function used to open with, inverting
-        // 21.1.3.5 steps 4 and 5. Those arms are deleted (follow-up F5 of
-        // `target/lane-notes/numeric-conversion-codomains-theory-integration.md`)
-        // and `FiniteReceiver` is what stops them being written again.
-        debug_assert!((1..=100).contains(&precision));
-        let value = value.get();
-        if value == 0.0 {
-            return Some(if precision <= 1 {
-                "0".to_string()
-            } else {
-                format!("0.{}", "0".repeat(precision as usize - 1))
-            });
-        }
-        if value.fract() == 0.0 && value.abs() >= 1.0 && value.abs() < 1e21 {
-            let sign = if value.is_sign_negative() { "-" } else { "" };
-            let integer = value.abs() as u64;
-            let digits = integer.to_string();
-            if precision as usize >= digits.len() {
-                return Some(if precision as usize == digits.len() {
-                    format!("{sign}{digits}")
-                } else {
-                    format!(
-                        "{sign}{digits}.{}",
-                        "0".repeat(precision as usize - digits.len())
-                    )
-                });
-            }
-        }
-        if value == 0.000001 {
-            return match precision {
-                1 => Some("0.000001".to_string()),
-                2 => Some("0.0000010".to_string()),
-                3 => Some("0.00000100".to_string()),
-                _ => None,
-            };
-        }
-        [
-            (10.0, 1, "1e+1"),
-            (11.0, 1, "1e+1"),
-            (17.0, 1, "2e+1"),
-            (19.0, 1, "2e+1"),
-            (20.0, 1, "2e+1"),
-            (100.0, 1, "1e+2"),
-            (1000.0, 1, "1e+3"),
-            (10000.0, 1, "1e+4"),
-            (100000.0, 1, "1e+5"),
-            (100.0, 2, "1.0e+2"),
-            (1000.0, 2, "1.0e+3"),
-            (10000.0, 2, "1.0e+4"),
-            (100000.0, 2, "1.0e+5"),
-            (1000.0, 3, "1.00e+3"),
-            (10000.0, 3, "1.00e+4"),
-            (100000.0, 3, "1.00e+5"),
-            (123.456, 1, "1e+2"),
-            (123.456, 2, "1.2e+2"),
-            (42.0, 1, "4e+1"),
-            (-42.0, 1, "-4e+1"),
-            (1.2345e27, 1, "1e+27"),
-            (1.2345e27, 2, "1.2e+27"),
-            (1.2345e27, 3, "1.23e+27"),
-            (1.2345e27, 4, "1.234e+27"),
-            (1.2345e27, 5, "1.2345e+27"),
-            (1.2345e27, 6, "1.23450e+27"),
-            (1.2345e27, 7, "1.234500e+27"),
-            (1.2345e27, 16, "1.234500000000000e+27"),
-            (1.2345e27, 17, "1.2345000000000000e+27"),
-            (1.2345e27, 18, "1.23449999999999996e+27"),
-            (1.2345e27, 19, "1.234499999999999962e+27"),
-            (1.2345e27, 20, "1.2344999999999999618e+27"),
-            (1.2345e27, 21, "1.23449999999999996184e+27"),
-            (-1.2345e27, 1, "-1e+27"),
-            (-1.2345e27, 2, "-1.2e+27"),
-            (-1.2345e27, 3, "-1.23e+27"),
-            (-1.2345e27, 4, "-1.234e+27"),
-            (-1.2345e27, 5, "-1.2345e+27"),
-            (-1.2345e27, 6, "-1.23450e+27"),
-            (-1.2345e27, 7, "-1.234500e+27"),
-            (-1.2345e27, 16, "-1.234500000000000e+27"),
-            (-1.2345e27, 17, "-1.2345000000000000e+27"),
-            (-1.2345e27, 18, "-1.23449999999999996e+27"),
-            (-1.2345e27, 19, "-1.234499999999999962e+27"),
-            (-1.2345e27, 20, "-1.2344999999999999618e+27"),
-            (-1.2345e27, 21, "-1.23449999999999996184e+27"),
-            (1e-8, 1, "1e-8"),
-            (-1e-8, 1, "-1e-8"),
-        ]
-        .into_iter()
-        .find_map(|(case_value, case_precision, output)| {
-            (value == case_value && precision == case_precision).then(|| output.to_string())
-        })
-    }
-
-    /// Whether `expr` is statically the `undefined` value.
-    ///
-    /// The identifier arm carries the same 9.1.1 guard as
-    /// [`Self::static_global_number_identifier`]: `function f(undefined) {
-    /// return (1.5).toFixed(undefined); }` binds `undefined` as a parameter, so
-    /// the spelling does not denote 19.1.3's global property and 21.1.3.3
-    /// step 2 must not take the "`fractionDigits` is undefined" branch.
-    fn is_static_undefined_expr(&self, expr: &Expression) -> bool {
-        match Self::unwrap_parenthesized_expr(expr) {
-            Expression::Literal(literal) => matches!(literal.kind(), LiteralKind::Undefined),
-            Expression::Identifier(identifier) => {
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                name == "undefined" && self.identifier_resolves_to_intrinsic_global(&name)
-            }
-            _ => false,
-        }
+        Some(trimmed.parse::<f64>().unwrap_or(f64::NAN))
     }
 
     fn static_parse_float_input(&self, expr: &Expression) -> Option<String> {
@@ -18687,57 +14007,6 @@ impl<'a> ScriptLowerer<'a> {
         ryu_js::Buffer::new().format(value).to_string()
     }
 
-    fn parse_float_string(input: &str) -> f64 {
-        let trimmed = input.trim_start_matches(is_ecmascript_whitespace);
-        let mut end = 0usize;
-        let bytes = trimmed.as_bytes();
-        if matches!(bytes.first(), Some(b'+') | Some(b'-')) {
-            end = 1;
-        }
-        if trimmed[end..].starts_with("Infinity") {
-            return if bytes.first() == Some(&b'-') {
-                f64::NEG_INFINITY
-            } else {
-                f64::INFINITY
-            };
-        }
-
-        let digits_start = end;
-        while matches!(bytes.get(end), Some(b'0'..=b'9')) {
-            end += 1;
-        }
-        let digits_before_dot = end > digits_start;
-        if bytes.get(end) == Some(&b'.') {
-            end += 1;
-            let fraction_start = end;
-            while matches!(bytes.get(end), Some(b'0'..=b'9')) {
-                end += 1;
-            }
-            if !digits_before_dot && end == fraction_start {
-                return f64::NAN;
-            }
-        } else if !digits_before_dot {
-            return f64::NAN;
-        }
-
-        if matches!(bytes.get(end), Some(b'e') | Some(b'E')) {
-            let exponent_marker = end;
-            end += 1;
-            if matches!(bytes.get(end), Some(b'+') | Some(b'-')) {
-                end += 1;
-            }
-            let exponent_start = end;
-            while matches!(bytes.get(end), Some(b'0'..=b'9')) {
-                end += 1;
-            }
-            if end == exponent_start {
-                end = exponent_marker;
-            }
-        }
-
-        trimmed[..end].parse::<f64>().unwrap_or(f64::NAN)
-    }
-
     fn read_object_shape(&self, target: &TypedExpr, key: &str) -> Option<ValueInfo> {
         let property = self.read_object_shape_property(target, key)?;
         Some(match property {
@@ -18755,7 +14024,7 @@ impl<'a> ScriptLowerer<'a> {
         target: &TypedExpr,
         key: &str,
     ) -> Option<ObjectShapeProperty> {
-        read_heap_shape_property(target.heap_shape.as_deref()?, key)
+        self.read_current_object_shape_property(target, key)
     }
 
     fn read_well_known_symbol_shape_property(
@@ -18779,8 +14048,10 @@ impl<'a> ScriptLowerer<'a> {
         symbol: WellKnownSymbol,
     ) -> Option<ValueInfo> {
         Some(
-            match Self::read_well_known_symbol_shape_property(target.heap_shape.as_deref(), symbol)?
-            {
+            match self.read_current_heap_shape_property(
+                target.heap_shape.as_deref()?,
+                &shape_namespace_key(symbol),
+            )? {
                 ObjectShapeProperty::Data(info) => info,
                 ObjectShapeProperty::Accessor {
                     getter: Some(getter),
@@ -18809,45 +14080,15 @@ impl<'a> ScriptLowerer<'a> {
         let HeapShape::Array(shape) = target.heap_shape.as_deref()? else {
             return None;
         };
-        if let Some(index) = self.constant_array_index(index) {
-            return Some(
-                shape
-                    .elements
-                    .get(index)
-                    .cloned()
-                    .unwrap_or_else(ValueInfo::undefined),
-            );
+        if shape.provenance != HeapShapeProvenance::Program {
+            return None;
         }
-        if index.possible_kinds.contains(ValueKind::Number) && !shape.elements.is_empty() {
-            return Some(Self::union_static_array_element_infos(&shape.elements));
-        }
-        None
-    }
-
-    fn union_static_array_element_infos(elements: &[ValueInfo]) -> ValueInfo {
-        let Some(first) = elements.first() else {
-            return ValueInfo::undefined();
-        };
-        let mut possible_kinds = KindSet::EMPTY;
-        let mut function_targets = FunctionTargetKnowledge::none();
-        let mut same_kind = true;
-        let mut same_heap_shape = true;
-        for element in elements {
-            possible_kinds = possible_kinds.union(element.possible_kinds);
-            function_targets = function_targets.join(element.function_targets.clone());
-            same_kind &= element.kind == first.kind;
-            same_heap_shape &= element.heap_shape == first.heap_shape;
-        }
-        ValueInfo {
-            kind: if same_kind {
-                first.kind
-            } else {
-                ValueKind::Dynamic
-            },
-            possible_kinds,
-            heap_shape: same_heap_shape.then(|| first.heap_shape.clone()).flatten(),
-            function_targets,
-        }
+        let index = self.constant_array_index(index)?;
+        let element = shape.elements.get(index)?;
+        // The current element representation also uses Undefined for a hole.
+        // Such a slot cannot prove an own data property. A dynamic or absent
+        // index likewise may reach an inherited getter.
+        (!element.possible_kinds.contains(ValueKind::Undefined)).then(|| element.clone())
     }
 
     fn constant_array_index(&self, index: &TypedExpr) -> Option<usize> {
@@ -18906,34 +14147,15 @@ impl<'a> ScriptLowerer<'a> {
             return key_is_symbol;
         }
         if key_is_symbol {
-            if let ExprIr::String(symbol_name) = &key.expr {
-                // Ledger entry R2, runtime half: a `ValueKind::Symbol` string is
-                // only ever produced by this compiler inside the symbol-value
-                // namespace. The namespace is open, so this cannot be a type;
-                // the three measured producers all emit a Table 1 description.
-                debug_assert!(
-                    is_symbol_description(symbol_name),
-                    "ValueKind::Symbol string outside the symbol-value namespace: {symbol_name}"
-                );
-                // Anything outside the fifteen — including a description this
-                // compiler never produces — takes the conservative branch that
-                // discards everything recorded for this intrinsic, which is
-                // strictly weaker inference and never a wrong answer.
-                let Some(symbol) =
-                    WellKnownSymbol::from_description(SymbolDescription::new(symbol_name))
-                else {
-                    self.well_known_symbol_prototype_properties
-                        .retain(|(constructor_name, _), _| constructor_name != &root);
-                    return true;
-                };
+            if let ExprIr::WellKnownSymbol(symbol) = &key.expr {
                 match value {
                     Some(value) => {
                         self.well_known_symbol_prototype_properties
-                            .insert((root, symbol), value.clone());
+                            .insert((root, *symbol), value.clone());
                     }
                     None => {
                         self.well_known_symbol_prototype_properties
-                            .remove(&(root, symbol));
+                            .remove(&(root, *symbol));
                     }
                 }
                 return true;
@@ -19149,8 +14371,15 @@ impl<'a> ScriptLowerer<'a> {
         }
         if let Some(global) = self.global_properties.get_mut(name) {
             global.value_info = Self::apply_shape_write(global.value_info.clone(), path, value);
-            global.proven_present = true;
-            global.source = GlobalPropertySource::GlobalWrite;
+            // A property store through a non-writable binding (`undefined.x
+            // = ...`) can neither replace the binding nor mutate the
+            // primitive it denotes; only a writable name may lose its
+            // intrinsic source here.
+            if Self::global_property_is_writable_name(name) {
+                global.proven_present = true;
+                global.source = GlobalPropertySource::GlobalWrite;
+                self.observed_script_global_writes.insert(name.to_string());
+            }
             written_info = Some(global.value_info.clone());
         }
         if is_nested_global {
@@ -19399,6 +14628,9 @@ impl<'a> ScriptLowerer<'a> {
         base.powf(exponent)
     }
 
+    /// Recognize number expressions whose evaluation has no observable effects.
+    /// Property accesses always retain runtime Get: a receiver's source name
+    /// cannot prove its identity, property value, or absence of a getter.
     fn static_number_expr(&self, expr: &Expression) -> Option<f64> {
         match Self::unwrap_parenthesized_expr(expr) {
             Expression::Literal(literal) => match literal.kind() {
@@ -19437,520 +14669,7 @@ impl<'a> ScriptLowerer<'a> {
                     _ => None,
                 }
             }
-            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-                let (Expression::Identifier(target), PropertyAccessField::Const(field)) =
-                    (access.target(), access.field())
-                else {
-                    return None;
-                };
-                let target_name = self.interner.resolve_expect(target.sym()).to_string();
-                let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                match (target_name.as_str(), field_name.as_str()) {
-                    (NUMBER_NAME, "EPSILON") => Some(f64::EPSILON),
-                    (NUMBER_NAME, "MAX_VALUE") => Some(f64::MAX),
-                    (NUMBER_NAME, "MIN_VALUE") => Some(f64::MIN_POSITIVE),
-                    (NUMBER_NAME, "POSITIVE_INFINITY") => Some(f64::INFINITY),
-                    (NUMBER_NAME, "NEGATIVE_INFINITY") => Some(f64::NEG_INFINITY),
-                    (NUMBER_NAME, "NaN") => Some(f64::NAN),
-                    (MATH_NAME, "E") => Some(std::f64::consts::E),
-                    (MATH_NAME, "LN10") => Some(std::f64::consts::LN_10),
-                    (MATH_NAME, "LN2") => Some(std::f64::consts::LN_2),
-                    (MATH_NAME, "LOG10E") => Some(std::f64::consts::LOG10_E),
-                    (MATH_NAME, "LOG2E") => Some(std::f64::consts::LOG2_E),
-                    (MATH_NAME, "PI") => Some(std::f64::consts::PI),
-                    (MATH_NAME, "SQRT1_2") => Some(std::f64::consts::FRAC_1_SQRT_2),
-                    (MATH_NAME, "SQRT2") => Some(std::f64::consts::SQRT_2),
-                    _ => None,
-                }
-            }
             _ => None,
-        }
-    }
-
-    fn static_generator_declaration_values_by_name(&self, name: &str) -> Option<Vec<f64>> {
-        for item in self.analysis.script_items {
-            let StatementListItem::Declaration(declaration) = item else {
-                continue;
-            };
-            let Declaration::GeneratorDeclaration(generator) = declaration.as_ref() else {
-                continue;
-            };
-            if self
-                .interner
-                .resolve_expect(generator.name().sym())
-                .to_string()
-                == name
-            {
-                return self.static_generator_declaration_values(generator);
-            }
-        }
-        None
-    }
-
-    fn static_iterator_to_array_call_values(
-        &self,
-        callee: &Expression,
-        args: &[Expression],
-    ) -> Option<Vec<f64>> {
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(callee)
-        else {
-            return None;
-        };
-        let PropertyAccessField::Const(field) = access.field() else {
-            return None;
-        };
-        let field_name = self.interner.resolve_expect(field.sym()).to_string();
-        // Both spellings fold `%Iterator.prototype%.toArray`, and the second
-        // also reaches it through `%Function.prototype%.call`.
-        if field_name == "toArray" && args.is_empty() {
-            if !self.intrinsic_method_is_proven(IntrinsicPrototype::Iterator, "toArray") {
-                return None;
-            }
-            return self
-                .static_iterator_values_expr(access.target())
-                .map(<[f64]>::to_vec);
-        }
-        if field_name != "call"
-            || args.len() != 1
-            || !self.is_iterator_prototype_method_expr(access.target(), "toArray")
-            || !self.intrinsic_method_is_proven(IntrinsicPrototype::Function, "call")
-            || !self.intrinsic_method_is_proven(IntrinsicPrototype::Iterator, "toArray")
-        {
-            return None;
-        }
-        self.static_iterator_values_expr(&args[0])
-            .map(<[f64]>::to_vec)
-    }
-
-    fn static_array_from_iterator_call_values(
-        &self,
-        callee: &Expression,
-        args: &[Expression],
-    ) -> Option<Vec<f64>> {
-        if args.len() != 1 {
-            return None;
-        }
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(callee)
-        else {
-            return None;
-        };
-        let PropertyAccessField::Const(field) = access.field() else {
-            return None;
-        };
-        if self.interner.resolve_expect(field.sym()).to_string() != "from" {
-            return None;
-        }
-        if !matches!(
-            Self::unwrap_parenthesized_expr(access.target()),
-            Expression::Identifier(identifier)
-                if self.interner.resolve_expect(identifier.sym()).to_string() == ARRAY_NAME
-        ) {
-            return None;
-        }
-        self.static_iterator_values_expr(&args[0])
-            .map(<[f64]>::to_vec)
-    }
-
-    fn static_iterator_values_expr(&self, expr: &Expression) -> Option<&[f64]> {
-        if let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) {
-            if call.args().len() == 1 && self.is_iterator_from_callee(call.function()) {
-                return self.static_iterator_values_expr(&call.args()[0]);
-            }
-        }
-        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        self.static_iterator_binding_values
-            .get(&name)
-            .map(Vec::as_slice)
-    }
-
-    fn is_iterator_from_callee(&self, expr: &Expression) -> bool {
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(expr)
-        else {
-            return false;
-        };
-        let PropertyAccessField::Const(field) = access.field() else {
-            return false;
-        };
-        if self.interner.resolve_expect(field.sym()).to_string() != "from" {
-            return false;
-        }
-        matches!(
-            Self::unwrap_parenthesized_expr(access.target()),
-            Expression::Identifier(identifier)
-                if self.interner.resolve_expect(identifier.sym()).to_string() == "Iterator"
-        )
-    }
-
-    fn static_object_iterator_literal_values(&self, expr: &Expression) -> Option<Vec<f64>> {
-        if let Some(values) = self.static_object_iterator_iife_values(expr) {
-            return Some(values);
-        }
-        self.static_object_iterator_literal_values_with_locals(expr, &BTreeMap::new())
-    }
-
-    fn static_object_iterator_iife_values(&self, expr: &Expression) -> Option<Vec<f64>> {
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        if !call.args().is_empty() {
-            return None;
-        }
-        let Expression::FunctionExpression(function) =
-            Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return None;
-        };
-        if function.parameters().length() != 0 {
-            return None;
-        }
-        if let Some(values) = self.static_object_iterator_iife_source_values(function) {
-            return Some(values);
-        }
-        let mut local_iterators = BTreeMap::new();
-        for item in function.body().statements() {
-            match item {
-                StatementListItem::Declaration(declaration) => {
-                    let Declaration::Lexical(lexical) = declaration.as_ref() else {
-                        return None;
-                    };
-                    let list = match lexical {
-                        LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-                        LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                            return None;
-                        }
-                    };
-                    for variable in list.as_ref() {
-                        let Binding::Identifier(identifier) = variable.binding() else {
-                            return None;
-                        };
-                        let init = variable.init()?;
-                        let Expression::Call(generator_call) =
-                            Self::unwrap_parenthesized_expr(init)
-                        else {
-                            return None;
-                        };
-                        if !generator_call.args().is_empty() {
-                            return None;
-                        }
-                        let Expression::Identifier(generator_name) =
-                            Self::unwrap_parenthesized_expr(generator_call.function())
-                        else {
-                            return None;
-                        };
-                        let generator_name = self
-                            .interner
-                            .resolve_expect(generator_name.sym())
-                            .to_string();
-                        let values =
-                            self.static_generator_declaration_values_by_name(&generator_name)?;
-                        local_iterators.insert(
-                            self.interner.resolve_expect(identifier.sym()).to_string(),
-                            values,
-                        );
-                    }
-                }
-                StatementListItem::Statement(statement) => {
-                    let Statement::Return(return_statement) = statement.as_ref() else {
-                        return None;
-                    };
-                    let target = return_statement.target()?;
-                    return self.static_object_iterator_literal_values_with_locals(
-                        target,
-                        &local_iterators,
-                    );
-                }
-            }
-        }
-        None
-    }
-
-    fn static_object_iterator_iife_source_values(
-        &self,
-        function: &FunctionExpression,
-    ) -> Option<Vec<f64>> {
-        let source = function_expression_source_slice(function, self.source_text);
-        let compact: String = source.chars().filter(|ch| !ch.is_whitespace()).collect();
-        if !compact.contains("[Symbol.iterator]:null")
-            && !compact.contains("[Symbol.iterator]:undefined")
-        {
-            return None;
-        }
-        let let_offset = compact.find("let")?;
-        let after_let = &compact[let_offset + "let".len()..];
-        let (iterator_name, after_name) = after_let.split_once('=')?;
-        let (generator_call, _) = after_name.split_once(';')?;
-        let generator_name = generator_call.strip_suffix("()")?;
-        if iterator_name.is_empty() || generator_name.is_empty() {
-            return None;
-        }
-        let arrow_needle = format!("=>{iterator_name}.next()");
-        let return_needle = format!("return{iterator_name}.next()");
-        if !compact.contains(&arrow_needle) && !compact.contains(&return_needle) {
-            return None;
-        }
-        self.static_generator_declaration_values_by_name(generator_name)
-    }
-
-    fn static_object_iterator_literal_values_with_locals(
-        &self,
-        expr: &Expression,
-        local_iterators: &BTreeMap<String, Vec<f64>>,
-    ) -> Option<Vec<f64>> {
-        let Expression::ObjectLiteral(object) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        if object.properties().is_empty() || object.properties().len() > 2 {
-            return None;
-        }
-        let mut next_values = None;
-        for property in object.properties() {
-            match property {
-                PropertyDefinition::Property(PropertyName::Computed(expr), value)
-                    if self.try_well_known_symbol_key_name(expr)
-                        == Some(WellKnownSymbol::Iterator) =>
-                {
-                    if !self.is_static_undefined_expr(value)
-                        && !matches!(
-                            Self::unwrap_parenthesized_expr(value),
-                            Expression::Literal(literal)
-                                if matches!(literal.kind(), LiteralKind::Null)
-                        )
-                    {
-                        return None;
-                    }
-                }
-                PropertyDefinition::MethodDefinition(method)
-                    if self.property_name_to_static_key(method.name()).as_deref()
-                        == Some("next") =>
-                {
-                    let target = self.static_next_method_delegate_target(method)?;
-                    next_values =
-                        Some(self.static_iterator_delegate_values(target, local_iterators)?);
-                }
-                PropertyDefinition::Property(name, value)
-                    if self.property_name_to_static_key(name).as_deref() == Some("next") =>
-                {
-                    if let Some(target) = self.static_next_property_delegate_target(value) {
-                        next_values =
-                            Some(self.static_iterator_delegate_values(target, local_iterators)?);
-                    } else {
-                        let name = self.static_next_property_delegate_name(value)?;
-                        next_values =
-                            Some(local_iterators.get(&name).cloned().or_else(|| {
-                                self.static_iterator_binding_values.get(&name).cloned()
-                            })?);
-                    }
-                }
-                _ => return None,
-            }
-        }
-        next_values
-    }
-
-    fn static_iterator_delegate_values(
-        &self,
-        target: &Expression,
-        local_iterators: &BTreeMap<String, Vec<f64>>,
-    ) -> Option<Vec<f64>> {
-        if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(target) {
-            let name = self.interner.resolve_expect(identifier.sym()).to_string();
-            if let Some(values) = local_iterators.get(&name) {
-                return Some(values.clone());
-            }
-        }
-        self.static_iterator_values_expr(target)
-            .map(<[f64]>::to_vec)
-    }
-
-    fn static_next_method_delegate_target<'b>(
-        &self,
-        method: &'b ObjectMethodDefinition,
-    ) -> Option<&'b Expression> {
-        if method.kind() != MethodDefinitionKind::Ordinary || method.parameters().length() != 0 {
-            return None;
-        }
-        self.static_single_return_next_call_target(method.body())
-    }
-
-    fn static_next_property_delegate_target<'b>(
-        &self,
-        value: &'b Expression,
-    ) -> Option<&'b Expression> {
-        let Expression::ArrowFunction(function) = Self::unwrap_parenthesized_expr(value) else {
-            return None;
-        };
-        if function.parameters().length() != 0 {
-            return None;
-        }
-        self.static_single_return_next_call_target(function.body())
-    }
-
-    fn static_next_property_delegate_name(&self, value: &Expression) -> Option<String> {
-        let Expression::ArrowFunction(function) = Self::unwrap_parenthesized_expr(value) else {
-            return None;
-        };
-        if function.parameters().length() != 0 {
-            return None;
-        }
-        let source = arrow_function_source_slice(function, self.source_text);
-        let (_, rhs) = source.split_once("=>")?;
-        let call = rhs.trim();
-        let call = call
-            .strip_prefix('{')
-            .and_then(|body| body.strip_suffix('}'))
-            .unwrap_or(call)
-            .trim();
-        let call = call.strip_prefix("return").unwrap_or(call).trim();
-        let call = call.strip_suffix(';').unwrap_or(call).trim();
-        let name = call.strip_suffix(".next()")?.trim();
-        if name
-            .chars()
-            .all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
-        {
-            Some(name.to_string())
-        } else {
-            None
-        }
-    }
-
-    fn static_single_return_next_call_target<'b>(
-        &self,
-        body: &'b FunctionBody,
-    ) -> Option<&'b Expression> {
-        if body.statements().len() != 1 {
-            return None;
-        }
-        let StatementListItem::Statement(statement_item) = &body.statements()[0] else {
-            return None;
-        };
-        let call = match statement_item.as_ref() {
-            Statement::Return(return_statement) => {
-                let Some(Expression::Call(call)) = return_statement.target() else {
-                    return None;
-                };
-                call
-            }
-            Statement::Expression(Expression::Call(call)) => call,
-            _ => return None,
-        };
-        if !call.args().is_empty() {
-            return None;
-        }
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return None;
-        };
-        let PropertyAccessField::Const(field) = access.field() else {
-            return None;
-        };
-        if self.interner.resolve_expect(field.sym()).to_string() != "next" {
-            return None;
-        }
-        Some(access.target())
-    }
-
-    fn is_iterator_prototype_method_expr(&self, expr: &Expression, method: &str) -> bool {
-        let Expression::PropertyAccess(PropertyAccess::Simple(method_access)) =
-            Self::unwrap_parenthesized_expr(expr)
-        else {
-            return false;
-        };
-        let PropertyAccessField::Const(method_field) = method_access.field() else {
-            return false;
-        };
-        if self.interner.resolve_expect(method_field.sym()).to_string() != method {
-            return false;
-        }
-        let Expression::PropertyAccess(PropertyAccess::Simple(prototype_access)) =
-            Self::unwrap_parenthesized_expr(method_access.target())
-        else {
-            return false;
-        };
-        let PropertyAccessField::Const(prototype_field) = prototype_access.field() else {
-            return false;
-        };
-        if self
-            .interner
-            .resolve_expect(prototype_field.sym())
-            .to_string()
-            != "prototype"
-        {
-            return false;
-        }
-        matches!(
-            Self::unwrap_parenthesized_expr(prototype_access.target()),
-            Expression::Identifier(identifier)
-                if self.interner.resolve_expect(identifier.sym()).to_string() == "Iterator"
-                    && self.identifier_resolves_to_intrinsic_global("Iterator")
-        )
-    }
-
-    fn array_literal_from_static_generator_values(&self, values: &[f64]) -> TypedExpr {
-        Self::array_literal_from_lowered(
-            values
-                .iter()
-                .map(|value| self.static_number_index_expr(*value))
-                .collect(),
-        )
-    }
-
-    /// 21.3.2.11 `Math.clz32 ( x )` steps 1–3.
-    ///
-    /// The early `!is_finite() || == 0.0` guard is gone, and its absence is the
-    /// point: 7.1.7 step 2 already sends NaN, `±0` and `±∞` to `+0𝔽`, and
-    /// `0u32.leading_zeros()` is 32, so the guard was a restatement of the
-    /// codomain rather than a substitute for it. The hand-rolled
-    /// `trunc().rem_euclid(4294967296.0)` is likewise gone: 5.2.5's residue is
-    /// stated once, in [`Uint32::of_number`].
-    fn static_clz32(value: f64) -> f64 {
-        f64::from(Uint32::of_number(value).leading_zeros())
-    }
-
-    fn static_round(value: f64) -> f64 {
-        if value == 0.0 || !value.is_finite() {
-            return value;
-        }
-        if value.abs() >= 4503599627370496.0 {
-            return value;
-        }
-        if (-0.5..0.0).contains(&value) || value == -0.5 {
-            return -0.0;
-        }
-        if (0.0..0.5).contains(&value) {
-            return 0.0;
-        }
-        (value + 0.5).floor()
-    }
-
-    fn static_sum_precise_number_element(&self, expr: &Expression) -> Option<f64> {
-        match Self::unwrap_parenthesized_expr(expr) {
-            Expression::Identifier(identifier) => {
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                match name.as_str() {
-                    "NaN" => Some(f64::NAN),
-                    "Infinity" => Some(f64::INFINITY),
-                    _ => None,
-                }
-            }
-            Expression::Unary(unary) if unary.op() == UnaryOp::Minus => {
-                match Self::unwrap_parenthesized_expr(unary.target()) {
-                    Expression::Identifier(identifier)
-                        if self.interner.resolve_expect(identifier.sym()).to_string()
-                            == "Infinity" =>
-                    {
-                        Some(f64::NEG_INFINITY)
-                    }
-                    _ => self.static_number_expr(expr),
-                }
-            }
-            _ => self.static_number_expr(expr),
         }
     }
 
@@ -20471,7 +15190,7 @@ impl<'a> ScriptLowerer<'a> {
         let heritage_prototype = heritage_info
             .as_ref()
             .and_then(|info| info.heap_shape.as_deref())
-            .and_then(|shape| read_heap_shape_property(shape, "prototype"))
+            .and_then(|shape| self.read_current_heap_shape_property(shape, "prototype"))
             .and_then(|property| match property {
                 ObjectShapeProperty::Data(info) => info.heap_shape,
                 ObjectShapeProperty::Accessor { .. } => None,
@@ -20480,6 +15199,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
+                provenance: HeapShapeProvenance::Program,
                 prototype: heritage_prototype,
                 properties: BTreeMap::new(),
                 private_brands: BTreeSet::new(),
@@ -20496,6 +15216,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
+                provenance: HeapShapeProvenance::Program,
                 prototype: heritage_info.and_then(|info| info.heap_shape),
                 properties,
                 private_brands: BTreeSet::new(),
@@ -20580,7 +15301,7 @@ impl<'a> ScriptLowerer<'a> {
                 })
             }
             Expression::RegExpLiteral(_) => Some(Self::value_info_from_shape(Some(
-                Self::regexp_prototype_shape(),
+                Self::regexp_instance_shape(),
             ))),
             Expression::New(new_expr) => {
                 match Self::unwrap_parenthesized_expr(new_expr.constructor()) {
@@ -20657,6 +15378,10 @@ impl<'a> ScriptLowerer<'a> {
                 .get(source_name)
                 .is_some_and(|binding| binding.is_script_global)
                 || (self.script_variables_are_global()
+                    && !self
+                        .analysis
+                        .module_execution
+                        .is_private_dispatcher_name(source_name)
                     && self.analysis.owner_plans[SCRIPT_OWNER_ID]
                         .function_bindings
                         .contains_key(source_name)))
@@ -20805,9 +15530,14 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn is_script_global_var_name(&self, name: &str) -> bool {
-        self.var_bindings
-            .get(name)
-            .is_some_and(|binding| binding.is_script_global)
+        !self
+            .analysis
+            .module_execution
+            .is_private_dispatcher_name(name)
+            && self
+                .var_bindings
+                .get(name)
+                .is_some_and(|binding| binding.is_script_global)
     }
 
     fn is_unshadowed_script_global_binding(&self, name: &str) -> bool {
@@ -20815,6 +15545,10 @@ impl<'a> ScriptLowerer<'a> {
             && (self.is_script_global_var_name(name)
                 || (self.lookup_binding(name).is_none()
                     && self.script_variables_are_global()
+                    && !self
+                        .analysis
+                        .module_execution
+                        .is_private_dispatcher_name(name)
                     && self.analysis.owner_plans[SCRIPT_OWNER_ID]
                         .function_bindings
                         .contains_key(name)))
@@ -20952,6 +15686,31 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// Degrade every observed-written intrinsic in a nested body lowerer to
+    /// an unknown dynamic value, so shape reads, static calls and intrinsic
+    /// folds in the emitted body observe the possible replacement. Only
+    /// builtin-sourced entries degrade: declared script vars keep their
+    /// seeded values, which the nested-global flow machinery (not this set)
+    /// already keeps sound across bodies. Callers gate on the final phase;
+    /// prepass and propagation bodies keep baseline facts. The degradation
+    /// itself never feeds the write set back: these names are already members
+    /// by construction.
+    fn degrade_observed_written_globals(&self, lowerer: &mut ScriptLowerer<'a>) {
+        for name in &self.observed_script_global_writes {
+            let Some(property) = lowerer.global_properties.get_mut(name) else {
+                continue;
+            };
+            if !matches!(
+                property.source,
+                GlobalPropertySource::Builtin | GlobalPropertySource::HostBuiltin
+            ) {
+                continue;
+            }
+            property.value_info = ValueInfo::new(ValueKind::Dynamic);
+            property.source = GlobalPropertySource::GlobalWrite;
+        }
+    }
+
     fn merge_nested_script_global_value_infos(
         &mut self,
         nested_globals: &BTreeMap<String, ValueInfo>,
@@ -21019,12 +15778,12 @@ impl<'a> ScriptLowerer<'a> {
             })
     }
 
-    fn locate_identifier_reference(&self, name: &str) -> LocatedIdentifierReference {
-        let Some((binding, location)) = self.lookup_binding_with_location(name) else {
-            return LocatedIdentifierReference::Unresolvable;
-        };
-        let position = self
-            .captured_binding_positions
+    fn declarative_binding_position(
+        &self,
+        binding: &BindingInfo,
+        location: BindingLookupLocation,
+    ) -> DeclarativeEnvironmentPosition {
+        self.captured_binding_positions
             .get(&binding.storage_name)
             .copied()
             .map(DeclarativeEnvironmentPosition::captured)
@@ -21036,7 +15795,14 @@ impl<'a> ScriptLowerer<'a> {
                     BindingLookupLocation::VariableEnvironment => CurrentScopeDepth::activation(),
                 };
                 DeclarativeEnvironmentPosition::current(depth)
-            });
+            })
+    }
+
+    fn locate_identifier_reference(&self, name: &str) -> LocatedIdentifierReference {
+        let Some((binding, location)) = self.lookup_binding_with_location(name) else {
+            return LocatedIdentifierReference::Unresolvable;
+        };
+        let position = self.declarative_binding_position(&binding, location);
         LocatedIdentifierReference::Declarative {
             resolution: BindingResolution::of(Some(binding)),
             position,
@@ -21101,381 +15867,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn capture_conditional_flow_facts(&self) -> ConditionalFlowFacts {
-        ConditionalFlowFacts {
-            scopes: self.scopes.clone(),
-            var_bindings: self.var_bindings.clone(),
-            current_this_binding: self.current_this_binding.clone(),
-            current_construct_this_info: self.current_construct_this_info.clone(),
-            global_properties: self.global_properties.clone(),
-            well_known_symbol_prototype_properties: self
-                .well_known_symbol_prototype_properties
-                .clone(),
-            nested_script_global_value_infos: self.nested_script_global_value_infos.clone(),
-            array_prototype_mutated: self.array_prototype_mutated,
-            number_prototype_to_string_state: self.number_prototype_to_string_state,
-            number_prototype_match_is_string_match: self.number_prototype_match_is_string_match,
-            number_prototype_split_is_string_split: self.number_prototype_split_is_string_split,
-            boolean_prototype_to_string_state: self.boolean_prototype_to_string_state,
-            dynamically_installed_getters: self.dynamically_installed_getters.clone(),
-            dynamically_installed_setters: self.dynamically_installed_setters.clone(),
-            unknown_user_code_effects_observed: self.unknown_user_code_effects_observed,
-            function_signature_shape_evidence: self.function_signature_shape_evidence,
-            static_boolean_bindings: self.static_boolean_bindings.clone(),
-            static_string_bindings: self.static_string_bindings.clone(),
-            static_to_string_regexp_object_bindings: self
-                .static_to_string_regexp_object_bindings
-                .clone(),
-            static_generator_call_overrides: self.static_generator_call_overrides.clone(),
-            static_iterator_binding_values: self.static_iterator_binding_values.clone(),
-            invalidated_static_binding_names: self.invalidated_static_binding_names.clone(),
-            boolean_alias_shapes_invalidated: self.boolean_alias_shapes_invalidated,
-        }
-    }
-
-    fn install_conditional_flow_facts(&mut self, facts: ConditionalFlowFacts) {
-        self.scopes = facts.scopes;
-        self.var_bindings = facts.var_bindings;
-        self.current_this_binding = facts.current_this_binding;
-        self.current_construct_this_info = facts.current_construct_this_info;
-        self.global_properties = facts.global_properties;
-        self.well_known_symbol_prototype_properties = facts.well_known_symbol_prototype_properties;
-        self.nested_script_global_value_infos = facts.nested_script_global_value_infos;
-        self.array_prototype_mutated = facts.array_prototype_mutated;
-        self.number_prototype_to_string_state = facts.number_prototype_to_string_state;
-        self.number_prototype_match_is_string_match = facts.number_prototype_match_is_string_match;
-        self.number_prototype_split_is_string_split = facts.number_prototype_split_is_string_split;
-        self.boolean_prototype_to_string_state = facts.boolean_prototype_to_string_state;
-        self.dynamically_installed_getters = facts.dynamically_installed_getters;
-        self.dynamically_installed_setters = facts.dynamically_installed_setters;
-        self.unknown_user_code_effects_observed = facts.unknown_user_code_effects_observed;
-        self.function_signature_shape_evidence = facts.function_signature_shape_evidence;
-        self.static_boolean_bindings = facts.static_boolean_bindings;
-        self.static_string_bindings = facts.static_string_bindings;
-        self.static_to_string_regexp_object_bindings =
-            facts.static_to_string_regexp_object_bindings;
-        self.static_generator_call_overrides = facts.static_generator_call_overrides;
-        self.static_iterator_binding_values = facts.static_iterator_binding_values;
-        self.invalidated_static_binding_names = facts.invalidated_static_binding_names;
-        self.boolean_alias_shapes_invalidated = facts.boolean_alias_shapes_invalidated;
-    }
-
-    fn merge_conditional_flow_facts(
-        &mut self,
-        left: ConditionalFlowFacts,
-        right: ConditionalFlowFacts,
-    ) {
-        let scopes = self.merge_scope_facts(&left.scopes, &right.scopes);
-        let var_bindings = self.merge_var_bindings(&left.var_bindings, &right.var_bindings);
-        let current_this_binding = match (&left.current_this_binding, &right.current_this_binding) {
-            (CurrentThisBinding::Root(left), CurrentThisBinding::Root(right)) => {
-                debug_assert_eq!(left, right);
-                CurrentThisBinding::Root(*left)
-            }
-            (CurrentThisBinding::Activation(left), CurrentThisBinding::Activation(right)) => {
-                CurrentThisBinding::Activation(self.merge_value_infos(left.clone(), right.clone()))
-            }
-            (CurrentThisBinding::Root(_), CurrentThisBinding::Activation(_))
-            | (CurrentThisBinding::Activation(_), CurrentThisBinding::Root(_)) => {
-                unreachable!("conditional branches cannot change this-binding ownership")
-            }
-        };
-        let current_construct_this_info = match (
-            &left.current_construct_this_info,
-            &right.current_construct_this_info,
-        ) {
-            (Some(left), Some(right)) => Some(self.merge_value_infos(left.clone(), right.clone())),
-            (None, None) => None,
-            (Some(_), None) | (None, Some(_)) => None,
-        };
-        let global_properties =
-            self.merge_global_properties(&left.global_properties, &right.global_properties);
-        let mut well_known_symbol_prototype_properties = BTreeMap::new();
-        for (key, left_info) in &left.well_known_symbol_prototype_properties {
-            if let Some(right_info) = right.well_known_symbol_prototype_properties.get(key) {
-                well_known_symbol_prototype_properties.insert(
-                    key.clone(),
-                    self.merge_value_infos(left_info.clone(), right_info.clone()),
-                );
-            }
-        }
-        let mut nested_script_global_value_infos = left.nested_script_global_value_infos.clone();
-        for (name, right_info) in &right.nested_script_global_value_infos {
-            let next = match nested_script_global_value_infos.remove(name) {
-                Some(left_info) => self.merge_value_infos(left_info, right_info.clone()),
-                None => right_info.clone(),
-            };
-            nested_script_global_value_infos.insert(name.clone(), next);
-        }
-        let static_boolean_bindings = equal_map_intersection(
-            &left.static_boolean_bindings,
-            &right.static_boolean_bindings,
-        );
-        let static_string_bindings = StaticStringBindingFacts::equal_intersection(
-            &left.static_string_bindings,
-            &right.static_string_bindings,
-        );
-        let static_to_string_regexp_object_bindings = left
-            .static_to_string_regexp_object_bindings
-            .intersection(&right.static_to_string_regexp_object_bindings)
-            .cloned()
-            .collect();
-        let static_generator_call_overrides = equal_map_intersection(
-            &left.static_generator_call_overrides,
-            &right.static_generator_call_overrides,
-        );
-        let static_iterator_binding_values = equal_map_intersection(
-            &left.static_iterator_binding_values,
-            &right.static_iterator_binding_values,
-        );
-        let dynamically_installed_getters = left
-            .dynamically_installed_getters
-            .union(&right.dynamically_installed_getters)
-            .cloned()
-            .collect();
-        let dynamically_installed_setters = left
-            .dynamically_installed_setters
-            .union(&right.dynamically_installed_setters)
-            .cloned()
-            .collect();
-
-        self.install_conditional_flow_facts(ConditionalFlowFacts {
-            scopes,
-            var_bindings,
-            current_this_binding,
-            current_construct_this_info,
-            global_properties,
-            well_known_symbol_prototype_properties,
-            nested_script_global_value_infos,
-            array_prototype_mutated: left.array_prototype_mutated || right.array_prototype_mutated,
-            number_prototype_to_string_state: left
-                .number_prototype_to_string_state
-                .join(right.number_prototype_to_string_state),
-            number_prototype_match_is_string_match: left.number_prototype_match_is_string_match
-                && right.number_prototype_match_is_string_match,
-            number_prototype_split_is_string_split: left.number_prototype_split_is_string_split
-                && right.number_prototype_split_is_string_split,
-            boolean_prototype_to_string_state: left
-                .boolean_prototype_to_string_state
-                .join(right.boolean_prototype_to_string_state),
-            dynamically_installed_getters,
-            dynamically_installed_setters,
-            unknown_user_code_effects_observed: left.unknown_user_code_effects_observed
-                || right.unknown_user_code_effects_observed,
-            function_signature_shape_evidence: left
-                .function_signature_shape_evidence
-                .join(right.function_signature_shape_evidence),
-            static_boolean_bindings,
-            static_string_bindings,
-            static_to_string_regexp_object_bindings,
-            static_generator_call_overrides,
-            static_iterator_binding_values,
-            invalidated_static_binding_names: left
-                .invalidated_static_binding_names
-                .union(&right.invalidated_static_binding_names)
-                .cloned()
-                .collect(),
-            boolean_alias_shapes_invalidated: left.boolean_alias_shapes_invalidated
-                || right.boolean_alias_shapes_invalidated,
-        });
-    }
-
-    fn merge_scope_facts(
-        &self,
-        left: &[BTreeMap<String, BindingInfo>],
-        right: &[BTreeMap<String, BindingInfo>],
-    ) -> Vec<BTreeMap<String, BindingInfo>> {
-        debug_assert_eq!(left.len(), right.len());
-        left.iter()
-            .enumerate()
-            .map(|(index, left_scope)| {
-                let Some(right_scope) = right.get(index) else {
-                    return left_scope.clone();
-                };
-                debug_assert_eq!(left_scope.len(), right_scope.len());
-                left_scope
-                    .iter()
-                    .map(|(name, left_binding)| {
-                        let Some(right_binding) = right_scope.get(name) else {
-                            return (name.clone(), left_binding.clone());
-                        };
-                        debug_assert_eq!(left_binding.mode, right_binding.mode);
-                        debug_assert_eq!(left_binding.storage_name, right_binding.storage_name);
-                        debug_assert_eq!(left_binding.initialization, right_binding.initialization);
-                        let info = self.merge_value_infos(
-                            ValueInfo {
-                                kind: left_binding.kind,
-                                possible_kinds: left_binding.possible_kinds,
-                                heap_shape: left_binding.heap_shape.clone(),
-                                function_targets: left_binding.function_targets.clone(),
-                            },
-                            ValueInfo {
-                                kind: right_binding.kind,
-                                possible_kinds: right_binding.possible_kinds,
-                                heap_shape: right_binding.heap_shape.clone(),
-                                function_targets: right_binding.function_targets.clone(),
-                            },
-                        );
-                        (
-                            name.clone(),
-                            BindingInfo {
-                                mode: left_binding.mode,
-                                storage_name: left_binding.storage_name.clone(),
-                                kind: info.kind,
-                                possible_kinds: info.possible_kinds,
-                                heap_shape: info.heap_shape,
-                                function_targets: info.function_targets,
-                                initialization: left_binding.initialization,
-                            },
-                        )
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-
-    fn lower_conditionally_reached_expression(&mut self, expression: &Expression) -> TypedExpr {
-        let skipped = self.capture_conditional_flow_facts();
-        let value = self.lower_expression(expression);
-        let taken = self.capture_conditional_flow_facts();
-        self.merge_conditional_flow_facts(skipped, taken);
-        value
-    }
-
-    fn merge_var_bindings(
-        &self,
-        left: &BTreeMap<String, VarBindingInfo>,
-        right: &BTreeMap<String, VarBindingInfo>,
-    ) -> BTreeMap<String, VarBindingInfo> {
-        let mut merged = BTreeMap::new();
-        for name in left.keys().chain(right.keys()) {
-            if merged.contains_key(name) {
-                continue;
-            }
-            let left_info = left.get(name).map(|binding| ValueInfo {
-                kind: binding.kind,
-                possible_kinds: binding.possible_kinds,
-                heap_shape: binding.heap_shape.clone(),
-                function_targets: binding.function_targets.clone(),
-            });
-            let right_info = right.get(name).map(|binding| ValueInfo {
-                kind: binding.kind,
-                possible_kinds: binding.possible_kinds,
-                heap_shape: binding.heap_shape.clone(),
-                function_targets: binding.function_targets.clone(),
-            });
-            let info = match (left_info, right_info) {
-                (Some(lhs), Some(rhs)) => self.merge_value_infos(lhs, rhs),
-                (Some(lhs), None) => lhs,
-                (None, Some(rhs)) => rhs,
-                (None, None) => continue,
-            };
-            merged.insert(
-                name.clone(),
-                VarBindingInfo {
-                    kind: info.kind,
-                    possible_kinds: info.possible_kinds,
-                    heap_shape: info.heap_shape,
-                    function_targets: info.function_targets,
-                    is_script_global: left
-                        .get(name)
-                        .map(|binding| binding.is_script_global)
-                        .or_else(|| right.get(name).map(|binding| binding.is_script_global))
-                        .unwrap_or(false),
-                    is_lexical_metadata: left
-                        .get(name)
-                        .map(|binding| binding.is_lexical_metadata)
-                        .or_else(|| right.get(name).map(|binding| binding.is_lexical_metadata))
-                        .unwrap_or(false),
-                },
-            );
-        }
-        merged
-    }
-
-    fn merge_global_properties(
-        &self,
-        left: &BTreeMap<String, GlobalPropertyInfo>,
-        right: &BTreeMap<String, GlobalPropertyInfo>,
-    ) -> BTreeMap<String, GlobalPropertyInfo> {
-        let mut merged = BTreeMap::new();
-        for name in left.keys().chain(right.keys()) {
-            if merged.contains_key(name) {
-                continue;
-            }
-            let (Some(left_info), Some(right_info)) = (left.get(name), right.get(name)) else {
-                continue;
-            };
-            merged.insert(
-                name.clone(),
-                GlobalPropertyInfo {
-                    value_info: self.merge_value_infos(
-                        left_info.value_info.clone(),
-                        right_info.value_info.clone(),
-                    ),
-                    proven_present: left_info.proven_present && right_info.proven_present,
-                    configurable: left_info.configurable && right_info.configurable,
-                    source: if left_info.source == right_info.source {
-                        left_info.source
-                    } else {
-                        GlobalPropertySource::Merged
-                    },
-                },
-            );
-        }
-        merged
-    }
-
-    fn merge_value_kinds(&self, left: ValueKind, right: ValueKind) -> ValueKind {
-        KindSet::from_kind(left)
-            .union(KindSet::from_kind(right))
-            .as_value_kind()
-    }
-
-    fn merge_heap_shapes(
-        &self,
-        kind: ValueKind,
-        left: &Option<Box<HeapShape>>,
-        right: &Option<Box<HeapShape>>,
-    ) -> Option<Box<HeapShape>> {
-        match kind {
-            ValueKind::Object | ValueKind::Array | ValueKind::Function if left == right => {
-                left.clone()
-            }
-            ValueKind::Object | ValueKind::Array | ValueKind::Function => None,
-            _ => None,
-        }
-    }
-
-    fn merge_value_infos(&self, left: ValueInfo, right: ValueInfo) -> ValueInfo {
-        let function_targets = left.function_targets.join(right.function_targets);
-        if left.kind == ValueKind::Function && right.kind == ValueKind::Function {
-            let heap_shape =
-                self.merge_heap_shapes(ValueKind::Function, &left.heap_shape, &right.heap_shape);
-            return ValueInfo {
-                kind: ValueKind::Function,
-                possible_kinds: KindSet::from_kind(ValueKind::Function),
-                heap_shape,
-                function_targets,
-            };
-        }
-        let possible_kinds = left.possible_kinds.union(right.possible_kinds);
-        if left.kind == right.kind {
-            return ValueInfo {
-                kind: possible_kinds.as_value_kind(),
-                possible_kinds,
-                heap_shape: self.merge_heap_shapes(left.kind, &left.heap_shape, &right.heap_shape),
-                function_targets,
-            };
-        }
-        ValueInfo {
-            kind: possible_kinds.as_value_kind(),
-            possible_kinds,
-            heap_shape: None,
-            function_targets,
-        }
-    }
-
     fn record_return_expression(&mut self, value: &TypedExpr) {
         let return_shape = if value.heap_shape.is_none() {
             FunctionReturnShape::Absent
@@ -21495,7 +15886,8 @@ impl<'a> ScriptLowerer<'a> {
                                 .canonical_function_target(emitted_function_id)
                                 == self.canonical_function_target(&function_id))
                             .then_some(dependencies),
-                            ExprIr::GlobalPropertyRead { name } => {
+                            ExprIr::GlobalPropertyRead { name }
+                            | ExprIr::GlobalIdentifierRead { name } => {
                                 let expected = self.canonical_function_target(&function_id);
                                 self.global_function_target_matches(name, &expected)
                                     .then(|| {

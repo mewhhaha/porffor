@@ -35,6 +35,16 @@ families with existing results. Its schema-2 migration and 45 control-flow
 regressions are documented in [the restart-recovery contract](publication-progress-recovery.md).
 This does not add compiler semantics or change the generated conformance status.
 
+## DisplayNames and RelativeTimeFormat source batch
+
+The isolated complete service batch adds real compiled constructors and output
+methods, checked native profiles and host ABI 10 dispatch. JavaScript option
+reads, coercions, errors, brands and Realm output allocation stay in Wasm. The
+[consumer contract](contracts/intl-display-relative-wasm.md) and
+[provider integration](intl-display-relative-provider.md) describe the authored
+controls and pending coherent runtime gates. Source generation and review do
+not establish MAIN admission or pinned conformance.
+
 ## Hard Invariants
 - Production compile path is `parse -> early errors -> spec IR -> lowering IR -> Wasm codegen`.
 - Hidden debug interpreter is allowed only as non-product engineering tool.

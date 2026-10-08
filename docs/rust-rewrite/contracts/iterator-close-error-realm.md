@@ -1,5 +1,7 @@
 # IteratorClose algorithm-created TypeError Realm
 
+Current source status (2026-10-05): the T05 semantic Wasm-GC cutover is source-authored and unverified. Earlier source recipes, caller counts, and dated verification below describe their recorded checkpoints; they do not verify this cutover. ECMAScript requirements and retained fixtures remain acceptance criteria. Semantic values and Realm ownership now use the typed GC/compiler path described in [the GC value contract](../value-heap-gc.md). The retired representation assertions add no Test262 skips or new passing results.
+
 Status: focused verification passed on 2026-08-29.
 
 ## Invariant
@@ -13,17 +15,17 @@ The shared `emit_iterator_close` owner creates exactly two algorithm errors:
 
 Both TypeErrors always use the current function Realm. IteratorClose does not
 derive either error's prototype from the iterator object. Synchronous
-destructuring, ArrayAccumulation, `for-of`, and `Math.sumPrecise` protocol
+destructuring, ArrayAccumulation, `for-of`, `Math.sumPrecise`, and `Intl.ListFormat` protocol
 errors now follow the same Realm rule through their separate consumer domain.
 
 ## Entry routes and completion precedence
 
-The shared owner has 68 external entry routes. The census excludes the calls
+The shared owner has 73 external entry routes. The census excludes the calls
 that connect the two preserving wrappers to each other and to
 `emit_iterator_close`:
 
-- 16 routes call `emit_iterator_close` directly;
-- 49 routes call `emit_iterator_close_preserving_current_throw`; and
+- 20 routes call `emit_iterator_close` directly;
+- 50 routes call `emit_iterator_close_preserving_current_throw`; and
 - 3 routes call `emit_iterator_close_preserving_saved_throw` directly.
 
 The preserving routes keep their existing completion rule. They save an
@@ -31,6 +33,12 @@ incoming Throw, perform IteratorClose, and restore that original Throw even if
 close creates one of the two TypeErrors above. Direct routes can expose the
 close-generated error. The Realm change does not alter property-read, call,
 object-result, or completion-precedence order for either class of caller.
+
+The `Intl.ListFormat` owner in `builtins/intl_listformat/iterable.rs` contributes
+exactly one current-throw-preserving route. It creates its non-string TypeError
+after a successful iterator step, closes while preserving that TypeError, and
+returns the original completion before storing another element. Acquisition,
+`next`, `done`, and `value` abrupt completions propagate without IteratorClose.
 
 ## Entry-Realm fallback
 
@@ -48,12 +56,18 @@ separate change. This checkpoint therefore made no complete synchronous
 iterator-protocol error-Realm claim. That separate change is now present for
 all three direct synchronous `for-of` owners and is documented in
 [`direct-synchronous-for-of-protocol-error-realm.md`](./direct-synchronous-for-of-protocol-error-realm.md).
-The later four-consumer boundary also covers Array destructuring,
-ArrayAccumulation, and `Math.sumPrecise`; see
+The later five-consumer boundary also covers Array destructuring,
+ArrayAccumulation, `Math.sumPrecise`, and `Intl.ListFormat`; see
 [`sync-iterator-consumer-capability.md`](./sync-iterator-consumer-capability.md).
 Neither change expands this contract's ownership beyond IteratorClose.
 
 ## Focused verification
+
+The 2026-10-01 source-only route follow-up pins the current 73-route census
+and exact ListFormat close ordering. Its focused execution is pending. The
+historical 2026-08-29 checkpoint used 68 external routes (16 direct, 49
+current-throw-preserving, and three saved-throw-preserving); the receipts below
+remain evidence for that earlier source.
 
 `cargo check -p lila-aot-wasm` passes. The source-structure target passes
 `4/4`; the exact created-Realm CLI test passes `1/1`; and the affected

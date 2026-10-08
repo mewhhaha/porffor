@@ -1,5 +1,16 @@
 # Obsolete static-generator cache removal
 
+Current amendment (2026-10-07, dry source): the formerly retained iterator-value
+and generator-call override caches are also removed. The iterator cache was
+reachable and unsound: Array.from(nonIterable) could return parsed generator
+yields, repeated materialization replayed consumed values, and source-spelling
+recognition bypassed live methods and next effects. The call override map had
+only an unsupported-expression producer. Actual calls, generator suspension
+plans and runtime iterator records now own those operations. Existing IR call
+controls and three `aot_iterator_materialization` cohorts are authored but
+unrun. The frozen hashes and no-new-behavior claim below apply only to the older
+write-never-cache deletion, not to this semantic correction.
+
 Status: implemented as a source-equivalent T02 state-invariant closure.
 
 The IR lowerer carried `static_generator_sum_values` and
@@ -15,12 +26,10 @@ and for-of branches that consulted the maps are deleted with them. Ordinary
 expression lowering now appears directly in those callers, matching the only
 branch they could previously enter.
 
-The live generator and iterator authorities remain separate and explicit:
-generator-expression call overrides, numeric generator-declaration parsing,
-object-iterator literal and IIFE folding, iterator-binding values and the
-array-literal result fold are unchanged. The IIFE fold still recognizes a
-zero-argument generator-declaration call; its sole call-shape parser is now
-inline at that use instead of surviving as a one-caller abstraction.
+At that checkpoint, generator-expression call overrides, numeric generator
+declaration parsing, object-iterator literal and IIFE folding, iterator-binding
+values and the array-literal result fold were retained. The current amendment
+above supersedes that retained surface.
 
 The complete original 29-line cache-identifier census has SHA-256
 `8043d5ff10f4b61f90d5caea850ee1f648d81a7c5bfd413715fd1776194bd27c`.

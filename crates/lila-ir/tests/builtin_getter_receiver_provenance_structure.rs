@@ -289,17 +289,17 @@ fn builtin_getter_receiver_provenance_is_the_exact_private_no_capability_domain(
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "BuiltinGetterReceiverProvenance"),
-        9,
-        "the declaration, import, borrowed parameter, four producers and two exhaustive arms own every mention"
+        10,
+        "the declaration, import, borrowed parameter, five producers and two exhaustive arms own every mention"
     );
-    for variant in ["ProvenNonProxy", "MayBeProxy"] {
+    for (variant, expected) in [("ProvenNonProxy", 4), ("MayBeProxy", 3)] {
         assert_eq!(
             count_in_normalized_rust_sources(
                 &source_root,
                 &format!("BuiltinGetterReceiverProvenance::{variant}"),
             ),
-            3,
-            "variant `{variant}` must have two producers and one exhaustive arm"
+            expected,
+            "variant `{variant}` includes its declared producers and one exhaustive arm"
         );
     }
     assert_eq!(
@@ -355,15 +355,15 @@ fn both_receiver_shape_decisions_construct_the_exact_provenance() {
 }
 
 #[test]
-fn both_routes_borrow_the_provenance_without_alternate_consumers() {
+fn all_three_routes_borrow_the_provenance_without_alternate_consumers() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_normalized_rust_sources(
             &source_root,
             "standard_builtin_getter_may_call_user_code",
         ),
-        3,
-        "one definition and two calls must own the complete route census"
+        4,
+        "one definition and three calls must own the complete route census"
     );
 
     let ordinary_route = lexically_normalized_code(bounded(
@@ -390,6 +390,25 @@ fn both_routes_borrow_the_provenance_without_alternate_consumers() {
         concat!(
             "Some(builtin)=>{Self::standard_builtin_getter_may_call_user_code(",
             "builtin,&receiver_provenance)}None=>known_getter.is_some(),};"
+        )
+    );
+
+    let symbol_route = lexically_normalized_code(bounded(
+        LOWERING_SOURCE,
+        "        let property = self.read_current_object_symbol_shape_property(&target, symbol);",
+        "        if may_call_user_code {",
+    ));
+    assert_eq!(
+        symbol_route,
+        concat!(
+            "letmay_call_user_code=match&property{",
+            "Some(ObjectShapeProperty::Data(_))|",
+            "Some(ObjectShapeProperty::Accessor{getter:None,..})=>false,",
+            "Some(ObjectShapeProperty::Accessor{getter:Some(getter),..})=>",
+            "StandardBuiltinId::from_function_id(&getter.function_id).is_none_or(|builtin|{",
+            "Self::standard_builtin_getter_may_call_user_code(",
+            "builtin,&BuiltinGetterReceiverProvenance::ProvenNonProxy,)",
+            "}),None=>true,};"
         )
     );
 }

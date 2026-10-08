@@ -202,3 +202,96 @@ removed && nonreference && delete value() && calls === 1 && caught === marker &&
 "#,
     );
 }
+
+#[test]
+fn optional_delete_skips_terminal_get_and_preserves_prefix_call_references() {
+    assert_delete(
+        r#"
+var trace = '', marker = {}, symbol = Symbol('terminal'), target = {};
+Object.defineProperty(target, symbol, {
+  get() { throw marker; }, configurable: true
+});
+var originalDelete = Reflect.deleteProperty;
+var proxy = new Proxy(target, {
+  get() { throw marker; },
+  deleteProperty(object, key) {
+    trace += 'D';
+    if (object !== target || key !== symbol) throw 'lost deletion Reference';
+    gc();
+    return originalDelete(object, key);
+  }
+});
+var holder = {
+  get method() {
+    trace += 'G';
+    return function(argument) {
+      trace += 'C';
+      if (this !== holder || argument !== 17) throw 'lost call Reference';
+      gc();
+      return proxy;
+    };
+  }
+};
+function base() { trace += 'B'; return holder; }
+function argument() { trace += 'A'; return 17; }
+function rawKey() {
+  trace += 'K';
+  return { [Symbol.toPrimitive](hint) {
+    trace += 'S';
+    if (hint !== 'string') throw 'wrong key hint';
+    gc();
+    return symbol;
+  } };
+}
+Reflect.deleteProperty = function() { throw 'public Reflect must not implement delete'; };
+var removed = delete base()?.method(argument())[rawKey()];
+Reflect.deleteProperty = originalDelete;
+if (!removed || symbol in target || trace !== 'BGACKSD') throw 'terminal Delete order';
+var skipped = trace;
+if (!delete null?.[rawKey()] || !delete undefined?.method(argument())[rawKey()] || trace !== skipped)
+  throw 'shorted Delete must skip suffixes';
+var caught = false;
+try { delete (null?.method)(argument()).absent; }
+catch (error) { caught = error instanceof TypeError; }
+caught && trace === skipped + 'A';
+"#,
+    );
+}
+
+#[test]
+fn optional_delete_preserves_strict_failures_and_whole_abrupt_values() {
+    assert_delete(
+        r#"
+var gets = 0, deletes = 0, target = {}, marker = {self: null}, received;
+marker.self = marker;
+Object.defineProperty(target, 'fixed', {
+  get() { gets++; throw marker; }, configurable: false
+});
+var proxy = new Proxy(target, {
+  get() { gets++; throw marker; },
+  deleteProperty(object, key) {
+    deletes++;
+    if (key === 'throw') throw marker;
+    return false;
+  }
+});
+function remove(base) { return delete (((base?.fixed))); }
+function strictRemove(base) { 'use strict'; return delete (((base?.fixed))); }
+var first = remove(proxy), strictFailure = false;
+try { strictRemove(proxy); } catch (error) { strictFailure = error instanceof TypeError; }
+try { delete proxy?.throw; } catch (error) { received = error; }
+var rawCalls = 0, conversions = 0;
+function key() { rawCalls++; return { [Symbol.toPrimitive]() { conversions++; gc(); throw marker; } }; }
+var keyFailure;
+try { delete proxy?.[key()]; } catch (error) { keyFailure = error; }
+var shorted = delete null?.[key()];
+function stringRemove(base) { return delete base?.[0]; }
+function strictStringRemove(base) { 'use strict'; return delete base?.[0]; }
+var primitive = stringRemove('abc'), primitiveFailure = false;
+try { strictStringRemove('abc'); } catch (error) { primitiveFailure = error instanceof TypeError; }
+!first && strictFailure && received === marker && keyFailure === marker &&
+  marker.self === marker && deletes === 3 && gets === 0 && rawCalls === 1 && conversions === 1 &&
+  shorted && remove(null) && strictRemove(undefined) && !primitive && primitiveFailure;
+"#,
+    );
+}

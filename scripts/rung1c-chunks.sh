@@ -28,13 +28,12 @@
 #
 # # Three load-bearing properties. Do not "simplify" any of them.
 #
-# 1. `--test-threads=3`, NEVER 1. libtest names each worker thread after the
-#    test it runs, and `known_failures::execution_path` routes on that name.
-#    Under `--test-threads=1` every test runs on the thread named `main`, the
-#    name is unavailable, and all ~600 tests fall back to spawning a cold `lila`
-#    child instead of the warm in-process call the runtime estimate is built on.
-#    It is still correct and terminating, just far slower. For one test use
-#    `-- --exact <name>`, not a lower thread count.
+# 1. The current resource policy requires `--test-threads=1` and the confirmed
+#    4096 MiB kernel budget around Cargo and all descendants. Every test runs
+#    on `main`, so `known_failures::execution_path` selects its guarded cold
+#    CLI child path. That path preserves arguments and inherits the scope.
+#    Historical warm in-process timings do not describe this invocation.
+#    Missing budget controls refuse the payload; do not raise it automatically.
 #
 # 2. libtest filters are SUBSTRINGS, not exact names. `array::` therefore also
 #    selects `typed_array::`, so the array chunk carries `--skip typed_array::`
@@ -383,7 +382,8 @@ run_chunk() {
   LILA_MODULE_CACHE_LIMIT_BYTES=67108864 \
   LILA_PROGRAM_CACHE_LIMIT_BYTES=67108864 \
     ./scripts/run-watched.sh --label "rung1c-$name" --stall "$stall" -- \
-    cargo test -p lila-cli --test cli -- --test-threads=3 "$@"
+    python3 scripts/limited_verification.py -- \
+      cargo test -p lila-cli --test cli -- --test-threads=1 "$@"
   rc=$?
   line=$(grep -E '^test result:' "$log" 2>/dev/null | tail -1)
   # The partition arithmetic, banked mechanically instead of left for a human
@@ -451,7 +451,7 @@ run_chunk() {
 # until now it was stated only in comments (that module's header, main.rs, and
 # `chunk_stall` below). The measured child is 4.46-5.55 GiB peak RSS (38
 # `ps -o rss` samples on an idle box). Two such tests in that module run
-# concurrently under the mandatory `--test-threads=3` -- ~11 GiB on a 15 GiB box,
+# concurrently under the historical `--test-threads=3` -- ~11 GiB on a 15 GiB box,
 # which is batch 5's exact OOM geometry (`avail` 1.6 GiB) -- and the only signal
 # would be a SIGKILL blamed on whatever else was running. The counts fingerprint
 # reacts to such an edit (the chunk re-runs) but neither prevents nor diagnoses
@@ -530,7 +530,8 @@ run_chunk array             array:: --skip typed_array::
 #     bound bytes on disk (`lila-engine/src/cache.rs`), not RSS.
 #   * `LILA_CPU_PERCENT` -- overridden by `run_chunk` above, and a CPU share
 #     is not a memory lever anyway.
-#   * `--test-threads` below 3 -- BANNED by property 1 at the top of this file.
+#   * `--test-threads` below 3 -- formerly prohibited; the current resource
+#     policy instead requires one test thread and the kernel budget.
 #
 # That list is three ENVIRONMENT knobs, and an earlier version of this comment
 # called the split "the only remaining lever" on the strength of it. It is not:

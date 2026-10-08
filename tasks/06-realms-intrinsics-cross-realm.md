@@ -1,10 +1,33 @@
 # T06 — Realms, intrinsics and cross-realm semantics
 
-**Status:** In progress — typed callable Function-prototype and created-realm function foundations exist; full allocation and isolation remain
+## ShadowRealm native boundaries — 2026-10-07 dry source
+
+ShadowRealm now joins actual constructor/prototype publication, strong Realm
+state, finite evaluation, native wrapped functions and module-import reactions.
+The defining method or wrapper Realm owns boundary errors and returned callables;
+the receiver Realm owns its global environment and module cache. Shared metadata
+copying retains observable Get order and keeps bind's original abrupt values.
+Source controls cover borrowed methods, independent globals/modules and nested
+Realms. The all-feature/all-target workspace check and four native gate functions
+pass: construction, finite evaluation, wrapped callables and per-Realm module
+caches. Remaining native cohorts and full pinned acceptance remain; see the
+[implementation contract](../docs/rust-rewrite/contracts/shadowrealm-implementation-sequence.md).
+
+**Status:** In progress — Realm allocation, intrinsic ownership and ShadowRealm boundaries are authored; focused native isolation passes, broader lifetime/error/borrowed-Realm and pinned acceptance remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T03, T04, T05  
 **Blocks:** T11-T14, T17, T21-T24
+
+The 2026-10-03 dry tagged-template implementation retains the defining Realm
+in execution-owned lazy caches. Raw and cooked arrays use that Realm's Array
+prototype; foreign Function construction allocates its owner in the active
+constructor's Realm. Realm-owned registries isolate entry-source caches, while
+prepared Realm Scripts acquire fresh execution owners. Static class contexts
+and resumable function contexts retain the same defining owner. Compilation
+and runtime checks are pending; broader Realm lifetime/isolation acceptance
+remains open. See the
+[template ownership contract](../docs/rust-rewrite/contracts/template-site-source-ownership.md).
 
 `Reflect.defineProperty` now carries the observable Proxy-trap descriptor
 allocation through a private, non-cloneable Realm Object-prototype proof. The
@@ -35,6 +58,15 @@ pair. The retargeted structure target passes `4/4`, the engine Realm witness
 passes `1/1`, and the shared `cargo xc` checkpoint is green.
 
 ## Current repository state
+
+The 2026-10-03 dry ToBigInt error repair extends the consumed numeric Realm
+policy to rejected primitive values, Number rejection and invalid Strings.
+Borrowed BigInt and DataView setters select their defining Realm's intrinsic
+TypeError or SyntaxError prototypes even after public constructors change.
+Ordinary lexical/source bodies retain their existing fallback, and hook-thrown
+values keep their original identity. Two semantic sources are authored for
+sloppy/strict Wasm-AOT execution; compilation and runtime acceptance remain
+pending. See the [conversion Realm contract](../docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md).
 
 Realm IDs, realm records, intrinsic metadata and realm-owned prototype
 references are present in the runtime/backend. The current 23 intrinsic rows now

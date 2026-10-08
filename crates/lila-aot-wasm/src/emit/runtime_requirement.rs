@@ -1,4 +1,3 @@
-use crate::planning::expr_has_static_number_payload;
 use lila_ir::{ArithmeticBinaryOp, BlockIr, ExprIr, ScriptIr, StatementIr, TypedExpr, ValueKind};
 
 /// Elide Realm bootstrap only when the lowered script cannot observe it.
@@ -83,5 +82,5 @@ fn expression_is_runtime_free(expression: &TypedExpr) -> bool {
 }
 
 fn number_is_runtime_free(expression: &TypedExpr) -> bool {
-    expr_has_static_number_payload(expression) && expression_is_runtime_free(expression)
+    expression.kind == ValueKind::Number && expression_is_runtime_free(expression)
 }

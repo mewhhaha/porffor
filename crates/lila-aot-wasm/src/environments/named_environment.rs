@@ -1,17 +1,12 @@
 use super::*;
+use crate::gc_types::{
+    NamedBinding, NamedBindingSchema, NamedBindingTable, ObjectEnvironment,
+    ObjectEnvironmentSchema, StringValue,
+};
 use lila_ir::{
     EvalBindingDeclarationIr, EvalDeclarativeEnvironmentKindIr, EvalEnvironmentRoleIr,
     EvalVisibleBindingIr,
 };
-
-pub(crate) const NAMED_BINDING_KEY_OFFSET: u64 = 0;
-pub(crate) const NAMED_BINDING_CELL_OFFSET: u64 = 8;
-pub(crate) const NAMED_BINDING_MUTABLE_OFFSET: u64 = 16;
-pub(crate) const NAMED_BINDING_DELETABLE_OFFSET: u64 = 24;
-pub(crate) const NAMED_BINDING_PRESENT_OFFSET: u64 = 32;
-pub(crate) const NAMED_BINDING_LEXICAL_CONFLICT_OFFSET: u64 = 40;
-pub(crate) const NAMED_BINDING_IMMUTABLE_STRICT_OFFSET: u64 = 48;
-pub(crate) const NAMED_BINDING_SIZE: u64 = 56;
 
 #[derive(Clone, Copy)]
 pub(crate) enum NamedEnvironmentKind {
@@ -25,7 +20,7 @@ pub(crate) enum NamedEnvironmentKind {
 }
 
 impl NamedEnvironmentKind {
-    pub(crate) const fn code(self) -> u64 {
+    pub(crate) const fn code(self) -> i32 {
         match self {
             Self::Unexposed => 0,
             Self::Variable => 1,
@@ -39,29 +34,29 @@ impl NamedEnvironmentKind {
 }
 
 impl FunctionBuilder<'_> {
+    /// Complete the actual record before publication: named metadata retains
+    /// the same cells that lexical access and module linking will use.
     pub(crate) fn emit_initialize_named_environment_header(
         &mut self,
-        environment_local: u32,
+        parent: &GcLocal<Environment, Nullable>,
+        cells: &GcLocal<BindingCellTable>,
         role: Option<&EvalEnvironmentRoleIr>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        for offset in [
-            ENV_FUNCTION_BODY_OFFSET,
-            ENV_NAMED_ENTRIES_OFFSET,
-            ENV_NAMED_COUNT_OFFSET,
-            ENV_WITH_OBJECT_OFFSET,
-            ENV_RECORD_KIND_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(environment_local, offset, 0, function);
-        }
+    ) -> Result<GcLocal<Environment>, EmitError> {
+        let schema = self.runtime_schema();
+        let named = schema
+            .reserve_gc_local::<NamedBindingTable, Nullable>(function)
+            .initialize_null(schema, function);
+        let object = schema
+            .reserve_gc_local::<ObjectEnvironment, Nullable>(function)
+            .initialize_null(schema, function);
         let kind = match role {
             None => NamedEnvironmentKind::Unexposed,
             Some(EvalEnvironmentRoleIr::Declarative { kind, bindings }) => {
-                self.emit_publish_named_declarative_environment(
-                    environment_local,
-                    bindings,
-                    function,
-                )?;
+                let table =
+                    self.emit_publish_named_declarative_environment(cells, bindings, function)?;
+                named.replace(table.load(schema, function).nullable(), function);
+                table.clear(function);
                 match kind {
                     EvalDeclarativeEnvironmentKindIr::Variable => NamedEnvironmentKind::Variable,
                     EvalDeclarativeEnvironmentKindIr::GlobalLexical => {
@@ -76,200 +71,209 @@ impl FunctionBuilder<'_> {
                 }
             }
             Some(EvalEnvironmentRoleIr::WithObject { object_slot }) => {
-                let cell_local = self.reserve_temp_local();
-                function.instruction(&Instruction::LocalGet(environment_local));
-                function.instruction(&Instruction::I64Const(
-                    Self::env_slot_offset(*object_slot, 0) as i64,
-                ));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(cell_local));
-                self.store_i64_local_at_offset(
-                    environment_local,
-                    ENV_WITH_OBJECT_OFFSET,
-                    cell_local,
+                let index = schema.reserve_i32_local(function);
+                function.instruction(&Instruction::I32Const(*object_slot as i32));
+                index.store(function);
+                let cell = schema
+                    .reserve_gc_local::<BindingCell, NonNullable>(function)
+                    .initialize(
+                        schema
+                            .array_type::<BindingCellTable>()
+                            .read(cells, index, schema, function)
+                            .reference(),
+                        function,
+                    );
+                object.replace(
+                    schema
+                        .struct_type::<ObjectEnvironment>()
+                        .construct(
+                            (
+                                GcOperand::reference(&cell, schema),
+                                GcOperand::boolean(true),
+                            ),
+                            function,
+                        )
+                        .nullable(),
                     function,
                 );
-                self.release_temp_local(cell_local);
+                cell.clear(function);
+                schema.release_i32_local(index, function);
                 NamedEnvironmentKind::WithObject
             }
         };
-        self.store_i64_const_at_offset(
-            environment_local,
-            ENV_RECORD_KIND_OFFSET,
-            kind.code(),
-            function,
-        );
-        Ok(())
+        let environment =
+            self.emit_environment_record(parent, cells, &named, &object, kind, function);
+        object.clear(function);
+        named.clear(function);
+        Ok(environment)
     }
 
     fn emit_publish_named_declarative_environment(
         &mut self,
-        environment_local: u32,
+        cells: &GcLocal<BindingCellTable>,
         bindings: &[EvalVisibleBindingIr],
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let entries_local = self.reserve_temp_local();
-        let cell_local = self.reserve_temp_local();
-        self.emit_heap_alloc_const(bindings.len() as u64 * NAMED_BINDING_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(entries_local));
-        for (index, binding) in bindings.iter().enumerate() {
-            let base = index as u64 * NAMED_BINDING_SIZE;
-            self.store_i64_const_at_offset(
-                entries_local,
-                base + NAMED_BINDING_KEY_OFFSET,
-                self.strings.payload(&binding.source_name) as u64,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(environment_local));
-            function.instruction(&Instruction::I64Const(
-                Self::env_slot_offset(binding.slot, 0) as i64,
-            ));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(cell_local));
-            self.store_i64_local_at_offset(
-                entries_local,
-                base + NAMED_BINDING_CELL_OFFSET,
-                cell_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entries_local,
-                base + NAMED_BINDING_MUTABLE_OFFSET,
-                match binding.mode {
-                    BindingMode::Let | BindingMode::Var => 1,
-                    BindingMode::Const => 0,
-                },
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entries_local,
-                base + NAMED_BINDING_DELETABLE_OFFSET,
-                0,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entries_local,
-                base + NAMED_BINDING_PRESENT_OFFSET,
-                1,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entries_local,
-                base + NAMED_BINDING_LEXICAL_CONFLICT_OFFSET,
-                match binding.declaration {
-                    EvalBindingDeclarationIr::Parameter | EvalBindingDeclarationIr::Variable => 0,
-                    EvalBindingDeclarationIr::Lexical
-                    | EvalBindingDeclarationIr::NamedFunctionExpression => 1,
-                },
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entries_local,
-                base + NAMED_BINDING_IMMUTABLE_STRICT_OFFSET,
-                match binding.declaration {
-                    EvalBindingDeclarationIr::NamedFunctionExpression => 0,
-                    EvalBindingDeclarationIr::Parameter
-                    | EvalBindingDeclarationIr::Variable
-                    | EvalBindingDeclarationIr::Lexical => 1,
-                },
-                function,
-            );
+    ) -> Result<GcLocal<NamedBindingTable>, EmitError> {
+        let schema = self.runtime_schema();
+        let mut entries = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let name = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&binding.source_name, function)?,
+                    function,
+                );
+            let index = schema.reserve_i32_local(function);
+            function.instruction(&Instruction::I32Const(binding.slot as i32));
+            index.store(function);
+            let cell = schema
+                .reserve_gc_local::<BindingCell, NonNullable>(function)
+                .initialize(
+                    schema
+                        .array_type::<BindingCellTable>()
+                        .read(cells, index, schema, function)
+                        .reference(),
+                    function,
+                );
+            let entry = schema
+                .reserve_gc_local::<NamedBinding, NonNullable>(function)
+                .initialize(
+                    schema.struct_type::<NamedBinding>().construct(
+                        (
+                            GcOperand::reference(&name, schema),
+                            GcOperand::reference(&cell, schema),
+                            GcOperand::boolean(false),
+                            GcOperand::boolean(true),
+                            GcOperand::boolean(match binding.declaration {
+                                EvalBindingDeclarationIr::Parameter
+                                | EvalBindingDeclarationIr::Variable => false,
+                                EvalBindingDeclarationIr::Lexical
+                                | EvalBindingDeclarationIr::NamedFunctionExpression => true,
+                            }),
+                        ),
+                        function,
+                    ),
+                    function,
+                );
+            cell.clear(function);
+            schema.release_i32_local(index, function);
+            name.clear(function);
+            entries.push(entry);
         }
-        self.store_i64_local_at_offset(
-            environment_local,
-            ENV_NAMED_ENTRIES_OFFSET,
-            entries_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            environment_local,
-            ENV_NAMED_COUNT_OFFSET,
-            bindings.len() as u64,
-            function,
-        );
-        self.release_temp_local(cell_local);
-        self.release_temp_local(entries_local);
-        Ok(())
+        let table = schema
+            .reserve_gc_local::<NamedBindingTable, NonNullable>(function)
+            .initialize(
+                schema.array_type::<NamedBindingTable>().fixed(
+                    entries
+                        .iter()
+                        .map(|entry| GcOperand::nullable_reference(entry, schema)),
+                    function,
+                ),
+                function,
+            );
+        for entry in entries.into_iter().rev() {
+            entry.clear(function);
+        }
+        Ok(table)
     }
 
-    /// Finds only this declarative record's live binding. Caller traverses the
-    /// parent chain and dispatches Object/Global Records through their own HasBinding.
-    pub(crate) fn emit_find_own_named_binding(
+    /// Find only this record's live binding. The caller owns parent traversal
+    /// and dispatches Object/Global Records through their actual HasBinding.
+    pub(crate) fn emit_find_own_named_binding<N: GcFieldNullability>(
         &mut self,
-        environment_local: u32,
-        key_local: u32,
-        entry_local: u32,
+        environment: &GcLocal<Environment, N>,
+        key: &GcLocal<StringValue>,
+        found: &GcLocal<NamedBinding, Nullable>,
         function: &mut Function,
     ) {
-        let entries_local = self.reserve_temp_local();
-        let count_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let candidate_local = self.reserve_temp_local();
-        let name_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_NAMED_ENTRIES_OFFSET,
-            entries_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_NAMED_COUNT_OFFSET,
-            count_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(entry_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(count_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(entries_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(NAMED_BINDING_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(candidate_local));
-        self.load_i64_to_local_from_offset(
-            candidate_local,
-            NAMED_BINDING_PRESENT_OFFSET,
-            present_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(present_local));
-        function.instruction(&Instruction::I64Eqz);
+        let schema = self.runtime_schema();
+        found.set_null(schema, function);
+        let entries = schema
+            .reserve_gc_local::<NamedBindingTable, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<Environment>()
+                    .field(EnvironmentSchema::NAMED_BINDINGS)
+                    .read(environment, schema, function)
+                    .reference(),
+                function,
+            );
+        entries.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            candidate_local,
-            NAMED_BINDING_KEY_OFFSET,
-            name_local,
+        self.open_frame(ControlFrameKind::If, function);
+        let count = schema.reserve_i32_local(function);
+        schema
+            .array_type::<NamedBindingTable>()
+            .length(&entries, schema, function);
+        count.store(function);
+        let index = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        let candidate = schema
+            .reserve_gc_local::<NamedBinding, Nullable>(function)
+            .initialize_null(schema, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        candidate.replace(
+            schema
+                .array_type::<NamedBindingTable>()
+                .read(&entries, index, schema, function)
+                .reference(),
             function,
         );
-        self.emit_string_payload_equality_i32(name_local, key_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(candidate_local));
-        function.instruction(&Instruction::LocalSet(entry_local));
-        function.instruction(&Instruction::Br(3));
+        candidate.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .struct_type::<NamedBinding>()
+            .field(NamedBindingSchema::PRESENT)
+            .read(&candidate, schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let name = schema
+            .reserve_gc_local::<StringValue, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<NamedBinding>()
+                    .field(NamedBindingSchema::NAME)
+                    .read(&candidate, schema, function)
+                    .reference(),
+                function,
+            );
+        let equal = schema.reserve_i32_local(function);
+        self.emit_string_payload_equality_i32(&name, key, function);
+        equal.store(function);
+        name.clear(function);
+        equal.load(function);
+        schema.release_i32_local(equal, function);
+        self.open_frame(ControlFrameKind::If, function);
+        found.replace(candidate.load(schema, function), function);
+        function.instruction(&Instruction::Br(4));
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(present_local);
-        self.release_temp_local(name_local);
-        self.release_temp_local(candidate_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(count_local);
-        self.release_temp_local(entries_local);
+        candidate.clear(function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(count, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        entries.clear(function);
     }
 }

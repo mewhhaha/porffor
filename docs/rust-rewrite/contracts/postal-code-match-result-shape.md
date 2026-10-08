@@ -1,5 +1,16 @@
 # Postal-code match result shape
 
+Status: retired by the T19 ordinary `@@match` protocol batch. The compiled
+RegExp program owns matching for every published RegExp; the former compact
+catalogue and its unused child owner are deleted. This file retains historical
+source-equivalent extraction receipts. Its three obsolete structure tests were
+removed with the owner; those tests pinned source layout, not feature semantics.
+The expanded existing `wasm_regexp_exec_result_modes.js` fixture and surviving
+compiled matcher/protocol guards retain semantic and architectural coverage.
+Combined product verification remains pending.
+
+## Historical owner and receipts
+
 Status: implemented for the specialized postal-code pattern used by global
 `RegExp.prototype[Symbol.match]` and non-global execution.
 
@@ -37,7 +48,7 @@ Only the two narrow semantic wrappers are new. The resulting 398-line child
 has SHA-256
 `fc2d538c93855feb1e1f011af9d2851d42f9b6c8db6f59a15387ea93e89088b4`.
 
-## Verification
+## Historical verification
 
 The bounded structure target passes all `3/3` tests. The existing CLI fixture
 passes `1/1`, and exact Test262 leaves `S15.5.4.10_A2_T6.js`,

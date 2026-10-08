@@ -1,5 +1,33 @@
 # Differential oracle compile boundary
 
+## Current process boundary — 2026-10-07 joined source
+
+Native replay input, mandatory selected-worker configuration and the typed
+feature-off result are available in default builds. A feature-off replay
+returns `OracleNotLinked` before spawn. The real process supervisor, source
+admission/backend worker and named `lila-differential-worker` binary require
+`spec-exec-oracle`; the CLI's hidden dispatch occurs before Realm construction.
+There is no interpreter product route or parent raw backend execution path.
+
+Goal spellings and the native input fingerprint helpers are also available in
+default builds because persisted replay identity precedes worker selection.
+They hash the original goal, source, locator, deadline, protocol, graph and v7
+limits without constructing an Engine or executing a backend. Execution,
+projection, protocol comparison and mismatch signatures retain their explicit
+test/oracle gates. The source guard checks these two physical responsibilities
+separately, including the feature-off refusal before any worker call.
+
+Cargo controls explicitly select the named worker instead of executing their
+own harness. CLI embedder controls select Cargo's `lila` through `--worker-bin`.
+V7 native graph wires and checked constructors remain available in default
+builds. Rooted comparison, signatures and terminal-limit validation retain the
+test/oracle compile gate; actual Script/Module graph execution remains only in
+the feature-gated sole backend worker. This adds no default product oracle
+route. The affected source guards are authored and unrun for the joined
+checkpoint. See the [worker lifecycle](differential-worker-lifecycle.md).
+
+## Historical compile-boundary checkpoint
+
 Status: implemented as a T25 developer-oracle capability boundary.
 
 Differential replay keeps its public schemas and typed feature-off

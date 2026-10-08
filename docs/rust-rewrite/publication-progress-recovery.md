@@ -21,9 +21,14 @@ invalid test artifacts; its independent validation remains necessary.
 
 ## Manifest contract
 
-Schema 2 retains the existing source, executable, suite and configuration
-identity. The identity is still immutable for a snapshot family. A new `progress`
-field is initially `null`, then holds an exact `{completed, total}` record.
+The 2026-09-08 schema-2 checkpoint below established the observed source,
+executable, suite/configuration identity and durable progress record. The dry
+schema-3 successor adds mandatory checked native compiler identity. A current
+progress response must carry exactly one identity matching the session before
+its `{completed, total}` high-water mark can be written. The embedded build-source
+fingerprint/revision remains distinct from observed checkout bytes. See the
+[compiler provenance contract](contracts/snapshot-compiler-provenance.md).
+Neither the successor controls nor its native schema-8 integration has run yet.
 
 Every successful `progress-status` response is parsed and checked before the
 driver decides to resume or publish. Counts must be canonical nonnegative decimal
@@ -60,18 +65,19 @@ error; resolve the checkpoint failure before retrying. Do not erase the manifest
 to hide a regression. Pre-existing results without a manifest remain ineligible
 for adoption.
 
-Schema-1 manifests are deliberately not upgraded in place: they have no durable
-observation history. Retain those results for triage and start a fresh snapshot
-name with this driver. Changed source fingerprints already prevent treating an
-old driver's run as the same observed build. No existing family is overwritten
-by migration.
+Schema-1/2 manifests are deliberately not upgraded in place: schema 1 lacks
+durable observation history and schema 2 lacks native compiler binding. Retain
+those results for triage and start a fresh snapshot name. Neither old observed
+source bytes nor the currently running compiler can attest an unbound historical
+checkpoint. No existing family is overwritten by migration.
 
 ## Verification
 
-Run the standalone standard-library regression target from the repository root:
+After the full-task source pass and a confirmed kernel cap, run the standalone
+standard-library regression target from the repository root:
 
 ```sh
-python3 scripts/tests/test_publication_progress.py -v
+python3 scripts/limited_verification.py -- python3 scripts/tests/test_publication_progress.py -v
 bash -n scripts/publish-real-status-low-ram.sh scripts/lib/publish-real-status-driver.sh
 ```
 

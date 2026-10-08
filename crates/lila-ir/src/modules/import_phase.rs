@@ -13,6 +13,17 @@ pub enum ImportPhaseIr {
 }
 
 impl ImportPhaseIr {
+    /// Whether loading this occurrence opens the target's dependencies.
+    /// Source phase loads/parses one record. Evaluation and Defer recurse;
+    /// a new phase must explicitly choose its actual loading behavior.
+    #[must_use]
+    pub const fn loads_dependencies(self) -> bool {
+        match self {
+            Self::Evaluation | Self::Defer => true,
+            Self::Source => false,
+        }
+    }
+
     pub(crate) const fn namespace_mode(self) -> Option<crate::ModuleNamespaceModeIr> {
         match self {
             Self::Evaluation => Some(crate::ModuleNamespaceModeIr::Eager),

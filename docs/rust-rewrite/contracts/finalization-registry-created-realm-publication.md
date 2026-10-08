@@ -1,5 +1,36 @@
 # Created-Realm `FinalizationRegistry` publication
 
+## Current atomic GC source — 2026-10-05
+
+The common completed GC bootstrap publishes the fresh FinalizationRegistry
+intrinsics; NativeHost no longer owns a separate
+`created_realm_finalization_registry_intrinsics.rs` installer. Callables retain
+actual typed Realm capture. The raw token/offset publication mirror
+`created_realm_finalization_registry_publication_structure` is retired, while
+the existing CLI fixture and historical observations below are retained.
+
+The selected [weak facility](weak-unavailable-runtime-boundary.md) remains
+unavailable. Intrinsic inspection and preceding JavaScript validation do not
+establish weak reachability, finalization delivery or a successful current
+registry instance.
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
+Current source — 2026-10-03: actual weak operations follow the
+[unavailable facility boundary](weak-unavailable-runtime-boundary.md). Active
+strong-retaining weak producers are retired. Installed intrinsic publication
+and earlier JavaScript validation remain observable; passive layout/edge rows
+are inventory only. Producer, valid-instance and verification descriptions
+below retain their earlier source scope and do not verify the current batch.
+Real weak reachability and semantic GC remain open; current controls are unexecuted.
+
 ## Scope
 
 This boundary publishes the existing `FinalizationRegistry` constructor,

@@ -23,6 +23,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         }
         ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
+        | ExprIr::JsonModuleValue(_)
         | ExprIr::ModuleEvaluate(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)
@@ -40,9 +41,22 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(options, state);
             }
         }
+        ExprIr::CaptureOptionalCallReference(capture) => {
+            for operand in capture.operands() {
+                expr_contains_this_before_super(operand, state);
+            }
+        }
+        ExprIr::CaptureArgumentList(capture) => {
+            for argument in capture.arguments() {
+                expr_contains_this_before_super(argument, state);
+            }
+        }
+        ExprIr::CapturedArgumentList(list) => {
+            expr_contains_this_before_super(list.binding(), state)
+        }
         ExprIr::This => state.this_before_super = true,
         ExprIr::Identifier(name) if name == LEXICAL_THIS_NAME => state.this_before_super = true,
-        ExprIr::SuperConstruct { .. } => {
+        ExprIr::SuperConstruct { .. } | ExprIr::PreparedSuperConstruct(_) => {
             state.super_calls += 1;
             state.saw_super = true;
         }
@@ -82,9 +96,36 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 }
             }
         }
-        ExprIr::StringCharCodeAt { target, index } => {
+        ExprIr::DeleteOptionalPropertyChain(deletion) => {
+            let target = deletion.target();
+            let chain = deletion.prefix();
             expr_contains_this_before_super(target, state);
-            expr_contains_this_before_super(index, state);
+            for operation in chain {
+                match operation {
+                    OptionalChainOperationIr::Property { key, .. } => match key {
+                        PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                            expr_contains_this_before_super(expr, state);
+                        }
+                        PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+                    },
+                    OptionalChainOperationIr::PrivateProperty { .. } => {}
+                    OptionalChainOperationIr::Call { args, receiver, .. } => {
+                        if *receiver == OptionalChainCallReceiverIr::CurrentThis {
+                            state.this_before_super = true;
+                        }
+                        for arg in args {
+                            expr_contains_this_before_super(arg, state);
+                        }
+                    }
+                }
+            }
+
+            match deletion.key() {
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    expr_contains_this_before_super(expr, state);
+                }
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+            }
         }
         ExprIr::SpecOperation { operands, .. } => {
             for operand in operands {
@@ -122,6 +163,9 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             expr_contains_this_before_super(value, state);
             pattern.visit_expressions(&mut |expr| expr_contains_this_before_super(expr, state));
         }
+        ExprIr::ObjectDestructuringOperation(operation) => {
+            operation.visit_expressions(&mut |expr| expr_contains_this_before_super(expr, state));
+        }
         ExprIr::LogicalShortCircuit { lhs, rhs, .. } => {
             expr_contains_this_before_super(lhs, state);
             expr_contains_this_before_super(rhs, state);
@@ -148,16 +192,6 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             for arg in args {
                 expr_contains_this_before_super(arg, state);
             }
-        }
-        ExprIr::JsonParseStaticReviver {
-            callee,
-            input,
-            reviver,
-            ..
-        } => {
-            expr_contains_this_before_super(callee, state);
-            expr_contains_this_before_super(input, state);
-            expr_contains_this_before_super(reviver, state);
         }
         ExprIr::Construct { callee, args, .. } => {
             expr_contains_this_before_super(callee, state);
@@ -195,6 +229,18 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
             expr_contains_this_before_super(assignment.rhs(), state);
+        }
+        ExprIr::OrdinaryPropertyGetCapture(capture) => {
+            expr_contains_this_before_super(capture.base_and_receiver(), state);
+            match capture.referenced_name() {
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    expr_contains_this_before_super(expr, state)
+                }
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+            }
+        }
+        ExprIr::CapturedOrdinaryPropertyWrite(write) => {
+            expr_contains_this_before_super(write.rhs(), state)
         }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             expr_contains_this_before_super(update.base_and_receiver(), state);
@@ -248,27 +294,12 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         }
         ExprIr::ObjectLiteral(properties) => {
             for property in properties {
-                match property {
-                    ObjectPropertyIr::PrototypeSetter { value }
-                    | ObjectPropertyIr::Spread { source: value }
-                    | ObjectPropertyIr::Data { value, .. }
-                    | ObjectPropertyIr::NonEnumerableData { value, .. } => {
-                        expr_contains_this_before_super(value, state);
-                    }
-                    ObjectPropertyIr::ComputedData { key, value, .. } => {
-                        expr_contains_this_before_super(key, state);
-                        expr_contains_this_before_super(value, state);
-                    }
-                    ObjectPropertyIr::ComputedMethod { key, .. }
-                    | ObjectPropertyIr::ComputedGetter { key, .. }
-                    | ObjectPropertyIr::ComputedSetter { key, .. } => {
-                        expr_contains_this_before_super(key, state);
-                    }
-                    ObjectPropertyIr::Method { .. }
-                    | ObjectPropertyIr::Getter { .. }
-                    | ObjectPropertyIr::Setter { .. } => {}
-                }
+                object_property_contains_this_before_super(property, state);
             }
+        }
+        ExprIr::ObjectPropertyDefinition(definition) => {
+            expr_contains_this_before_super(definition.target(), state);
+            object_property_contains_this_before_super(definition.property(), state);
         }
         ExprIr::ClassDefinition(class) => {
             if let Some(heritage) = &class.heritage {
@@ -293,6 +324,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             }
         }
         ExprIr::FunctionValue(_)
+        | ExprIr::WellKnownSymbol(_)
         | ExprIr::String(_)
         | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
@@ -304,16 +336,17 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         | ExprIr::Undefined
         | ExprIr::ArrayHole
         | ExprIr::Arguments
+        | ExprIr::ExecutionGlobalObject
         | ExprIr::Identifier(_)
         | ExprIr::NewTarget
+        | ExprIr::SuperNewTarget
+        | ExprIr::SuperConstructor
         | ExprIr::GlobalPropertyRead { .. }
         | ExprIr::GlobalIdentifierRead { .. }
         | ExprIr::AssignIdentifier { .. }
         | ExprIr::GlobalPropertyWrite { .. }
         | ExprIr::UpdateIdentifier { .. }
-        | ExprIr::GlobalPropertyUpdate { .. }
         | ExprIr::CompoundAssignIdentifier { .. }
-        | ExprIr::GlobalPropertyCompoundAssign { .. }
         | ExprIr::TypeOfUnresolvedIdentifier { .. }
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateIn { .. }
@@ -338,12 +371,40 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
             match mutation.operation() {
-                SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
-                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. }
+                | SuperPropertyMutationOperationIr::Capture(_) => {}
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. }
+                | SuperPropertyMutationOperationIr::PutCaptured { value: result, .. } => {
                     expr_contains_this_before_super(result, state);
                 }
             }
         }
+    }
+}
+
+fn object_property_contains_this_before_super(
+    property: &ObjectPropertyIr,
+    state: &mut DerivedConstructorValidation,
+) {
+    match property {
+        ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Spread { source: value }
+        | ObjectPropertyIr::Data { value, .. }
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
+            expr_contains_this_before_super(value, state);
+        }
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
+            expr_contains_this_before_super(key, state);
+            expr_contains_this_before_super(value, state);
+        }
+        ObjectPropertyIr::ComputedMethod { key, .. }
+        | ObjectPropertyIr::ComputedGetter { key, .. }
+        | ObjectPropertyIr::ComputedSetter { key, .. } => {
+            expr_contains_this_before_super(key, state);
+        }
+        ObjectPropertyIr::Method { .. }
+        | ObjectPropertyIr::Getter { .. }
+        | ObjectPropertyIr::Setter { .. } => {}
     }
 }
 
@@ -406,6 +467,9 @@ fn statement_contains_this_before_super(
         }
         StatementIr::AsyncAwait { value, .. } => {
             expr_contains_this_before_super(value, state);
+        }
+        StatementIr::EmptyStatementCompletion(item) => {
+            statement_contains_this_before_super(item.statement(), state);
         }
         StatementIr::LexicalBlock(statements)
         | StatementIr::ParameterInitialization { statements, .. } => {
@@ -480,6 +544,13 @@ fn statement_contains_this_before_super(
                 statement_contains_this_before_super(else_branch, state);
             }
         }
+        StatementIr::AsyncFunctionWhile(plan) => {
+            for statement in plan.condition_prefix() {
+                statement_contains_this_before_super(statement, state);
+            }
+            expr_contains_this_before_super(plan.condition(), state);
+            statement_contains_this_before_super(plan.body(), state);
+        }
         StatementIr::While { condition, body } => {
             expr_contains_this_before_super(condition, state);
             statement_contains_this_before_super(body, state);
@@ -536,6 +607,161 @@ fn statement_contains_this_before_super(
                 expr_contains_this_before_super(update, state);
             }
             statement_contains_this_before_super(body, state);
+        }
+        StatementIr::OrdinaryGeneratorLoop(plan) => {
+            for region in plan.regions() {
+                for statement in &region.block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            for expression in plan.expressions() {
+                expr_contains_this_before_super(expression, state);
+            }
+        }
+        StatementIr::AsyncGeneratorLoop(plan) => {
+            for region in plan.regions() {
+                for statement in &region.block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            for expression in plan.expressions() {
+                expr_contains_this_before_super(expression, state);
+            }
+        }
+        StatementIr::OrdinaryGeneratorIf(plan) => {
+            expr_contains_this_before_super(plan.condition(), state);
+            for region in [plan.then_branch(), plan.else_branch()] {
+                for statement in &region.block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+        }
+        StatementIr::AsyncGeneratorIf(plan) => {
+            expr_contains_this_before_super(plan.condition().value(), state);
+            for region in [
+                plan.condition().region(),
+                plan.then_branch(),
+                plan.else_branch(),
+            ] {
+                for statement in &region.block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+        }
+        StatementIr::OrdinaryGeneratorSwitch(plan) => {
+            for statement in &plan.discriminant().region().block().statements {
+                statement_contains_this_before_super(statement, state);
+            }
+            expr_contains_this_before_super(plan.discriminant().value(), state);
+            for declaration in plan.lexical_declarations() {
+                statement_contains_this_before_super(declaration, state);
+            }
+            for case in plan.cases() {
+                if let Some(selector) = case.selector() {
+                    for statement in &selector.region().block().statements {
+                        statement_contains_this_before_super(statement, state);
+                    }
+                    expr_contains_this_before_super(selector.value(), state);
+                }
+                for statement in &case.body().block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+        }
+        StatementIr::AsyncGeneratorSwitch(plan) => {
+            for statement in &plan.discriminant().region().block().statements {
+                statement_contains_this_before_super(statement, state);
+            }
+            expr_contains_this_before_super(plan.discriminant().value(), state);
+            for declaration in plan.lexical_declarations() {
+                statement_contains_this_before_super(declaration, state);
+            }
+            for case in plan.cases() {
+                if let Some(selector) = case.selector() {
+                    for statement in &selector.region().block().statements {
+                        statement_contains_this_before_super(statement, state);
+                    }
+                    expr_contains_this_before_super(selector.value(), state);
+                }
+                for statement in &case.body().block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+        }
+        StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => {
+            expr_contains_this_before_super(plan.raw_source(), state);
+            for statement in &plan.body().block().statements {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::AsyncGeneratorResourceScope(plan) => {
+            for statement in &plan.body().block().statements {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::AsyncGeneratorResourceRegistration(operation) => {
+            expr_contains_this_before_super(operation.initializer(), state)
+        }
+        StatementIr::AsyncGeneratorArrayDestructuring(plan) => {
+            expr_contains_this_before_super(plan.raw_source(), state);
+            for statement in &plan.body().block().statements {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::AsyncFunctionArrayDestructuring(plan) => {
+            expr_contains_this_before_super(plan.raw_source(), state);
+            for statement in &plan.body().statements {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::ArrayDestructuringOperation(_) => {}
+        StatementIr::AsyncGeneratorForIn(plan) => {
+            for block in [
+                plan.head().region().block(),
+                plan.initialization(),
+                plan.body().block(),
+            ] {
+                for statement in &block.statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            expr_contains_this_before_super(plan.head().value(), state);
+        }
+        StatementIr::AsyncGeneratorForOf(plan) => {
+            for block in [
+                plan.head().region().block(),
+                plan.initialization().block(),
+                plan.body().block(),
+            ] {
+                for statement in &block.statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            expr_contains_this_before_super(plan.head().value(), state);
+        }
+        StatementIr::OrdinaryGeneratorWith(plan) => {
+            for region in [plan.head().region(), plan.body()] {
+                for statement in &region.block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            expr_contains_this_before_super(plan.head().value(), state);
+        }
+        StatementIr::AsyncGeneratorWith(plan) => {
+            for region in plan.regions() {
+                for statement in &region.block().statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            expr_contains_this_before_super(plan.head().value(), state);
+        }
+        StatementIr::AsyncFunctionWith(plan) => {
+            for block in [plan.head(), plan.body()] {
+                for statement in &block.statements {
+                    statement_contains_this_before_super(statement, state);
+                }
+            }
+            expr_contains_this_before_super(plan.head_value(), state);
         }
         StatementIr::GeneratorLoop {
             init,
@@ -625,6 +851,15 @@ fn statement_contains_this_before_super(
                 statement_contains_this_before_super(statement, state);
             }
         }
+        StatementIr::GeneratorForOfIterator { iterable, plan } => {
+            expr_contains_this_before_super(iterable, state);
+            for statement in plan.body().statements() {
+                if state.saw_super {
+                    break;
+                }
+                statement_contains_this_before_super(statement, state);
+            }
+        }
         StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
@@ -643,6 +878,29 @@ fn statement_contains_this_before_super(
         } => {
             expr_contains_this_before_super(iterable, state);
             statement_contains_this_before_super(body, state);
+        }
+        StatementIr::AsyncFunctionSwitch(plan) => {
+            expr_contains_this_before_super(plan.discriminant(), state);
+            for declaration in plan.lexical_declarations() {
+                statement_contains_this_before_super(declaration, state);
+            }
+            for case in plan.cases() {
+                for statement in case.condition_prefix() {
+                    statement_contains_this_before_super(statement, state);
+                    if state.saw_super {
+                        break;
+                    }
+                }
+                if let Some(condition) = case.condition() {
+                    expr_contains_this_before_super(condition, state);
+                }
+                for statement in &case.body().statements {
+                    statement_contains_this_before_super(statement, state);
+                    if state.saw_super {
+                        break;
+                    }
+                }
+            }
         }
         StatementIr::Switch {
             discriminant,

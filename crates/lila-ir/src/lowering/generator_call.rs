@@ -7,7 +7,11 @@ impl ScriptLowerer<'_> {
         value: TypedExpr,
         hint: &str,
     ) -> TypedExpr {
-        let name = self.alloc_suspension_owned_binding(hint, value.value_info());
+        let mut retained_info = value.value_info();
+        // Later key or RHS evaluation can mutate the retained receiver. Keep
+        // its whole Value and callable identity, but discard a stale shape.
+        retained_info.heap_shape = None;
+        let name = self.alloc_suspension_owned_binding(hint, retained_info);
         statements.push(StatementIr::Lexical {
             mode: BindingMode::Let,
             name: name.clone(),
@@ -46,79 +50,26 @@ impl ScriptLowerer<'_> {
         Some((statements, target, value))
     }
 
-    pub(super) fn lower_staged_generator_call(
-        &mut self,
-        source_callee: &Expression,
-        source_arguments: &[Expression],
-    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        if source_arguments
-            .iter()
-            .any(|argument| matches!(argument, Expression::Spread(_)))
-        {
-            return None;
-        }
-        let callee = Self::unwrap_parenthesized_expr(source_callee);
-        let (mut statements, receiver, callee) = match callee {
-            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-                self.lower_staged_generator_property(access)?
-            }
-            Expression::PropertyAccess(_) | Expression::Optional(_) | Expression::SuperCall(_) => {
-                return None;
-            }
-            Expression::Identifier(identifier)
-                if self.interner.resolve_expect(identifier.sym()).to_string() == "eval"
-                    || self.uses_runtime_identifier_environment()
-                    || !self.with_environment_chain.is_empty() =>
-            {
-                // These calls need the environment Reference or direct-eval
-                // identity dispatch across the suspension, not just GetValue.
-                return None;
-            }
-            _ => {
-                let (statements, value) = self.lower_staged_generator_expression(callee)?;
-                (statements, TypedExpr::undefined(), value)
-            }
-        };
-        // GetValue of the callee precedes every argument, including arguments
-        // that yield. Saving only a property receiver would repeat its Get
-        // after resumption and could call a replacement method instead.
-        let callee = self.retain_generator_operand(&mut statements, callee, "generator.callee.");
-        let mut arguments = Vec::with_capacity(source_arguments.len());
-        for argument in source_arguments {
-            let (prefix, value) = self.lower_staged_generator_expression(argument)?;
-            statements.extend(prefix);
-            arguments.push(self.retain_generator_operand(
-                &mut statements,
-                value,
-                "generator.argument.",
-            ));
-        }
-        self.invalidate_unknown_user_code_effects();
-        Some((
-            statements,
-            TypedExpr::spec_call(callee, receiver, arguments),
-        ))
-    }
-
     pub(super) fn lower_staged_generator_property_assignment(
         &mut self,
         access: &boa_ast::expression::access::SimplePropertyAccess,
         rhs: &Expression,
     ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        let (mut statements, target) = self.lower_staged_generator_expression(access.target())?;
+        let protocol = super::resumable_operand::ResumableOperandProtocol::current(self)?;
+        let (mut statements, target) = protocol.lower(self, access.target())?;
         let target = self.retain_generator_operand(&mut statements, target, "generator.receiver.");
         let key = match access.field() {
             PropertyAccessField::Const(field) => {
                 PropertyKeyIr::StaticString(self.interner.resolve_expect(field.sym()).to_string())
             }
             PropertyAccessField::Expr(expression) => {
-                let (prefix, key) = self.lower_staged_generator_expression(expression)?;
+                let (prefix, key) = protocol.lower(self, expression)?;
                 statements.extend(prefix);
                 let key = self.retain_generator_operand(&mut statements, key, "generator.key.");
                 PropertyKeyIr::StringExpr(Box::new(key))
             }
         };
-        let (prefix, value) = self.lower_staged_generator_expression(rhs)?;
+        let (prefix, value) = protocol.lower(self, rhs)?;
         statements.extend(prefix);
 
         // A plain assignment retains the raw Reference. Its existing consumer

@@ -2,6 +2,9 @@ use std::fs;
 use std::path::Path;
 
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
+const HELPER_SOURCE: &str = include_str!("../src/runtime_helpers.rs");
+const HELPER_COMPILERS: &str = include_str!("../src/emit/runtime_operations.rs");
+const VALUE_SOURCE: &str = include_str!("../src/gc_types/value.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/pending-to-primitive-operation-identity.md");
 const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
@@ -53,77 +56,113 @@ fn named_operation_boundaries_replace_the_ignored_generic_marker() {
         "an ignored operation marker must not masquerade as a type proof",
     );
 
-    let get_v = normalized(bounded(
+    let operations = normalized(bounded(
         OPERATIONS_SOURCE,
-        "    fn compile_property_get_v_to_locals(",
-        "    fn emit_builtin_arg_to_number_payload(",
+        "    pub(crate) fn compile_spec_operation_to_locals(",
+        "    fn emit_spec_operation_abrupt_exit(",
     ));
-    assert!(get_v.contains("self.compile_spec_operation_to_locals(SpecOperationIr::GetV,"));
-    assert!(get_v.contains(
-        "self.emit_propagate_throw_from_locals_if_needed(payload_local,tag_local,function)"
-    ));
-
-    let to_number = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "    fn emit_builtin_arg_to_number_payload(",
-        "    pub(crate) fn emit_construct(",
-    ));
-    assert!(to_number.contains("self.emit_return_current_completion_if_throw(function)"));
+    assert!(operations.contains("validate_spec_operation_operands(operation,operands.len())?"));
+    assert!(operations.contains("SpecOperationIr::ToPrimitive(hint)=>{self.emit_tagged_to_primitive_locals_pending(hint,&inputs[0],&pending,function)?;"));
+    assert!(operations.contains("SpecOperationIr::ToNumber=>{self.emit_value_to_number_payload(&inputs[0],&pending,function)?"));
+    assert!(operations.contains("SpecOperationIr::GetV|SpecOperationIr::GetMethod=>{self.emit_value_to_object_locals(&inputs[0],&pending,function)?;"));
+    assert!(operations.contains("self.emit_dynamic_property_read_with_key_locals(&lookup,&inputs[0],&key,&pending,function,"));
+    assert!(operations.contains("self.completion().copy_from(&pending,function)"));
+    assert!(operations.contains("output.copy_from(pending.value(),function)"));
+    assert!(operations.contains("self.emit_propagate_current_throw_if_needed(function)"));
 }
 
 #[test]
 fn pending_completion_represents_only_to_primitive() {
-    let declaration_prefix = bounded(
-        OPERATIONS_SOURCE,
-        "/// A tagged `ToPrimitive` result whose possible throw still needs an owner.",
-        "struct PendingToPrimitiveCompletion {",
-    );
-    assert!(!declaration_prefix.contains("#[derive"));
-
+    // Operation identity belongs to the typed helper boundary; its result is
+    // the complete JS completion, rather than a raw payload/tag pair.
+    assert!(!OPERATIONS_SOURCE.contains("PendingToPrimitiveCompletion"));
     let fields = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "struct PendingToPrimitiveCompletion {",
-        "}\n\nimpl PendingToPrimitiveCompletion",
+        VALUE_SOURCE,
+        "pub(crate) struct CompletionLocals {",
+        "}\nimpl CompletionLocals",
     ));
-    assert_eq!(fields, "payload_local:u32,tag_local:u32,");
-    assert!(!fields.contains("operation"));
-
-    let implementation = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "impl PendingToPrimitiveCompletion {",
-        "fn validate_spec_operation_operands(",
-    ));
-    assert!(implementation
-        .contains("fnnew(payload_local:u32,tag_local:u32)->Self{Self{payload_local,tag_local,}}"));
-    assert!(!implementation.contains("MayThrowOperation"));
-    assert_eq!(
-        implementation
-            .matches("letSelf{payload_local,tag_local,}=self;")
-            .count(),
-        6
+    assert_eq!(fields, "value:ValueLocals,kind:I32Local,target:I32Local,");
+    let completion = bounded(
+        VALUE_SOURCE,
+        "impl CompletionLocals {",
+        "pub(crate) struct GcCallResult {",
     );
-    assert!(!implementation.contains("debug_assert"));
-    assert!(!implementation.contains("operation:"));
+    let copy = normalized(bounded(
+        completion,
+        "    pub(crate) fn copy_from(&self, source: &Self, function: &mut Function) {",
+        "    pub(crate) fn clear(self, function: &mut Function)",
+    ));
+    assert!(copy.contains("self.value.copy_from(&source.value,function)"));
+    assert!(copy.contains("source.kind.load(function);self.kind.store(function)"));
+    assert!(copy.contains("source.target.load(function);self.target.store(function)"));
+    let helper_result = normalized(bounded(
+        HELPER_SOURCE,
+        "impl HelperCompletion {",
+        "pub(crate) struct I32HelperResult",
+    ));
+    assert!(
+        helper_result.contains("fnstore(self,destination:&CompletionLocals,function:&mutFunction)")
+    );
+    assert!(helper_result
+        .contains(".store_call_result(destination.kind(),destination.target(),function)"));
+    let routed = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "    pub(crate) fn emit_tagged_to_primitive_locals(",
+        "    pub(crate) fn emit_tagged_to_primitive_locals_pending(",
+    ));
+    assert!(routed.contains("self.emit_tagged_to_primitive_locals_pending(hint,input,result,function)?;self.finish_to_primitive_operation(route,result,function)"));
+    let finisher = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "    fn finish_to_primitive_operation(",
+        "    pub(crate) fn emit_construct(",
+    ));
+    assert!(finisher.contains("result:&crate::gc_types::CompletionLocals"));
+    assert!(finisher.contains("self.completion().copy_from(result,function)"));
+    assert_eq!(finisher.matches("ToPrimitiveAbruptRoute::").count(), 2);
+    assert!(!finisher.contains("_=>"));
 }
 
 #[test]
 fn every_raw_producer_constructs_the_fixed_identity_token() {
-    let raw_emitters = normalized(bounded(
+    let facade = normalized(bounded(
         OPERATIONS_SOURCE,
-        "fn emit_tagged_to_primitive_locals_pending(",
-        "fn emit_object_to_primitive_locals_inner(",
+        "    pub(crate) fn emit_tagged_to_primitive_locals_pending(",
+        "    pub(crate) fn emit_tagged_to_primitive_locals_pending_inner(",
     ));
+    let compilers = normalized(bounded(
+        HELPER_COMPILERS,
+        "    pub(super) fn compile_value_to_primitive_helper(",
+        "    pub(super) fn compile_value_to_property_key_helper(",
+    ));
+    let rows = normalized(HELPER_SOURCE);
+    for hint in ["Default", "Number", "String"] {
+        assert!(facade.contains(&format!("ToPrimitiveHint::{hint}=>schema.call_helper(crate::runtime_helpers::ValueToPrimitive{hint}Arguments::new(input,self.current_environment(),)")));
+        assert!(compilers.contains(&format!("ToPrimitiveHint::{hint}=>{{letparameters=self.helper_parameters::<crate::runtime_helpers::ValueToPrimitive{hint}Parameters>")));
+        assert!(rows.contains(&format!("ValueToPrimitive{hint}/ValueToPrimitive{hint}Arguments/ValueToPrimitive{hint}Parameters/\"value_to_primitive_{}\"{{input:Value,caller_environment:(RefEnvironmentNullable)}}=>Completion;", hint.to_ascii_lowercase())));
+    }
+    assert_eq!(facade.matches(".store(result,function)").count(), 3);
+    assert!(!facade.contains("_=>"));
+    assert!(!facade.contains("emit_object_read_with_throw_routing"));
+    assert!(!facade.contains("emit_object_read_kernel"));
+    assert!(compilers.contains("self.begin_helper_body(RuntimeHelperId::helper_for(hint))"));
     assert_eq!(
-        raw_emitters
-            .matches("PendingToPrimitiveCompletion::new(payload_local,tag_local)")
+        compilers
+            .matches("self.emit_tagged_to_primitive_locals_pending_inner(")
             .count(),
-        3,
+        3
     );
-    assert!(!raw_emitters.contains("letoperation="));
-    assert!(!raw_emitters.contains("MayThrowOperation"));
+    assert_eq!(compilers.matches("result.emit(&mutfunction)").count(), 3);
+    assert_eq!(
+        compilers
+            .matches("parameters.release(&mutfunction)")
+            .count(),
+        3
+    );
+    assert!(!compilers.contains("self.emit_tagged_to_primitive_locals_pending("));
+    assert!(!facade.contains("payload_local"));
+    assert!(!facade.contains("tag_local"));
 
     for evidence in [CONTRACT, TASK] {
-        assert!(evidence.contains("PendingToPrimitiveCompletion"));
         assert!(evidence.contains("operation boundaries now own identity"));
         assert!(evidence.contains("ToPrimitive"));
         assert!(evidence.contains("unrepresentable"));

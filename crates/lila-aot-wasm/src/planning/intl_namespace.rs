@@ -48,6 +48,7 @@ impl IntlNamespacePlan {
         if full_standard_globals || matches!(self, Self::RootedFamilies(_)) {
             Some(IntlNamespaceMembers {
                 members: INTL_NAMESPACE_CONSTRUCTORS,
+                methods: INTL_NAMESPACE_METHODS,
             })
         } else {
             None
@@ -80,9 +81,16 @@ pub(crate) struct IntlNamespaceMembers {
     /// [`IntlNamespaceMembers`] and fabricate the proof. A unit struct would
     /// have been forgeable.
     members: &'static [(&'static str, StandardBuiltinId)],
+    methods: &'static [(&'static str, StandardBuiltinId)],
 }
 
 impl IntlNamespaceMembers {
+    pub(crate) fn methods_in_installation_order(
+        self,
+    ) -> impl Iterator<Item = (&'static str, StandardBuiltinId)> {
+        self.methods.iter().copied()
+    }
+
     /// Installation order, which is `Object.getOwnPropertyNames(Intl)` order
     /// and therefore observable. Do not sort it here.
     pub(crate) fn in_installation_order(

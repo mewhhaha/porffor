@@ -1,5 +1,17 @@
 # Temporal PlainTime field authority
 
+## Source replacement — 2026-10-05
+
+The GC backend keeps the closed unit index, range and nanosecond scale, and stores PlainTime fields through its concrete GC schema. The raw record-offset projection below belongs to the retired layout. The obsolete source recipe checks have been retired. Exact historical receipts and any public fixture inventory remain recorded.
+
+The pre-retirement source is identified exactly:
+
+- `temporal_plain_time_field_authority_structure.rs`: SHA-256 `50f3a6599359c543075edcc2df34040d261526100f6eff0dfe4f346e7617d76f`.
+
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
+
+## Historical contract and checkpoints
+
 Status: implemented with focused structure verification, 2026-08-27.
 
 ## Scope

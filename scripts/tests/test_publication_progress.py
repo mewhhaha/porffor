@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,43 @@ assert SPEC is not None and SPEC.loader is not None
 session = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = session
 SPEC.loader.exec_module(session)
+
+
+def compiler_fixture(executable_sha256="b" * 64):
+    return {"source_fingerprint_scheme": session.COMPILER_FINGERPRINT_SCHEME,
+            "source_fingerprint": "a" * 64,
+            "source_revision": {"kind": "unversioned-archive"},
+            "executable_sha256": executable_sha256}
+
+
+class CompilerBindingTests(unittest.TestCase):
+    def test_checkpoint_requires_exact_complete_identity_and_retains_original_producer(self):
+        producer = compiler_fixture()
+        text = "compiler_identity: " + json.dumps(producer)
+        self.assertEqual(session.require_checkpoint_identity(text, producer), producer)
+        for field in producer:
+            missing = dict(producer); del missing[field]
+            null = dict(producer, **{field: None})
+            for invalid in (missing, null):
+                with self.subTest(field=field), self.assertRaises(session.ProvenanceError):
+                    session.require_checkpoint_identity("compiler_identity: " + json.dumps(invalid), producer)
+        for invalid in ("", text + "\n" + text, "compiler_identity: null",
+                        'compiler_identity: {"source_fingerprint": "a", "source_fingerprint": "b"}'):
+            with self.subTest(invalid=invalid), self.assertRaises(session.ProvenanceError):
+                session.require_checkpoint_identity(invalid, producer)
+        for field in ("source_fingerprint", "executable_sha256"):
+            other = dict(producer, **{field: "c" * 64})
+            with self.subTest(field=field), self.assertRaisesRegex(session.ProvenanceError, "differs"):
+                session.require_checkpoint_identity("compiler_identity: " + json.dumps(other), producer)
+
+    def test_native_query_failure_and_malformed_revision_cannot_become_current_identity(self):
+        for revision in ({}, {"kind": "git-commit"}, {"kind": "git-commit", "commit": "A" * 40},
+                         {"kind": "unversioned-archive", "commit": "a" * 40}):
+            with self.subTest(revision=revision), self.assertRaises(session.ProvenanceError):
+                session.checked_compiler_identity(dict(compiler_fixture(), source_revision=revision))
+        with mock.patch.object(session.subprocess, "check_output", side_effect=OSError("unreadable image")):
+            with self.assertRaisesRegex(session.ProvenanceError, "cannot read native"):
+                session.query_compiler_identity(Path("unused fixture"), {})
 
 
 class ProgressParsingTests(unittest.TestCase):
@@ -65,14 +103,33 @@ class ManifestProgressTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.snapshots = Path(self.temporary.name)
         self.identity = dict.fromkeys(session.IDENTITY_KEYS, "fixture")
-        self.identity.update(snapshot_directory=str(self.snapshots), snapshot_name="run α with spaces")
+        self.identity.update(snapshot_directory=str(self.snapshots), snapshot_name="run α with spaces",
+                             executable_sha256="b" * 64, compiler_identity=compiler_fixture())
         self.manifest, _ = session.manifest_paths(self.identity)
         self.manifest.parent.mkdir()
         session.claim_manifest(self.manifest, self.identity)
 
     def record(self, completed, total=3, after_report=False):
         session.record_matrix_progress(self.manifest, session.MatrixProgress(completed, total),
+                                       compiler_identity=self.identity["compiler_identity"],
                                        after_report=after_report)
+
+    def test_mixed_compiler_checkpoint_cannot_rewrite_the_high_water_mark(self):
+        self.record(1)
+        before = self.manifest.read_bytes()
+        other = dict(compiler_fixture(), source_fingerprint="c" * 64)
+        with self.assertRaisesRegex(session.ProvenanceError, "compiler identity differs"):
+            session.record_matrix_progress(self.manifest, session.MatrixProgress(2, 3),
+                                           compiler_identity=other, after_report=True)
+        self.assertEqual(self.manifest.read_bytes(), before)
+
+    def test_schema_two_observed_sidecar_is_not_native_bound_provenance(self):
+        document = self.document()
+        document["schema_version"] = 2
+        del document["identity"]["compiler_identity"]
+        self.manifest.write_text(json.dumps(document))
+        with self.assertRaisesRegex(session.ProvenanceError, "unsupported"):
+            session.read_manifest(self.manifest)
 
     def document(self):
         return json.loads(self.manifest.read_text())
@@ -203,6 +260,7 @@ class ManifestProgressTests(unittest.TestCase):
 
 
 FAKE_CLI = r'''#!/usr/bin/env python3
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -210,6 +268,17 @@ import sys
 
 root = Path(__file__).resolve().parent
 config = json.loads((root / "scenario.json").read_text())
+compiler = {"source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+            "source_fingerprint": config.get("source_fingerprint", "a" * 64),
+            "source_revision": {"kind": "unversioned-archive"},
+            "executable_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+if sys.argv[1:] == ["compiler-identity"]:
+    if config.get("identity_error"):
+        sys.exit(18)
+    if config.get("wrong_image_hash"):
+        compiler["executable_sha256"] = "c" * 64
+    print(json.dumps(compiler))
+    sys.exit(0)
 command = sys.argv[2]
 args = sys.argv[3:]
 def option(name):
@@ -222,11 +291,14 @@ if command == "progress-status":
     if config.get("progress_error"):
         sys.exit(17)
     if "progress_text" in config:
+        print("compiler_identity:", json.dumps(compiler))
         print(config["progress_text"])
         sys.exit(0)
     if not matrix.exists():
         sys.exit(4)
     value = json.loads(matrix.read_text())
+    if "compiler_identity" in value:
+        print("compiler_identity:", json.dumps(value["compiler_identity"]))
     print("matrix_nodes_completed:", value["completed"])
     print("matrix_nodes_total:", value["total"])
     if config.get("mutate_source_on_progress"):
@@ -238,7 +310,8 @@ elif command == "report-all":
     fail = config.get("fail_report") == count
     if fail and not config.get("fail_after_write"):
         sys.exit(23)
-    value = json.loads(matrix.read_text()) if matrix.exists() else {"completed": 0, "total": config.get("total", 3)}
+    value = json.loads(matrix.read_text()) if matrix.exists() else {
+        "completed": 0, "total": config.get("total", 3), "compiler_identity": compiler}
     if config.get("change_total_at") == count:
         value["total"] += 1
     value["completed"] = min(value["total"], value["completed"] + config.get("step", 1))
@@ -283,8 +356,8 @@ class DriverTests(unittest.TestCase):
         self.environment = dict(os.environ, REPO_ROOT=str(self.root), LILA_BIN=str(self.binary),
                                 SUITE_ROOT=str(self.suite), SNAPSHOT_DIR=str(self.snapshots),
                                 SNAPSHOT_NAME=self.name, THREADS="1", JOBS="1", ISOLATE_CASES="1",
-                                MAX_MATRIX_NODES="1", README_PATH=str(self.root / "README fixture.md"),
-                                LILA_TEST262_FORCE_CASE_RUNNER="1")
+                                MAX_MATRIX_NODES="1", README_PATH=str(self.root / "README fixture.md"))
+        self.environment.pop("LILA_TEST262_FORCE_CASE_RUNNER", None)
         self.environment.pop("LILA_TEST262_DISABLE_CASE_RUNNER", None)
         self.matrix = self.snapshots / (self.name + "-matrix.json")
 
@@ -304,6 +377,10 @@ class DriverTests(unittest.TestCase):
         log = self.root / "commands.jsonl"
         return [json.loads(line)["command"] for line in log.read_text().splitlines()] if log.exists() else []
 
+    def write_checkpoint(self, completed, total):
+        self.matrix.write_text(json.dumps({"completed": completed, "total": total,
+            "compiler_identity": compiler_fixture(hashlib.sha256(self.binary.read_bytes()).hexdigest())}))
+
     def manifest(self):
         return next((self.snapshots / ".publication-provenance").glob("*.json"))
 
@@ -319,6 +396,23 @@ class DriverTests(unittest.TestCase):
         self.assertIn(message, result.stderr)
         self.assertNotIn("report-all", self.commands()[since:])
         self.assertNotIn("publish-status", self.commands()[since:])
+
+    def test_disabled_case_supervision_is_rejected_before_native_identity_query(self):
+        self.environment["ISOLATE_CASES"] = "0"
+        result = self.run_driver()
+        self.assert_stops_before_report_or_publish(result, 0, "case supervision is mandatory")
+        self.assertEqual(self.commands(), [])
+
+    def test_manifest_cannot_claim_an_in_process_case_policy(self):
+        self.pause_after_one_observation()
+        path = self.manifest()
+        document = json.loads(path.read_text())
+        document["identity"]["isolate_cases"] = False
+        path.write_text(json.dumps(document))
+        before = path.read_bytes()
+        since = len(self.commands())
+        self.assert_stops_before_report_or_publish(self.run_driver(), since, "mandatory case supervision")
+        self.assertEqual(path.read_bytes(), before)
 
     def test_fresh_run_reaches_publication_only_after_complete_matrix(self):
         result = self.run_driver()
@@ -336,13 +430,13 @@ class DriverTests(unittest.TestCase):
 
     def test_resume_rejects_rollback(self):
         self.pause_after_one_observation()
-        self.matrix.write_text(json.dumps({"completed": 0, "total": 3}))
+        self.write_checkpoint(0, 3)
         since = len(self.commands())
         self.assert_stops_before_report_or_publish(self.run_driver(), since, "regressed")
 
     def test_resume_rejects_changed_total(self):
         self.pause_after_one_observation()
-        self.matrix.write_text(json.dumps({"completed": 1, "total": 4}))
+        self.write_checkpoint(1, 4)
         since = len(self.commands())
         self.assert_stops_before_report_or_publish(self.run_driver(), since, "total changed")
 
@@ -445,6 +539,43 @@ class DriverTests(unittest.TestCase):
         result = self.run_driver()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.commands()[since:], ["progress-status", "publish-status"])
+
+    def test_changed_embedded_source_identity_rejects_same_observed_executable(self):
+        self.pause_after_one_observation()
+        before = self.manifest().read_bytes()
+        self.configure(source_fingerprint="c" * 64)
+        since = len(self.commands())
+        self.assert_stops_before_report_or_publish(self.run_driver(), since, "compiler_identity")
+        self.assertEqual(self.manifest().read_bytes(), before)
+
+    def test_checkpoint_compiler_mismatch_does_not_advance_manifest_or_publish(self):
+        self.pause_after_one_observation()
+        before = self.manifest().read_bytes()
+        checkpoint = json.loads(self.matrix.read_text())
+        checkpoint["compiler_identity"]["source_fingerprint"] = "c" * 64
+        self.matrix.write_text(json.dumps(checkpoint))
+        since = len(self.commands())
+        self.assert_stops_before_report_or_publish(self.run_driver(), since, "compiler identity differs")
+        self.assertEqual(self.manifest().read_bytes(), before)
+
+    def test_unbound_checkpoint_never_becomes_progress_even_with_valid_counts(self):
+        self.pause_after_one_observation()
+        before = self.manifest().read_bytes()
+        checkpoint = json.loads(self.matrix.read_text())
+        del checkpoint["compiler_identity"]
+        self.matrix.write_text(json.dumps(checkpoint))
+        since = len(self.commands())
+        self.assert_stops_before_report_or_publish(self.run_driver(), since, "exactly one native")
+        self.assertEqual(self.manifest().read_bytes(), before)
+
+    def test_unreadable_or_mismatched_native_image_cannot_bootstrap_family(self):
+        for scenario, message in (({"identity_error": True}, "cannot read native"),
+                                  ({"wrong_image_hash": True}, "observed executing image")):
+            with self.subTest(scenario=scenario):
+                self.configure(**scenario)
+                self.assert_stops_before_report_or_publish(self.run_driver(), 0, message)
+                self.assertEqual(self.commands(), [])
+                self.assertFalse((self.snapshots / ".publication-provenance").exists())
 
 
 if __name__ == "__main__":

@@ -304,3 +304,56 @@ fn malformed_utf8_and_excessive_string_lengths_are_rejected() {
         ))
     );
 }
+
+#[test]
+fn buddhist_locale_response_has_a_closed_wire_code_and_rejects_future_codes() {
+    let mut selected = locale();
+    selected.calendar = DateTimeCalendar::Buddhist;
+    selected.locale = CanonicalLocaleId::from_data("en-US-u-ca-buddhist").unwrap();
+    selected.data_locale = CanonicalLocaleId::from_data("en-US").unwrap();
+    let encoded = selected.encode().unwrap();
+    assert_eq!(DateTimeLocaleResult::decode(&encoded).unwrap(), selected);
+    assert_eq!(DateTimeCalendar::Buddhist.wire_code(), 4);
+    let calendar_offset = DATE_TIME_WIRE_HEADER_BYTES as usize
+        + 8
+        + selected.locale.as_str().len()
+        + 8
+        + selected.data_locale.as_str().len();
+    for invalid in [0_u64, 17, u64::MAX] {
+        let mut malformed = encoded.clone();
+        malformed[calendar_offset..calendar_offset + 8].copy_from_slice(&invalid.to_le_bytes());
+        assert!(DateTimeLocaleResult::decode(&malformed).is_err());
+    }
+    assert!(DateTimeCalendar::from_wire_code(17).is_none());
+    assert!(DateTimeCalendar::from_wire_code(0).is_none());
+}
+
+#[test]
+fn every_admitted_calendar_crosses_the_response_wire_without_tag_collapse() {
+    let mut codes = std::collections::BTreeSet::new();
+    for &calendar in DateTimeCalendar::ALL {
+        let mut selected = locale();
+        selected.calendar = calendar;
+        selected.locale =
+            CanonicalLocaleId::from_data(format!("en-u-ca-{}", calendar.as_str())).unwrap();
+        selected.data_locale = CanonicalLocaleId::from_data("en").unwrap();
+        let bytes = selected.encode().unwrap();
+        assert_eq!(DateTimeLocaleResult::decode(&bytes).unwrap(), selected);
+        assert!(
+            codes.insert(calendar.wire_code()),
+            "duplicate calendar wire tag"
+        );
+        assert_eq!(
+            DateTimeCalendar::from_wire_code(calendar.wire_code()),
+            Some(calendar)
+        );
+    }
+    assert_eq!(codes, (1..=16).collect());
+    assert_ne!(
+        DateTimeCalendar::Gregorian.wire_code(),
+        DateTimeCalendar::Iso8601.wire_code()
+    );
+    for invalid in [0, 17, u64::MAX] {
+        assert!(DateTimeCalendar::from_wire_code(invalid).is_none());
+    }
+}

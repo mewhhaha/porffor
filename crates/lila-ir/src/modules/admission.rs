@@ -2,11 +2,27 @@
 
 use super::loaded_sources::ModuleParse;
 use super::*;
-use crate::{EarlyErrorCode, IrDiagnostic, NativeErrorKind};
+use crate::{EarlyErrorCode, IrDiagnostic, NativeErrorKind, ParseGoal};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod closure;
 use closure::StaticClosure;
+
+#[cfg(test)]
+mod tests;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum LoadedSourceIdentity<'a> {
+    Script(&'a ModuleKey),
+    Module(&'a ModuleKey),
+}
+
+fn source_identity(source: &ModuleSourceIr) -> LoadedSourceIdentity<'_> {
+    match source.goal() {
+        ParseGoal::Script => LoadedSourceIdentity::Script(source.key()),
+        ParseGoal::Module => LoadedSourceIdentity::Module(source.key()),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DynamicModuleRejectionStage {
@@ -22,6 +38,31 @@ pub(super) struct RejectedDynamicModule {
     pub(super) message: String,
 }
 
+/// The caller supplies either a loaded closure or the complete declared host
+/// catalog. Required at admission and component discovery so one cannot use
+/// static discovery while the other admits computed request variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum GraphAdmission {
+    #[default]
+    LoadedClosure,
+    CompleteCatalog,
+}
+
+impl GraphAdmission {
+    pub(super) fn occurrences<'a>(
+        self,
+        site: &DynamicImportSiteIr,
+        keys: impl Iterator<Item = &'a ModuleRequestKeyIr>,
+    ) -> Vec<ModuleRequestIr> {
+        match self {
+            Self::LoadedClosure => site.discovery_request().into_iter().collect(),
+            Self::CompleteCatalog => keys
+                .filter_map(|key| site.catalog_occurrence(key))
+                .collect(),
+        }
+    }
+}
+
 pub(crate) struct ModuleGraphRejection {
     pub(crate) graph: Option<ModuleGraphIr>,
     pub(crate) diagnostics: Vec<IrDiagnostic>,
@@ -30,13 +71,18 @@ pub(crate) struct ModuleGraphRejection {
 fn link_sources(
     sources: &ModuleGraphSources,
     entry_is_script: bool,
+    admission: GraphAdmission,
 ) -> Result<ModuleGraphIr, ModuleGraphRejection> {
-    let mut graph = build_graph(sources).map_err(|diagnostics| ModuleGraphRejection {
+    let built = match admission {
+        GraphAdmission::LoadedClosure => build_graph(sources),
+        GraphAdmission::CompleteCatalog => super::graph_build::build_complete_catalog(sources),
+    };
+    let mut graph = built.map_err(|diagnostics| ModuleGraphRejection {
         graph: None,
         diagnostics,
     })?;
     graph.entry_is_script = entry_is_script;
-    link(&mut graph);
+    super::graph::link_with_admission(&mut graph, admission);
     if graph.link_errors.is_empty() {
         Ok(graph)
     } else {
@@ -53,61 +99,202 @@ fn link_sources(
 }
 
 /// Successful closures keep the ordinary single linking pass. A rejected graph
-/// is partitioned only when its Module entry has the canonical execution
-/// driver; parser aborts, host contradictions and implementation limits remain
+/// is partitioned only when its entry has the canonical execution driver;
+/// Script text retains its parse goal while dynamic targets stay Module code.
+/// Parser aborts, host contradictions and implementation limits remain
 /// compiler failures even if their source is reachable only dynamically.
 pub(crate) fn link_loaded_graph(
     sources: &ModuleGraphSources,
     entry_is_script: bool,
 ) -> Result<ModuleGraphIr, ModuleGraphRejection> {
-    let original = match link_sources(sources, entry_is_script) {
-        Ok(graph) => return Ok(graph),
-        Err(rejection) => rejection,
+    link_admitted_graph(sources, entry_is_script, GraphAdmission::LoadedClosure)
+}
+
+pub(crate) fn link_complete_catalog(
+    sources: &ModuleGraphSources,
+    entry_is_script: bool,
+) -> Result<ModuleGraphIr, ModuleGraphRejection> {
+    link_admitted_graph(sources, entry_is_script, GraphAdmission::CompleteCatalog)
+}
+
+fn link_admitted_graph(
+    sources: &ModuleGraphSources,
+    entry_is_script: bool,
+    admission: GraphAdmission,
+) -> Result<ModuleGraphIr, ModuleGraphRejection> {
+    let original = match admission {
+        GraphAdmission::LoadedClosure => {
+            let original = link_sources(sources, entry_is_script, admission);
+            match &original {
+                Ok(graph)
+                    if !graph.units.iter().any(|unit| {
+                        unit.record
+                            .dynamic_import_sites
+                            .iter()
+                            .any(|site| site.phase == ImportPhaseIr::Source)
+                    }) =>
+                {
+                    return original;
+                }
+                Err(rejection) if !rejection.diagnostics.iter().all(can_reject_import) => {
+                    return original;
+                }
+                Ok(_) | Err(_) => {}
+            }
+            if sources.modules.get(sources.entry as usize).is_none()
+                || !host_identity_is_consistent(sources)
+            {
+                return original;
+            }
+            Some(original)
+        }
+        GraphAdmission::CompleteCatalog => {
+            if sources.modules.get(sources.entry as usize).is_none() {
+                return Err(ModuleGraphRejection {
+                    graph: None,
+                    diagnostics: vec![IrDiagnostic::lowering(
+                        "complete module catalog has no entry source",
+                    )],
+                });
+            }
+            if !host_identity_is_consistent(sources)
+                || sources.resolutions.iter().any(|(referrer, _, target)| {
+                    sources.modules.get(*referrer as usize).is_none()
+                        || sources
+                            .modules
+                            .get(*target as usize)
+                            .is_none_or(|source| source.goal() != ParseGoal::Module)
+                })
+            {
+                return Err(ModuleGraphRejection {
+                    graph: None,
+                    diagnostics: vec![IrDiagnostic::lowering(
+                        "complete module catalog has inconsistent host identities or resolution rows",
+                    )],
+                });
+            }
+            None
+        }
     };
-    if entry_is_script
-        || sources.modules.get(sources.entry as usize).is_none()
-        || !original.diagnostics.iter().all(can_reject_import)
-        || !host_identity_is_consistent(sources)
-    {
-        return Err(original);
-    }
+    // Retain each actual parse outcome. Unused catalog records do not become
+    // compilation failures; a matched closure still retains parser aborts and
+    // implementation limits as compiler failures, never import rejections.
     let mut records = Vec::with_capacity(sources.modules.len());
     for (index, source) in sources.modules.iter().enumerate() {
-        let record = match &source.parse {
-            ModuleParse::Module(parsed) => {
-                match super::record::parse_module_record(parsed, index as u32, source.key().clone())
-                {
-                    Ok(record) => Some(record),
-                    Err(diagnostics) if diagnostics.iter().all(can_reject_import) => None,
-                    Err(_) => return Err(original),
-                }
-            }
-            ModuleParse::Rejected { .. } => None,
-            ModuleParse::ScriptEntry(_) => return Err(original),
+        let Ok(id) = ModuleUnitId::try_from(index) else {
+            return Err(ModuleGraphRejection {
+                graph: None,
+                diagnostics: vec![IrDiagnostic::lowering(
+                    "complete module source indices exceed the module id domain",
+                )],
+            });
         };
-        if record.as_ref().is_some_and(|record| {
-            record
-                .requested_modules
-                .iter()
-                .any(|request| request.phase() == ImportPhaseIr::Source)
-                || record
-                    .dynamic_import_sites
-                    .iter()
-                    .any(|site| site.phase == ImportPhaseIr::Source)
-        }) {
-            return Err(original);
+        let record = match &source.parse {
+            ModuleParse::Json(parsed) => Ok(super::record::ModuleRecordIr::json(
+                parsed,
+                id,
+                source.key().clone(),
+            )),
+            ModuleParse::JsonRejected { error, .. } => {
+                Err(vec![super::early::json_parse_failure_diagnostic(error)])
+            }
+            ModuleParse::Module(parsed) => match admission {
+                GraphAdmission::LoadedClosure => {
+                    super::record::parse_module_record(parsed, id, source.key().clone())
+                }
+                GraphAdmission::CompleteCatalog => {
+                    super::record::parse_module_record_for_catalog(parsed, id, source.key().clone())
+                }
+            },
+            ModuleParse::Rejected { error, .. } => {
+                Err(vec![super::early::module_parse_failure_diagnostic(error)])
+            }
+            ModuleParse::ScriptEntry(parsed) => match admission {
+                GraphAdmission::LoadedClosure => {
+                    super::record::script_entry_record(parsed, id, source.key().clone())
+                }
+                GraphAdmission::CompleteCatalog => {
+                    super::record::script_entry_record_for_catalog(parsed, id, source.key().clone())
+                }
+            },
+        };
+        if admission == GraphAdmission::LoadedClosure
+            && record
+                .as_ref()
+                .is_err_and(|diagnostics| !diagnostics.iter().all(can_reject_import))
+        {
+            return original.expect("loaded admission retained its original result");
         }
-        records.push(record);
+        // A rejected non-entry module fails while the graph loads/links.
+        records.push(if index == sources.entry as usize {
+            record
+        } else {
+            record.map_err(|diagnostics| {
+                diagnostics
+                    .into_iter()
+                    .map(IrDiagnostic::in_dependency_module)
+                    .collect()
+            })
+        });
     }
-    let closure = StaticClosure::new(sources, &records);
-    let entry_members = closure.members(sources.entry);
-    // Static imports, including defer, must load and link before any entry body.
-    link_sources(&closure.project(&entry_members, sources.entry), false)?;
+    let closure = StaticClosure::new(sources, &records, admission);
+    let (entry_members, entry_execution) = match admission {
+        GraphAdmission::LoadedClosure => (closure.members(sources.entry), BTreeSet::new()),
+        GraphAdmission::CompleteCatalog => closure.members_and_execution(sources.entry),
+    };
+    // Static imports, including defer, link before any entry body. A source
+    // request parses its record without opening outgoing requests.
+    link_sources(
+        &closure.project(&entry_members, sources.entry),
+        entry_is_script,
+        admission,
+    )?;
     let mut admitted = entry_members.clone();
-    let mut pending = entry_members.into_iter().collect::<Vec<_>>();
+    let mut pending = match admission {
+        GraphAdmission::LoadedClosure => entry_members.into_iter().collect::<Vec<_>>(),
+        GraphAdmission::CompleteCatalog => entry_execution.into_iter().collect::<Vec<_>>(),
+    };
     let mut visited = BTreeSet::new();
     let mut validations = BTreeMap::new();
     let mut rejected_requests = Vec::new();
+    let mut rejected_realm_requests = BTreeMap::new();
+    for (request, resolution) in &sources.realm_requests {
+        let RealmModuleResolutionIr::Loaded(target) = resolution else {
+            continue;
+        };
+        if sources
+            .modules
+            .get(*target as usize)
+            .is_none_or(|source| source.goal() != ParseGoal::Module)
+        {
+            return Err(ModuleGraphRejection {
+                graph: None,
+                diagnostics: vec![IrDiagnostic::lowering(
+                    "Realm import target must be a declared Module Record",
+                )],
+            });
+        }
+        let (members, execution) = match admission {
+            GraphAdmission::LoadedClosure => (closure.members(*target), BTreeSet::new()),
+            GraphAdmission::CompleteCatalog => closure.members_and_execution(*target),
+        };
+        match link_sources(&closure.project(&members, *target), false, admission) {
+            Ok(_) => {
+                admitted.extend(members.iter().copied());
+                pending.extend(match admission {
+                    GraphAdmission::LoadedClosure => members.into_iter().collect::<Vec<_>>(),
+                    GraphAdmission::CompleteCatalog => execution.into_iter().collect::<Vec<_>>(),
+                });
+            }
+            Err(rejection) if rejection.diagnostics.iter().all(can_reject_import) => {
+                rejected_realm_requests.insert(
+                    request.clone(),
+                    RealmModuleResolutionIr::Rejected(rejection.diagnostics[0].message.clone()),
+                );
+            }
+            Err(rejection) => return Err(rejection),
+        }
+    }
     while let Some(referrer) = pending.pop() {
         if !visited.insert(referrer) {
             continue;
@@ -116,46 +303,108 @@ pub(crate) fn link_loaded_graph(
             .as_ref()
             .expect("admitted source has a parsed record");
         for site in &record.dynamic_import_sites {
-            let Some(request) = site.discovery_request() else {
-                continue;
-            };
-            let Some(target) = closure.target(referrer, request.key()) else {
-                continue;
-            };
-            let outcome = validations.entry(target).or_insert_with(|| {
-                let members = closure.members(target);
-                link_sources(&closure.project(&members, target), false).map(|_| members)
-            });
-            match outcome {
-                Ok(members) => {
-                    for module in members.iter().copied() {
-                        if admitted.insert(module) {
-                            pending.push(module);
+            let keys = sources
+                .resolutions
+                .iter()
+                .filter_map(|(owner, key, _)| (*owner == referrer).then_some(key));
+            for request in admission.occurrences(site, keys) {
+                let Some(target) = closure.target(referrer, request.key()) else {
+                    continue;
+                };
+                if request.phase() == ImportPhaseIr::Source {
+                    let message = match &records[target as usize] {
+                        Ok(_) => ModuleLinkErrorIr::SourceUnavailable {
+                            referrer,
+                            request: request.clone(),
                         }
-                    }
-                }
-                Err(rejection) => {
-                    if !rejection.diagnostics.iter().all(can_reject_import) {
-                        return Err(original);
-                    }
-                    let stage = if records[target as usize].is_none() {
-                        DynamicModuleRejectionStage::ModuleLoad
-                    } else {
-                        DynamicModuleRejectionStage::Dependencies
+                        .message(),
+                        Err(diagnostics) => {
+                            if !diagnostics.iter().all(can_reject_import) {
+                                return match admission {
+                                    GraphAdmission::LoadedClosure => original
+                                        .expect("loaded admission retained its original result"),
+                                    GraphAdmission::CompleteCatalog => Err(ModuleGraphRejection {
+                                        graph: None,
+                                        diagnostics: diagnostics.clone(),
+                                    }),
+                                };
+                            }
+                            diagnostics[0].message.clone()
+                        }
                     };
                     rejected_requests.push((
-                        sources.modules[referrer as usize].key().clone(),
+                        referrer,
                         request,
-                        stage,
-                        rejection.diagnostics[0].message.clone(),
+                        DynamicModuleRejectionStage::ModuleLoad,
+                        message,
                     ));
+                    continue;
+                }
+                let outcome = validations.entry(target).or_insert_with(|| {
+                    let (members, execution) = match admission {
+                        GraphAdmission::LoadedClosure => (closure.members(target), BTreeSet::new()),
+                        GraphAdmission::CompleteCatalog => closure.members_and_execution(target),
+                    };
+                    link_sources(&closure.project(&members, target), false, admission)
+                        .map(|_| (members, execution))
+                });
+                match outcome {
+                    Ok((members, execution)) => {
+                        match admission {
+                            GraphAdmission::LoadedClosure => {
+                                for module in members.iter().copied() {
+                                    if admitted.insert(module) {
+                                        pending.push(module);
+                                    }
+                                }
+                            }
+                            GraphAdmission::CompleteCatalog => {
+                                admitted.extend(members.iter().copied());
+                                // A record already retained by source phase may
+                                // now be promoted to an executable occurrence.
+                                pending.extend(execution.iter().copied());
+                            }
+                        }
+                    }
+                    Err(rejection) => {
+                        if !rejection.diagnostics.iter().all(can_reject_import) {
+                            return match admission {
+                                GraphAdmission::LoadedClosure => {
+                                    original.expect("loaded admission retained its original result")
+                                }
+                                GraphAdmission::CompleteCatalog => Err(ModuleGraphRejection {
+                                    graph: rejection.graph.clone(),
+                                    diagnostics: rejection.diagnostics.clone(),
+                                }),
+                            };
+                        }
+                        let stage = if records[target as usize].is_err() {
+                            DynamicModuleRejectionStage::ModuleLoad
+                        } else {
+                            DynamicModuleRejectionStage::Dependencies
+                        };
+                        rejected_requests.push((
+                            referrer,
+                            request,
+                            stage,
+                            rejection.diagnostics[0].message.clone(),
+                        ));
+                    }
                 }
             }
         }
     }
-    let mut graph = link_sources(&closure.project(&admitted, sources.entry), false)?;
+    let mut graph = link_sources(
+        &closure.project(&admitted, sources.entry),
+        entry_is_script,
+        admission,
+    )?;
+    graph.realm_requests.extend(rejected_realm_requests);
     for (referrer, request, stage, message) in rejected_requests {
-        let referrer = graph.keys[&referrer];
+        let referrer = match source_identity(&sources.modules[referrer as usize]) {
+            LoadedSourceIdentity::Script(_) => graph.entry,
+            LoadedSourceIdentity::Module(key) => graph.keys[key],
+        };
         if !graph
             .dynamic_rejections
             .iter()
@@ -181,6 +430,7 @@ fn can_reject_import(diagnostic: &IrDiagnostic) -> bool {
                     EarlyErrorCode::ModuleSyntax
                         | EarlyErrorCode::ModuleUnresolved
                         | EarlyErrorCode::ModuleMissingExport
+                        | EarlyErrorCode::ModuleSourceUnavailable
                         | EarlyErrorCode::ModuleAmbiguousExport
                 )
         })
@@ -189,9 +439,12 @@ fn can_reject_import(diagnostic: &IrDiagnostic) -> bool {
 fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
     let mut loaded = BTreeMap::new();
     for source in &sources.modules {
+        if matches!(source_identity(source), LoadedSourceIdentity::Script(_)) {
+            continue;
+        }
         if loaded
-            .insert(source.key(), source.source_text())
-            .is_some_and(|previous| previous != source.source_text())
+            .insert(source.key(), (source.kind(), source.source_text()))
+            .is_some_and(|previous| previous != (source.kind(), source.source_text()))
         {
             return false;
         }
@@ -205,8 +458,11 @@ fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
             continue;
         };
         if requests
-            .insert((referrer.key(), request), target.key())
-            .is_some_and(|previous| previous != target.key())
+            .insert(
+                (source_identity(referrer), request),
+                source_identity(target),
+            )
+            .is_some_and(|previous| previous != source_identity(target))
         {
             return false;
         }

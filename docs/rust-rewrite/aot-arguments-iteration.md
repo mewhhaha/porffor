@@ -127,3 +127,21 @@ block together. This PR leaves those artifacts, their counts, and T26's gate
 unchanged. A credible completion estimate must be based on the resulting
 failure inventory and measured repair rates, with uncertainty stated; passing
 this small regression family cannot supply that estimate.
+
+
+## Prepared Arguments own-property follow-up (uncompiled)
+
+The separate future source batch replaces the virtual default iterator with a
+real named `@@iterator` data property initialized from the callable's defining
+realm's original `%Array.prototype.values%`. The shared iterator helper now uses
+one ordinary Get of that actual well-known Symbol for both own and inherited
+properties. Own `undefined`/`null` still prevents prototype fallback; accessors
+retain the original receiver and run once. Deletion persists, and inherited
+Symbol lookup does not consult a string property named `"Symbol.iterator"`.
+
+The mutation target includes an inherited iteration control after deleting the
+own symbol, with a throwing string-key getter on the prototype, followed by
+removing the inherited symbol and confirming that the string alias cannot make
+Arguments iterable. The existing iteration target and its historical results
+above are unchanged. The new source follow-up is uncompiled and unexecuted;
+Root must verify the joined batch before describing those gaps as closed.

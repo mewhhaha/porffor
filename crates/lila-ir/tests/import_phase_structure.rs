@@ -100,11 +100,16 @@ fn import_phase_preserves_the_closed_default_diagnostic_and_ast_domains() {
 
 #[test]
 fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
-    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr::from_ast(").count(), 2);
-    assert_eq!(
-        DYNAMIC_SOURCE.matches("ImportPhaseIr::from_ast(").count(),
-        1
+    let request = bounded(
+        RECORD_SOURCE,
+        "fn module_request(",
+        "fn static_catalog_eligibility(",
     );
+    assert!(request.contains("ImportPhaseIr::from_ast(request.phase())"));
+    let admission = bounded(RECORD_SOURCE, "fn record_request(", "/// `ParseModule`");
+    assert!(admission.contains("ImportPhaseIr::from_ast(request.phase())"));
+    assert!(RECORD_SOURCE.contains("phase: ImportPhaseIr::from_ast(node.phase())"));
+    assert!(DYNAMIC_SOURCE.contains("ImportPhaseIr::from_ast(call.phase())"));
     for source in [
         GRAPH_SOURCE,
         GRAPH_TESTS_SOURCE,
@@ -121,18 +126,10 @@ fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
         assert!(!source.contains("enum ImportPhaseIr"));
         assert!(!source.contains("impl ImportPhaseIr"));
     }
-    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 31);
-    assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 27);
-    assert_eq!(GRAPH_SOURCE.matches("ImportPhaseIr").count(), 1);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ImportPhaseIr").count(), 3);
-    assert_eq!(
-        GRAPH_CLASSIFICATION_SOURCE.matches("ImportPhaseIr").count(),
-        8
-    );
-    assert_eq!(LINK_SOURCE.matches("ImportPhaseIr").count(), 1);
-    assert_eq!(LINK_ERROR_SOURCE.matches("ImportPhaseIr").count(), 2);
-    assert_eq!(NAMESPACE_SOURCE.matches("ImportPhaseIr").count(), 4);
-    assert_eq!(ADMISSION_SOURCE.matches("ImportPhaseIr").count(), 2);
-    assert_eq!(SYNCHRONOUS_SOURCE.matches("ImportPhaseIr").count(), 4);
-    assert_eq!(IR_SOURCE.matches("ImportPhaseIr").count(), 2);
+    // Linking and native IR consume the already projected phase. Neither
+    // source/catalog discovery growth nor extra tests create another owner.
+    assert!(GRAPH_SOURCE.contains("entry.request.phase() == ImportPhaseIr::Source"));
+    assert!(GRAPH_CLASSIFICATION_SOURCE.contains("ImportPhaseIr::Evaluation"));
+    assert!(SYNCHRONOUS_SOURCE.contains("ImportPhaseIr::Source"));
+    assert!(NAMESPACE_SOURCE.contains("ImportPhaseIr::Source"));
 }

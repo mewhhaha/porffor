@@ -1,74 +1,46 @@
 use super::*;
 
-#[must_use = "a Promise combinator reaction pair must be consumed by its then invocation"]
-struct PromiseCombinatorReactionPairLocals {
-    on_fulfilled: TaggedLocals,
-    on_rejected: TaggedLocals,
+/// Borrows completed callable values; no method is reconstructed or reread.
+struct PromiseCombinatorReactionPairLocals<'a> {
+    on_fulfilled: &'a ValueLocals,
+    on_rejected: &'a ValueLocals,
 }
-
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn emit_invoke_promise_combinator_reaction_pair(
         &mut self,
         mode: PromiseCombinatorMode,
-        then_payload_local: u32,
-        then_tag_local: u32,
-        next_promise_payload_local: u32,
-        next_promise_tag_local: u32,
-        resolve_element_payload_local: u32,
-        resolve_element_tag_local: u32,
-        reject_payload_local: u32,
-        reject_tag_local: u32,
-        reject_element_payload_local: u32,
-        reject_element_tag_local: u32,
-        resolve_payload_local: u32,
-        resolve_tag_local: u32,
-        call_payload_local: u32,
-        call_tag_local: u32,
+        then: &ValueLocals,
+        promise: &ValueLocals,
+        resolve_element: &ValueLocals,
+        reject: &ValueLocals,
+        reject_element: &ValueLocals,
+        resolve: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let reaction_pair = match mode {
+        let pair = match mode {
             PromiseCombinatorMode::Values => PromiseCombinatorReactionPairLocals {
-                on_fulfilled: TaggedLocals::new(
-                    resolve_element_payload_local,
-                    resolve_element_tag_local,
-                ),
-                on_rejected: TaggedLocals::new(reject_payload_local, reject_tag_local),
+                on_fulfilled: resolve_element,
+                on_rejected: reject,
             },
             PromiseCombinatorMode::SettledRecords => PromiseCombinatorReactionPairLocals {
-                on_fulfilled: TaggedLocals::new(
-                    resolve_element_payload_local,
-                    resolve_element_tag_local,
-                ),
-                on_rejected: TaggedLocals::new(
-                    reject_element_payload_local,
-                    reject_element_tag_local,
-                ),
+                on_fulfilled: resolve_element,
+                on_rejected: reject_element,
             },
             PromiseCombinatorMode::FirstFulfillment => PromiseCombinatorReactionPairLocals {
-                on_fulfilled: TaggedLocals::new(resolve_payload_local, resolve_tag_local),
-                on_rejected: TaggedLocals::new(
-                    reject_element_payload_local,
-                    reject_element_tag_local,
-                ),
+                on_fulfilled: resolve,
+                on_rejected: reject_element,
+            },
+            PromiseCombinatorMode::Race => PromiseCombinatorReactionPairLocals {
+                on_fulfilled: resolve,
+                on_rejected: reject,
             },
         };
-        let PromiseCombinatorReactionPairLocals {
-            on_fulfilled,
-            on_rejected,
-        } = reaction_pair;
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            then_payload_local,
-            then_tag_local,
-            next_promise_payload_local,
-            next_promise_tag_local,
-            &[
-                (on_fulfilled.payload, on_fulfilled.tag),
-                (on_rejected.payload, on_rejected.tag),
-            ],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        Ok(())
+        let arguments =
+            self.emit_pre_evaluated_arg_vector(&[pair.on_fulfilled, pair.on_rejected], function);
+        let emitted =
+            self.emit_function_or_proxy_call_with_argv(then, promise, &arguments, result, function);
+        arguments.clear(function);
+        emitted
     }
 }

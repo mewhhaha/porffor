@@ -9,6 +9,8 @@ fn assert_function_names(source: &str) {
         r#"
 function checkName(callable, expected) {{
   var descriptor = Object.getOwnPropertyDescriptor(callable, 'name');
+  var keys = Object.getOwnPropertyNames(callable);
+  if (keys.indexOf('name') !== keys.lastIndexOf('name')) throw 'duplicate function name';
   if (callable.name !== expected || descriptor.value !== expected
       || descriptor.writable !== false || descriptor.enumerable !== false
       || descriptor.configurable !== true) {{

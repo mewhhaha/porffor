@@ -1,7 +1,6 @@
 use super::*;
-use crate::emit::{
-    async_generator_for_await_is_transparent_yield, ControlTarget, NumericErrorRealmSource,
-};
+use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
+use crate::gc_types::*;
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableForInitIr,
@@ -11,42 +10,61 @@ use lila_ir::{
     AsyncFunctionForOfIteratorValueStorageIr, AsyncFunctionSyncDisposableCapabilityIr,
     AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
-    IdentifierWriteErrorIr, ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
-    ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
-    SyncDisposableResourcesIr, SyncDisposableScopeExecutionIr, SynchronousLoopBodyIr,
+    IdentifierWriteErrorIr, IdentifierWriteReferenceIr, ObjectDestructuringPatternIr,
+    PlainGeneratorSyncDisposableCapabilityIr, ResumableLoopIterationEnvironmentIr,
+    SyncDisposableForOfHeadIr, SyncDisposableResourceIr, SyncDisposableResourcesIr,
+    SyncDisposableScopeExecutionIr, SynchronousLoopBodyIr,
 };
 
 mod annex_b_function_copy;
-mod arguments_iterator;
+mod array_destructuring;
 mod async_function_for_of_iterator;
 mod async_function_if;
+mod async_function_labelled;
+mod async_function_switch;
+mod async_function_while;
+mod async_suspension;
 mod constant_number_condition;
 mod for_await_iteration_environment;
+mod for_await_iterator_plan;
 mod for_await_iterator_symbol;
 mod for_in;
-pub(crate) use for_in::{
-    FOR_IN_ENUMERATOR_TEMP_LOCALS, FOR_IN_INTERNAL_METHOD_TEMP_LOCALS, FOR_IN_INTRINSICS,
-};
+mod generator_for_in;
+mod generator_for_of;
+mod generator_resource_scope;
+mod iterator_protocol;
+pub(crate) use generator_resource_scope::CheckedAsyncGeneratorResourceOwner;
+mod generator_loop;
+pub(crate) use generator_loop::CheckedAsyncGeneratorEnvironmentOwner;
+mod generator_switch;
+mod generator_with;
+mod object_destructuring;
+mod resumable_array_destructuring;
+mod resumable_sequence;
+mod resumable_sync_for_of_iterator;
+pub(crate) use for_in::FOR_IN_INTRINSICS;
 mod resumed_identifier_assignment;
 mod return_position;
 mod statement_completion;
+use for_await_iterator_plan::ForAwaitIteratorPlan;
 use for_await_iterator_symbol::ForAwaitIteratorSymbol;
+pub(crate) use statement_completion::GeneratorStatementListValueContext;
+
+enum BranchCompletionKind {
+    Break,
+    Continue,
+}
 
 #[must_use = "a captured using-scope completion must be restored and dispatched"]
 struct PendingSyncDisposeCompletionLocals {
-    payload: u32,
-    tag: u32,
-    kind: u32,
-    aux: u32,
+    completion: CompletionLocals,
 }
 
 #[must_use = "an acquired using resource must be consumed by reverse disposal"]
 struct AcquiredSyncDisposableResourceLocals {
-    registered: u32,
-    value_payload: u32,
-    value_tag: u32,
-    method_payload: u32,
-    method_tag: u32,
+    registered: I32Local,
+    value: ValueLocals,
+    method: ValueLocals,
 }
 
 #[must_use = "an activation-backed DisposeCapability binding must reach its consuming detach path"]
@@ -56,18 +74,15 @@ struct ActivationSyncDisposeCapabilityStorage {
 
 #[must_use = "an activation-backed DisposeCapability must be published before acquisition"]
 struct ActiveActivationSyncDisposeCapabilityLocals {
-    object: u32,
-    record: u32,
-    entries: u32,
+    record: GcLocal<ActivationSyncDisposeCapability>,
+    entries: GcLocal<DisposableResourceTable>,
 }
 
 #[must_use = "a detached activation DisposeCapability must be consumed exactly once"]
 struct DetachedActivationSyncDisposeCapabilityLocals {
-    object: u32,
-    object_tag: u32,
-    record: u32,
-    entries: u32,
-    entry_count: u32,
+    record: GcLocal<ActivationSyncDisposeCapability>,
+    entries: GcLocal<DisposableResourceTable>,
+    entry_count: I64Local,
 }
 
 #[must_use = "an async DisposeCapability storage proof must reach its consuming finalizer"]
@@ -77,18 +92,15 @@ struct ActivationAsyncDisposeCapabilityStorage {
 
 #[must_use = "an active async DisposeCapability must be published before acquisition"]
 struct ActiveActivationAsyncDisposeCapabilityLocals {
-    object: u32,
-    record: u32,
-    entries: u32,
+    record: GcLocal<ActivationAsyncDisposeCapability>,
+    entries: GcLocal<ActivationAsyncDisposeResourceTable>,
 }
 
 #[must_use = "an acquired async resource must be published or released"]
 struct AcquiredAsyncDisposableResourceLocals {
-    kind: u32,
-    value_payload: u32,
-    value_tag: u32,
-    method_payload: u32,
-    method_tag: u32,
+    kind: GcI32DomainLocal<ActivationAsyncDisposeEntryKind>,
+    value: ValueLocals,
+    method: ValueLocals,
 }
 
 #[must_use = "a detached async DisposeCapability must finish its parked LIFO walk"]
@@ -98,6 +110,12 @@ struct DisposingActivationAsyncDisposeCapability {
 
 #[must_use = "a parked async-dispose completion must be restored exactly once"]
 struct ActiveAsyncDisposePendingCompletion;
+
+/// Empty-entry preludes do not count as awaiting an async method result.
+enum ActivationAsyncDisposeAwaitRole {
+    Method,
+    EmptyPrelude,
+}
 
 /// The legal continuations after an asynchronous DisposeCapability
 /// has restored its parked completion.
@@ -109,13 +127,14 @@ struct ActiveAsyncDisposePendingCompletion;
 /// IteratorClose. Consuming this role inside the finalizer prevents a new call
 /// site from accidentally dispatching before its required environment leave.
 #[must_use = "an async DisposeCapability continuation must be consumed by its finalizer"]
-enum ActivationAsyncDisposeCompletionContinuation {
+enum ActivationAsyncDisposeCompletionContinuation<'a> {
     Scope,
+    CompleteMixedScope,
     ClassicFor {
         lexical_environment: ClassicForAsyncDisposeLexicalEnvironment,
         break_target: ControlTarget,
     },
-    ForOf(AsyncDisposableForOfCompletionContinuationLocals),
+    ForOf(AsyncDisposableForOfCompletionContinuationLocals<'a>),
 }
 
 #[must_use = "a classic-for async-disposal environment role must be consumed at finalization"]
@@ -135,24 +154,10 @@ enum AsyncDisposableForOfIterationEnvironment {
 /// loop targets in this consuming carrier prevents the shared disposal walker
 /// from dispatching before the iteration environment has been left.
 #[must_use = "a for-of async-disposal continuation must be consumed by its finalizer"]
-struct AsyncDisposableForOfCompletionContinuationLocals {
+struct AsyncDisposableForOfCompletionContinuationLocals<'a> {
     iteration_environment: AsyncDisposableForOfIterationEnvironment,
-    state_local: u32,
-    iterator_payload_local: u32,
-    iterator_tag_local: u32,
-    key_local: u32,
-    return_payload_local: u32,
-    return_tag_local: u32,
-    result_payload_local: u32,
-    result_tag_local: u32,
-    saved_payload_local: u32,
-    saved_tag_local: u32,
-    saved_completion_local: u32,
-    saved_aux_local: u32,
-    close_saved_payload_local: u32,
-    close_saved_tag_local: u32,
-    close_saved_completion_local: u32,
-    close_saved_aux_local: u32,
+    state: I32Local,
+    iterator: &'a OwnedSyncIterator,
     continue_target: ControlTarget,
     loop_target: ControlTarget,
 }
@@ -167,6 +172,7 @@ struct AsyncDisposableForOfCompletionContinuationLocals {
 enum ActivationAsyncDisposeOwner<'a> {
     AsyncFunction(&'a AsyncFunctionAsyncDisposableCapabilityIr),
     AsyncFunctionForOf(&'a AsyncFunctionAsyncDisposableForOfCapabilityIr),
+    AsyncCompleteIterator(&'a AsyncGeneratorAsyncDisposableCapabilityIr),
     AsyncGenerator(&'a AsyncGeneratorAsyncDisposableCapabilityIr),
 }
 
@@ -186,6 +192,7 @@ impl<'a> ActivationAsyncDisposeOwner<'a> {
         match self {
             Self::AsyncFunction(capability) => capability.binding_name(),
             Self::AsyncFunctionForOf(capability) => capability.binding_name(),
+            Self::AsyncCompleteIterator(capability) => capability.binding_name(),
             Self::AsyncGenerator(capability) => capability.binding_name(),
         }
     }
@@ -194,37 +201,17 @@ impl<'a> ActivationAsyncDisposeOwner<'a> {
         match self {
             Self::AsyncFunction(capability) => capability.finalizer(),
             Self::AsyncFunctionForOf(capability) => capability.finalizer(),
+            Self::AsyncCompleteIterator(capability) => capability.finalizer(),
             Self::AsyncGenerator(capability) => capability.finalizer(),
         }
     }
 
     const fn execution_kind(&self) -> FunctionExecutionKind {
         match self {
-            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => FunctionExecutionKind::Async,
+            Self::AsyncFunction(_)
+            | Self::AsyncFunctionForOf(_)
+            | Self::AsyncCompleteIterator(_) => FunctionExecutionKind::Async,
             Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator,
-        }
-    }
-
-    const fn resume_state_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
-            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-        }
-    }
-
-    const fn resume_payload_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => {
-                HEAP_ASYNC_RESUME_PAYLOAD_OFFSET
-            }
-            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-        }
-    }
-
-    const fn resume_tag_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_TAG_OFFSET,
-            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
         }
     }
 }
@@ -256,14 +243,6 @@ impl ActivationSyncDisposeOwner<'_> {
             Self::PlainGenerator(_) => FunctionExecutionKind::Generator,
             Self::AsyncFunction(_) => FunctionExecutionKind::Async,
             Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator,
-        }
-    }
-
-    const fn resume_state_offset(&self) -> u64 {
-        match self {
-            Self::PlainGenerator(_) => HEAP_GENERATOR_RESUME_STATE_OFFSET,
-            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
-            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
         }
     }
 
@@ -391,46 +370,44 @@ fn iteration_environment_owns_binding(
         })
 }
 
-pub(crate) struct SyncIteratorLocals {
-    pub(crate) iterator_payload: u32,
-    pub(crate) iterator_tag: u32,
-    pub(crate) next_payload: u32,
-    pub(crate) next_tag: u32,
-    pub(crate) key: u32,
-    pub(crate) result_payload: u32,
-    pub(crate) result_tag: u32,
-    pub(crate) done_payload: u32,
-    pub(crate) done_tag: u32,
-    pub(crate) value_payload: u32,
-    pub(crate) value_tag: u32,
+#[must_use = "a completed iterator record must be cleared or captured by its consumer"]
+pub(crate) struct OwnedSyncIterator {
+    record: GcLocal<IteratorRecord>,
+    consumer: SyncIteratorConsumer,
 }
-
-#[must_use = "reserved synchronous iterator locals must be released"]
-pub(crate) struct ReservedSyncIteratorLocals {
-    locals: SyncIteratorLocals,
-}
-
-impl std::ops::Deref for ReservedSyncIteratorLocals {
-    type Target = SyncIteratorLocals;
-
-    fn deref(&self) -> &Self::Target {
-        &self.locals
+impl OwnedSyncIterator {
+    /// The helper captures this genuine direct record in its GC state. The
+    /// fixed consumer keeps diagnostic policy out of the helper caller.
+    pub(crate) fn from_helper_record(record: GcLocal<IteratorRecord>) -> Self {
+        Self {
+            record,
+            consumer: SyncIteratorConsumer::IteratorHelper,
+        }
+    }
+    pub(crate) fn record(&self) -> &GcLocal<IteratorRecord> {
+        &self.record
+    }
+    pub(crate) fn clear(self, function: &mut Function) {
+        self.record.clear(function);
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum SyncIteratorConsumer {
     ArrayDestructuring,
     ArrayAccumulation,
+    ArrayFrom,
     ForOf,
     MathSumPrecise,
-}
-
-/// Whether `Iterator.prototype.flatMap` has installed the mapped inner
-/// iterator when an abrupt completion closes the outer iterator.
-#[must_use = "flatMap inner installation state must be consumed by outer-close finalization"]
-pub(crate) enum IteratorFlatMapInnerState {
-    NotInstalled,
-    Active,
+    ListFormat,
+    AggregateError,
+    MapConstructor,
+    SetConstructor,
+    ObjectFromEntries,
+    MapGroupBy,
+    ObjectGroupBy,
+    SetLike,
+    IteratorHelper,
 }
 
 enum SyncIteratorProtocolError {
@@ -440,84 +417,16 @@ enum SyncIteratorProtocolError {
     NextResultNotObject,
 }
 
-struct DestructuringIteratorLocals {
-    iterator_payload: u32,
-    iterator_tag: u32,
-    next_payload: u32,
-    next_tag: u32,
-    key: u32,
-    result_payload: u32,
-    result_tag: u32,
-    done_payload: u32,
-    done_tag: u32,
-    value_payload: u32,
-    value_tag: u32,
-    return_payload: u32,
-    return_tag: u32,
-    done: u32,
-    close_saved_payload: u32,
-    close_saved_tag: u32,
-    close_saved_completion: u32,
-    close_saved_aux: u32,
-}
-
 /// The activation layout shared by the two execution kinds that can own a
 /// `for-await-of` suspension.
 ///
 /// Ordinary async functions strictly decode their two-way resume completion.
 /// Async generators retain their separate five-way resume-kind domain.
 #[must_use = "a for-await activation layout must be consumed by all suspension policies"]
-enum ForAwaitActivationLayout {
+#[derive(Clone, Copy)]
+enum AsyncContinuationOwner {
     AsyncFunction,
     AsyncGenerator,
-}
-
-impl ForAwaitActivationLayout {
-    const fn environment_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction => HEAP_ASYNC_ENV_OFFSET,
-            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
-        }
-    }
-
-    const fn resume_state_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction => HEAP_ASYNC_RESUME_STATE_OFFSET,
-            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-        }
-    }
-
-    const fn resume_payload_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction => HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-        }
-    }
-
-    const fn resume_tag_offset(&self) -> u64 {
-        match self {
-            Self::AsyncFunction => HEAP_ASYNC_RESUME_TAG_OFFSET,
-            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-        }
-    }
-}
-
-impl DestructuringIteratorLocals {
-    fn protocol(&self) -> SyncIteratorLocals {
-        SyncIteratorLocals {
-            iterator_payload: self.iterator_payload,
-            iterator_tag: self.iterator_tag,
-            next_payload: self.next_payload,
-            next_tag: self.next_tag,
-            key: self.key,
-            result_payload: self.result_payload,
-            result_tag: self.result_tag,
-            done_payload: self.done_payload,
-            done_tag: self.done_tag,
-            value_payload: self.value_payload,
-            value_tag: self.value_tag,
-        }
-    }
 }
 
 /// An identifier PutValue that needs no runtime environment lookup. An
@@ -539,11 +448,6 @@ enum PreparedIdentifierWrite<'a> {
     },
 }
 
-enum DestructuringIteratorStepKind {
-    Elision,
-    Value,
-}
-
 #[must_use = "a prepared destructuring target must be consumed by its write"]
 enum PreparedDestructuringTarget<'a> {
     Binding {
@@ -551,21 +455,27 @@ enum PreparedDestructuringTarget<'a> {
         name: &'a str,
     },
     AssignmentIdentifier(PreparedIdentifierWrite<'a>),
-    EnvironmentIdentifier {
-        key: u32,
+    EnvironmentIdentifier(
+        crate::environments::environment_reference::EnvironmentIdentifierReference,
+    ),
+    WithObjectIdentifier {
+        selected: ValueLocals,
         reference: crate::environments::environment_reference::EnvironmentIdentifierReference,
+        fallback_storage_name: &'a str,
     },
     Property {
-        target: &'a TypedExpr,
-        target_payload: u32,
-        target_tag: u32,
+        target: ValueLocals,
         key: PreparedDestructuringPropertyKey<'a>,
         strictness: Strictness,
     },
     Private {
-        target_payload: u32,
-        target_tag: u32,
+        target: ValueLocals,
         private_name_id: PrivateNameId,
+    },
+    /// A SuperProperty target whose Reference `capture` already evaluated.
+    Super {
+        value_binding: &'a str,
+        put: &'a TypedExpr,
     },
     NestedArray(&'a ArrayDestructuringPatternIr),
     NestedObject(&'a ObjectDestructuringPatternIr),
@@ -574,97 +484,99 @@ enum PreparedDestructuringTarget<'a> {
 #[must_use = "a prepared destructuring property key must be consumed by its write"]
 enum PreparedDestructuringPropertyKey<'a> {
     Static(&'a str),
-    Computed {
-        raw_key: &'a TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
-    },
+    Computed(ValueLocals),
 }
 
 impl<'a> FunctionBuilder<'a> {
+    fn pending_completion_frame(&self) -> Result<&GcLocal<InvocationFrame>, EmitError> {
+        self.body_entry_locals()
+            .and_then(|entry| entry.resume_frame())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "compiler invariant: pending completion has no resumable frame",
+                )
+            })
+    }
+
     fn emit_push_generator_pending_completion(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_push_pending_completion(
-            HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
-            HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
-            function,
-        )
+        self.emit_push_pending_completion(function)
     }
 
     fn emit_push_async_pending_completion(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let (head_offset, depth_offset) = self
-            .async_pending_completion_offsets()
-            .expect("async finalization requires an async function activation");
-        self.emit_push_pending_completion(head_offset, depth_offset, function)
+        self.emit_push_pending_completion(function)
     }
 
-    fn emit_push_pending_completion(
-        &mut self,
-        head_offset: u64,
-        depth_offset: u64,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("resumable finalization requires the function call ABI")
-        })?;
-        let previous_head_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let depth_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            head_offset,
-            previous_head_local,
-            function,
-        );
-        self.emit_heap_alloc_const(HEAP_PENDING_COMPLETION_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_NEXT_OFFSET,
-            previous_head_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_KIND_OFFSET,
-            self.completion_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_AUX_OFFSET,
-            self.completion_aux_local,
-            function,
-        );
-        self.store_i64_local_at_offset(activation_local, head_offset, record_local, function);
-        self.load_i64_to_local_from_offset(activation_local, depth_offset, depth_local, function);
-        function.instruction(&Instruction::LocalGet(depth_local));
+    fn emit_push_pending_completion(&self, function: &mut Function) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let frame = self.pending_completion_frame()?;
+        let previous = schema
+            .reserve_gc_local::<CompletionRecord, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<InvocationFrame>()
+                    .field(InvocationFrameSchema::PENDING_COMPLETION)
+                    .read(frame, schema, function)
+                    .reference(),
+                function,
+            );
+        let return_stage =
+            GcI32DomainLocal::new(schema, AsyncGeneratorReturnStage::Unawaited, function);
+        if self.current_function_meta().is_some_and(|meta| {
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+        }) {
+            let activation = self.control_flow_async_generator_activation(function)?;
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::RETURN_STAGE)
+                .read(&activation, schema, function)
+                .store_domain(&return_stage, function);
+            activation.clear(function);
+        }
+        let record = schema
+            .reserve_gc_local::<CompletionRecord, NonNullable>(function)
+            .initialize(
+                schema.struct_type::<CompletionRecord>().from_completion(
+                    self.completion(),
+                    &previous,
+                    &return_stage,
+                    schema,
+                    function,
+                ),
+                function,
+            );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION)
+            .write(
+                frame,
+                GcOperand::nullable_reference(&record, schema),
+                schema,
+                function,
+            );
+        let depth = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION_DEPTH)
+            .read(frame, schema, function)
+            .store_i64(depth, function);
+        depth.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(depth_local));
-        self.store_i64_local_at_offset(activation_local, depth_offset, depth_local, function);
-
-        self.release_temp_local(depth_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(previous_head_local);
+        depth.store(function);
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION_DEPTH)
+            .write(frame, GcOperand::i64_local(depth), schema, function);
+        schema.release_i64_local(depth, function);
+        record.clear(function);
+        return_stage.clear(schema, function);
+        previous.clear(function);
         Ok(())
     }
 
@@ -672,83 +584,103 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_pop_and_restore_pending_completion(
-            HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
-            HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
-            function,
-        )
+        self.emit_pop_and_restore_pending_completion(function)
     }
 
     fn emit_pop_and_restore_async_pending_completion(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let (head_offset, depth_offset) = self
-            .async_pending_completion_offsets()
-            .expect("async finalization requires an async function activation");
-        self.emit_pop_and_restore_pending_completion(head_offset, depth_offset, function)
+        self.emit_pop_and_restore_pending_completion(function)
     }
 
     fn emit_pop_and_restore_pending_completion(
-        &mut self,
-        head_offset: u64,
-        depth_offset: u64,
+        &self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("resumable finalization requires the function call ABI")
-        })?;
-        let record_local = self.reserve_temp_local();
-        let next_local = self.reserve_temp_local();
-        let depth_local = self.reserve_temp_local();
+        self.emit_pop_pending_completion(true, function)
+    }
 
-        self.load_i64_to_local_from_offset(activation_local, head_offset, record_local, function);
-        function.instruction(&Instruction::LocalGet(record_local));
+    fn emit_pop_pending_completion(
+        &self,
+        restore: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let frame = self.pending_completion_frame()?;
+        let record = schema
+            .reserve_gc_local::<CompletionRecord, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<InvocationFrame>()
+                    .field(InvocationFrameSchema::PENDING_COMPLETION)
+                    .read(frame, schema, function)
+                    .reference()
+                    .require_non_null(function),
+                function,
+            );
+        let next = schema
+            .reserve_gc_local::<CompletionRecord, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<CompletionRecord>()
+                    .field(CompletionRecordSchema::NEXT)
+                    .read(&record, schema, function)
+                    .reference(),
+                function,
+            );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION)
+            .write(frame, GcOperand::reference(&next, schema), schema, function);
+        let depth = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION_DEPTH)
+            .read(frame, schema, function)
+            .store_i64(depth, function);
+        depth.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_NEXT_OFFSET,
-            next_local,
-            function,
-        );
-        self.store_i64_local_at_offset(activation_local, head_offset, next_local, function);
-        self.load_i64_to_local_from_offset(activation_local, depth_offset, depth_local, function);
-        function.instruction(&Instruction::LocalGet(depth_local));
+        depth.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(depth_local));
-        self.store_i64_local_at_offset(activation_local, depth_offset, depth_local, function);
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_KIND_OFFSET,
-            self.completion_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PENDING_COMPLETION_AUX_OFFSET,
-            self.completion_aux_local,
-            function,
-        );
-
-        self.release_temp_local(depth_local);
-        self.release_temp_local(next_local);
-        self.release_temp_local(record_local);
+        depth.store(function);
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION_DEPTH)
+            .write(frame, GcOperand::i64_local(depth), schema, function);
+        if restore {
+            schema.struct_type::<CompletionRecord>().read_into(
+                &record,
+                self.completion(),
+                schema,
+                function,
+            );
+            if self.current_function_meta().is_some_and(|meta| {
+                meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+            }) {
+                let stage =
+                    GcI32DomainLocal::new(schema, AsyncGeneratorReturnStage::Unawaited, function);
+                schema
+                    .struct_type::<CompletionRecord>()
+                    .field(CompletionRecordSchema::RETURN_STAGE)
+                    .read(&record, schema, function)
+                    .store_domain(&stage, function);
+                let activation = self.control_flow_async_generator_activation(function)?;
+                schema
+                    .struct_type::<AsyncGeneratorActivation>()
+                    .field(AsyncGeneratorActivationSchema::RETURN_STAGE)
+                    .write(&activation, stage.operand(), schema, function);
+                activation.clear(function);
+                stage.clear(schema, function);
+            }
+        }
+        schema.release_i64_local(depth, function);
+        next.clear(function);
+        record.clear(function);
         Ok(())
     }
 
@@ -756,267 +688,142 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_discard_pending_completion(
-            HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
-            HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
-            function,
-        )
+        self.emit_discard_pending_completion(function)
     }
 
     fn emit_discard_async_pending_completion(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let (head_offset, depth_offset) = self
-            .async_pending_completion_offsets()
-            .expect("async finalization requires an async function activation");
-        self.emit_discard_pending_completion(head_offset, depth_offset, function)
+        self.emit_discard_pending_completion(function)
     }
 
-    fn async_pending_completion_offsets(&self) -> Option<(u64, u64)> {
-        match self.current_function_meta()?.protocol.execution_kind() {
-            FunctionExecutionKind::Async => Some((
-                HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET,
-                HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET,
-            )),
-            FunctionExecutionKind::AsyncGenerator => Some((
-                HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET,
-                HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET,
-            )),
-            FunctionExecutionKind::Ordinary | FunctionExecutionKind::Generator => None,
+    fn emit_discard_pending_completion(&self, function: &mut Function) -> Result<(), EmitError> {
+        // A finalizer's new abrupt completion also owns its current Return
+        // stage; discarding the parked record must preserve both.
+        self.emit_pop_pending_completion(false, function)
+    }
+
+    fn emit_prepare_fresh_return(&self, function: &mut Function) -> Result<(), EmitError> {
+        if self.current_function_meta().is_some_and(|meta| {
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+        }) {
+            let schema = self.runtime_schema();
+            let activation = self.control_flow_async_generator_activation(function)?;
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::RETURN_STAGE)
+                .write(
+                    &activation,
+                    GcOperand::constant(AsyncGeneratorReturnStage::Unawaited),
+                    schema,
+                    function,
+                );
+            activation.clear(function);
         }
-    }
-
-    fn emit_discard_pending_completion(
-        &mut self,
-        head_offset: u64,
-        depth_offset: u64,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        self.emit_pop_and_restore_pending_completion(head_offset, depth_offset, function)?;
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
         Ok(())
     }
 
     pub(crate) fn set_completion_kind(&self, kind: CompletionKind, function: &mut Function) {
-        function.instruction(&Instruction::I64Const(kind.code()));
-        function.instruction(&Instruction::LocalSet(self.completion_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.completion_aux_local));
+        if matches!(kind, CompletionKind::Return) {
+            self.emit_retire_abandoned_identifier_references(function);
+        }
+        self.completion().set_kind(kind, function);
+        function.instruction(&Instruction::I32Const(0));
+        self.completion().target().store(function);
     }
 
-    pub(crate) fn set_completion_kind_with_aux(
+    fn set_branch_completion(
         &self,
-        kind: CompletionKind,
-        aux: i64,
+        kind: BranchCompletionKind,
+        target: ControlTarget,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::I64Const(kind.code()));
-        function.instruction(&Instruction::LocalSet(self.completion_local));
-        function.instruction(&Instruction::I64Const(aux));
-        function.instruction(&Instruction::LocalSet(self.completion_aux_local));
+        self.completion().set_kind(
+            match kind {
+                BranchCompletionKind::Break => CompletionKind::Break,
+                BranchCompletionKind::Continue => CompletionKind::Continue,
+            },
+            function,
+        );
+        function.instruction(&Instruction::I32Const(target.frame as i32));
+        self.completion().target().store(function);
     }
 
     pub(crate) fn emit_return_current_completion(&self, function: &mut Function) {
+        self.emit_retire_abandoned_identifier_references_if_throw(function);
+        if self.statement_list_value_context.is_some() {
+            self.completion().kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Return.code() as i32));
+            function.instruction(&Instruction::I32Eq);
+            self.completion().kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_retire_generator_statement_list_values(None, function);
+            function.instruction(&Instruction::End);
+        }
         if let Some(target) = self.completion_exit.main_job_checkpoint_target() {
             self.emit_branch_to_target(target, function);
             return;
         }
-        for _ in 0..self.environment_depth {
-            self.load_i64_to_local_from_offset(
-                self.current_env_local,
-                ENV_PARENT_OFFSET,
-                self.current_env_local,
-                function,
-            );
-        }
-        self.verify_and_clear_runtime_gc_anchor_root(function);
-        match self.return_abi() {
-            ReturnAbi::MainExport => {
-                function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::GlobalSet(RESULT_TAG_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::GlobalSet(COMPLETION_KIND_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::GlobalSet(COMPLETION_AUX_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalGet(self.result_local));
-                function.instruction(&Instruction::Return);
-            }
-            ReturnAbi::MultiValue => {
-                function.instruction(&Instruction::LocalGet(self.result_local));
-                function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-                function.instruction(&Instruction::Return);
-            }
-        }
+        self.emit_unwind_environment_depth(self.environment_depth, function);
+        self.completion().emit(function);
+        function.instruction(&Instruction::Return);
     }
 
     pub(crate) fn emit_return_current_completion_if_throw(&mut self, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_propagate_current_completion_if_throw(&mut self, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
+        self.emit_propagate_current_throw_if_needed(function);
     }
 
     pub(crate) fn emit_propagate_current_throw(&self, function: &mut Function) {
         if let Some(target) = self.active_throw_target() {
+            self.emit_retire_abandoned_identifier_references(function);
             self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
     }
 
-    /// Breaks `depth` labels out of the *caller's own* region when the current
-    /// completion is a throw.
-    ///
-    /// This is deliberately not a [`ControlTarget`] branch and deliberately
-    /// still takes a raw immediate: the caller opened those frames itself and
-    /// closes them itself, and the immediate is relative to the position this
-    /// call stands at, which the label-depth work does not move. See the
-    /// "what it deliberately does not do" section of `code_sink.rs`.
     pub(crate) fn emit_break_current_completion_if_throw(
         &self,
         depth: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Br(depth));
         function.instruction(&Instruction::End);
     }
 
-    pub(crate) fn emit_throw_from_locals(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::LocalSet(self.completion_local));
-        Ok(())
-    }
-
-    /// CLOSED DEFECT — the note this replaces described a live one.
-    ///
-    /// The `Br` below used to be `depth_to(target) + 1 + extra_depth`, where
-    /// `depth_to` counted only frames pushed through `push_control`, the `+ 1`
-    /// covered this function's own raw `If`, and every *other* raw
-    /// `Instruction::If`/`Block`/`Loop` between the innermost tracked frame and
-    /// this call had to be declared by the caller through an `extra_depth`
-    /// argument. Several callers declared nothing, and two arms of one
-    /// `if`/`else` chain in `builtins/array.rs` declared different numbers for
-    /// the same frame count.
-    ///
-    /// What that cost, on the binary before this change:
-    ///
-    /// * a property read that throws inside a `for` landed on the loop back
-    ///   edge instead of the handler — the loop spun ~560,000 times and
-    ///   trapped;
-    /// * the same read inside a `switch` had its throw discarded silently.
-    ///
-    /// A flat `try { ... } catch` was `depth_to == 0` and worked, which is why
-    /// probes kept passing. The named path (`a.zzz`) and the computed path
-    /// (`a[k]`) failed identically, so it was upstream of any one emitter.
-    ///
-    /// Two things cannot detect a wrong depth, and both were offered as
-    /// evidence at the time: rung G, because a `Br` immediate is the same width
-    /// either way, and wasm validation, because both the right and the wrong
-    /// label index are in range. Only running the program can tell — which is
-    /// why `crates/lila-cli/tests/cli/throw_propagation.rs` runs it.
-    ///
-    /// The repair was structural rather than arithmetical: `ControlTarget` now
-    /// carries the real Wasm label its frame opened, taken from the sink that
-    /// every instruction in this crate is written through, so an undeclared
-    /// frame is not a thing a caller can have. There is no `extra_depth`
-    /// parameter to get wrong, in this function or anywhere else. See
-    /// `code_sink.rs`.
-    pub(crate) fn emit_propagate_throw_from_locals_if_needed(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_from_locals(payload_local, tag_local, function)?;
-        if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
-        function.instruction(&Instruction::End);
-        Ok(())
+    pub(crate) fn emit_throw_from_value(&self, value: &ValueLocals, function: &mut Function) {
+        self.completion().set_throw(value, function);
     }
 
     pub(crate) fn emit_resume_after_finally(
         &mut self,
-        saved_payload_local: u32,
-        saved_tag_local: u32,
-        saved_completion_local: u32,
-        saved_aux_local: u32,
+        saved: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        self.emit_dispatch_current_completion(function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_dispatch_current_completion(function)?;
+        self.completion().copy_from(saved, function);
         function.instruction(&Instruction::End);
-        Ok(())
+        self.emit_dispatch_current_completion(function)
     }
 
     pub(crate) fn emit_dispatch_branch_completion(
@@ -1025,9 +832,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         for (target_id, branch_target) in targets {
-            function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-            function.instruction(&Instruction::I64Const(*target_id as i64));
-            function.instruction(&Instruction::I64Eq);
+            self.completion().target().load(function);
+            function.instruction(&Instruction::I32Const(*target_id as i32));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             if let Some(finalizer) = self.active_finally_target_for_branch(*branch_target) {
                 self.emit_branch_to_target(finalizer, function);
@@ -1111,38 +918,33 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_THROW as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
+        self.emit_propagate_current_throw(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_RETURN as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if let Some(target) = self.finally_stack.last().copied() {
             self.emit_branch_to_target(target, function);
         } else {
             self.emit_derived_constructor_body_result(function)?;
-            self.set_completion_kind(CompletionKind::Normal, function);
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_BREAK));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_BREAK as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         let targets = self.active_break_targets();
         self.emit_dispatch_branch_completion(&targets, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_CONTINUE as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         let targets = self.active_continue_targets();
         self.emit_dispatch_branch_completion(&targets, function);
@@ -1154,20 +956,22 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn emit_dispatch_async_generator_completion(&self, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_THROW as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_retire_abandoned_identifier_references(function);
         if let Some(target) = self.active_throw_target() {
             self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_RETURN as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_retire_abandoned_identifier_references(function);
         if let Some(target) = self.finally_stack.last().copied() {
             self.emit_branch_to_target(target, function);
         } else {
@@ -1179,7 +983,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_dispatch_async_completion(&mut self, function: &mut Function) -> Result<(), EmitError> {
         if self.current_function_meta().is_some_and(|meta| {
-            meta.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
         }) {
             self.emit_dispatch_async_generator_completion(function);
             return Ok(());
@@ -1232,24 +1036,37 @@ impl<'a> FunctionBuilder<'a> {
         ));
     }
 
-    fn emit_unwind_environments_to_target(&self, target: ControlTarget, function: &mut Function) {
-        for _ in 0..environment_hops(self.environment_depth, target.environment_depth) {
-            self.load_i64_to_local_from_offset(
-                self.current_env_local,
-                ENV_PARENT_OFFSET,
-                self.current_env_local,
+    fn emit_unwind_environment_depth(&self, hops: u32, function: &mut Function) {
+        let schema = self.runtime_schema();
+        for _ in 0..hops {
+            self.replace_current_environment(
+                schema
+                    .struct_type::<Environment>()
+                    .field(EnvironmentSchema::PARENT)
+                    .read(self.current_environment(), schema, function)
+                    .reference(),
                 function,
             );
         }
     }
 
+    fn emit_unwind_environments_to_target(&self, target: ControlTarget, function: &mut Function) {
+        self.emit_unwind_environment_depth(
+            environment_hops(self.environment_depth, target.environment_depth),
+            function,
+        );
+    }
+
     pub(crate) fn emit_branch_to_target(&self, target: ControlTarget, function: &mut Function) {
+        self.emit_retire_generator_statement_list_values(Some(target), function);
         self.emit_unwind_environments_to_target(target, function);
         function.branch_to_label(target.label);
     }
 
     pub(crate) fn emit_branch_if_to_target(&self, target: ControlTarget, function: &mut Function) {
-        if target.environment_depth == self.environment_depth {
+        if target.environment_depth == self.environment_depth
+            && !self.generator_statement_list_branch_retires(target)
+        {
             function.branch_if_to_label(target.label);
             return;
         }
@@ -1287,206 +1104,151 @@ impl<'a> FunctionBuilder<'a> {
         block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let async_resume_state_offset = self.async_await_resume_state_offset();
-        let linear_async_entry_state = async_resume_state_offset.and_then(|_| {
-            block
+        self.with_checked_async_generator_source_environment(|builder| {
+            builder.compile_block_contents_in_source_environment(block, function)
+        })
+    }
+
+    fn compile_block_contents_in_source_environment(
+        &mut self,
+        block: &BlockIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let execution = self
+            .current_function_meta()
+            .map(|meta| meta.protocol().execution_kind());
+        let entry_state = match execution {
+            Some(FunctionExecutionKind::Async | FunctionExecutionKind::AsyncGenerator) => block
                 .statements
                 .iter()
-                .find_map(Self::async_statement_entry_state)
-        });
-        if let (Some(entry_state), Some(resume_state_offset)) =
-            (linear_async_entry_state, async_resume_state_offset)
-        {
-            return self.compile_async_block_contents(
-                block,
-                entry_state,
-                !std::ptr::eq(block, self.body),
-                resume_state_offset,
-                function,
-            );
-        }
-        let linear_generator_entry_state = self
-            .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Generator)
-            .then(|| {
-                block
-                    .statements
-                    .iter()
-                    .find_map(Self::generator_statement_entry_state)
-            })
-            .flatten();
-        if let Some(entry_state) = linear_generator_entry_state {
-            return self.compile_generator_block_contents(
+                .find_map(Self::async_statement_entry_state),
+            Some(FunctionExecutionKind::Generator) => block
+                .statements
+                .iter()
+                .find_map(Self::generator_statement_entry_state),
+            Some(FunctionExecutionKind::Ordinary) | None => None,
+        };
+        if let Some(entry_state) = entry_state {
+            return self.compile_resumable_block_contents(
                 block,
                 entry_state,
                 !std::ptr::eq(block, self.body),
                 function,
             );
         }
-
         if let Some(environment) = &block.lexical_environment {
             self.emit_enter_lexical_environment(environment, function)?;
         }
         let resumable_root_body = std::ptr::eq(block, self.body)
-            && self.current_function_meta().is_some_and(|meta| {
-                matches!(
-                    meta.protocol.execution_kind(),
+            && matches!(
+                execution,
+                Some(
                     FunctionExecutionKind::Generator
                         | FunctionExecutionKind::Async
                         | FunctionExecutionKind::AsyncGenerator
                 )
-            });
+            );
         if !resumable_root_body {
             self.initialize_direct_lexical_bindings(&block.statements, function);
         }
-        if block.statements.is_empty() {
-            if block.lexical_environment.is_some() {
-                self.emit_leave_lexical_environment(function);
-            }
-            return Ok(());
-        }
-
         for statement in &block.statements {
             self.compile_statement(statement, function)?;
         }
-
+        self.emit_clear_private_argument_lists_in_scope(function)?;
         if block.lexical_environment.is_some() {
             self.emit_leave_lexical_environment(function);
         }
-
         Ok(())
     }
 
-    fn compile_async_block_contents(
+    fn compile_resumable_block_contents(
         &mut self,
         block: &BlockIr,
         entry_state: u32,
         initialize_bindings: bool,
-        resume_state_offset: u64,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self
-            .new_target_payload_local()
-            .expect("async body must use the function call ABI");
-        let guarded_environment = block.lexical_environment.is_some()
-            && self
-                .current_function_meta()
-                .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async);
+        let schema = self.runtime_schema();
+        let generator = self.current_function_meta().is_some_and(|meta| {
+            meta.protocol().execution_kind() == FunctionExecutionKind::Generator
+        });
+        let guarded_environment = block.lexical_environment.is_some();
         if guarded_environment {
-            // Sibling resumable blocks are emitted on every invocation. Only
-            // the active block can allocate or reattach its lexical record.
             let exit_state = block
                 .statements
                 .iter()
                 .rev()
-                .find_map(Self::async_statement_exit_state)
+                .find_map(|statement| {
+                    if generator {
+                        Self::generator_statement_exit_state(statement)
+                    } else {
+                        Self::async_statement_exit_state(statement)
+                    }
+                })
                 .unwrap_or(entry_state);
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                resume_state_offset,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(i64::from(entry_state)));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(i64::from(exit_state)));
-            function.instruction(&Instruction::I64LeU);
+            let point = self.emit_resumable_resume_point(function)?;
+            point.load(function);
+            function.instruction(&Instruction::I32Const(entry_state as i32));
+            function.instruction(&Instruction::I32GeU);
+            point.load(function);
+            function.instruction(&Instruction::I32Const(exit_state as i32));
+            function.instruction(&Instruction::I32LeU);
             function.instruction(&Instruction::I32And);
+            schema.release_i32_local(point, function);
             self.open_frame(ControlFrameKind::If, function);
         }
         if let Some(environment) = &block.lexical_environment {
-            self.emit_enter_resumable_block_environment(
-                environment,
-                entry_state,
-                resume_state_offset,
-                function,
-            )?;
+            self.emit_enter_resumable_block_environment(environment, entry_state, function)?;
         }
         if initialize_bindings {
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                resume_state_offset,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(entry_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.initialize_direct_lexical_bindings(&block.statements, function);
-            function.instruction(&Instruction::End);
-        }
-        self.compile_async_statement_sequence(
-            &block.statements,
-            entry_state,
-            resume_state_offset,
-            function,
-        )?;
-        if block.lexical_environment.is_some() {
-            self.emit_leave_lexical_environment(function);
-        }
-        if guarded_environment {
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn compile_async_statement_sequence(
-        &mut self,
-        statements: &[StatementIr],
-        entry_state: u32,
-        resume_state_offset: u64,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let activation_local = self
-            .new_target_payload_local()
-            .expect("async body must use the function call ABI");
-        let mut segment_state = entry_state;
-        for statement in statements {
-            if let Some(exit_state) = Self::async_statement_exit_state(statement) {
-                let statement_entry_state = Self::async_statement_entry_state(statement)
-                    .expect("a resumable statement with an exit state must have an entry state");
-                assert_eq!(
-                    segment_state, statement_entry_state,
-                    "resumable statement entry must continue the preceding segment exit"
-                );
-                self.compile_statement(statement, function)?;
-                segment_state = exit_state;
-                continue;
-            }
-
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                resume_state_offset,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(segment_state as i64));
-            function.instruction(&Instruction::I64Eq);
+            let point = self.emit_resumable_resume_point(function)?;
+            point.load(function);
+            function.instruction(&Instruction::I32Const(entry_state as i32));
+            function.instruction(&Instruction::I32Eq);
+            schema.release_i32_local(point, function);
             self.open_frame(ControlFrameKind::If, function);
-            self.compile_statement(statement, function)?;
+            self.initialize_direct_lexical_bindings(&block.statements, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.compile_resumable_statement_sequence(&block.statements, entry_state, function)?;
+        self.emit_clear_private_argument_lists_in_scope(function)?;
+        if guarded_environment {
+            self.emit_leave_lexical_environment(function);
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
         Ok(())
     }
 
-    fn async_await_resume_state_offset(&self) -> Option<u64> {
-        match self.current_function_meta()?.protocol.execution_kind() {
-            FunctionExecutionKind::Async => Some(HEAP_ASYNC_RESUME_STATE_OFFSET),
-            FunctionExecutionKind::AsyncGenerator => Some(HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET),
-            FunctionExecutionKind::Ordinary | FunctionExecutionKind::Generator => None,
-        }
+    fn is_async_resume_body(&self) -> bool {
+        self.current_function_meta().is_some_and(|meta| {
+            matches!(
+                meta.protocol().execution_kind(),
+                FunctionExecutionKind::Async | FunctionExecutionKind::AsyncGenerator
+            )
+        })
     }
 
     fn async_statement_entry_state(statement: &StatementIr) -> Option<u32> {
         match statement {
+            StatementIr::AsyncGeneratorLoop(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorIf(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorWith(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorSwitch(plan) => Some(plan.entry_state()),
+            StatementIr::EmptyStatementCompletion(item) => {
+                Self::async_statement_entry_state(item.statement())
+            }
             StatementIr::ResumableClassDefinition(plan) => Some(plan.entry_state()),
             StatementIr::AsyncFunctionIf { plan, .. } => Some(plan.entry_state()),
+            StatementIr::AsyncFunctionWhile(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncFunctionSwitch(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncFunctionArrayDestructuring(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorArrayDestructuring(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncFunctionWith(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorForIn(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorForOf(plan) => Some(plan.entry_state()),
+            StatementIr::AsyncGeneratorResourceScope(plan) => Some(plan.entry_state()),
             StatementIr::AsyncModuleInstantiation => Some(0),
             StatementIr::AsyncAwait { suspend_state, .. } => Some(*suspend_state),
             StatementIr::GeneratorYield { suspend_state, .. } => Some(*suspend_state),
@@ -1499,18 +1261,40 @@ impl<'a> FunctionBuilder<'a> {
                 .statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
-            // Labels do not own a resumable region. Forward only a direct
-            // labelled resumable loop (including a chain of labels): blindly
-            // scanning a labelled block would schedule code after an earlier
-            // labelled break at an unreachable child's exit state.
-            StatementIr::Labelled { statement, .. } => {
-                Self::labelled_async_function_for_of_plan(statement)
-                    .map(AsyncFunctionForOfIteratorPlanIr::entry_state)
-                    .or_else(|| {
-                        Self::labelled_async_disposable_for_finalizer(statement)
-                            .map(AsyncDisposableFinalizerPlanIr::entry_state)
-                    })
-            }
+            // A checked non-loop label owns its completion exit. Immediate
+            // labels still forward only a directly labelled resumable loop.
+            StatementIr::Labelled {
+                async_plan: Some(plan),
+                ..
+            } => Some(plan.entry_state()),
+            StatementIr::Labelled {
+                statement,
+                async_plan: None,
+                ..
+            } => Self::labelled_async_function_for_of_plan(statement)
+                .map(AsyncFunctionForOfIteratorPlanIr::entry_state)
+                .or_else(|| {
+                    Self::labelled_complete_iterator_states(statement).map(|states| states.0)
+                })
+                .or_else(|| {
+                    Self::labelled_async_function_while_plan(statement)
+                        .map(lila_ir::AsyncFunctionWhileConditionIr::entry_state)
+                })
+                .or_else(|| {
+                    Self::labelled_async_disposable_for_finalizer(statement)
+                        .map(AsyncDisposableFinalizerPlanIr::entry_state)
+                })
+                .or_else(|| {
+                    Self::labelled_async_linear_loop_states(statement).map(|states| states.0)
+                })
+                .or_else(|| {
+                    Self::labelled_async_generator_loop_plan(statement)
+                        .map(lila_ir::AsyncGeneratorLoopIr::entry_state)
+                })
+                .or_else(|| {
+                    Self::labelled_complete_resource_switch_plan(statement)
+                        .map(lila_ir::AsyncGeneratorSwitchIr::entry_state)
+                }),
             StatementIr::TryCatch {
                 async_plan: Some(plan),
                 ..
@@ -1567,8 +1351,23 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {
         match statement {
+            StatementIr::AsyncGeneratorLoop(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorIf(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorWith(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorSwitch(plan) => Some(plan.exit_state()),
+            StatementIr::EmptyStatementCompletion(item) => {
+                Self::async_statement_exit_state(item.statement())
+            }
             StatementIr::ResumableClassDefinition(plan) => Some(plan.exit_state()),
             StatementIr::AsyncFunctionIf { plan, .. } => Some(plan.exit_state()),
+            StatementIr::AsyncFunctionWhile(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncFunctionSwitch(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncFunctionArrayDestructuring(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorArrayDestructuring(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncFunctionWith(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorForIn(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorForOf(plan) => Some(plan.exit_state()),
+            StatementIr::AsyncGeneratorResourceScope(plan) => Some(plan.exit_state()),
             StatementIr::AsyncModuleInstantiation => Some(1),
             StatementIr::AsyncAwait { resume_state, .. } => Some(*resume_state),
             StatementIr::GeneratorYield { resume_state, .. } => Some(*resume_state),
@@ -1583,14 +1382,38 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .rev()
                 .find_map(Self::async_statement_exit_state),
-            StatementIr::Labelled { statement, .. } => {
-                Self::labelled_async_function_for_of_plan(statement)
-                    .map(AsyncFunctionForOfIteratorPlanIr::exit_state)
-                    .or_else(|| {
-                        Self::labelled_async_disposable_for_finalizer(statement)
-                            .map(AsyncDisposableFinalizerPlanIr::exit_state)
-                    })
-            }
+            StatementIr::Labelled {
+                async_plan: Some(plan),
+                ..
+            } => Some(plan.exit_state()),
+            StatementIr::Labelled {
+                statement,
+                async_plan: None,
+                ..
+            } => Self::labelled_async_function_for_of_plan(statement)
+                .map(AsyncFunctionForOfIteratorPlanIr::exit_state)
+                .or_else(|| {
+                    Self::labelled_complete_iterator_states(statement).map(|states| states.1)
+                })
+                .or_else(|| {
+                    Self::labelled_async_function_while_plan(statement)
+                        .map(lila_ir::AsyncFunctionWhileConditionIr::exit_state)
+                })
+                .or_else(|| {
+                    Self::labelled_async_disposable_for_finalizer(statement)
+                        .map(AsyncDisposableFinalizerPlanIr::exit_state)
+                })
+                .or_else(|| {
+                    Self::labelled_async_linear_loop_states(statement).map(|states| states.1)
+                })
+                .or_else(|| {
+                    Self::labelled_async_generator_loop_plan(statement)
+                        .map(lila_ir::AsyncGeneratorLoopIr::exit_state)
+                })
+                .or_else(|| {
+                    Self::labelled_complete_resource_switch_plan(statement)
+                        .map(lila_ir::AsyncGeneratorSwitchIr::exit_state)
+                }),
             StatementIr::TryCatch {
                 async_plan: Some(plan),
                 ..
@@ -1646,6 +1469,50 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    fn labelled_async_generator_loop_plan(
+        statement: &StatementIr,
+    ) -> Option<&lila_ir::AsyncGeneratorLoopIr> {
+        match statement {
+            StatementIr::AsyncGeneratorLoop(plan) => Some(plan),
+            StatementIr::Labelled {
+                statement,
+                async_plan: None,
+                ..
+            } => Self::labelled_async_generator_loop_plan(statement),
+            _ => None,
+        }
+    }
+
+    fn labelled_complete_resource_switch_plan(
+        statement: &StatementIr,
+    ) -> Option<&lila_ir::AsyncGeneratorSwitchIr> {
+        match statement {
+            StatementIr::AsyncGeneratorSwitch(plan) => Some(plan),
+            StatementIr::Labelled {
+                statement,
+                async_plan: None,
+                ..
+            } => Self::labelled_complete_resource_switch_plan(statement),
+            _ => None,
+        }
+    }
+
+    fn labelled_async_linear_loop_states(statement: &StatementIr) -> Option<(u32, u32)> {
+        match statement {
+            StatementIr::GeneratorLoop {
+                entry_state,
+                exit_state,
+                ..
+            } => Some((*entry_state, *exit_state)),
+            StatementIr::Labelled {
+                statement,
+                async_plan: None,
+                ..
+            } => Self::labelled_async_linear_loop_states(statement),
+            _ => None,
+        }
+    }
+
     fn labelled_async_disposable_for_finalizer(
         statement: &StatementIr,
     ) -> Option<&AsyncDisposableFinalizerPlanIr> {
@@ -1665,6 +1532,18 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    fn labelled_async_function_while_plan(
+        statement: &StatementIr,
+    ) -> Option<&lila_ir::AsyncFunctionWhileConditionIr> {
+        match statement {
+            StatementIr::AsyncFunctionWhile(plan) => Some(plan),
+            StatementIr::Labelled { statement, .. } => {
+                Self::labelled_async_function_while_plan(statement)
+            }
+            _ => None,
+        }
+    }
+
     fn labelled_async_function_for_of_plan(
         statement: &StatementIr,
     ) -> Option<&AsyncFunctionForOfIteratorPlanIr> {
@@ -1677,8 +1556,56 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    fn labelled_complete_iterator_states(statement: &StatementIr) -> Option<(u32, u32)> {
+        match statement {
+            StatementIr::AsyncGeneratorForIn(plan)
+                if plan.execution() != lila_ir::ResumableRegionProtocolIr::Generator =>
+            {
+                Some((plan.entry_state(), plan.exit_state()))
+            }
+            StatementIr::AsyncGeneratorForOf(plan)
+                if plan.execution() != lila_ir::ResumableRegionProtocolIr::Generator =>
+            {
+                Some((plan.entry_state(), plan.exit_state()))
+            }
+            StatementIr::Labelled { statement, .. } => {
+                Self::labelled_complete_iterator_states(statement)
+            }
+            _ => None,
+        }
+    }
+
     fn generator_statement_entry_state(statement: &StatementIr) -> Option<u32> {
         match statement {
+            StatementIr::AsyncGeneratorLoop(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.entry_state()),
+            StatementIr::AsyncGeneratorSwitch(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.entry_state()),
+            StatementIr::AsyncGeneratorIf(_) | StatementIr::AsyncGeneratorWith(_) => None,
+            StatementIr::AsyncGeneratorForIn(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.entry_state()),
+            StatementIr::AsyncGeneratorForOf(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.entry_state()),
+            StatementIr::AsyncGeneratorResourceScope(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.entry_state()),
+            StatementIr::AsyncGeneratorArrayDestructuring(_) => None,
+            StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => Some(plan.entry_state()),
+            StatementIr::OrdinaryGeneratorWith(plan) => Some(plan.entry_state()),
+            StatementIr::OrdinaryGeneratorSwitch(plan) => Some(plan.entry_state()),
+            StatementIr::EmptyStatementCompletion(item) => {
+                Self::generator_statement_entry_state(item.statement())
+            }
+            StatementIr::OrdinaryGeneratorLoop(plan) => Some(plan.entry_state()),
+            StatementIr::OrdinaryGeneratorIf(plan) => Some(plan.entry_state()),
+            StatementIr::Labelled { statement, .. } => {
+                Self::generator_statement_entry_state(statement)
+            }
+            StatementIr::GeneratorForOfIterator { plan, .. } => Some(plan.entry_state()),
             StatementIr::ResumableClassDefinition(plan) => Some(plan.entry_state()),
             StatementIr::GeneratorYield { suspend_state, .. } => Some(*suspend_state),
             StatementIr::LexicalBlock(statements) => statements
@@ -1724,6 +1651,35 @@ impl<'a> FunctionBuilder<'a> {
 
     fn generator_statement_exit_state(statement: &StatementIr) -> Option<u32> {
         match statement {
+            StatementIr::AsyncGeneratorLoop(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.exit_state()),
+            StatementIr::AsyncGeneratorSwitch(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.exit_state()),
+            StatementIr::AsyncGeneratorIf(_) | StatementIr::AsyncGeneratorWith(_) => None,
+            StatementIr::AsyncGeneratorForIn(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.exit_state()),
+            StatementIr::AsyncGeneratorForOf(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.exit_state()),
+            StatementIr::AsyncGeneratorResourceScope(plan) => (plan.execution()
+                == lila_ir::ResumableRegionProtocolIr::Generator)
+                .then_some(plan.exit_state()),
+            StatementIr::AsyncGeneratorArrayDestructuring(_) => None,
+            StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => Some(plan.exit_state()),
+            StatementIr::OrdinaryGeneratorWith(plan) => Some(plan.exit_state()),
+            StatementIr::OrdinaryGeneratorSwitch(plan) => Some(plan.exit_state()),
+            StatementIr::EmptyStatementCompletion(item) => {
+                Self::generator_statement_exit_state(item.statement())
+            }
+            StatementIr::OrdinaryGeneratorLoop(plan) => Some(plan.exit_state()),
+            StatementIr::OrdinaryGeneratorIf(plan) => Some(plan.exit_state()),
+            StatementIr::Labelled { statement, .. } => {
+                Self::generator_statement_exit_state(statement)
+            }
+            StatementIr::GeneratorForOfIterator { plan, .. } => Some(plan.exit_state()),
             StatementIr::ResumableClassDefinition(plan) => Some(plan.exit_state()),
             StatementIr::GeneratorYield { resume_state, .. } => Some(*resume_state),
             StatementIr::LexicalBlock(statements) => statements
@@ -1770,103 +1726,6 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    fn compile_generator_block_contents(
-        &mut self,
-        block: &BlockIr,
-        entry_state: u32,
-        initialize_bindings: bool,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let activation_local = self
-            .new_target_payload_local()
-            .expect("generator body must use the function call ABI");
-        if block.lexical_environment.is_some() {
-            let exit_state = block
-                .statements
-                .iter()
-                .rev()
-                .find_map(Self::generator_statement_exit_state)
-                .unwrap_or(entry_state);
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(i64::from(entry_state)));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(i64::from(exit_state)));
-            function.instruction(&Instruction::I64LeU);
-            function.instruction(&Instruction::I32And);
-            self.open_frame(ControlFrameKind::If, function);
-        }
-        if let Some(environment) = &block.lexical_environment {
-            self.emit_enter_resumable_block_environment(
-                environment,
-                entry_state,
-                HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                function,
-            )?;
-        }
-        if initialize_bindings {
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(entry_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.initialize_direct_lexical_bindings(&block.statements, function);
-            function.instruction(&Instruction::End);
-        }
-        self.compile_generator_statement_sequence(&block.statements, entry_state, function)?;
-
-        if block.lexical_environment.is_some() {
-            self.emit_leave_lexical_environment(function);
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn compile_generator_statement_sequence(
-        &mut self,
-        statements: &[StatementIr],
-        entry_state: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let activation_local = self
-            .new_target_payload_local()
-            .expect("generator body must use the function call ABI");
-        let mut segment_state = entry_state;
-        for statement in statements {
-            if let Some(exit_state) = Self::generator_statement_exit_state(statement) {
-                self.compile_statement(statement, function)?;
-                segment_state = exit_state;
-                continue;
-            }
-
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(segment_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.compile_statement(statement, function)?;
-            function.instruction(&Instruction::End);
-        }
-        Ok(())
-    }
-
     pub(crate) fn initialize_direct_lexical_bindings(
         &mut self,
         statements: &[StatementIr],
@@ -1874,11 +1733,73 @@ impl<'a> FunctionBuilder<'a> {
     ) {
         for statement in statements {
             match statement {
+                // The original head TDZ and each per-key binding are owned by
+                // the complete ForIn's own phase, never the enclosing block.
+                StatementIr::AsyncGeneratorForIn(_) | StatementIr::AsyncGeneratorForOf(_) => {}
+                StatementIr::AsyncGeneratorResourceScope(_) => {}
+                StatementIr::AsyncGeneratorResourceRegistration(registration) => {
+                    let binding = self
+                        .lookup_current_scope_binding(registration.binding_name())
+                        .or_else(|| self.lookup_binding(registration.binding_name()))
+                        .unwrap_or_else(|| {
+                            // This also publishes an existing activation cell in
+                            // the compiler scope. Resolving its raw storage alone
+                            // leaves later identifier reads without an alias.
+                            self.allocate_binding(
+                                registration.binding_name().to_string(),
+                                BindingMode::Const,
+                                registration.initializer().kind,
+                                function,
+                            )
+                        });
+                    self.initialize_binding_uninitialized(binding, function);
+                }
+                // Every case TDZ/function belongs to the single CaseBlock
+                // entered by its complete Switch, never this enclosing list.
+                StatementIr::OrdinaryGeneratorSwitch(_) | StatementIr::AsyncGeneratorSwitch(_) => {}
+                StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => {
+                    self.initialize_direct_lexical_bindings(
+                        &plan.body().block().statements,
+                        function,
+                    );
+                }
+                StatementIr::AsyncFunctionArrayDestructuring(plan) => {
+                    self.initialize_direct_lexical_bindings(&plan.body().statements, function);
+                }
+                StatementIr::AsyncGeneratorArrayDestructuring(plan) => {
+                    self.initialize_direct_lexical_bindings(
+                        &plan.body().block().statements,
+                        function,
+                    );
+                }
+                StatementIr::OrdinaryGeneratorWith(plan) => {
+                    self.initialize_direct_lexical_bindings(
+                        &plan.body().block().statements,
+                        function,
+                    );
+                }
+                StatementIr::AsyncFunctionWith(plan) => {
+                    self.initialize_direct_lexical_bindings(&plan.body().statements, function);
+                }
+                StatementIr::AsyncGeneratorWith(plan) => {
+                    self.initialize_direct_lexical_bindings(
+                        &plan.body().block().statements,
+                        function,
+                    );
+                }
+                StatementIr::EmptyStatementCompletion(item) => {
+                    self.initialize_direct_lexical_bindings(
+                        std::slice::from_ref(item.statement()),
+                        function,
+                    );
+                }
                 StatementIr::Lexical { mode, name, init } => {
                     let storage = self
                         .lookup_current_scope_binding(name)
                         .or_else(|| self.lookup_binding(name))
-                        .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                        .unwrap_or_else(|| {
+                            self.allocate_binding(name.clone(), *mode, init.kind, function)
+                        });
                     self.initialize_binding_uninitialized(storage, function);
                 }
                 StatementIr::LexicalBlock(statements) => {
@@ -1918,6 +1839,7 @@ impl<'a> FunctionBuilder<'a> {
                                         name.to_string(),
                                         mode,
                                         ValueKind::Dynamic,
+                                        function,
                                     )
                                 });
                             self.initialize_binding_uninitialized(storage, function);
@@ -1937,7 +1859,34 @@ impl<'a> FunctionBuilder<'a> {
                             .lookup_current_scope_binding(name)
                             .or_else(|| self.lookup_binding(name))
                             .unwrap_or_else(|| {
-                                self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
+                                self.allocate_binding(
+                                    name.to_string(),
+                                    mode,
+                                    ValueKind::Dynamic,
+                                    function,
+                                )
+                            });
+                        self.initialize_binding_uninitialized(storage, function);
+                    });
+                }
+                StatementIr::DeclarationEvaluation(TypedExpr {
+                    expr: ExprIr::ObjectDestructuringOperation(operation),
+                    ..
+                }) => {
+                    operation.visit_bindings(&mut |mode, name| {
+                        if mode == BindingMode::Var {
+                            return;
+                        }
+                        let storage = self
+                            .lookup_current_scope_binding(name)
+                            .or_else(|| self.lookup_binding(name))
+                            .unwrap_or_else(|| {
+                                self.allocate_binding(
+                                    name.to_string(),
+                                    mode,
+                                    ValueKind::Dynamic,
+                                    function,
+                                )
                             });
                         self.initialize_binding_uninitialized(storage, function);
                     });
@@ -1947,24 +1896,9 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    /// Compiles one `StatementIr::GeneratorLoop` for a resumable async body.
-    ///
-    /// Each wasm invocation runs one segment of a loop iteration:
-    /// each suspension returns to the job queue and the driver re-enters the
-    /// function from the top. `resume_state_offset` names the activation slot
-    /// holding that state, which differs between a plain async function
-    /// (`HEAP_ASYNC_RESUME_STATE_OFFSET`) and an async generator
-    /// (`HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET`); everything else about the
-    /// loop shape is identical, so both share this emitter.
-    ///
-    /// The loop-carried state (`init` bindings, the iteration variable) lives in
-    /// the activation record, so re-entry skips `init` and picks the iteration
-    /// back up mid-body — ECMA-262 27.7.5.3 AsyncBlockStart resuming inside
-    /// 14.7 iteration statements.
     fn compile_resumable_async_loop(
         &mut self,
         statement: &StatementIr,
-        resume_state_offset: u64,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let StatementIr::GeneratorLoop {
@@ -1980,51 +1914,35 @@ impl<'a> FunctionBuilder<'a> {
             exit_state,
         } = statement
         else {
-            unreachable!("async loop compiler requires a generator loop");
+            return Err(EmitError::unsupported(
+                "compiler invariant: async loop requires its checked resumable plan",
+            ));
         };
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("resumable async loop requires the function call ABI")
-        })?;
-        let activation_environment_offset = match self
-            .current_function_meta()
-            .map(|meta| meta.protocol.execution_kind())
-        {
-            Some(FunctionExecutionKind::Async) => HEAP_ASYNC_ENV_OFFSET,
-            Some(FunctionExecutionKind::AsyncGenerator) => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
-            Some(FunctionExecutionKind::Generator) => HEAP_GENERATOR_ENV_OFFSET,
-            Some(FunctionExecutionKind::Ordinary) | None => {
-                return Err(EmitError::unsupported(
-                    "resumable loop requires a resumable function activation",
-                ));
-            }
-        };
-        let fresh_iteration_environment = match iteration_environment {
+        let schema = self.runtime_schema();
+        let point = self.emit_resumable_resume_point(function)?;
+        let frame = schema.reserve_gc_local(function).initialize(
+            self.pending_completion_frame()?.load(schema, function),
+            function,
+        );
+        let fresh = match iteration_environment {
             ResumableLoopIterationEnvironmentIr::StorageOnly => None,
             ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) => {
                 Some(environment)
             }
         };
-        let state_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_state_offset,
-            state_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(*entry_state as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(*resume_state as i64));
-        function.instruction(&Instruction::I64LeU);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(*entry_state as i32));
+        function.instruction(&Instruction::I32GeU);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(*resume_state as i32));
+        function.instruction(&Instruction::I32LeU);
         function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(*entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(*entry_state as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        if fresh_iteration_environment.is_none() {
+        if fresh.is_none() {
             self.initialize_direct_lexical_bindings(before_suspension, function);
             self.initialize_direct_lexical_bindings(after_suspension, function);
         }
@@ -2033,97 +1951,61 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_dispatch_async_completion(function)?;
         }
         function.instruction(&Instruction::Else);
-        let resume_cleanup_frame =
-            fresh_iteration_environment.map(|_| self.open_frame(ControlFrameKind::Block, function));
-        if let Some(environment) = fresh_iteration_environment {
+        let resume_cleanup = fresh.map(|_| self.open_frame(ControlFrameKind::Block, function));
+        if let Some(environment) = fresh {
             self.push_scope();
-            // An enclosing function-body record may have been reattached since
-            // entry. The loop resumes with its own saved iteration record.
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                activation_environment_offset,
-                self.current_env_local,
-                function,
-            );
+            let saved = schema
+                .struct_type::<InvocationFrame>()
+                .field(InvocationFrameSchema::LEXICAL_ENVIRONMENT)
+                .read(&frame, schema, function)
+                .reference();
+            self.replace_current_environment(saved, function);
             self.begin_existing_lexical_environment_scope(environment);
             self.finally_stack.push(ControlTarget {
                 environment_depth: self.environment_depth,
-                ..resume_cleanup_frame.expect("fresh iteration must have a cleanup frame")
+                ..resume_cleanup.expect("fresh resumed iteration owns cleanup")
             });
         }
         self.compile_statement(suspension_statement, function)?;
-        let first_resume_state = Self::async_statement_exit_state(suspension_statement)
-            .expect("an async loop starts with a direct await");
-        self.compile_async_statement_sequence(
-            after_suspension,
-            first_resume_state,
-            resume_state_offset,
-            function,
-        )?;
-        if fresh_iteration_environment.is_some() {
+        let first_resume =
+            Self::async_statement_exit_state(suspension_statement).ok_or_else(|| {
+                EmitError::unsupported("compiler invariant: async loop has no suspension exit")
+            })?;
+        self.compile_resumable_statement_sequence(after_suspension, first_resume, function)?;
+        if fresh.is_some() {
             self.finally_stack.pop();
             self.pop_control(ControlFrameKind::Block);
             function.instruction(&Instruction::End);
-            // Both normal fallthrough and an abrupt branch reach this one
-            // leave. The cleanup target carries the child depth, so branching
-            // to it cannot also unwind the record on the way here.
             self.emit_leave_lexical_environment(function);
             self.pop_scope();
-            self.store_i64_local_at_offset(
-                activation_local,
-                activation_environment_offset,
-                self.current_env_local,
-                function,
-            );
-            // Publish the parent before an abrupt completion leaves the loop;
-            // Normal falls through to update.
+            self.emit_save_resumable_environment(function)?;
             self.emit_dispatch_async_completion(function)?;
         }
         if let Some(update) = update {
-            self.compile_expr_payload(update, function)?;
-            function.instruction(&Instruction::Drop);
+            let value = schema.reserve_value_local(function);
+            self.compile_expr_to_value(update, &value, function)?;
+            value.clear(function);
             self.emit_dispatch_async_completion(function)?;
         }
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        let condition_local = self.reserve_temp_local();
         if let Some(test) = test {
             self.compile_truthy_i32(test, function)?;
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(condition_local));
             self.emit_dispatch_async_completion(function)?;
         } else {
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(condition_local));
+            function.instruction(&Instruction::I32Const(1));
         }
-        function.instruction(&Instruction::LocalGet(condition_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.release_temp_local(condition_local);
         self.open_frame(ControlFrameKind::If, function);
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(*entry_state),
-            function,
-        );
-        let entry_cleanup_frame =
-            fresh_iteration_environment.map(|_| self.open_frame(ControlFrameKind::Block, function));
-        if let Some(environment) = fresh_iteration_environment {
+        self.emit_set_resumable_resume_point(*entry_state, function)?;
+        let entry_cleanup = fresh.map(|_| self.open_frame(ControlFrameKind::Block, function));
+        if let Some(environment) = fresh {
             self.push_scope();
-            // The test ran in the parent environment. A successful test owns
-            // exactly one new cell before the loop binding is initialized.
             self.emit_enter_lexical_environment(environment, function)?;
             self.finally_stack.push(ControlTarget {
                 environment_depth: self.environment_depth,
-                ..entry_cleanup_frame.expect("fresh iteration must have a cleanup frame")
+                ..entry_cleanup.expect("fresh entered iteration owns cleanup")
             });
-            self.store_i64_local_at_offset(
-                activation_local,
-                activation_environment_offset,
-                self.current_env_local,
-                function,
-            );
+            self.emit_save_resumable_environment(function)?;
         }
         self.initialize_direct_lexical_bindings(before_suspension, function);
         self.initialize_direct_lexical_bindings(after_suspension, function);
@@ -2131,41 +2013,172 @@ impl<'a> FunctionBuilder<'a> {
             self.compile_statement(statement, function)?;
         }
         self.compile_statement(suspension_statement, function)?;
-        if fresh_iteration_environment.is_some() {
-            // The suspension path returns directly and leaves the child in the
-            // activation. Abrupt and non-suspending paths converge after the
-            // block and execute exactly one leave before any later loop work.
+        if fresh.is_some() {
             self.finally_stack.pop();
             self.pop_control(ControlFrameKind::Block);
             function.instruction(&Instruction::End);
             self.emit_leave_lexical_environment(function);
             self.pop_scope();
-            self.store_i64_local_at_offset(
-                activation_local,
-                activation_environment_offset,
-                self.current_env_local,
-                function,
-            );
+            self.emit_save_resumable_environment(function)?;
             self.emit_dispatch_async_completion(function)?;
         }
         function.instruction(&Instruction::Else);
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(*exit_state),
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_set_resumable_resume_point(*exit_state, function)?;
+        self.emit_statement_result(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(state_local);
+        frame.clear(function);
+        schema.release_i32_local(point, function);
         Ok(())
     }
 
-    fn compile_async_generator_if(
+    pub(crate) fn control_flow_async_generator_activation(
+        &self,
+        function: &mut Function,
+    ) -> Result<GcLocal<AsyncGeneratorActivation>, EmitError> {
+        let schema = self.runtime_schema();
+        match self
+            .body_entry_locals()
+            .and_then(|entry| entry.resume_activation())
+        {
+            Some(crate::function_entry::ResumableEntryLocals::AsyncGenerator(activation)) => {
+                Ok(schema
+                    .reserve_gc_local(function)
+                    .initialize(activation.load(schema, function), function))
+            }
+            Some(
+                crate::function_entry::ResumableEntryLocals::Async(_)
+                | crate::function_entry::ResumableEntryLocals::Generator(_),
+            )
+            | None => Err(EmitError::unsupported(
+                "compiler invariant: async-generator statement has no matching activation",
+            )),
+        }
+    }
+
+    pub(crate) fn control_flow_generator_activation(
+        &self,
+        function: &mut Function,
+    ) -> Result<GcLocal<GeneratorActivation>, EmitError> {
+        let schema = self.runtime_schema();
+        match self
+            .body_entry_locals()
+            .and_then(|entry| entry.resume_activation())
+        {
+            Some(crate::function_entry::ResumableEntryLocals::Generator(activation)) => Ok(schema
+                .reserve_gc_local(function)
+                .initialize(activation.load(schema, function), function)),
+            Some(
+                crate::function_entry::ResumableEntryLocals::Async(_)
+                | crate::function_entry::ResumableEntryLocals::AsyncGenerator(_),
+            )
+            | None => Err(EmitError::unsupported(
+                "compiler invariant: generator statement has no matching activation",
+            )),
+        }
+    }
+
+    fn control_flow_async_activation(
+        &self,
+        function: &mut Function,
+    ) -> Result<GcLocal<AsyncActivation>, EmitError> {
+        let schema = self.runtime_schema();
+        match self
+            .body_entry_locals()
+            .and_then(|entry| entry.resume_activation())
+        {
+            Some(crate::function_entry::ResumableEntryLocals::Async(activation)) => Ok(schema
+                .reserve_gc_local(function)
+                .initialize(activation.load(schema, function), function)),
+            Some(
+                crate::function_entry::ResumableEntryLocals::Generator(_)
+                | crate::function_entry::ResumableEntryLocals::AsyncGenerator(_),
+            )
+            | None => Err(EmitError::unsupported(
+                "compiler invariant: async statement has no matching activation",
+            )),
+        }
+    }
+
+    fn emit_resumable_state_equals(
+        &self,
+        state: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let point = self.emit_resumable_resume_point(function)?;
+        point.load(function);
+        function.instruction(&Instruction::I32Const(state as i32));
+        function.instruction(&Instruction::I32Eq);
+        schema.release_i32_local(point, function);
+        Ok(())
+    }
+
+    pub(crate) fn emit_set_resumable_resume_point(
+        &self,
+        state: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let point = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(state as i32));
+        point.store(function);
+        self.emit_set_resumable_resume_point_local(point, function)?;
+        schema.release_i32_local(point, function);
+        Ok(())
+    }
+    fn emit_set_resumable_resume_point_local(
+        &self,
+        point: I32Local,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let activation = self
+            .body_entry_locals()
+            .and_then(|entry| entry.resume_activation())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "compiler invariant: state publication has no resumable activation",
+                )
+            })?;
+        match activation {
+            crate::function_entry::ResumableEntryLocals::Generator(activation) => schema
+                .struct_type::<GeneratorActivation>()
+                .field(GeneratorActivationSchema::RESUME_POINT)
+                .write(activation, GcOperand::i32_local(point), schema, function),
+            crate::function_entry::ResumableEntryLocals::Async(activation) => schema
+                .struct_type::<AsyncActivation>()
+                .field(AsyncActivationSchema::RESUME_POINT)
+                .write(activation, GcOperand::i32_local(point), schema, function),
+            crate::function_entry::ResumableEntryLocals::AsyncGenerator(activation) => schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::RESUME_POINT)
+                .write(activation, GcOperand::i32_local(point), schema, function),
+        }
+        Ok(())
+    }
+
+    pub(crate) fn emit_save_resumable_environment(
+        &self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let frame = self.pending_completion_frame()?;
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::LEXICAL_ENVIRONMENT)
+            .write(
+                frame,
+                GcOperand::reference(self.current_environment(), schema),
+                schema,
+                function,
+            );
+        Ok(())
+    }
+
+    fn compile_resumable_generator_if(
         &mut self,
         statement: &StatementIr,
         function: &mut Function,
@@ -2184,134 +2197,108 @@ impl<'a> FunctionBuilder<'a> {
             exit_state,
         } = statement
         else {
-            unreachable!("async-generator branch compiler requires a generator branch");
+            return Err(EmitError::unsupported(
+                "compiler invariant: resumable branch requires its checked plan",
+            ));
         };
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async-generator branch requires the function call ABI")
-        })?;
-        let state_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            state_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(*entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        for resume_state in [then_resume_state, else_resume_state].into_iter().flatten() {
-            function.instruction(&Instruction::LocalGet(state_local));
-            function.instruction(&Instruction::I64Const(*resume_state as i64));
-            function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        let point = self.emit_resumable_resume_point(function)?;
+        point.load(function);
+        function.instruction(&Instruction::I32Const(*entry_state as i32));
+        function.instruction(&Instruction::I32Eq);
+        for state in [then_resume_state, else_resume_state].into_iter().flatten() {
+            point.load(function);
+            function.instruction(&Instruction::I32Const(*state as i32));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::I32Or);
         }
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        self.compile_async_generator_if_resume_test(*then_resume_state, state_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(yield_statement) = then_yield_statement {
-            self.compile_statement(yield_statement, function)?;
-        }
-        for statement in then_after_yield {
-            self.compile_statement(statement, function)?;
-        }
-        self.complete_async_generator_if_branch(activation_local, *exit_state, function);
-        function.instruction(&Instruction::Else);
-
-        self.compile_async_generator_if_resume_test(*else_resume_state, state_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(yield_statement) = else_yield_statement {
-            self.compile_statement(yield_statement, function)?;
-        }
-        for statement in else_after_yield {
-            self.compile_statement(statement, function)?;
-        }
-        self.complete_async_generator_if_branch(activation_local, *exit_state, function);
-        function.instruction(&Instruction::Else);
-
+        self.open_frame(ControlFrameKind::If, function);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(*entry_state as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
         self.compile_truthy_i32(condition, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        for statement in then_before_yield {
-            self.compile_statement(statement, function)?;
-        }
-        self.compile_async_generator_if_initial_branch(
-            activation_local,
+        self.emit_propagate_current_throw_if_needed(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.compile_resumable_generator_if_initial_branch(
+            then_before_yield,
+            then_after_yield,
             then_yield_statement.as_deref(),
             *exit_state,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        for statement in else_before_yield {
-            self.compile_statement(statement, function)?;
-        }
-        self.compile_async_generator_if_initial_branch(
-            activation_local,
+        self.compile_resumable_generator_if_initial_branch(
+            else_before_yield,
+            else_after_yield,
             else_yield_statement.as_deref(),
             *exit_state,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        for (resume_state, yielded, after) in [
+            (
+                *then_resume_state,
+                then_yield_statement.as_deref(),
+                then_after_yield.as_slice(),
+            ),
+            (
+                *else_resume_state,
+                else_yield_statement.as_deref(),
+                else_after_yield.as_slice(),
+            ),
+        ] {
+            if let Some(resume_state) = resume_state {
+                point.load(function);
+                function.instruction(&Instruction::I32Const(resume_state as i32));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                if let Some(yielded) = yielded {
+                    self.compile_statement(yielded, function)?;
+                }
+                self.compile_resumable_statement_sequence(after, resume_state, function)?;
+                self.emit_set_resumable_resume_point(*exit_state, function)?;
+                self.emit_statement_result(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
+        }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(state_local);
+        schema.release_i32_local(point, function);
         Ok(())
     }
 
-    fn compile_async_generator_if_resume_test(
-        &self,
-        resume_state: Option<u32>,
-        state_local: u32,
-        function: &mut Function,
-    ) {
-        let Some(resume_state) = resume_state else {
-            function.instruction(&Instruction::I32Const(0));
-            return;
-        };
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-    }
-
-    fn compile_async_generator_if_initial_branch(
+    fn compile_resumable_generator_if_initial_branch(
         &mut self,
-        activation_local: u32,
-        yield_statement: Option<&StatementIr>,
+        before: &[StatementIr],
+        after: &[StatementIr],
+        yielded: Option<&StatementIr>,
         exit_state: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let Some(yield_statement) = yield_statement else {
-            self.complete_async_generator_if_branch(activation_local, exit_state, function);
-            return Ok(());
-        };
-        let StatementIr::GeneratorYield { suspend_state, .. } = yield_statement else {
-            return Err(EmitError::unsupported(
-                "async-generator branch must contain one direct yield",
-            ));
-        };
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            u64::from(*suspend_state),
-            function,
-        );
-        self.compile_statement(yield_statement, function)
-    }
-
-    fn complete_async_generator_if_branch(
-        &mut self,
-        activation_local: u32,
-        exit_state: u32,
-        function: &mut Function,
-    ) {
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            u64::from(exit_state),
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.initialize_direct_lexical_bindings(before, function);
+        self.initialize_direct_lexical_bindings(after, function);
+        for statement in before {
+            self.compile_statement(statement, function)?;
+        }
+        if let Some(yielded) = yielded {
+            let StatementIr::GeneratorYield { suspend_state, .. } = yielded else {
+                return Err(EmitError::unsupported(
+                    "compiler invariant: resumable branch must own a direct yield",
+                ));
+            };
+            self.emit_set_resumable_resume_point(*suspend_state, function)?;
+            self.compile_statement(yielded, function)?;
+        } else {
+            self.emit_set_resumable_resume_point(exit_state, function)?;
+            self.emit_statement_result(function);
+        }
+        Ok(())
     }
 
     fn compile_async_generator_yield(
@@ -2326,6 +2313,13 @@ impl<'a> FunctionBuilder<'a> {
         match form {
             YieldForm::Plain => {}
             YieldForm::Delegate(_) => {
+                if self.has_generator_statement_list_value() {
+                    self.emit_resumable_state_equals(suspend_state, function)?;
+                    self.open_frame(ControlFrameKind::If, function);
+                    self.emit_checkpoint_generator_statement_list_value(function);
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                }
                 return self.compile_async_generator_delegation(
                     value,
                     suspend_state,
@@ -2336,166 +2330,135 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
         }
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async-generator suspension requires the function call ABI")
-        })?;
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(suspend_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let activation = self.control_flow_async_generator_activation(function)?;
+        let yielded = schema.reserve_value_local(function);
+        let resumed = schema.reserve_value_local(function);
+        let kind = schema.reserve_i32_local(function);
+        let row = schema.struct_type::<AsyncGeneratorActivation>();
+        self.emit_resumable_state_equals(suspend_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_checkpoint_generator_statement_list_value(function);
         if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
-            self.prepare_suspended_property_reference(reference, activation_local, function)?;
+            self.prepare_suspended_property_reference(reference, function)?;
         }
-        self.compile_expr_to_locals(value, self.result_local, self.result_tag_local, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            u64::from(resume_state),
+        self.compile_expr_to_value(value, &yielded, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_set_resumable_resume_point(resume_state, function)?;
+        self.emit_save_resumable_environment(function)?;
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&yielded, function),
             function,
         );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.emit_store_async_generator_body_status(
-            activation_local,
-            AsyncGeneratorBodyStatus::Yield,
-            function,
-        );
-        self.emit_store_async_generator_execution_state(
-            activation_local,
-            AsyncGeneratorExecutionState::SuspendedYield,
-            function,
-        );
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(resume_state),
-            function,
-        );
+        row.field(AsyncGeneratorActivationSchema::BODY_RESULT)
+            .write(
+                &activation,
+                GcOperand::reference(&stored, schema),
+                schema,
+                function,
+            );
+        stored.clear(function);
+        row.field(AsyncGeneratorActivationSchema::BODY_STATUS)
+            .write(
+                &activation,
+                GcOperand::constant(AsyncGeneratorBodyStatus::Yield),
+                schema,
+                function,
+            );
+        row.field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+            .write(
+                &activation,
+                GcOperand::constant(AsyncGeneratorExecutionState::SuspendedYield),
+                schema,
+                function,
+            );
+        self.completion().set_normal(&yielded, function);
         self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
+        self.emit_resumable_state_equals(resume_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        row.field(AsyncGeneratorActivationSchema::RESUME_KIND)
+            .read(&activation, schema, function)
+            .store(kind, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            row.field(AsyncGeneratorActivationSchema::RESUME_VALUE)
+                .read(&activation, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let resume_kind =
-            self.emit_load_async_generator_resume_kind_strict(activation_local, function);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-
-        self.emit_async_generator_resume_kind_equals(
-            &resume_kind,
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &resumed, schema, function);
+        stored.clear(function);
+        self.completion().set_normal(&resumed, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorResumeKind::Return,
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Return,
-            ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED as i64,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.set_completion_kind(CompletionKind::Return, function);
+        self.emit_mark_async_generator_return_awaited(&activation, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_async_generator_resume_kind_equals(
-            &resume_kind,
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorResumeKind::Throw,
-            function,
-        );
-        self.emit_async_generator_resume_kind_equals(
-            &resume_kind,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorResumeKind::Reject,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.set_completion_kind(CompletionKind::Throw, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_loaded_async_generator_resume_kind(resume_kind);
         if let GeneratorResumeModeIr::AssignProperty(_) = resume_mode {
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.clear_suspended_property_reference(activation_local, function)?;
+            self.completion().kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+            function.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, function);
+            self.clear_suspended_property_reference(function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
         self.emit_dispatch_async_generator_completion(function);
-
         match resume_mode {
             GeneratorResumeModeIr::Ignore => {
-                self.emit_statement_result(function, ValueKind::Undefined);
+                if !self.has_generator_statement_list_value() {
+                    self.emit_statement_result(function);
+                }
             }
             GeneratorResumeModeIr::Return => {
                 self.set_completion_kind(CompletionKind::Return, function);
                 self.emit_dispatch_async_generator_completion(function);
             }
             GeneratorResumeModeIr::AssignIdentifier(name) => {
-                self.emit_resumed_binding_assignment(
-                    name,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.emit_resumed_binding_assignment(name, &resumed, function)?;
+                self.emit_statement_result(function);
             }
             GeneratorResumeModeIr::AssignGlobal { name, strictness } => {
-                self.emit_resumed_global_assignment(
-                    name,
-                    self.result_local,
-                    self.result_tag_local,
-                    *strictness,
-                    function,
-                )?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.emit_resumed_global_assignment(name, &resumed, *strictness, function)?;
+                self.emit_statement_result(function);
             }
             GeneratorResumeModeIr::AssignProperty(reference) => {
-                self.write_suspended_property_reference(
-                    reference,
-                    activation_local,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.write_suspended_property_reference(reference, &resumed, function)?;
+                self.emit_statement_result(function);
             }
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        resumed.clear(function);
+        yielded.clear(function);
+        activation.clear(function);
         Ok(())
     }
 
@@ -2507,150 +2470,328 @@ impl<'a> FunctionBuilder<'a> {
         resume_mode: &AsyncResumeModeIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async-generator suspension requires the function call ABI")
-        })?;
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(suspend_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.compile_expr_to_locals(value, self.result_local, self.result_tag_local, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            u64::from(resume_state),
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.emit_async_generator_await_reactions(
-            activation_local,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_store_async_generator_body_status(
-            activation_local,
-            AsyncGeneratorBodyStatus::Await,
-            function,
-        );
-        self.emit_store_async_generator_execution_state(
-            activation_local,
-            AsyncGeneratorExecutionState::Executing,
-            function,
-        );
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(resume_state),
-            function,
-        );
+        let schema = self.runtime_schema();
+        let activation = self.control_flow_async_generator_activation(function)?;
+        let awaited = schema.reserve_value_local(function);
+        let resumed = schema.reserve_value_local(function);
+        let kind = schema.reserve_i32_local(function);
+        let row = schema.struct_type::<AsyncGeneratorActivation>();
+        self.emit_resumable_state_equals(suspend_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_checkpoint_generator_statement_list_value(function);
+        self.compile_expr_to_value(value, &awaited, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_set_resumable_resume_point(resume_state, function)?;
+        self.emit_save_resumable_environment(function)?;
+        self.emit_async_generator_await_reactions(&activation, &awaited, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        row.field(AsyncGeneratorActivationSchema::BODY_STATUS)
+            .write(
+                &activation,
+                GcOperand::constant(AsyncGeneratorBodyStatus::Await),
+                schema,
+                function,
+            );
+        row.field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+            .write(
+                &activation,
+                GcOperand::constant(AsyncGeneratorExecutionState::Executing),
+                schema,
+                function,
+            );
+        self.completion().set_normal(&awaited, function);
         self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
+        self.emit_resumable_state_equals(resume_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        row.field(AsyncGeneratorActivationSchema::RESUME_KIND)
+            .read(&activation, schema, function)
+            .store(kind, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            row.field(AsyncGeneratorActivationSchema::RESUME_VALUE)
+                .read(&activation, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let resume_kind =
-            self.emit_load_async_generator_resume_kind_strict(activation_local, function);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.emit_async_generator_resume_kind_equals(
-            &resume_kind,
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &resumed, schema, function);
+        stored.clear(function);
+        self.completion().set_normal(&resumed, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorResumeKind::Reject,
-            function,
-        );
-        self.emit_async_generator_resume_kind_equals(
-            &resume_kind,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorResumeKind::Throw,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.set_completion_kind(CompletionKind::Throw, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_async_generator_resume_kind_equals(
-            &resume_kind,
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorResumeKind::Return,
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
         self.set_completion_kind(CompletionKind::Return, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_loaded_async_generator_resume_kind(resume_kind);
         self.emit_dispatch_async_generator_completion(function);
-
         match resume_mode {
             AsyncResumeModeIr::Ignore => {
-                self.emit_statement_result(function, ValueKind::Undefined);
+                if !self.has_generator_statement_list_value() {
+                    self.emit_statement_result(function);
+                }
             }
             AsyncResumeModeIr::Return => {
-                self.set_completion_kind_with_aux(
-                    CompletionKind::Return,
-                    ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED as i64,
-                    function,
-                );
+                self.emit_mark_async_generator_return_awaited(&activation, function);
+                self.set_completion_kind(CompletionKind::Return, function);
                 self.emit_dispatch_async_generator_completion(function);
             }
             AsyncResumeModeIr::AssignIdentifier(name) => {
-                self.emit_resumed_binding_assignment(
-                    name,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.emit_resumed_binding_assignment(name, &resumed, function)?;
+                self.emit_statement_result(function);
             }
             AsyncResumeModeIr::AssignGlobal { name, strictness } => {
-                self.emit_resumed_global_assignment(
-                    name,
-                    self.result_local,
-                    self.result_tag_local,
-                    *strictness,
-                    function,
-                )?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.emit_resumed_global_assignment(name, &resumed, *strictness, function)?;
+                self.emit_statement_result(function);
             }
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        resumed.clear(function);
+        awaited.clear(function);
+        activation.clear(function);
+        Ok(())
+    }
+
+    fn compile_plain_generator_yield(
+        &mut self,
+        value: &TypedExpr,
+        form: &YieldForm,
+        suspend_state: u32,
+        resume_state: u32,
+        resume_mode: &GeneratorResumeModeIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match form {
+            YieldForm::Plain => {}
+            YieldForm::Delegate(_) => {
+                if self.has_generator_statement_list_value() {
+                    self.emit_resumable_state_equals(suspend_state, function)?;
+                    self.open_frame(ControlFrameKind::If, function);
+                    self.emit_checkpoint_generator_statement_list_value(function);
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                }
+                return self.compile_generator_delegation(
+                    value,
+                    suspend_state,
+                    resume_state,
+                    resume_mode,
+                    function,
+                );
+            }
+        }
+        let schema = self.runtime_schema();
+        let activation = self.control_flow_generator_activation(function)?;
+        let yielded = schema.reserve_value_local(function);
+        let resumed = schema.reserve_value_local(function);
+        let kind = schema.reserve_i32_local(function);
+        let row = schema.struct_type::<GeneratorActivation>();
+        self.emit_resumable_state_equals(suspend_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_checkpoint_generator_statement_list_value(function);
+        if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
+            self.prepare_suspended_property_reference(reference, function)?;
+        }
+        self.compile_expr_to_value(value, &yielded, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_set_resumable_resume_point(resume_state, function)?;
+        self.emit_save_resumable_environment(function)?;
+        row.field(GeneratorActivationSchema::STATUS).write(
+            &activation,
+            GcOperand::constant(GeneratorState::SuspendedYield),
+            schema,
+            function,
+        );
+        self.completion().set_normal(&yielded, function);
+        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_resumable_state_equals(resume_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        row.field(GeneratorActivationSchema::RESUME_KIND)
+            .read(&activation, schema, function)
+            .store(kind, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            row.field(GeneratorActivationSchema::RESUME_VALUE)
+                .read(&activation, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &resumed, schema, function);
+        stored.clear(function);
+        self.completion().set_normal(&resumed, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            GeneratorResumeKind::Return,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.set_completion_kind(CompletionKind::Return, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            GeneratorResumeKind::Throw,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.set_completion_kind(CompletionKind::Throw, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        if let GeneratorResumeModeIr::AssignProperty(_) = resume_mode {
+            self.completion().kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+            function.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, function);
+            self.clear_suspended_property_reference(function)?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_dispatch_current_completion(function)?;
+        match resume_mode {
+            GeneratorResumeModeIr::Ignore => {
+                if !self.has_generator_statement_list_value() {
+                    self.emit_statement_result(function);
+                }
+            }
+            GeneratorResumeModeIr::Return => {
+                self.set_completion_kind(CompletionKind::Return, function);
+                self.emit_dispatch_current_completion(function)?;
+            }
+            GeneratorResumeModeIr::AssignIdentifier(name) => {
+                self.emit_resumed_binding_assignment(name, &resumed, function)?;
+                self.emit_statement_result(function);
+            }
+            GeneratorResumeModeIr::AssignGlobal { name, strictness } => {
+                self.emit_resumed_global_assignment(name, &resumed, *strictness, function)?;
+                self.emit_statement_result(function);
+            }
+            GeneratorResumeModeIr::AssignProperty(reference) => {
+                self.write_suspended_property_reference(reference, &resumed, function)?;
+                self.emit_statement_result(function);
+            }
+        }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        resumed.clear(function);
+        yielded.clear(function);
+        activation.clear(function);
+        Ok(())
+    }
+
+    fn compile_plain_async_await(
+        &mut self,
+        value: &TypedExpr,
+        suspend_state: u32,
+        resume_state: u32,
+        resume_mode: &AsyncResumeModeIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let activation = self.control_flow_async_activation(function)?;
+        let awaited = schema.reserve_value_local(function);
+        let resumed = schema.reserve_value_local(function);
+        let kind = schema.reserve_i32_local(function);
+        let row = schema.struct_type::<AsyncActivation>();
+        self.emit_resumable_state_equals(suspend_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_checkpoint_generator_statement_list_value(function);
+        self.compile_expr_to_value(value, &awaited, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_set_resumable_resume_point(resume_state, function)?;
+        if matches!(
+            value.expr,
+            ExprIr::ModuleEvaluate(_) | ExprIr::ModuleDeferredImportEvaluate(_)
+        ) {
+            let promise = schema.reserve_gc_local(function).initialize(
+                awaited.cast_reference::<PromiseObject>(schema, function),
+                function,
+            );
+            self.emit_module_import_await_reactions(&activation, &promise, function)?;
+            promise.clear(function);
+        } else {
+            self.emit_async_await_reactions(&activation, &awaited, function)?;
+        }
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_return_async_suspension(function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_resumable_state_equals(resume_state, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        row.field(AsyncActivationSchema::RESUME_COMPLETION)
+            .read(&activation, schema, function)
+            .store(kind, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            row.field(AsyncActivationSchema::RESUME_VALUE)
+                .read(&activation, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &resumed, schema, function);
+        stored.clear(function);
+        self.completion().set_normal(&resumed, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            AwaitCompletionKind::Throw,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.set_completion_kind(CompletionKind::Throw, function);
+        self.emit_dispatch_current_completion(function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        match resume_mode {
+            AsyncResumeModeIr::Ignore => {
+                if !self.has_generator_statement_list_value() {
+                    self.emit_statement_result(function);
+                }
+            }
+            AsyncResumeModeIr::Return => {
+                self.set_completion_kind(CompletionKind::Return, function);
+                self.emit_dispatch_current_completion(function)?;
+            }
+            AsyncResumeModeIr::AssignIdentifier(name) => {
+                self.emit_resumed_binding_assignment(name, &resumed, function)?;
+                self.emit_statement_result(function);
+            }
+            AsyncResumeModeIr::AssignGlobal { name, strictness } => {
+                self.emit_resumed_global_assignment(name, &resumed, *strictness, function)?;
+                self.emit_statement_result(function);
+            }
+        }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        resumed.clear(function);
+        awaited.clear(function);
+        activation.clear(function);
         Ok(())
     }
 
@@ -2660,7 +2801,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if self.current_function_meta().is_some_and(|meta| {
-            meta.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
         }) {
             match statement {
                 StatementIr::GeneratorYield {
@@ -2694,14 +2835,10 @@ impl<'a> FunctionBuilder<'a> {
                     );
                 }
                 StatementIr::GeneratorLoop { .. } => {
-                    return self.compile_resumable_async_loop(
-                        statement,
-                        HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-                        function,
-                    );
+                    return self.compile_resumable_async_loop(statement, function);
                 }
                 StatementIr::GeneratorIf { .. } => {
-                    return self.compile_async_generator_if(statement, function);
+                    return self.compile_resumable_generator_if(statement, function);
                 }
                 _ => {}
             }
@@ -2711,15 +2848,11 @@ impl<'a> FunctionBuilder<'a> {
         // one-iteration-per-invocation state machine; only the activation slot
         // holding the resume state differs.
         if matches!(statement, StatementIr::GeneratorLoop { .. })
-            && self
-                .current_function_meta()
-                .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+            && self.current_function_meta().is_some_and(|meta| {
+                meta.protocol().execution_kind() == FunctionExecutionKind::Async
+            })
         {
-            return self.compile_resumable_async_loop(
-                statement,
-                HEAP_ASYNC_RESUME_STATE_OFFSET,
-                function,
-            );
+            return self.compile_resumable_async_loop(statement, function);
         }
 
         match statement {
@@ -2727,7 +2860,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_resumable_class_definition(plan, function)?
             }
             StatementIr::ModuleImportBinding(import) => {
-                self.allocate_binding(import.name.clone(), BindingMode::Const, ValueKind::Dynamic);
+                self.allocate_binding(
+                    import.name.clone(),
+                    BindingMode::Const,
+                    ValueKind::Dynamic,
+                    function,
+                );
                 self.emit_module_import_binding(import, function)?;
             }
             StatementIr::ModuleUnitOnce { module, block } => {
@@ -2735,19 +2873,36 @@ impl<'a> FunctionBuilder<'a> {
             }
             StatementIr::Empty => {}
             StatementIr::Lexical { mode, name, init } => {
+                if let ExprIr::CaptureArgumentList(capture) = &init.expr {
+                    let schema = self.runtime_schema();
+                    let saved = schema.reserve_completion(function);
+                    saved.copy_from(self.completion(), function);
+                    let storage = self
+                        .lookup_current_scope_binding(name)
+                        .or_else(|| self.lookup_binding(name))
+                        .unwrap_or_else(|| {
+                            self.allocate_binding(name.clone(), *mode, ValueKind::Dynamic, function)
+                        });
+                    let arguments = self.emit_argument_list_capture(capture, function)?;
+                    self.emit_store_captured_argument_list(storage, &arguments, function)?;
+                    arguments.clear(function);
+                    self.completion().copy_from(&saved, function);
+                    saved.clear(function);
+                    return Ok(());
+                }
                 let saved = self.save_statement_list_value(function);
                 let storage = self
                     .lookup_current_scope_binding(name)
                     .or_else(|| self.lookup_binding(name))
-                    .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                    .unwrap_or_else(|| {
+                        self.allocate_binding(name.clone(), *mode, init.kind, function)
+                    });
                 self.initialize_binding_uninitialized(storage, function);
-                let value_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(init, value_local, tag_local, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(value_local, tag_local, function)?;
-                self.write_binding_from_locals(storage, value_local, tag_local, function);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(value_local);
+                let value = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(init, &value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.write_binding_from_locals(storage, &value, function);
+                value.clear(function);
                 self.restore_statement_list_value(saved, function)?;
             }
             StatementIr::SyncDisposableScope {
@@ -2778,49 +2933,20 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            StatementIr::DeclarationEvaluation(expr) => {
+            StatementIr::DeclarationEvaluation(expression) => {
                 let saved = self.save_statement_list_value(function);
-                self.compile_expr_to_locals(
-                    expr,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let value = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(expression, &value, function)?;
+                value.clear(function);
                 self.restore_statement_list_value(saved, function)?;
             }
             StatementIr::Expression(expr) => {
-                if !expr.possible_kinds.is_singleton()
-                    || expr_result_tag_is_runtime_dynamic(&expr.expr)
-                {
-                    self.compile_expr_to_locals(
-                        expr,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                } else {
-                    self.compile_expr_payload(expr, function)?;
-                    // A thrown completion always co-homes the thrown value in
-                    // `result_local` (every `emit_throw_*` / helper-call
-                    // `store_call_results_to` sets it). The statement value left
-                    // on the stack by `compile_expr_payload` is the *normal*
-                    // result and is unrelated on the throw path, so propagate the
-                    // throw from `result_local` — not `scratch_local`, which holds
-                    // unrelated scratch state and would replace a real Error
-                    // instance (e.g. a strict read-only / setter / Proxy write
-                    // TypeError) with garbage.
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.finish_statement_payload(function, expr.kind);
-                }
+                let value = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(expr, &value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.completion().value().copy_from(&value, function);
+                self.set_completion_kind(CompletionKind::Normal, function);
+                value.clear(function);
             }
             StatementIr::GeneratorYield {
                 value,
@@ -2829,277 +2955,54 @@ impl<'a> FunctionBuilder<'a> {
                 resume_state,
                 resume_mode,
             } => {
-                match form {
-                    YieldForm::Plain => {}
-                    YieldForm::Delegate(_) => {
-                        return self.compile_generator_delegation(
-                            value,
-                            *suspend_state,
-                            *resume_state,
-                            resume_mode,
-                            function,
-                        );
-                    }
-                }
-                let activation_local = self.new_target_payload_local().ok_or_else(|| {
-                    EmitError::unsupported("generator suspension requires the function call ABI")
-                })?;
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    self.scratch_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(*suspend_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
-                    self.prepare_suspended_property_reference(
-                        reference,
-                        activation_local,
-                        function,
-                    )?;
-                }
-                self.compile_expr_to_locals(
+                self.compile_plain_generator_yield(
                     value,
-                    self.result_local,
-                    self.result_tag_local,
+                    form,
+                    *suspend_state,
+                    *resume_state,
+                    resume_mode,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*resume_state),
-                    function,
-                );
-                self.emit_save_generator_suspension_environment(activation_local, function);
-                self.set_completion_kind_with_aux(
-                    CompletionKind::Normal,
-                    i64::from(*resume_state),
-                    function,
-                );
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    self.scratch_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(*resume_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                let resume_kind =
-                    self.emit_load_generator_resume_kind_strict(activation_local, function);
-                self.emit_generator_resume_kind_equals(
-                    &resume_kind,
-                    GeneratorResumeKind::Return,
-                    function,
-                );
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
-                    self.result_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_TAG_OFFSET,
-                    self.result_tag_local,
-                    function,
-                );
-                self.set_completion_kind(CompletionKind::Return, function);
-                function.instruction(&Instruction::End);
-                self.emit_generator_resume_kind_equals(
-                    &resume_kind,
-                    GeneratorResumeKind::Throw,
-                    function,
-                );
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
-                    self.result_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_TAG_OFFSET,
-                    self.result_tag_local,
-                    function,
-                );
-                self.set_completion_kind(CompletionKind::Throw, function);
-                function.instruction(&Instruction::End);
-                self.release_loaded_generator_resume_kind(resume_kind);
-                self.emit_dispatch_current_completion(function)?;
-                function.instruction(&Instruction::End);
-
-                if matches!(resume_mode, GeneratorResumeModeIr::Return) {
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        self.scratch_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
-                        self.result_local,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_TAG_OFFSET,
-                        self.result_tag_local,
-                        function,
-                    );
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::End);
-                }
-                if let GeneratorResumeModeIr::AssignIdentifier(name)
-                | GeneratorResumeModeIr::AssignGlobal { name, .. } = resume_mode
-                {
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        self.scratch_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
-                        self.result_local,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_TAG_OFFSET,
-                        self.result_tag_local,
-                        function,
-                    );
-                    match resume_mode {
-                        GeneratorResumeModeIr::AssignIdentifier(_) => self
-                            .emit_resumed_binding_assignment(
-                                name,
-                                self.result_local,
-                                self.result_tag_local,
-                                function,
-                            )?,
-                        GeneratorResumeModeIr::AssignGlobal { strictness, .. } => self
-                            .emit_resumed_global_assignment(
-                                name,
-                                self.result_local,
-                                self.result_tag_local,
-                                *strictness,
-                                function,
-                            )?,
-                        GeneratorResumeModeIr::Ignore
-                        | GeneratorResumeModeIr::Return
-                        | GeneratorResumeModeIr::AssignProperty(_) => {
-                            unreachable!("identifier resume branch excludes other targets")
-                        }
-                    }
-                    function.instruction(&Instruction::End);
-                }
-                if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        self.scratch_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET,
-                        self.result_local,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_TAG_OFFSET,
-                        self.result_tag_local,
-                        function,
-                    );
-                    self.write_suspended_property_reference(
-                        reference,
-                        activation_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                }
             }
             StatementIr::AsyncModuleInstantiation => {
-                assert!(
-                    self.current_function_meta().is_some_and(
-                        |meta| meta.protocol == FunctionProtocolIr::AsyncModuleActivation
-                    )
-                );
-                let activation = self
-                    .new_target_payload_local()
-                    .expect("module activation uses the function ABI");
-                self.load_i64_to_local_from_offset(
-                    activation,
-                    HEAP_ASYNC_RESUME_STATE_OFFSET,
-                    self.scratch_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_load_async_module_entry_mode(activation, self.scratch_local, function);
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(
-                    AsyncModuleEntryMode::Instantiate.word() as i64,
-                ));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                if !self.current_function_meta().is_some_and(|meta| {
+                    meta.protocol() == FunctionProtocolIr::AsyncModuleActivation
+                }) {
+                    return Err(EmitError::unsupported(
+                        "compiler invariant: module instantiation has no async module entry",
+                    ));
+                }
+                let schema = self.runtime_schema();
+                let activation = self.control_flow_async_activation(function)?;
+                self.emit_resumable_state_equals(0, function)?;
+                self.open_frame(ControlFrameKind::If, function);
+                schema
+                    .struct_type::<AsyncActivation>()
+                    .field(AsyncActivationSchema::MODULE_ENTRY_MODE)
+                    .read(&activation, schema, function);
+                function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+                    AsyncModuleEntryMode::Instantiate,
+                )));
+                function.instruction(&Instruction::I32Ne);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::Unreachable);
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-                self.store_i64_const_at_offset(
-                    activation,
-                    HEAP_ASYNC_RESUME_STATE_OFFSET,
-                    1,
-                    function,
-                );
-                self.store_i64_local_at_offset(
-                    activation,
-                    HEAP_ASYNC_ENV_OFFSET,
-                    self.current_env_local,
-                    function,
-                );
-                self.emit_store_async_module_entry_mode(
-                    activation,
-                    AsyncModuleEntryMode::Execute,
-                    function,
-                );
-                self.set_completion_kind(CompletionKind::Normal, function);
-                self.emit_statement_result(function, ValueKind::Undefined);
-                self.emit_return_current_completion(function);
+                self.emit_set_resumable_resume_point(1, function)?;
+                self.emit_save_resumable_environment(function)?;
+                schema
+                    .struct_type::<AsyncActivation>()
+                    .field(AsyncActivationSchema::MODULE_ENTRY_MODE)
+                    .write(
+                        &activation,
+                        GcOperand::constant(AsyncModuleEntryMode::Execute),
+                        schema,
+                        function,
+                    );
+                self.emit_return_async_suspension(function)?;
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
+                activation.clear(function);
             }
             StatementIr::AsyncAwait {
                 value,
@@ -3107,414 +3010,75 @@ impl<'a> FunctionBuilder<'a> {
                 resume_state,
                 resume_mode,
             } => {
-                let activation_local = self.new_target_payload_local().ok_or_else(|| {
-                    EmitError::unsupported("async suspension requires the function call ABI")
-                })?;
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_RESUME_STATE_OFFSET,
-                    self.scratch_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(*suspend_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.compile_expr_to_locals(
+                self.compile_plain_async_await(
                     value,
-                    self.result_local,
-                    self.result_tag_local,
+                    *suspend_state,
+                    *resume_state,
+                    resume_mode,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_ASYNC_RESUME_STATE_OFFSET,
-                    u64::from(*resume_state),
-                    function,
-                );
-                if matches!(
-                    value.expr,
-                    ExprIr::ModuleEvaluate(_) | ExprIr::ModuleDeferredImportEvaluate(_)
-                ) {
-                    self.emit_module_import_await_reactions(
-                        activation_local,
-                        self.result_local,
-                        function,
-                    )?;
-                } else {
-                    self.emit_async_await_reactions(
-                        activation_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                }
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.set_completion_kind_with_aux(
-                    CompletionKind::Normal,
-                    i64::from(*resume_state),
-                    function,
-                );
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_RESUME_STATE_OFFSET,
-                    self.scratch_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(*resume_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                let resume_is_throw_local = self.reserve_temp_local();
-                self.emit_load_async_function_resume_is_throw(
-                    activation_local,
-                    resume_is_throw_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-                    self.result_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_RESUME_TAG_OFFSET,
-                    self.result_tag_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.set_completion_kind(CompletionKind::Throw, function);
-                self.emit_dispatch_current_completion(function)?;
-                function.instruction(&Instruction::End);
-                self.release_temp_local(resume_is_throw_local);
-
-                match resume_mode {
-                    AsyncResumeModeIr::Ignore => {
-                        self.emit_statement_result(function, ValueKind::Undefined);
-                    }
-                    AsyncResumeModeIr::Return => {
-                        self.set_completion_kind(CompletionKind::Return, function);
-                        self.emit_dispatch_current_completion(function)?;
-                    }
-                    AsyncResumeModeIr::AssignIdentifier(name) => {
-                        self.emit_resumed_binding_assignment(
-                            name,
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        self.emit_statement_result(function, ValueKind::Undefined);
-                    }
-                    AsyncResumeModeIr::AssignGlobal { name, strictness } => {
-                        self.emit_resumed_global_assignment(
-                            name,
-                            self.result_local,
-                            self.result_tag_local,
-                            *strictness,
-                            function,
-                        )?;
-                        self.emit_statement_result(function, ValueKind::Undefined);
-                    }
-                }
-                function.instruction(&Instruction::End);
             }
-            StatementIr::GeneratorLoop {
-                init,
-                test,
-                update,
-                iteration_environment,
-                before_suspension,
-                suspension_statement,
-                after_suspension,
-                entry_state,
-                resume_state,
-                exit_state,
-            } => {
-                let activation_local = self.new_target_payload_local().ok_or_else(|| {
-                    EmitError::unsupported("generator loop requires the function call ABI")
-                })?;
-                match iteration_environment {
-                    ResumableLoopIterationEnvironmentIr::StorageOnly => {}
-                    ResumableLoopIterationEnvironmentIr::FreshPerIteration(_) => {
-                        return Err(EmitError::unsupported(
-                            "fresh per-iteration environments are only lowered for async loops",
-                        ));
-                    }
-                }
-                let state_local = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    state_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(*entry_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(*resume_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(*entry_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.initialize_direct_lexical_bindings(before_suspension, function);
-                self.initialize_direct_lexical_bindings(after_suspension, function);
-                if let Some(init) = init {
-                    self.compile_for_init(init, function)?;
-                }
-                function.instruction(&Instruction::Else);
-                self.compile_statement(suspension_statement, function)?;
-                for statement in after_suspension {
-                    self.compile_statement(statement, function)?;
-                }
-                if let Some(update) = update {
-                    self.compile_expr_payload(update, function)?;
-                    function.instruction(&Instruction::Drop);
-                }
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::Block(BlockType::Empty));
-                function.instruction(&Instruction::Loop(BlockType::Empty));
-                if let Some(test) = test {
-                    self.compile_truthy_i32(test, function)?;
-                    function.instruction(&Instruction::I32Eqz);
-                    function.instruction(&Instruction::BrIf(1));
-                }
-                self.initialize_direct_lexical_bindings(before_suspension, function);
-                self.initialize_direct_lexical_bindings(after_suspension, function);
-                for statement in before_suspension {
-                    self.compile_statement(statement, function)?;
-                }
-                // A conditional yield can finish an iteration without suspending.
-                // Re-enter the suspension segment only after the next loop test,
-                // preserving the pending resume completion until it is consumed.
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*entry_state),
-                    function,
-                );
-                self.compile_statement(suspension_statement, function)?;
-                for statement in after_suspension {
-                    self.compile_statement(statement, function)?;
-                }
-                if let Some(update) = update {
-                    self.compile_expr_payload(update, function)?;
-                    function.instruction(&Instruction::Drop);
-                }
-                function.instruction(&Instruction::Br(0));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::End);
-                self.release_temp_local(state_local);
+            StatementIr::OrdinaryGeneratorLoop(plan) => {
+                self.compile_ordinary_generator_loop(plan, &[], function)?;
             }
-            StatementIr::GeneratorIf {
-                condition,
-                then_before_yield,
-                then_yield_statement,
-                then_after_yield,
-                else_before_yield,
-                else_yield_statement,
-                else_after_yield,
-                entry_state,
-                then_resume_state,
-                else_resume_state,
-                exit_state,
-            } => {
-                let activation_local = self.new_target_payload_local().ok_or_else(|| {
-                    EmitError::unsupported("generator branch requires the function call ABI")
-                })?;
-                let state_local = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    state_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(*entry_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                if let Some(resume_state) = then_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::I32Or);
-                }
-                if let Some(resume_state) = else_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::I32Or);
-                }
-                function.instruction(&Instruction::If(BlockType::Empty));
-
-                // Emit declarations before resume reads so both paths use the
-                // same activation slots. Only the selected fresh branch initializes.
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(*entry_state as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.compile_truthy_i32(condition, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.initialize_direct_lexical_bindings(then_before_yield, function);
-                self.initialize_direct_lexical_bindings(then_after_yield, function);
-                for statement in then_before_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                if let (Some(yield_statement), Some(resume_state)) =
-                    (then_yield_statement, then_resume_state)
-                {
-                    let StatementIr::GeneratorYield { value, .. } = yield_statement.as_ref() else {
-                        return Err(EmitError::unsupported(
-                            "generator branch must contain one direct yield",
-                        ));
-                    };
-                    self.compile_expr_to_locals(
-                        value,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.store_i64_const_at_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        u64::from(*resume_state),
-                        function,
-                    );
-                    self.emit_save_generator_suspension_environment(activation_local, function);
-                    self.set_completion_kind_with_aux(
-                        CompletionKind::Normal,
-                        i64::from(*resume_state),
-                        function,
-                    );
-                    self.emit_return_current_completion(function);
-                } else {
-                    self.store_i64_const_at_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        u64::from(*exit_state),
-                        function,
-                    );
-                    self.emit_statement_result(function, ValueKind::Undefined);
-                }
-                function.instruction(&Instruction::Else);
-                self.initialize_direct_lexical_bindings(else_before_yield, function);
-                self.initialize_direct_lexical_bindings(else_after_yield, function);
-                for statement in else_before_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                if let (Some(yield_statement), Some(resume_state)) =
-                    (else_yield_statement, else_resume_state)
-                {
-                    let StatementIr::GeneratorYield { value, .. } = yield_statement.as_ref() else {
-                        return Err(EmitError::unsupported(
-                            "generator branch must contain one direct yield",
-                        ));
-                    };
-                    self.compile_expr_to_locals(
-                        value,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.store_i64_const_at_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        u64::from(*resume_state),
-                        function,
-                    );
-                    self.emit_save_generator_suspension_environment(activation_local, function);
-                    self.set_completion_kind_with_aux(
-                        CompletionKind::Normal,
-                        i64::from(*resume_state),
-                        function,
-                    );
-                    self.emit_return_current_completion(function);
-                } else {
-                    self.store_i64_const_at_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        u64::from(*exit_state),
-                        function,
-                    );
-                    self.emit_statement_result(function, ValueKind::Undefined);
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::Else);
-                if let Some(resume_state) = then_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                } else {
-                    function.instruction(&Instruction::I32Const(0));
-                }
-                function.instruction(&Instruction::If(BlockType::Empty));
-                if let Some(yield_statement) = then_yield_statement {
-                    self.compile_statement(yield_statement, function)?;
-                }
-                for statement in then_after_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::Else);
-                if let Some(yield_statement) = else_yield_statement {
-                    self.compile_statement(yield_statement, function)?;
-                }
-                for statement in else_after_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                self.release_temp_local(state_local);
+            StatementIr::AsyncGeneratorLoop(plan) => {
+                self.compile_async_generator_loop(plan, &[], function)?;
+            }
+            StatementIr::AsyncGeneratorIf(plan) => {
+                self.compile_async_generator_if(plan, function)?;
+            }
+            StatementIr::OrdinaryGeneratorArrayDestructuring(plan) => {
+                self.compile_ordinary_generator_array_destructuring(plan, function)?;
+            }
+            StatementIr::AsyncFunctionArrayDestructuring(plan) => {
+                self.compile_async_function_array_destructuring(plan, function)?;
+            }
+            StatementIr::AsyncGeneratorArrayDestructuring(plan) => {
+                self.compile_async_generator_array_destructuring(plan, function)?;
+            }
+            StatementIr::OrdinaryGeneratorWith(plan) => {
+                self.compile_ordinary_generator_with(plan, function)?;
+            }
+            StatementIr::AsyncFunctionWith(plan) => {
+                self.compile_async_function_with(plan, function)?;
+            }
+            StatementIr::AsyncGeneratorWith(plan) => {
+                self.compile_async_generator_with(plan, function)?;
+            }
+            StatementIr::AsyncGeneratorForIn(plan) => {
+                self.compile_async_generator_for_in(plan, &[], function)?;
+            }
+            StatementIr::AsyncGeneratorForOf(plan) => {
+                self.compile_async_generator_for_of(plan, &[], function)?;
+            }
+            StatementIr::AsyncGeneratorResourceScope(plan) => {
+                self.compile_async_generator_resource_scope(plan, function)?;
+            }
+            StatementIr::AsyncGeneratorResourceRegistration(registration) => {
+                self.compile_async_generator_resource_registration(registration, function)?;
+            }
+            StatementIr::ArrayDestructuringOperation(operation) => {
+                self.compile_array_destructuring_operation_statement(operation, function)?;
+            }
+            StatementIr::OrdinaryGeneratorSwitch(plan) => {
+                self.compile_ordinary_generator_switch(plan, &[], function)?;
+            }
+            StatementIr::AsyncGeneratorSwitch(plan) => {
+                self.compile_async_generator_switch(plan, &[], function)?;
+            }
+            StatementIr::EmptyStatementCompletion(item) => {
+                self.compile_empty_statement_completion(item.statement(), function)?;
+            }
+            StatementIr::OrdinaryGeneratorIf(plan) => {
+                self.compile_ordinary_generator_if(plan, function)?;
+            }
+            StatementIr::GeneratorLoop { .. } => {
+                return Err(EmitError::unsupported(
+                    "compiler invariant: ordinary generator loop requires its checked phase graph",
+                ));
+            }
+            StatementIr::GeneratorIf { .. } => {
+                self.compile_resumable_generator_if(statement, function)?;
             }
             StatementIr::Var(declarators) => {
                 let saved = self.save_statement_list_value(function);
@@ -3523,72 +3087,32 @@ impl<'a> FunctionBuilder<'a> {
             }
             StatementIr::ParameterInitialization { .. } => {}
             StatementIr::LexicalBlock(statements) => {
-                let async_resume_state_offset = self.async_await_resume_state_offset();
-                let async_entry_state = async_resume_state_offset.and_then(|_| {
-                    statements
+                let entry = match self
+                    .current_function_meta()
+                    .map(|meta| meta.protocol().execution_kind())
+                {
+                    Some(FunctionExecutionKind::Generator) => statements
                         .iter()
-                        .find_map(Self::async_statement_entry_state)
-                });
-                if let (Some(entry_state), Some(resume_state_offset)) =
-                    (async_entry_state, async_resume_state_offset)
-                {
-                    let activation_local = self
-                        .new_target_payload_local()
-                        .expect("async body must use the function call ABI");
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        resume_state_offset,
-                        self.scratch_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(entry_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
+                        .find_map(Self::generator_statement_entry_state),
+                    Some(FunctionExecutionKind::Async | FunctionExecutionKind::AsyncGenerator) => {
+                        statements
+                            .iter()
+                            .find_map(Self::async_statement_entry_state)
+                    }
+                    Some(FunctionExecutionKind::Ordinary) | None => None,
+                };
+                if let Some(entry) = entry {
+                    self.emit_resumable_state_equals(entry, function)?;
+                    self.open_frame(ControlFrameKind::If, function);
                     self.initialize_direct_lexical_bindings(statements, function);
+                    self.pop_control(ControlFrameKind::If);
                     function.instruction(&Instruction::End);
-                    self.compile_async_statement_sequence(
-                        statements,
-                        entry_state,
-                        resume_state_offset,
-                        function,
-                    )?;
-                    return Ok(());
-                }
-                if let Some(entry_state) = statements
-                    .iter()
-                    .find_map(Self::generator_statement_entry_state)
-                {
-                    let activation_local = self
-                        .new_target_payload_local()
-                        .expect("generator body must use the function call ABI");
-                    self.load_i64_to_local_from_offset(
-                        activation_local,
-                        HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                        self.scratch_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(entry_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.compile_resumable_statement_sequence(statements, entry, function)?;
+                } else {
                     self.initialize_direct_lexical_bindings(statements, function);
-                    function.instruction(&Instruction::End);
-                    self.compile_generator_statement_sequence(statements, entry_state, function)?;
-                    return Ok(());
-                }
-                for statement in statements {
-                    let StatementIr::Lexical { mode, name, init } = statement else {
-                        continue;
-                    };
-                    let storage = self
-                        .lookup_current_scope_binding(name)
-                        .or_else(|| self.lookup_binding(name))
-                        .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
-                    self.initialize_binding_uninitialized(storage, function);
-                }
-                for statement in statements {
-                    self.compile_statement(statement, function)?;
+                    for statement in statements {
+                        self.compile_statement(statement, function)?;
+                    }
                 }
             }
             StatementIr::Block(block) => {
@@ -3596,33 +3120,32 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_block_contents(block, function)?;
                 self.pop_scope();
             }
-            StatementIr::Labelled { labels, statement } => {
-                self.compile_labelled_statement(labels, statement, function)?;
-            }
-            StatementIr::Throw(value) => {
-                self.compile_expr_to_locals(
-                    value,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-                    self.uses_heap,
-                )));
-                self.emit_capture_throw_error_name(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.set_completion_kind(CompletionKind::Throw, function);
-                function.instruction(&Instruction::I64Const(-1));
-                function.instruction(&Instruction::LocalSet(self.completion_aux_local));
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, function);
-                } else {
-                    self.emit_return_current_completion(function);
+            StatementIr::Labelled {
+                labels,
+                statement,
+                async_plan,
+            } => match async_plan {
+                Some(plan) => {
+                    self.compile_async_function_labelled(labels, statement, *plan, function)?
                 }
+                None => self.compile_labelled_statement(labels, statement, function)?,
+            },
+            StatementIr::Throw(value) => {
+                let thrown = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(value, &thrown, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.emit_clear_throw_diagnostic(
+                    crate::module::ThrowDiagnosticRole::Name,
+                    function,
+                );
+                self.emit_clear_throw_diagnostic(
+                    crate::module::ThrowDiagnosticRole::Message,
+                    function,
+                );
+                self.emit_capture_throw_error_name(&thrown, function)?;
+                self.completion().set_throw(&thrown, function);
+                thrown.clear(function);
+                self.emit_propagate_current_throw(function);
             }
             StatementIr::TryCatch {
                 try_block,
@@ -3633,9 +3156,7 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan,
                 async_plan,
             } => {
-                if let (Some(async_plan), Some(_)) =
-                    (async_plan, self.async_await_resume_state_offset())
-                {
+                if let (Some(async_plan), true) = (async_plan, self.is_async_resume_body()) {
                     self.compile_async_try_catch(
                         try_block,
                         catch_name,
@@ -3672,9 +3193,7 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan,
                 async_plan,
             } => {
-                if let (Some(async_plan), Some(_)) =
-                    (async_plan, self.async_await_resume_state_offset())
-                {
+                if let (Some(async_plan), true) = (async_plan, self.is_async_resume_body()) {
                     self.compile_async_try_finally(
                         try_block,
                         finally_block,
@@ -3702,9 +3221,7 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan,
                 async_plan,
             } => {
-                if let (Some(async_plan), Some(_)) =
-                    (async_plan, self.async_await_resume_state_offset())
-                {
+                if let (Some(async_plan), true) = (async_plan, self.is_async_resume_body()) {
                     self.compile_async_try_catch_finally(
                         try_block,
                         catch_name,
@@ -3738,6 +3255,9 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                 }
             }
+            StatementIr::AsyncFunctionWhile(plan) => {
+                self.compile_async_function_while_condition(plan, &[], function)?;
+            }
             StatementIr::AsyncFunctionIf {
                 condition,
                 then_branch,
@@ -3761,7 +3281,7 @@ impl<'a> FunctionBuilder<'a> {
                     // Lowering and planning have already visited both branches.
                     // Preserve If's UpdateEmpty(undefined) before the selected
                     // statement, including an empty branch or no else branch.
-                    self.emit_statement_result(function, ValueKind::Undefined);
+                    self.emit_statement_result(function);
                     if taken {
                         self.compile_statement(then_branch, function)?;
                     } else if let Some(else_branch) = else_branch {
@@ -3770,12 +3290,8 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(());
                 }
                 self.compile_truthy_i32(condition, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.emit_propagate_current_throw_if_needed(function);
+                self.emit_statement_result(function);
                 self.open_frame(ControlFrameKind::If, function);
                 self.compile_statement(then_branch, function)?;
                 if let Some(else_branch) = else_branch {
@@ -3811,6 +3327,9 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 self.compile_async_function_for_of_iterator(iterable, plan, function)?;
             }
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
+                self.compile_generator_for_of_iterator(iterable, plan, function)?;
+            }
             StatementIr::ForOfIterator {
                 head,
                 iterable,
@@ -3823,7 +3342,7 @@ impl<'a> FunctionBuilder<'a> {
                     ..
                 } => {
                     if self.current_function_meta().is_some_and(|meta| {
-                        meta.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
+                        meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
                     }) && async_generator_for_await_is_transparent_yield(&binding.name, body)
                     {
                         self.compile_async_generator_delegation(
@@ -3837,12 +3356,13 @@ impl<'a> FunctionBuilder<'a> {
                         return Ok(());
                     }
                     self.compile_async_for_of_iterator(
-                        binding.mode,
-                        &binding.name,
                         iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        async_plan,
+                        ForAwaitIteratorPlan::existing(
+                            binding,
+                            body,
+                            lexical_environment.as_ref(),
+                            async_plan,
+                        ),
                         &[],
                         function,
                     )?;
@@ -3934,6 +3454,9 @@ impl<'a> FunctionBuilder<'a> {
                 &[],
                 function,
             )?,
+            StatementIr::AsyncFunctionSwitch(plan) => {
+                self.compile_async_function_switch(plan, &[], function)?;
+            }
             StatementIr::Switch {
                 discriminant,
                 lexical_environment,
@@ -3950,33 +3473,22 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StatementIr::Debugger => {}
-            StatementIr::Return(value) => {
-                if self.strict
-                    && self.throw_handler_stack.is_empty()
-                    && self.finally_stack.is_empty()
-                    && !self.is_derived_constructor
-                {
-                    self.compile_return_position_expr(value, function)?;
+            StatementIr::Return(expression) => {
+                if self.throw_handler_stack.is_empty() && self.finally_stack.is_empty() {
+                    self.compile_return_position_expr(expression, function)?;
                     return Ok(());
                 }
-                self.compile_expr_to_locals(
-                    value,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let value = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(expression, &value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.completion().value().copy_from(&value, function);
+                value.clear(function);
+                self.emit_prepare_fresh_return(function)?;
+                self.set_completion_kind(CompletionKind::Return, function);
                 if let Some(target) = self.finally_stack.last().copied() {
-                    self.set_completion_kind(CompletionKind::Return, function);
                     self.emit_branch_to_target(target, function);
                 } else {
-                    self.set_completion_kind(CompletionKind::Return, function);
                     self.emit_derived_constructor_body_result(function)?;
-                    self.set_completion_kind(CompletionKind::Normal, function);
                     self.emit_return_current_completion(function);
                 }
             }
@@ -3992,7 +3504,46 @@ impl<'a> FunctionBuilder<'a> {
         statement: &StatementIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // Non-loop async bodies need their checked region owner. Direct loop
+        // forms retain their established emitter and completion destinations.
+        // An omitted annotation must refuse emission rather than skip a body.
+        if self
+            .current_function_meta()
+            .is_some_and(|meta| meta.protocol().execution_kind() == FunctionExecutionKind::Async)
+            && Self::async_statement_entry_state(statement).is_some()
+            && Self::labelled_async_linear_loop_states(statement).is_none()
+            && Self::labelled_async_function_while_plan(statement).is_none()
+            && !Self::labelled_async_generator_loop_plan(statement)
+                .is_some_and(|plan| plan.execution() == lila_ir::ResumableRegionProtocolIr::Async)
+            && !Self::labelled_complete_resource_switch_plan(statement)
+                .is_some_and(|plan| plan.execution() == lila_ir::ResumableRegionProtocolIr::Async)
+            && Self::labelled_async_function_for_of_plan(statement).is_none()
+            && Self::labelled_complete_iterator_states(statement).is_none()
+            && Self::labelled_async_disposable_for_finalizer(statement).is_none()
+        {
+            return Err(EmitError::unsupported(
+                "labelled async region is missing its continuation owner",
+            ));
+        }
         match statement {
+            StatementIr::OrdinaryGeneratorLoop(plan) => {
+                self.compile_ordinary_generator_loop(plan, labels, function)?;
+            }
+            StatementIr::AsyncGeneratorLoop(plan) => {
+                self.compile_async_generator_loop(plan, labels, function)?;
+            }
+            StatementIr::AsyncGeneratorForIn(plan) => {
+                self.compile_async_generator_for_in(plan, labels, function)?;
+            }
+            StatementIr::AsyncGeneratorForOf(plan) => {
+                self.compile_async_generator_for_of(plan, labels, function)?;
+            }
+            StatementIr::OrdinaryGeneratorSwitch(plan) => {
+                self.compile_ordinary_generator_switch(plan, labels, function)?;
+            }
+            StatementIr::AsyncGeneratorSwitch(plan) => {
+                self.compile_async_generator_switch(plan, labels, function)?;
+            }
             StatementIr::Block(block) => {
                 let break_frame = self.open_frame(ControlFrameKind::Block, function);
                 self.push_labels(labels, break_frame, None);
@@ -4002,6 +3553,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.pop_labels(labels.len());
                 self.pop_control(ControlFrameKind::Block);
                 function.instruction(&Instruction::End);
+            }
+            StatementIr::AsyncFunctionWhile(plan) => {
+                self.compile_async_function_while_condition(plan, labels, function)?;
             }
             StatementIr::While { condition, body } => {
                 self.compile_while(condition, body, labels, function)?;
@@ -4038,12 +3592,13 @@ impl<'a> FunctionBuilder<'a> {
                     ..
                 } => {
                     self.compile_async_for_of_iterator(
-                        binding.mode,
-                        &binding.name,
                         iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        async_plan,
+                        ForAwaitIteratorPlan::existing(
+                            binding,
+                            body,
+                            lexical_environment.as_ref(),
+                            async_plan,
+                        ),
                         labels,
                         function,
                     )?;
@@ -4135,6 +3690,9 @@ impl<'a> FunctionBuilder<'a> {
                 labels,
                 function,
             )?,
+            StatementIr::AsyncFunctionSwitch(plan) => {
+                self.compile_async_function_switch(plan, labels, function)?;
+            }
             StatementIr::Switch {
                 discriminant,
                 lexical_environment,
@@ -4171,8 +3729,8 @@ impl<'a> FunctionBuilder<'a> {
         catch_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_statement_result(function, ValueKind::Undefined);
-        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_statement_result(function);
+        let outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
         self.push_scope();
@@ -4180,7 +3738,7 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_scope();
         self.throw_handler_stack.pop();
         self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Br(1));
+        self.emit_branch_to_target(outer_frame, function);
         function.instruction(&Instruction::End);
 
         self.push_scope();
@@ -4189,7 +3747,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
-            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name, function));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -4200,13 +3758,11 @@ impl<'a> FunctionBuilder<'a> {
                 .expect("binding scope stack must exist")
                 .insert(catch_source_name.to_string(), catch_storage);
         }
-        self.write_binding_from_locals(
-            catch_storage,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        let caught = self.runtime_schema().reserve_value_local(function);
+        caught.copy_from(self.completion().value(), function);
+        self.write_binding_from_locals(catch_storage, &caught, function);
+        caught.clear(function);
+        self.emit_statement_result(function);
         self.push_scope();
         self.compile_block_contents(catch_block, function)?;
         self.pop_scope();
@@ -4219,153 +3775,79 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_resumable_state_in_range(
+        &self,
+        start_state: u32,
+        end_state: u32,
+        inclusive_end: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let point = self.emit_resumable_resume_point(function)?;
+        point.load(function);
+        function.instruction(&Instruction::I32Const(start_state as i32));
+        function.instruction(&Instruction::I32GeU);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(end_state as i32));
+        function.instruction(&if inclusive_end {
+            Instruction::I32LeU
+        } else {
+            Instruction::I32LtU
+        });
+        function.instruction(&Instruction::I32And);
+        schema.release_i32_local(point, function);
+        Ok(())
+    }
+
     fn emit_generator_state_in_range(
         &self,
-        activation_local: u32,
         start_state: u32,
         end_state: u32,
         function: &mut Function,
-    ) {
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(start_state as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(end_state as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-    }
-
-    pub(crate) fn emit_save_generator_suspension_environment(
-        &self,
-        activation_local: u32,
-        function: &mut Function,
-    ) {
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_GENERATOR_LEXICAL_ENV_OFFSET,
-            self.current_env_local,
-            function,
-        );
-    }
-
-    fn emit_set_generator_resume_state(
-        &self,
-        activation_local: u32,
-        state: u32,
-        function: &mut Function,
-    ) {
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_GENERATOR_RESUME_STATE_OFFSET,
-            u64::from(state),
-            function,
-        );
+    ) -> Result<(), EmitError> {
+        self.emit_resumable_state_in_range(start_state, end_state, false, function)
     }
 
     fn emit_async_state_in_range(
         &self,
-        activation_local: u32,
         start_state: u32,
         end_state: u32,
         function: &mut Function,
-    ) {
-        let resume_state_offset = self
-            .async_await_resume_state_offset()
-            .expect("async state range requires an async function activation");
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_state_offset,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(start_state as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(end_state as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
+    ) -> Result<(), EmitError> {
+        self.emit_resumable_state_in_range(start_state, end_state, false, function)
     }
 
     fn emit_async_try_state_in_range(
         &self,
-        activation_local: u32,
         start_state: u32,
         end_state: u32,
         function: &mut Function,
-    ) {
-        if !self.current_function_meta().is_some_and(|meta| {
-            meta.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
-        }) {
-            self.emit_async_state_in_range(activation_local, start_state, end_state, function);
-            return;
-        }
-
-        let resume_state_offset = self
-            .async_await_resume_state_offset()
-            .expect("async try state range requires an async function activation");
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_state_offset,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(start_state as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(end_state as i64));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
+    ) -> Result<(), EmitError> {
+        let inclusive = self.current_function_meta().is_some_and(|meta| {
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+        });
+        self.emit_resumable_state_in_range(start_state, end_state, inclusive, function)
     }
 
-    fn emit_async_finalizer_needs_pending_completion(
+    fn emit_resumable_finalizer_needs_pending_completion(
         &self,
-        activation_local: u32,
         finally_entry_state: u32,
         function: &mut Function,
-    ) {
-        let resume_state_offset = self
-            .async_await_resume_state_offset()
-            .expect("async finalizer requires an async function activation");
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_state_offset,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finally_entry_state as i64));
-        if self.current_function_meta().is_some_and(|meta| {
-            meta.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
-        }) {
-            function.instruction(&Instruction::I64LeU);
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let point = self.emit_resumable_resume_point(function)?;
+        point.load(function);
+        function.instruction(&Instruction::I32Const(finally_entry_state as i32));
+        let inclusive = self.current_function_meta().is_some_and(|meta| {
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+        });
+        function.instruction(&if inclusive {
+            Instruction::I32LeU
         } else {
-            function.instruction(&Instruction::I64LtU);
-        }
-    }
-
-    fn emit_set_async_resume_state(
-        &self,
-        activation_local: u32,
-        state: u32,
-        function: &mut Function,
-    ) {
-        let resume_state_offset = self
-            .async_await_resume_state_offset()
-            .expect("async resume state requires an async function activation");
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(state),
-            function,
-        );
+            Instruction::I32LtU
+        });
+        schema.release_i32_local(point, function);
+        Ok(())
     }
 
     fn compile_generator_try_catch(
@@ -4378,9 +3860,6 @@ impl<'a> FunctionBuilder<'a> {
         generator_plan: GeneratorTryPlanIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("generator exception handling requires the function call ABI")
-        })?;
         let catch_entry_state = generator_plan.catch_entry_state.ok_or_else(|| {
             EmitError::unsupported("generator try/catch is missing its catch resume state")
         })?;
@@ -4389,32 +3868,30 @@ impl<'a> FunctionBuilder<'a> {
         })?;
 
         self.emit_generator_state_in_range(
-            activation_local,
             generator_plan.entry_state,
             generator_plan.exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         let outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_generator_state_in_range(
-            activation_local,
             generator_plan.entry_state,
             generator_plan.try_exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        self.compile_generator_block_contents(
+        self.compile_resumable_block_contents(
             try_block,
             generator_plan.entry_state,
             true,
             function,
         )?;
         self.pop_scope();
-        self.emit_set_generator_resume_state(activation_local, generator_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(generator_plan.exit_state, function)?;
         self.emit_branch_to_target(outer_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -4424,17 +3901,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.push_scope();
-        let thrown_payload_local = self.reserve_temp_local();
-        let thrown_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(thrown_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(thrown_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        let thrown = self.runtime_schema().reserve_value_local(function);
+        thrown.copy_from(self.completion().value(), function);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_set_generator_resume_state(activation_local, catch_entry_state, function);
+        self.emit_set_resumable_resume_point(catch_entry_state, function)?;
         function.instruction(&Instruction::End);
         if let Some(environment) = catch_parameter_environment {
             self.emit_enter_resumable_lexical_environment(
@@ -4445,7 +3918,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
-            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name, function));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -4457,29 +3930,23 @@ impl<'a> FunctionBuilder<'a> {
                 .insert(catch_source_name.to_string(), catch_storage);
         }
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.write_binding_from_locals(
-            catch_storage,
-            thrown_payload_local,
-            thrown_tag_local,
-            function,
-        );
-        self.release_temp_local(thrown_tag_local);
-        self.release_temp_local(thrown_payload_local);
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.write_binding_from_locals(catch_storage, &thrown, function);
+        self.emit_statement_result(function);
         function.instruction(&Instruction::End);
+        thrown.clear(function);
 
         self.push_scope();
-        self.compile_generator_block_contents(catch_block, catch_entry_state, true, function)?;
+        self.compile_resumable_block_contents(catch_block, catch_entry_state, true, function)?;
         self.pop_scope();
         if catch_parameter_environment.is_some() {
             self.emit_leave_lexical_environment(function);
         }
         self.pop_scope();
-        self.emit_set_generator_resume_state(activation_local, generator_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(generator_plan.exit_state, function)?;
 
         debug_assert_eq!(catch_exit_state, generator_plan.exit_state);
         self.pop_control(ControlFrameKind::Block);
@@ -4496,9 +3963,6 @@ impl<'a> FunctionBuilder<'a> {
         generator_plan: GeneratorTryPlanIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("generator finalization requires the function call ABI")
-        })?;
         let finally_entry_state = generator_plan.finally_entry_state.ok_or_else(|| {
             EmitError::unsupported("generator try/finally is missing its finalizer resume state")
         })?;
@@ -4507,25 +3971,23 @@ impl<'a> FunctionBuilder<'a> {
         })?;
 
         self.emit_generator_state_in_range(
-            activation_local,
             generator_plan.entry_state,
             generator_plan.exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.open_frame(ControlFrameKind::Block, function);
         let finally_entry_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_entry_frame);
 
         self.emit_generator_state_in_range(
-            activation_local,
             generator_plan.entry_state,
             generator_plan.try_exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        self.compile_generator_block_contents(
+        self.compile_resumable_block_contents(
             try_block,
             generator_plan.entry_state,
             true,
@@ -4540,41 +4002,33 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finally_entry_state as i64));
-        function.instruction(&Instruction::I64LtU);
+        self.emit_resumable_finalizer_needs_pending_completion(finally_entry_state, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_generator_pending_completion(function)?;
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.emit_set_generator_resume_state(activation_local, finally_entry_state, function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(finally_entry_state, function)?;
         function.instruction(&Instruction::End);
 
         let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.generator_finalizer_depth += 1;
         self.push_scope();
-        self.compile_generator_block_contents(finally_block, finally_entry_state, true, function)?;
+        self.compile_resumable_block_contents(finally_block, finally_entry_state, true, function)?;
         self.pop_scope();
         self.generator_finalizer_depth -= 1;
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_pop_and_restore_generator_pending_completion(function)?;
         function.instruction(&Instruction::Else);
         self.emit_discard_generator_pending_completion(function)?;
         function.instruction(&Instruction::End);
-        self.emit_set_generator_resume_state(activation_local, generator_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(generator_plan.exit_state, function)?;
         self.emit_dispatch_current_completion(function)?;
 
         debug_assert_eq!(finally_exit_state, generator_plan.exit_state);
@@ -4596,9 +4050,6 @@ impl<'a> FunctionBuilder<'a> {
         generator_plan: GeneratorTryPlanIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("generator exception handling requires the function call ABI")
-        })?;
         let catch_entry_state = generator_plan.catch_entry_state.ok_or_else(|| {
             EmitError::unsupported("generator try/catch is missing its catch resume state")
         })?;
@@ -4613,11 +4064,10 @@ impl<'a> FunctionBuilder<'a> {
         })?;
 
         self.emit_generator_state_in_range(
-            activation_local,
             generator_plan.entry_state,
             generator_plan.exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.open_frame(ControlFrameKind::Block, function);
         self.open_frame(ControlFrameKind::Block, function);
@@ -4627,14 +4077,13 @@ impl<'a> FunctionBuilder<'a> {
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_generator_state_in_range(
-            activation_local,
             generator_plan.entry_state,
             generator_plan.try_exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        self.compile_generator_block_contents(
+        self.compile_resumable_block_contents(
             try_block,
             generator_plan.entry_state,
             true,
@@ -4649,29 +4098,20 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.emit_generator_state_in_range(
-            activation_local,
-            catch_entry_state,
-            catch_exit_state,
-            function,
-        );
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_generator_state_in_range(catch_entry_state, catch_exit_state, function)?;
         function.instruction(&Instruction::I32Or);
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        let thrown_payload_local = self.reserve_temp_local();
-        let thrown_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(thrown_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(thrown_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        let thrown = self.runtime_schema().reserve_value_local(function);
+        thrown.copy_from(self.completion().value(), function);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_set_generator_resume_state(activation_local, catch_entry_state, function);
+        self.emit_set_resumable_resume_point(catch_entry_state, function)?;
         function.instruction(&Instruction::End);
         if let Some(environment) = catch_parameter_environment {
             self.emit_enter_resumable_lexical_environment(
@@ -4682,7 +4122,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
-            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name, function));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -4694,23 +4134,17 @@ impl<'a> FunctionBuilder<'a> {
                 .insert(catch_source_name.to_string(), catch_storage);
         }
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.write_binding_from_locals(
-            catch_storage,
-            thrown_payload_local,
-            thrown_tag_local,
-            function,
-        );
-        self.release_temp_local(thrown_tag_local);
-        self.release_temp_local(thrown_payload_local);
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.write_binding_from_locals(catch_storage, &thrown, function);
+        self.emit_statement_result(function);
         function.instruction(&Instruction::End);
+        thrown.clear(function);
 
         self.push_scope();
-        self.compile_generator_block_contents(catch_block, catch_entry_state, true, function)?;
+        self.compile_resumable_block_contents(catch_block, catch_entry_state, true, function)?;
         self.pop_scope();
         if catch_parameter_environment.is_some() {
             self.emit_leave_lexical_environment(function);
@@ -4726,41 +4160,33 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_GENERATOR_RESUME_STATE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finally_entry_state as i64));
-        function.instruction(&Instruction::I64LtU);
+        self.emit_resumable_finalizer_needs_pending_completion(finally_entry_state, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_generator_pending_completion(function)?;
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.emit_set_generator_resume_state(activation_local, finally_entry_state, function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(finally_entry_state, function)?;
         function.instruction(&Instruction::End);
 
         let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.generator_finalizer_depth += 1;
         self.push_scope();
-        self.compile_generator_block_contents(finally_block, finally_entry_state, true, function)?;
+        self.compile_resumable_block_contents(finally_block, finally_entry_state, true, function)?;
         self.pop_scope();
         self.generator_finalizer_depth -= 1;
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_pop_and_restore_generator_pending_completion(function)?;
         function.instruction(&Instruction::Else);
         self.emit_discard_generator_pending_completion(function)?;
         function.instruction(&Instruction::End);
-        self.emit_set_generator_resume_state(activation_local, generator_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(generator_plan.exit_state, function)?;
         self.emit_dispatch_current_completion(function)?;
 
         debug_assert_eq!(catch_exit_state, finally_entry_state);
@@ -4782,12 +4208,29 @@ impl<'a> FunctionBuilder<'a> {
         async_plan: AsyncTryPlanIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async exception handling requires the function call ABI")
-        })?;
-        let resume_state_offset = self.async_await_resume_state_offset().ok_or_else(|| {
-            EmitError::unsupported("async exception handling requires an async activation")
-        })?;
+        self.with_checked_async_generator_source_environment(|builder| {
+            builder.compile_async_try_catch_in_source_environment(
+                try_block,
+                catch_name,
+                catch_source_name,
+                catch_parameter_environment,
+                catch_block,
+                async_plan,
+                function,
+            )
+        })
+    }
+
+    fn compile_async_try_catch_in_source_environment(
+        &mut self,
+        try_block: &BlockIr,
+        catch_name: &str,
+        catch_source_name: &str,
+        catch_parameter_environment: Option<&LexicalEnvironmentIr>,
+        catch_block: &BlockIr,
+        async_plan: AsyncTryPlanIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let catch_entry_state = async_plan.catch_entry_state.ok_or_else(|| {
             EmitError::unsupported("async try/catch is missing its catch resume state")
         })?;
@@ -4796,33 +4239,25 @@ impl<'a> FunctionBuilder<'a> {
         })?;
 
         self.emit_async_try_state_in_range(
-            activation_local,
             async_plan.entry_state,
             async_plan.exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         let outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_async_try_state_in_range(
-            activation_local,
             async_plan.entry_state,
             async_plan.try_exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        self.compile_async_block_contents(
-            try_block,
-            async_plan.entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(try_block, async_plan.entry_state, true, function)?;
         self.pop_scope();
-        self.emit_set_async_resume_state(activation_local, async_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(async_plan.exit_state, function)?;
         self.emit_branch_to_target(outer_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -4832,33 +4267,49 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.push_scope();
-        let thrown_payload_local = self.reserve_temp_local();
-        let thrown_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(thrown_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(thrown_tag_local));
-        let restores_catch_environment = self
-            .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async);
+        let thrown = self.runtime_schema().reserve_value_local(function);
+        thrown.copy_from(self.completion().value(), function);
+        let restores_checked_async_generator_catch =
+            self.current_function_meta().is_some_and(|meta| {
+                meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+            }) && self.checked_async_generator_environment_owner.is_some()
+                && self
+                    .async_generator_resume_environment_plan
+                    .as_ref()
+                    .is_some_and(|plan| {
+                        !plan.invocation_resume_states().is_empty()
+                            || !plan.enclosing_scope_resume_states().is_empty()
+                    });
+        let restores_catch_environment = restores_checked_async_generator_catch
+            || self.current_function_meta().is_some_and(|meta| {
+                meta.protocol().execution_kind() == FunctionExecutionKind::Async
+            });
         if restores_catch_environment {
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Eq);
+            self.completion().kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_set_async_resume_state(activation_local, catch_entry_state, function);
+            self.emit_set_resumable_resume_point(catch_entry_state, function)?;
             function.instruction(&Instruction::End);
             if let Some(environment) = catch_parameter_environment {
-                self.emit_enter_resumable_lexical_environment(
-                    environment,
-                    catch_entry_state,
-                    function,
-                )?;
+                if restores_checked_async_generator_catch {
+                    self.emit_enter_checked_async_generator_catch_environment(
+                        environment,
+                        catch_entry_state,
+                        function,
+                    )?;
+                } else {
+                    self.emit_enter_resumable_lexical_environment(
+                        environment,
+                        catch_entry_state,
+                        function,
+                    )?;
+                }
             }
         }
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
-            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name, function));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -4870,41 +4321,29 @@ impl<'a> FunctionBuilder<'a> {
                 .insert(catch_source_name.to_string(), catch_storage);
         }
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if !restores_catch_environment {
             if let Some(environment) = catch_parameter_environment {
                 self.emit_enter_lexical_environment(environment, function)?;
             }
         }
-        self.write_binding_from_locals(
-            catch_storage,
-            thrown_payload_local,
-            thrown_tag_local,
-            function,
-        );
-        self.release_temp_local(thrown_tag_local);
-        self.release_temp_local(thrown_payload_local);
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.emit_set_async_resume_state(activation_local, catch_entry_state, function);
+        self.write_binding_from_locals(catch_storage, &thrown, function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(catch_entry_state, function)?;
         function.instruction(&Instruction::End);
+        thrown.clear(function);
 
         self.push_scope();
-        self.compile_async_block_contents(
-            catch_block,
-            catch_entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(catch_block, catch_entry_state, true, function)?;
         self.pop_scope();
         if catch_parameter_environment.is_some() {
             self.emit_leave_lexical_environment(function);
         }
         self.pop_scope();
-        self.emit_set_async_resume_state(activation_local, async_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(async_plan.exit_state, function)?;
 
         debug_assert_eq!(catch_exit_state, async_plan.exit_state);
         self.pop_control(ControlFrameKind::Block);
@@ -4925,12 +4364,31 @@ impl<'a> FunctionBuilder<'a> {
         async_plan: AsyncTryPlanIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async exception handling requires the function call ABI")
-        })?;
-        let resume_state_offset = self.async_await_resume_state_offset().ok_or_else(|| {
-            EmitError::unsupported("async exception handling requires an async activation")
-        })?;
+        self.with_checked_async_generator_source_environment(|builder| {
+            builder.compile_async_try_catch_finally_in_source_environment(
+                try_block,
+                catch_name,
+                catch_source_name,
+                catch_parameter_environment,
+                catch_block,
+                finally_block,
+                async_plan,
+                function,
+            )
+        })
+    }
+
+    fn compile_async_try_catch_finally_in_source_environment(
+        &mut self,
+        try_block: &BlockIr,
+        catch_name: &str,
+        catch_source_name: &str,
+        catch_parameter_environment: Option<&LexicalEnvironmentIr>,
+        catch_block: &BlockIr,
+        finally_block: &BlockIr,
+        async_plan: AsyncTryPlanIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let catch_entry_state = async_plan.catch_entry_state.ok_or_else(|| {
             EmitError::unsupported("async try/catch is missing its catch resume state")
         })?;
@@ -4945,11 +4403,10 @@ impl<'a> FunctionBuilder<'a> {
         })?;
 
         self.emit_async_try_state_in_range(
-            activation_local,
             async_plan.entry_state,
             async_plan.exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.open_frame(ControlFrameKind::Block, function);
         self.open_frame(ControlFrameKind::Block, function);
@@ -4959,20 +4416,13 @@ impl<'a> FunctionBuilder<'a> {
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_async_try_state_in_range(
-            activation_local,
             async_plan.entry_state,
             async_plan.try_exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        self.compile_async_block_contents(
-            try_block,
-            async_plan.entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(try_block, async_plan.entry_state, true, function)?;
         self.pop_scope();
         self.emit_branch_to_target(catch_skip_frame, function);
         self.pop_control(ControlFrameKind::If);
@@ -4982,45 +4432,56 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.emit_async_try_state_in_range(
-            activation_local,
-            catch_entry_state,
-            catch_exit_state,
-            function,
-        );
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_async_try_state_in_range(catch_entry_state, catch_exit_state, function)?;
         function.instruction(&Instruction::I32Or);
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        let thrown_payload_local = self.reserve_temp_local();
-        let thrown_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(thrown_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(thrown_tag_local));
-        let restores_catch_environment = self
-            .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async);
+        let thrown = self.runtime_schema().reserve_value_local(function);
+        thrown.copy_from(self.completion().value(), function);
+        let restores_checked_async_generator_catch =
+            self.current_function_meta().is_some_and(|meta| {
+                meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+            }) && self.checked_async_generator_environment_owner.is_some()
+                && self
+                    .async_generator_resume_environment_plan
+                    .as_ref()
+                    .is_some_and(|plan| {
+                        !plan.invocation_resume_states().is_empty()
+                            || !plan.enclosing_scope_resume_states().is_empty()
+                    });
+        let restores_catch_environment = restores_checked_async_generator_catch
+            || self.current_function_meta().is_some_and(|meta| {
+                meta.protocol().execution_kind() == FunctionExecutionKind::Async
+            });
         if restores_catch_environment {
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Eq);
+            self.completion().kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_set_async_resume_state(activation_local, catch_entry_state, function);
+            self.emit_set_resumable_resume_point(catch_entry_state, function)?;
             function.instruction(&Instruction::End);
             if let Some(environment) = catch_parameter_environment {
-                self.emit_enter_resumable_lexical_environment(
-                    environment,
-                    catch_entry_state,
-                    function,
-                )?;
+                if restores_checked_async_generator_catch {
+                    self.emit_enter_checked_async_generator_catch_environment(
+                        environment,
+                        catch_entry_state,
+                        function,
+                    )?;
+                } else {
+                    self.emit_enter_resumable_lexical_environment(
+                        environment,
+                        catch_entry_state,
+                        function,
+                    )?;
+                }
             }
         }
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
-            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name, function));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -5032,35 +4493,23 @@ impl<'a> FunctionBuilder<'a> {
                 .insert(catch_source_name.to_string(), catch_storage);
         }
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if !restores_catch_environment {
             if let Some(environment) = catch_parameter_environment {
                 self.emit_enter_lexical_environment(environment, function)?;
             }
         }
-        self.write_binding_from_locals(
-            catch_storage,
-            thrown_payload_local,
-            thrown_tag_local,
-            function,
-        );
-        self.release_temp_local(thrown_tag_local);
-        self.release_temp_local(thrown_payload_local);
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.emit_set_async_resume_state(activation_local, catch_entry_state, function);
+        self.write_binding_from_locals(catch_storage, &thrown, function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(catch_entry_state, function)?;
         function.instruction(&Instruction::End);
+        thrown.clear(function);
 
         self.push_scope();
-        self.compile_async_block_contents(
-            catch_block,
-            catch_entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(catch_block, catch_entry_state, true, function)?;
         self.pop_scope();
         if catch_parameter_environment.is_some() {
             self.emit_leave_lexical_environment(function);
@@ -5076,41 +4525,31 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.emit_async_finalizer_needs_pending_completion(
-            activation_local,
-            finally_entry_state,
-            function,
-        );
+        self.emit_resumable_finalizer_needs_pending_completion(finally_entry_state, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_async_pending_completion(function)?;
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.emit_set_async_resume_state(activation_local, finally_entry_state, function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(finally_entry_state, function)?;
         function.instruction(&Instruction::End);
 
         let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.push_scope();
-        self.compile_async_block_contents(
-            finally_block,
-            finally_entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(finally_block, finally_entry_state, true, function)?;
         self.pop_scope();
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_pop_and_restore_async_pending_completion(function)?;
         function.instruction(&Instruction::Else);
         self.emit_discard_async_pending_completion(function)?;
         function.instruction(&Instruction::End);
-        self.emit_set_async_resume_state(activation_local, async_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(async_plan.exit_state, function)?;
         self.emit_dispatch_async_completion(function)?;
 
         debug_assert_eq!(catch_exit_state, finally_entry_state);
@@ -5129,12 +4568,23 @@ impl<'a> FunctionBuilder<'a> {
         async_plan: AsyncTryPlanIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async finalization requires the function call ABI")
-        })?;
-        let resume_state_offset = self.async_await_resume_state_offset().ok_or_else(|| {
-            EmitError::unsupported("async finalization requires an async activation")
-        })?;
+        self.with_checked_async_generator_source_environment(|builder| {
+            builder.compile_async_try_finally_in_source_environment(
+                try_block,
+                finally_block,
+                async_plan,
+                function,
+            )
+        })
+    }
+
+    fn compile_async_try_finally_in_source_environment(
+        &mut self,
+        try_block: &BlockIr,
+        finally_block: &BlockIr,
+        async_plan: AsyncTryPlanIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let finally_entry_state = async_plan.finally_entry_state.ok_or_else(|| {
             EmitError::unsupported("async try/finally is missing its finalizer resume state")
         })?;
@@ -5143,31 +4593,23 @@ impl<'a> FunctionBuilder<'a> {
         })?;
 
         self.emit_async_try_state_in_range(
-            activation_local,
             async_plan.entry_state,
             async_plan.exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.open_frame(ControlFrameKind::Block, function);
         let finally_entry_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_entry_frame);
 
         self.emit_async_try_state_in_range(
-            activation_local,
             async_plan.entry_state,
             async_plan.try_exit_state,
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
-        self.compile_async_block_contents(
-            try_block,
-            async_plan.entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(try_block, async_plan.entry_state, true, function)?;
         self.pop_scope();
         self.emit_branch_to_target(finally_entry_frame, function);
         self.pop_control(ControlFrameKind::If);
@@ -5177,41 +4619,31 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.emit_async_finalizer_needs_pending_completion(
-            activation_local,
-            finally_entry_state,
-            function,
-        );
+        self.emit_resumable_finalizer_needs_pending_completion(finally_entry_state, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_async_pending_completion(function)?;
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.emit_set_async_resume_state(activation_local, finally_entry_state, function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(finally_entry_state, function)?;
         function.instruction(&Instruction::End);
 
         let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.push_scope();
-        self.compile_async_block_contents(
-            finally_block,
-            finally_entry_state,
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(finally_block, finally_entry_state, true, function)?;
         self.pop_scope();
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_pop_and_restore_async_pending_completion(function)?;
         function.instruction(&Instruction::Else);
         self.emit_discard_async_pending_completion(function)?;
         function.instruction(&Instruction::End);
-        self.emit_set_async_resume_state(activation_local, async_plan.exit_state, function);
+        self.emit_set_resumable_resume_point(async_plan.exit_state, function)?;
         self.emit_dispatch_async_completion(function)?;
 
         debug_assert_eq!(finally_exit_state, async_plan.exit_state);
@@ -5228,11 +4660,8 @@ impl<'a> FunctionBuilder<'a> {
         finally_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_statement_result(function, ValueKind::Undefined);
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
+        self.emit_statement_result(function);
+        let saved = self.runtime_schema().reserve_completion(function);
 
         let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let finally_frame = self.open_frame(ControlFrameKind::Block, function);
@@ -5244,30 +4673,15 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.save_current_completion(&saved, function);
+        self.emit_statement_result(function);
         self.push_scope();
         self.compile_block_contents(finally_block, function)?;
         self.pop_scope();
-        self.emit_resume_after_finally(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        )?;
+        self.emit_resume_after_finally(&saved, function)?;
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
+        saved.clear(function);
         Ok(())
     }
 
@@ -5282,7 +4696,7 @@ impl<'a> FunctionBuilder<'a> {
         let owner = ActivationAsyncDisposeOwner::from_execution(execution);
         if !self
             .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == owner.execution_kind())
+            .is_some_and(|meta| meta.protocol().execution_kind() == owner.execution_kind())
         {
             return Err(EmitError::unsupported(
                 "async DisposeCapability has the wrong execution owner",
@@ -5297,51 +4711,27 @@ impl<'a> FunctionBuilder<'a> {
             })?;
         let storage = ActivationAsyncDisposeCapabilityStorage { binding };
         let finalizer = owner.finalizer();
-        let resume_state_offset = owner.resume_state_offset();
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async disposal requires the function call ABI")
-        })?;
 
-        self.emit_async_state_in_range(
-            activation_local,
-            finalizer.entry_state(),
-            finalizer.exit_state(),
-            function,
-        );
+        self.emit_async_state_in_range(finalizer.entry_state(), finalizer.exit_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
         let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(disposal_frame);
 
         self.emit_async_state_in_range(
-            activation_local,
             finalizer.entry_state(),
             finalizer.dispose_state(),
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_state_offset,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_resumable_state_equals(finalizer.entry_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
         self.initialize_activation_async_dispose_capability(&storage, resources, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.push_scope();
-        self.compile_async_block_contents(
-            body,
-            finalizer.entry_state(),
-            true,
-            resume_state_offset,
-            function,
-        )?;
+        self.compile_resumable_block_contents(body, finalizer.entry_state(), true, function)?;
         self.pop_scope();
         self.emit_branch_to_target(disposal_frame, function);
         self.pop_control(ControlFrameKind::If);
@@ -5351,20 +4741,15 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.emit_async_finalizer_needs_pending_completion(
-            activation_local,
+        self.emit_resumable_finalizer_needs_pending_completion(
             finalizer.dispose_state(),
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         let pending = self.begin_async_dispose_pending_completion(function)?;
         self.set_completion_kind(CompletionKind::Normal, function);
-        let disposing = self.begin_activation_async_dispose_capability(
-            storage,
-            activation_local,
-            finalizer,
-            function,
-        )?;
+        let disposing =
+            self.begin_activation_async_dispose_capability(storage, finalizer, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -5413,6 +4798,7 @@ impl<'a> FunctionBuilder<'a> {
                         resource.binding_name().to_string(),
                         BindingMode::Const,
                         resource.initializer().kind,
+                        function,
                     )
                 });
             self.initialize_binding_uninitialized(storage, function);
@@ -5430,23 +4816,13 @@ impl<'a> FunctionBuilder<'a> {
             resources.len(),
             function,
         )?;
-
         for resource in resources.iter() {
             let acquired = self.reserve_async_disposable_resource_locals(function);
-            self.compile_expr_to_locals(
-                resource.initializer(),
-                acquired.value_payload,
-                acquired.value_tag,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                acquired.value_payload,
-                acquired.value_tag,
-                function,
-            )?;
+            self.compile_expr_to_value(resource.initializer(), &acquired.value, function)?;
+            self.emit_propagate_current_throw_if_needed(function);
             self.acquire_async_disposable_resource_from_locals(&acquired, function)?;
             self.append_activation_async_disposable_resource(&capability, &acquired, function);
-            let resource_storage = self
+            let binding = self
                 .lookup_current_scope_binding(resource.binding_name())
                 .or_else(|| self.lookup_binding(resource.binding_name()))
                 .unwrap_or_else(|| {
@@ -5454,18 +4830,13 @@ impl<'a> FunctionBuilder<'a> {
                         resource.binding_name().to_string(),
                         BindingMode::Const,
                         resource.initializer().kind,
+                        function,
                     )
                 });
-            self.write_binding_from_locals(
-                resource_storage,
-                acquired.value_payload,
-                acquired.value_tag,
-                function,
-            );
-            self.release_async_disposable_resource_locals(acquired);
+            self.write_binding_from_locals(binding, &acquired.value, function);
+            self.release_async_disposable_resource_locals(acquired, function);
         }
-
-        self.release_active_activation_async_dispose_capability(capability);
+        self.release_active_activation_async_dispose_capability(capability, function);
         Ok(())
     }
 
@@ -5475,180 +4846,109 @@ impl<'a> FunctionBuilder<'a> {
         capacity: usize,
         function: &mut Function,
     ) -> Result<ActiveActivationAsyncDisposeCapabilityLocals, EmitError> {
-        let capability = ActiveActivationAsyncDisposeCapabilityLocals {
-            object: self.reserve_temp_local(),
-            record: self.reserve_temp_local(),
-            entries: self.reserve_temp_local(),
-        };
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(capability.object));
-        self.emit_heap_alloc_const(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(capability.record));
-        self.emit_heap_alloc_const(
-            capacity as u64 * HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(capability.entries));
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ActivationAsyncDisposeCapabilityState::Pending.word(),
+        let schema = self.runtime_schema();
+        let count = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(i32::try_from(capacity).map_err(
+            |_| EmitError::unsupported("too many asynchronous disposal resources"),
+        )?));
+        count.store(function);
+        let entries = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ActivationAsyncDisposeResourceTable>()
+                .filled(GcOperand::null(schema), count, function),
             function,
         );
-        self.store_i64_local_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            capability.entries,
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ActivationAsyncDisposeCapability>()
+                .construct(
+                    (
+                        GcOperand::constant(ActivationAsyncDisposeCapabilityState::Pending),
+                        GcOperand::reference(&entries, schema),
+                        GcOperand::i64(0),
+                        GcOperand::i64(0),
+                        GcOperand::boolean(false),
+                        GcOperand::boolean(false),
+                    ),
+                    function,
+                ),
             function,
         );
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            0,
+        let cell = self.control_flow_owned_binding_cell(storage.binding, function)?;
+        schema
+            .struct_type::<BindingCell>()
+            .field(BindingCellSchema::ASYNC_DISPOSE_CAPABILITY)
+            .write(
+                &cell,
+                GcOperand::nullable_reference(&record, schema),
+                schema,
+                function,
+            );
+        cell.clear(function);
+        schema.release_i32_local(count, function);
+        Ok(ActiveActivationAsyncDisposeCapabilityLocals { record, entries })
+    }
+
+    fn load_activation_async_dispose_capability(
+        &mut self,
+        storage: &ActivationAsyncDisposeCapabilityStorage,
+        function: &mut Function,
+    ) -> Result<ActiveActivationAsyncDisposeCapabilityLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let cell = self.control_flow_owned_binding_cell(storage.binding, function)?;
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BindingCell>()
+                .field(BindingCellSchema::ASYNC_DISPOSE_CAPABILITY)
+                .read(&cell, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            capacity as u64,
+        let entries = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ActivationAsyncDisposeCapability>()
+                .field(ActivationAsyncDisposeCapabilitySchema::RESOURCES)
+                .read(&record, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_local_at_offset(
-            capability.object,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            capability.record,
-            function,
-        );
-        let object_tag = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag));
-        self.write_binding_from_locals(storage.binding, capability.object, object_tag, function);
-        self.release_temp_local(object_tag);
-        Ok(capability)
+        cell.clear(function);
+        Ok(ActiveActivationAsyncDisposeCapabilityLocals { record, entries })
     }
 
     fn release_active_activation_async_dispose_capability(
         &mut self,
         capability: ActiveActivationAsyncDisposeCapabilityLocals,
-    ) {
-        self.release_temp_local(capability.entries);
-        self.release_temp_local(capability.record);
-        self.release_temp_local(capability.object);
-    }
-
-    /// Re-publish the immutable head value when a nested implicit finalizer
-    /// resumes inside a `for (await using ... of ...)` body.
-    ///
-    /// Async-function re-entry reconstructs source environments from the
-    /// activation root. The original iteration record stays alive through any
-    /// closure that captured it, while the outer capability's sole registered
-    /// entry is the activation-backed authority for the same immutable value.
-    fn restore_async_disposable_for_of_binding(
-        &mut self,
-        capability_storage: &ActivationAsyncDisposeCapabilityStorage,
-        binding_storage: BindingStorage,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        self.read_binding_to_locals(
-            capability_storage.binding,
-            object_local,
-            object_tag_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            entry_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        self.write_binding_from_locals(
-            binding_storage,
-            value_payload_local,
-            value_tag_local,
-            function,
-        );
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(object_local);
-        Ok(())
+    ) {
+        capability.entries.clear(function);
+        capability.record.clear(function);
     }
 
     fn reserve_async_disposable_resource_locals(
         &mut self,
         function: &mut Function,
     ) -> AcquiredAsyncDisposableResourceLocals {
+        let schema = self.runtime_schema();
         let resource = AcquiredAsyncDisposableResourceLocals {
-            kind: self.reserve_temp_local(),
-            value_payload: self.reserve_temp_local(),
-            value_tag: self.reserve_temp_local(),
-            method_payload: self.reserve_temp_local(),
-            method_tag: self.reserve_temp_local(),
+            kind: GcI32DomainLocal::new(schema, ActivationAsyncDisposeEntryKind::Empty, function),
+            value: schema.reserve_value_local(function),
+            method: schema.reserve_value_local(function),
         };
-        self.reset_async_disposable_resource_locals(&resource, function);
+        resource.value.set_undefined(function);
+        resource.method.set_undefined(function);
         resource
-    }
-
-    fn reset_async_disposable_resource_locals(
-        &self,
-        resource: &AcquiredAsyncDisposableResourceLocals,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::I64Const(
-            ActivationAsyncDisposeEntryKind::Empty.word() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resource.kind));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(resource.method_payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(resource.method_tag));
     }
 
     fn release_async_disposable_resource_locals(
         &mut self,
         resource: AcquiredAsyncDisposableResourceLocals,
+        function: &mut Function,
     ) {
-        self.release_temp_local(resource.method_tag);
-        self.release_temp_local(resource.method_payload);
-        self.release_temp_local(resource.value_tag);
-        self.release_temp_local(resource.value_payload);
-        self.release_temp_local(resource.kind);
-    }
-
-    fn emit_is_nullish_tag_i32(&self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        resource.method.clear(function);
+        resource.value.clear(function);
+        resource.kind.clear(self.runtime_schema(), function);
     }
 
     fn acquire_async_disposable_resource_from_locals(
@@ -5656,114 +4956,84 @@ impl<'a> FunctionBuilder<'a> {
         resource: &AcquiredAsyncDisposableResourceLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_is_nullish_tag_i32(resource.value_tag, function);
+        let schema = self.runtime_schema();
+        self.compile_nullish_tagged_i32(resource.value.tag(), function)?;
+        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
+        self.emit_is_heap_object_like_tag_i32(resource.value.tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::AWAIT_USING_DECLARATION_RESOURCE_IS_NOT_AN_OBJECT,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let symbol = schema.reserve_gc_local(function).initialize(
+            self.emit_well_known_symbol_reference(
+                lila_ir::WellKnownSymbol::AsyncDispose,
+                function,
+            )?,
+            function,
+        );
+        let key = crate::operations::PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        let pending = schema.reserve_completion(function);
+        self.emit_object_read(&resource.value, &resource.value, &key, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        resource.method.copy_from(pending.value(), function);
+        key.clear(function);
+        symbol.clear(function);
+        self.compile_nullish_tagged_i32(resource.method.tag(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        let symbol = schema.reserve_gc_local(function).initialize(
+            self.emit_well_known_symbol_reference(lila_ir::WellKnownSymbol::Dispose, function)?,
+            function,
+        );
+        let key = crate::operations::PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        self.emit_object_read(&resource.value, &resource.value, &key, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        resource.method.copy_from(pending.value(), function);
+        key.clear(function);
+        symbol.clear(function);
+        self.compile_nullish_tagged_i32(resource.method.tag(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::AWAIT_USING_DECLARATION_RESOURCE_HAS_NO_DISPOSAL_METHOD,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_callable_i32(&resource.method, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::AWAIT_USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        resource.kind.set_constant(
+            ActivationAsyncDisposeEntryKind::SyncFallbackMethod,
+            function,
+        );
         function.instruction(&Instruction::Else);
-
-        self.emit_is_heap_object_like_tag_i32(resource.value_tag, function);
+        self.emit_is_callable_i32(&resource.method, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "await using declaration resource is not an object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::AWAIT_USING_DECLARATION_SYMBOL_ASYNCDISPOSE_METHOD_IS_NOT_CALLABLE,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.asyncDispose"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            resource.value_payload,
-            resource.value_tag,
-            resource.value_payload,
-            resource.value_tag,
-            key_local,
-            resource.method_payload,
-            resource.method_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            resource.method_payload,
-            resource.method_tag,
-            function,
-        )?;
-
-        self.emit_is_nullish_tag_i32(resource.method_tag, function);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.dispose"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            resource.value_payload,
-            resource.value_tag,
-            resource.value_payload,
-            resource.value_tag,
-            key_local,
-            resource.method_payload,
-            resource.method_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            resource.method_payload,
-            resource.method_tag,
-            function,
-        )?;
-        self.emit_is_nullish_tag_i32(resource.method_tag, function);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "await using declaration resource has no disposal method",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
+        resource
+            .kind
+            .set_constant(ActivationAsyncDisposeEntryKind::AsyncMethod, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_is_callable_i32(resource.method_tag, resource.method_payload, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "await using declaration [Symbol.dispose] method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(
-            ActivationAsyncDisposeEntryKind::SyncFallbackMethod.word() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resource.kind));
-        function.instruction(&Instruction::Else);
-        self.emit_is_callable_i32(resource.method_tag, resource.method_payload, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "await using declaration [Symbol.asyncDispose] method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(
-            ActivationAsyncDisposeEntryKind::AsyncMethod.word() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resource.kind));
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(key_local);
-
+        pending.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
@@ -5775,53 +5045,69 @@ impl<'a> FunctionBuilder<'a> {
         resource: &AcquiredAsyncDisposableResourceLocals,
         function: &mut Function,
     ) {
-        self.load_i64_to_local_from_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            self.scratch_local,
+        let schema = self.runtime_schema();
+        let count = schema.reserve_i64_local(function);
+        let index = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<ActivationAsyncDisposeCapability>()
+            .field(ActivationAsyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .read(&capability.record, schema, function)
+            .store_i64(count, function);
+        count.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        index.store(function);
+        let value = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&resource.value, function),
             function,
         );
-        let entry = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(capability.entries));
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-        ));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry));
-        for (offset, local) in [
-            (HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET, resource.kind),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-                resource.value_tag,
-            ),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-                resource.value_payload,
-            ),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-                resource.method_tag,
-            ),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-                resource.method_payload,
-            ),
-        ] {
-            self.store_i64_local_at_offset(entry, offset, local, function);
-        }
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        let method = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&resource.method, function),
+            function,
+        );
+        let entry = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ActivationAsyncDisposeResource>()
+                .construct(
+                    (
+                        resource.kind.operand(),
+                        GcOperand::reference(&value, schema),
+                        GcOperand::reference(&method, schema),
+                    ),
+                    function,
+                ),
+            function,
+        );
+        schema
+            .array_type::<ActivationAsyncDisposeResourceTable>()
+            .write(
+                &capability.entries,
+                index,
+                GcOperand::nullable_reference(&entry, schema),
+                schema,
+                function,
+            );
+        count.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        self.release_temp_local(entry);
+        count.store(function);
+        schema
+            .struct_type::<ActivationAsyncDisposeCapability>()
+            .field(ActivationAsyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .write(
+                &capability.record,
+                GcOperand::i64_local(count),
+                schema,
+                function,
+            );
+        entry.clear(function);
+        method.clear(function);
+        value.clear(function);
+        schema.release_i32_local(index, function);
+        schema.release_i64_local(count, function);
     }
 
     fn begin_async_dispose_pending_completion(
@@ -5835,289 +5121,353 @@ impl<'a> FunctionBuilder<'a> {
     fn begin_activation_async_dispose_capability(
         &mut self,
         storage: ActivationAsyncDisposeCapabilityStorage,
-        activation_local: u32,
         finalizer: &AsyncDisposableFinalizerPlanIr,
         function: &mut Function,
     ) -> Result<DisposingActivationAsyncDisposeCapability, EmitError> {
-        let object_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        self.read_binding_to_locals(storage.binding, object_local, object_tag_local, function)?;
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ActivationAsyncDisposeCapabilityState::Disposing.word(),
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            0,
-            function,
-        );
-        self.emit_set_async_resume_state(activation_local, finalizer.dispose_state(), function);
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(object_local);
+        let schema = self.runtime_schema();
+        let capability = self.load_activation_async_dispose_capability(&storage, function)?;
+        let count = schema.reserve_i64_local(function);
+        let row = schema.struct_type::<ActivationAsyncDisposeCapability>();
+        row.field(ActivationAsyncDisposeCapabilitySchema::STATE)
+            .write(
+                &capability.record,
+                GcOperand::constant(ActivationAsyncDisposeCapabilityState::Disposing),
+                schema,
+                function,
+            );
+        row.field(ActivationAsyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .read(&capability.record, schema, function)
+            .store_i64(count, function);
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEXT_RESOURCE_INDEX)
+            .write(
+                &capability.record,
+                GcOperand::i64_local(count),
+                schema,
+                function,
+            );
+        row.field(ActivationAsyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .write(&capability.record, GcOperand::i64(0), schema, function);
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEEDS_AWAIT)
+            .write(
+                &capability.record,
+                GcOperand::boolean(false),
+                schema,
+                function,
+            );
+        row.field(ActivationAsyncDisposeCapabilitySchema::HAS_AWAITED)
+            .write(
+                &capability.record,
+                GcOperand::boolean(false),
+                schema,
+                function,
+            );
+        self.emit_set_resumable_resume_point(finalizer.dispose_state(), function)?;
+        schema.release_i64_local(count, function);
+        self.release_active_activation_async_dispose_capability(capability, function);
         Ok(DisposingActivationAsyncDisposeCapability { storage })
     }
 
     fn fold_error_into_async_dispose_pending_completion(
         &mut self,
-        new_error_payload_local: u32,
-        new_error_tag_local: u32,
+        new_error: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async disposal requires the function call ABI")
-        })?;
-        let (head_offset, _) = self
-            .async_pending_completion_offsets()
-            .expect("async disposal requires an async function activation");
-        let pending_record_local = self.reserve_temp_local();
-        let pending_kind_local = self.reserve_temp_local();
-        let pending_payload_local = self.reserve_temp_local();
-        let pending_tag_local = self.reserve_temp_local();
-        let combined_payload_local = self.reserve_temp_local();
-        let combined_tag_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            head_offset,
-            pending_record_local,
+        let schema = self.runtime_schema();
+        let frame = schema.reserve_gc_local(function).initialize(
+            self.pending_completion_frame()?.load(schema, function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(pending_record_local));
-        function.instruction(&Instruction::I64Eqz);
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<InvocationFrame>()
+                .field(InvocationFrameSchema::PENDING_COMPLETION)
+                .read(&frame, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        let next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<CompletionRecord>()
+                .field(CompletionRecordSchema::NEXT)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        let pending = schema.reserve_completion(function);
+        let combined = schema.reserve_completion(function);
+        schema
+            .struct_type::<CompletionRecord>()
+            .read_into(&record, &pending, schema, function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::Unreachable);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_KIND_OFFSET,
-            pending_kind_local,
+        let realm = self.load_current_realm(function);
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            crate::functions::NonArrayRealmIntrinsicSlot::SuppressedErrorPrototype,
+            &prototype,
             function,
         );
-        function.instruction(&Instruction::LocalGet(new_error_payload_local));
-        function.instruction(&Instruction::LocalSet(combined_payload_local));
-        function.instruction(&Instruction::LocalGet(new_error_tag_local));
-        function.instruction(&Instruction::LocalSet(combined_tag_local));
-
-        function.instruction(&Instruction::LocalGet(pending_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.load_i64_to_local_from_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
-            pending_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_TAG_OFFSET,
-            pending_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(
-            SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        self.emit_alloc_suppressed_error_instance_from_locals(
+        self.emit_alloc_suppressed_error_instance(
             None,
-            new_error_payload_local,
-            new_error_tag_local,
-            pending_payload_local,
-            pending_tag_local,
-            prototype_local,
-            combined_payload_local,
-            combined_tag_local,
+            new_error,
+            pending.value(),
+            &prototype,
+            &combined,
+            function,
+        )?;
+        pending.set_throw(combined.value(), function);
+        prototype.clear(function);
+        realm.clear(function);
+        function.instruction(&Instruction::Else);
+        pending.set_throw(new_error, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let return_stage =
+            GcI32DomainLocal::new(schema, AsyncGeneratorReturnStage::Unawaited, function);
+        let replacement = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<CompletionRecord>().from_completion(
+                &pending,
+                &next,
+                &return_stage,
+                schema,
+                function,
+            ),
+            function,
+        );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PENDING_COMPLETION)
+            .write(
+                &frame,
+                GcOperand::nullable_reference(&replacement, schema),
+                schema,
+                function,
+            );
+        replacement.clear(function);
+        return_stage.clear(schema, function);
+        combined.clear(function);
+        pending.clear(function);
+        next.clear(function);
+        record.clear(function);
+        frame.clear(function);
+        Ok(())
+    }
+
+    fn emit_sync_fallback_disposal_promise(
+        &mut self,
+        method: &ValueLocals,
+        receiver: &ValueLocals,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        // GetDisposeMethod's async wrapper creates its capability before calling
+        // the saved synchronous method and ignores that method's normal value.
+        let realm = self.load_current_realm(function);
+        let promise = self.emit_alloc_promise_in_realm(&realm, function)?;
+        let called = schema.reserve_completion(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        self.emit_function_or_proxy_call_with_argv(
+            method, receiver, &arguments, &called, function,
+        )?;
+        called.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_settle_promise_record(
+            &promise,
+            PromiseSettlement::Reject,
+            called.value(),
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_settle_promise_record(
+            &promise,
+            PromiseSettlement::Fulfill,
+            &undefined,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.store_i64_local_at_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
-            combined_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_TAG_OFFSET,
-            combined_tag_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_KIND_OFFSET,
-            COMPLETION_KIND_THROW as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            pending_record_local,
-            HEAP_PENDING_COMPLETION_AUX_OFFSET,
-            0,
-            function,
-        );
-
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(combined_tag_local);
-        self.release_temp_local(combined_payload_local);
-        self.release_temp_local(pending_tag_local);
-        self.release_temp_local(pending_payload_local);
-        self.release_temp_local(pending_kind_local);
-        self.release_temp_local(pending_record_local);
+        output.set_reference(&promise, schema, function);
+        undefined.clear(function);
+        arguments.clear(function);
+        called.clear(function);
+        promise.clear(function);
+        realm.clear(function);
         Ok(())
     }
 
-    fn emit_rejected_intrinsic_promise_from_error(
-        &mut self,
-        realm: &AsyncExecutionRealmContext,
-        error_payload_local: u32,
-        error_tag_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let promise_record_local = self.reserve_temp_local();
-        let promise_allocation_context =
-            self.emit_async_execution_promise_allocation_context(realm, function);
-        self.emit_alloc_promise_with_prototype(
-            promise_allocation_context,
-            promise_payload_local,
-            promise_record_local,
-            function,
-        )?;
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Reject,
-            error_payload_local,
-            error_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(promise_tag_local));
-        self.release_temp_local(promise_record_local);
-        Ok(())
-    }
-
-    /// Decode only the two completion kinds produced by the selected owner's
-    /// disposal Await continuation.
-    ///
-    /// An async generator has a wider public resume-kind domain, but queued
-    /// `return` and `throw` requests cannot replace the active disposal Await.
-    /// Treating those words as fulfillment here would corrupt the parked
-    /// completion instead of exposing an impossible driver transition.
-    fn emit_load_activation_async_dispose_resume_is_throw(
+    fn emit_load_activation_async_dispose_resume(
         &mut self,
         owner: &ActivationAsyncDisposeOwner<'_>,
-        activation_local: u32,
-        is_throw_local: u32,
+        value: &ValueLocals,
+        is_throw: I32Local,
         function: &mut Function,
-    ) {
-        match owner {
+    ) -> Result<(), EmitError> {
+        let owner = match owner {
             ActivationAsyncDisposeOwner::AsyncFunction(_)
-            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => self
-                .emit_load_async_function_resume_is_throw(
-                    activation_local,
-                    is_throw_local,
-                    function,
-                ),
+            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_)
+            | ActivationAsyncDisposeOwner::AsyncCompleteIterator(_) => {
+                AsyncContinuationOwner::AsyncFunction
+            }
             ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
-                let resume_kind =
-                    self.emit_load_async_generator_resume_kind_strict(activation_local, function);
-                self.emit_async_generator_resume_kind_equals(
-                    &resume_kind,
-                    AsyncGeneratorResumeKind::Fulfill,
+                AsyncContinuationOwner::AsyncGenerator
+            }
+        };
+        self.emit_load_async_continuation_resume(owner, value, is_throw, function)
+    }
+
+    fn emit_load_async_continuation_resume(
+        &mut self,
+        owner: AsyncContinuationOwner,
+        value: &ValueLocals,
+        is_throw: I32Local,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let kind = schema.reserve_i32_local(function);
+        match owner {
+            AsyncContinuationOwner::AsyncFunction => {
+                let activation = self.control_flow_async_activation(function)?;
+                let row = schema.struct_type::<AsyncActivation>();
+                row.field(AsyncActivationSchema::RESUME_COMPLETION)
+                    .read(&activation, schema, function)
+                    .store(kind, function);
+                let stored = schema.reserve_gc_local(function).initialize(
+                    row.field(AsyncActivationSchema::RESUME_VALUE)
+                        .read(&activation, schema, function)
+                        .reference(),
                     function,
                 );
+                schema
+                    .struct_type::<StoredValue>()
+                    .read_into(&stored, value, schema, function);
+                kind.load(function);
+                function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+                    AwaitCompletionKind::Throw,
+                )));
+                function.instruction(&Instruction::I32Eq);
+                is_throw.store(function);
+                kind.load(function);
+                function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+                    AwaitCompletionKind::Normal,
+                )));
+                function.instruction(&Instruction::I32Eq);
+                is_throw.load(function);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::I32Eqz);
                 self.open_frame(ControlFrameKind::If, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(is_throw_local));
-                function.instruction(&Instruction::Else);
-                self.emit_async_generator_resume_kind_equals(
-                    &resume_kind,
-                    AsyncGeneratorResumeKind::Reject,
-                    function,
-                );
-                self.open_frame(ControlFrameKind::If, function);
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(is_throw_local));
-                function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::Unreachable);
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-                self.release_loaded_async_generator_resume_kind(resume_kind);
+                stored.clear(function);
+                activation.clear(function);
+            }
+            AsyncContinuationOwner::AsyncGenerator => {
+                let activation = self.control_flow_async_generator_activation(function)?;
+                let row = schema.struct_type::<AsyncGeneratorActivation>();
+                row.field(AsyncGeneratorActivationSchema::RESUME_KIND)
+                    .read(&activation, schema, function)
+                    .store(kind, function);
+                let stored = schema.reserve_gc_local(function).initialize(
+                    row.field(AsyncGeneratorActivationSchema::RESUME_VALUE)
+                        .read(&activation, schema, function)
+                        .reference(),
+                    function,
+                );
+                schema
+                    .struct_type::<StoredValue>()
+                    .read_into(&stored, value, schema, function);
+                kind.load(function);
+                function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+                    AsyncGeneratorResumeKind::Reject,
+                )));
+                function.instruction(&Instruction::I32Eq);
+                is_throw.store(function);
+                kind.load(function);
+                function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+                    AsyncGeneratorResumeKind::Fulfill,
+                )));
+                function.instruction(&Instruction::I32Eq);
+                is_throw.load(function);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, function);
+                function.instruction(&Instruction::Unreachable);
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
+                stored.clear(function);
+                activation.clear(function);
             }
         }
+        schema.release_i32_local(kind, function);
+        Ok(())
     }
 
-    /// Suspend one disposal Await through the selected activation driver.
-    ///
-    /// The async-generator body status and execution state are published before
-    /// control returns to its driver. That keeps the active request at the queue
-    /// head until the reaction resumes this same body and finalization finishes.
     fn emit_activation_async_dispose_await_reactions(
         &mut self,
         owner: &ActivationAsyncDisposeOwner<'_>,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        match owner {
+        let owner = match owner {
             ActivationAsyncDisposeOwner::AsyncFunction(_)
-            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => self
-                .emit_async_await_reactions(
-                    activation_local,
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                ),
+            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_)
+            | ActivationAsyncDisposeOwner::AsyncCompleteIterator(_) => {
+                AsyncContinuationOwner::AsyncFunction
+            }
             ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
-                self.emit_async_generator_await_reactions(
-                    activation_local,
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                self.emit_store_async_generator_body_status(
-                    activation_local,
-                    AsyncGeneratorBodyStatus::Await,
-                    function,
-                );
-                self.emit_store_async_generator_execution_state(
-                    activation_local,
-                    AsyncGeneratorExecutionState::Executing,
-                    function,
-                );
-                Ok(())
+                AsyncContinuationOwner::AsyncGenerator
+            }
+        };
+        self.emit_async_continuation_await(owner, value, function)
+    }
+
+    fn emit_async_continuation_await(
+        &mut self,
+        owner: AsyncContinuationOwner,
+        value: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        self.emit_save_resumable_environment(function)?;
+        match owner {
+            AsyncContinuationOwner::AsyncFunction => {
+                let activation = self.control_flow_async_activation(function)?;
+                self.emit_async_await_reactions(&activation, value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                activation.clear(function);
+            }
+            AsyncContinuationOwner::AsyncGenerator => {
+                let activation = self.control_flow_async_generator_activation(function)?;
+                self.emit_async_generator_await_reactions(&activation, value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                let row = schema.struct_type::<AsyncGeneratorActivation>();
+                row.field(AsyncGeneratorActivationSchema::BODY_STATUS)
+                    .write(
+                        &activation,
+                        GcOperand::constant(AsyncGeneratorBodyStatus::Await),
+                        schema,
+                        function,
+                    );
+                row.field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+                    .write(
+                        &activation,
+                        GcOperand::constant(AsyncGeneratorExecutionState::Executing),
+                        schema,
+                        function,
+                    );
+                activation.clear(function);
             }
         }
+        Ok(())
     }
 
     fn emit_dispatch_activation_async_dispose_completion(
@@ -6127,7 +5477,8 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match owner {
             ActivationAsyncDisposeOwner::AsyncFunction(_)
-            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => {
+            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_)
+            | ActivationAsyncDisposeOwner::AsyncCompleteIterator(_) => {
                 self.emit_dispatch_current_completion(function)
             }
             ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
@@ -6137,355 +5488,363 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    fn emit_activation_async_dispose_await(
+        &mut self,
+        owner: &ActivationAsyncDisposeOwner<'_>,
+        capability: &ActiveActivationAsyncDisposeCapabilityLocals,
+        value: &ValueLocals,
+        finalizer: &AsyncDisposableFinalizerPlanIr,
+        role: ActivationAsyncDisposeAwaitRole,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        match role {
+            ActivationAsyncDisposeAwaitRole::Method => {
+                schema
+                    .struct_type::<ActivationAsyncDisposeCapability>()
+                    .field(ActivationAsyncDisposeCapabilitySchema::HAS_AWAITED)
+                    .write(
+                        &capability.record,
+                        GcOperand::boolean(true),
+                        schema,
+                        function,
+                    );
+            }
+            ActivationAsyncDisposeAwaitRole::EmptyPrelude => {}
+        }
+        self.emit_set_resumable_resume_point(finalizer.resume_state(), function)?;
+        let await_failure = self.open_frame(ControlFrameKind::Block, function);
+        self.throw_handler_stack.push(await_failure);
+        self.emit_activation_async_dispose_await_reactions(owner, value, function)?;
+        self.emit_return_async_suspension(function)?;
+        self.throw_handler_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        // PromiseResolve can fail synchronously before registration. That error
+        // joins the parked completion, just as a resumed Await rejection does.
+        let error = schema.reserve_value_local(function);
+        error.copy_from(self.completion().value(), function);
+        self.fold_error_into_async_dispose_pending_completion(&error, function)?;
+        error.clear(function);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(finalizer.dispose_state(), function)?;
+        Ok(())
+    }
+
     fn consume_activation_async_dispose_capability(
         &mut self,
         owner: &ActivationAsyncDisposeOwner<'_>,
         disposing: DisposingActivationAsyncDisposeCapability,
         pending: ActiveAsyncDisposePendingCompletion,
         finalizer: &AsyncDisposableFinalizerPlanIr,
-        continuation: ActivationAsyncDisposeCompletionContinuation,
+        continuation: ActivationAsyncDisposeCompletionContinuation<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async disposal requires the function call ABI")
-        })?;
-        let object_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let entries_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let kind_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let await_payload_local = self.reserve_temp_local();
-        let await_tag_local = self.reserve_temp_local();
-        let should_await_local = self.reserve_temp_local();
-        let new_error_payload_local = self.reserve_temp_local();
-        let new_error_tag_local = self.reserve_temp_local();
-        let no_arguments: [(u32, u32); 0] = [];
-
-        self.read_binding_to_locals(
-            disposing.storage.binding,
-            object_local,
-            object_tag_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            entries_local,
-            function,
-        );
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            owner.resume_state_offset(),
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finalizer.resume_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        let capability =
+            self.load_activation_async_dispose_capability(&disposing.storage, function)?;
+        let resumed = schema.reserve_value_local(function);
+        let resume_throw = schema.reserve_i32_local(function);
+        self.emit_resumable_state_equals(finalizer.resume_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
-        let resume_is_throw_local = self.reserve_temp_local();
-        self.emit_load_activation_async_dispose_resume_is_throw(
-            owner,
-            activation_local,
-            resume_is_throw_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-        function.instruction(&Instruction::I32WrapI64);
+        self.emit_load_activation_async_dispose_resume(owner, &resumed, resume_throw, function)?;
+        resume_throw.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            owner.resume_payload_offset(),
-            new_error_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            owner.resume_tag_offset(),
-            new_error_tag_local,
-            function,
-        );
-        self.fold_error_into_async_dispose_pending_completion(
-            new_error_payload_local,
-            new_error_tag_local,
-            function,
-        )?;
+        self.fold_error_into_async_dispose_pending_completion(&resumed, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_set_async_resume_state(activation_local, finalizer.dispose_state(), function);
-        self.release_temp_local(resume_is_throw_local);
+        self.emit_statement_result(function);
+        self.emit_set_resumable_resume_point(finalizer.dispose_state(), function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            owner.resume_state_offset(),
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finalizer.dispose_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_resumable_state_equals(finalizer.dispose_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
-        let done_frame = self.open_frame(ControlFrameKind::Block, function);
-        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
-
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            index_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
+        let finish = self.open_frame(ControlFrameKind::Block, function);
+        let next = self.open_frame(ControlFrameKind::Loop, function);
+        let cursor = schema.reserve_i64_local(function);
+        let index = schema.reserve_i32_local(function);
+        let kind = schema.reserve_i32_local(function);
+        let should_await = schema.reserve_i32_local(function);
+        let value = schema.reserve_value_local(function);
+        let method = schema.reserve_value_local(function);
+        let awaited = schema.reserve_value_local(function);
+        let called = schema.reserve_completion(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        let row = schema.struct_type::<ActivationAsyncDisposeCapability>();
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEXT_RESOURCE_INDEX)
+            .read(&capability.record, schema, function)
+            .store_i64(cursor, function);
+        cursor.load(function);
         function.instruction(&Instruction::I64Eqz);
-        self.emit_branch_if_to_target(done_frame, function);
-        function.instruction(&Instruction::LocalGet(index_local));
+        self.emit_branch_if_to_target(finish, function);
+        cursor.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            index_local,
+        cursor.store(function);
+        cursor.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        index.store(function);
+        let entry = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ActivationAsyncDisposeResourceTable>()
+                .read(&capability.entries, index, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(entries_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-        ));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        for (offset, local) in [
-            (HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET, kind_local),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-                value_payload_local,
-            ),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-                value_tag_local,
-            ),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-                method_payload_local,
-            ),
-            (
-                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-                method_tag_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(entry_local, offset, local, function);
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(await_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(await_tag_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(should_await_local));
-
-        let mut open_kind_arms = 0;
+        let entry_row = schema.struct_type::<ActivationAsyncDisposeResource>();
+        entry_row
+            .field(ActivationAsyncDisposeResourceSchema::KIND)
+            .read(&entry, schema, function)
+            .store(kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            ActivationAsyncDisposeEntryKind::SyncMethod,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEEDS_AWAIT)
+            .read(&capability.record, schema, function);
+        function.instruction(&Instruction::I32And);
+        row.field(ActivationAsyncDisposeCapabilitySchema::HAS_AWAITED)
+            .read(&capability.record, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        // Await the preceding empty async entries before this sync call. Keep
+        // its cursor and row untouched, so the reaction consumes it exactly
+        // once. This prelude does not set the spec's hasAwaited method flag.
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEEDS_AWAIT)
+            .write(
+                &capability.record,
+                GcOperand::boolean(false),
+                schema,
+                function,
+            );
+        awaited.set_undefined(function);
+        self.emit_activation_async_dispose_await(
+            owner,
+            &capability,
+            &awaited,
+            finalizer,
+            ActivationAsyncDisposeAwaitRole::EmptyPrelude,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEXT_RESOURCE_INDEX)
+            .write(
+                &capability.record,
+                GcOperand::i64_local(cursor),
+                schema,
+                function,
+            );
+        let stored_value = schema.reserve_gc_local(function).initialize(
+            entry_row
+                .field(ActivationAsyncDisposeResourceSchema::VALUE)
+                .read(&entry, schema, function)
+                .reference(),
+            function,
+        );
+        let stored_method = schema.reserve_gc_local(function).initialize(
+            entry_row
+                .field(ActivationAsyncDisposeResourceSchema::METHOD)
+                .read(&entry, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_value, &value, schema, function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_method, &method, schema, function);
+        // The cursor is committed before callback/Await and the entry is released
+        // from the capability before user code can resume or reenter it.
+        schema
+            .array_type::<ActivationAsyncDisposeResourceTable>()
+            .write(
+                &capability.entries,
+                index,
+                GcOperand::null(schema),
+                schema,
+                function,
+            );
+        awaited.set_undefined(function);
+        function.instruction(&Instruction::I32Const(1));
+        should_await.store(function);
+        let mut arms = 0;
         for entry_kind in ActivationAsyncDisposeEntryKind::ALL {
-            function.instruction(&Instruction::LocalGet(kind_local));
-            function.instruction(&Instruction::I64Const(entry_kind.word() as i64));
-            function.instruction(&Instruction::I64Eq);
+            kind.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(entry_kind)));
+            function.instruction(&Instruction::I32Eq);
             self.open_frame(ControlFrameKind::If, function);
             match entry_kind {
-                ActivationAsyncDisposeEntryKind::Empty => {}
+                ActivationAsyncDisposeEntryKind::Empty => {
+                    row.field(ActivationAsyncDisposeCapabilitySchema::NEEDS_AWAIT)
+                        .write(
+                            &capability.record,
+                            GcOperand::boolean(true),
+                            schema,
+                            function,
+                        );
+                    function.instruction(&Instruction::I32Const(0));
+                    should_await.store(function);
+                }
                 ActivationAsyncDisposeEntryKind::AsyncMethod => {
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    self.emit_function_or_proxy_call_leave_throw_completion(
-                        method_payload_local,
-                        method_tag_local,
-                        value_payload_local,
-                        value_tag_local,
-                        &no_arguments,
-                        await_payload_local,
-                        await_tag_local,
-                        function,
+                    self.emit_function_or_proxy_call_with_argv(
+                        &method, &value, &arguments, &called, function,
                     )?;
-                    function.instruction(&Instruction::LocalGet(self.completion_local));
-                    function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                    function.instruction(&Instruction::I64Eq);
+                    called.kind().load(function);
+                    function
+                        .instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+                    function.instruction(&Instruction::I32Eq);
                     self.open_frame(ControlFrameKind::If, function);
-                    function.instruction(&Instruction::LocalGet(self.result_local));
-                    function.instruction(&Instruction::LocalSet(new_error_payload_local));
-                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                    function.instruction(&Instruction::LocalSet(new_error_tag_local));
-                    self.set_completion_kind(CompletionKind::Normal, function);
                     self.fold_error_into_async_dispose_pending_completion(
-                        new_error_payload_local,
-                        new_error_tag_local,
+                        called.value(),
                         function,
                     )?;
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(should_await_local));
+                    function.instruction(&Instruction::I32Const(0));
+                    should_await.store(function);
+                    function.instruction(&Instruction::Else);
+                    awaited.copy_from(called.value(), function);
                     self.pop_control(ControlFrameKind::If);
                     function.instruction(&Instruction::End);
                 }
                 ActivationAsyncDisposeEntryKind::SyncFallbackMethod => {
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    self.emit_function_or_proxy_call_leave_throw_completion(
-                        method_payload_local,
-                        method_tag_local,
-                        value_payload_local,
-                        value_tag_local,
-                        &no_arguments,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
+                    self.emit_sync_fallback_disposal_promise(&method, &value, &awaited, function)?;
+                }
+                ActivationAsyncDisposeEntryKind::SyncMethod => {
+                    self.emit_function_or_proxy_call_with_argv(
+                        &method, &value, &arguments, &called, function,
                     )?;
-                    function.instruction(&Instruction::LocalGet(self.completion_local));
-                    function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                    function.instruction(&Instruction::I64Eq);
+                    called.kind().load(function);
+                    function
+                        .instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+                    function.instruction(&Instruction::I32Eq);
                     self.open_frame(ControlFrameKind::If, function);
-                    function.instruction(&Instruction::LocalGet(self.result_local));
-                    function.instruction(&Instruction::LocalSet(new_error_payload_local));
-                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                    function.instruction(&Instruction::LocalSet(new_error_tag_local));
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    let realm = match owner {
-                        ActivationAsyncDisposeOwner::AsyncFunction(_)
-                        | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => self
-                            .emit_async_function_execution_realm_context_from_activation(
-                                activation_local,
-                                function,
-                            ),
-                        ActivationAsyncDisposeOwner::AsyncGenerator(_) => self
-                            .emit_async_generator_execution_realm_context_from_activation(
-                                activation_local,
-                                function,
-                            ),
-                    };
-                    self.emit_rejected_intrinsic_promise_from_error(
-                        &realm,
-                        new_error_payload_local,
-                        new_error_tag_local,
-                        await_payload_local,
-                        await_tag_local,
+                    self.fold_error_into_async_dispose_pending_completion(
+                        called.value(),
                         function,
                     )?;
-                    self.release_async_execution_realm_context(realm);
                     self.pop_control(ControlFrameKind::If);
                     function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::I32Const(0));
+                    should_await.store(function);
                 }
             }
             function.instruction(&Instruction::Else);
-            open_kind_arms += 1;
+            arms += 1;
         }
         function.instruction(&Instruction::Unreachable);
-        for _ in 0..open_kind_arms {
+        for _ in 0..arms {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-
-        function.instruction(&Instruction::LocalGet(should_await_local));
-        function.instruction(&Instruction::I32WrapI64);
+        stored_method.clear(function);
+        stored_value.clear(function);
+        entry.clear(function);
+        should_await.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_set_async_resume_state(activation_local, finalizer.resume_state(), function);
-        self.emit_activation_async_dispose_await_reactions(
+        self.emit_activation_async_dispose_await(
             owner,
-            activation_local,
-            await_payload_local,
-            await_tag_local,
+            &capability,
+            &awaited,
+            finalizer,
+            ActivationAsyncDisposeAwaitRole::Method,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(finalizer.resume_state()),
-            function,
-        );
-        self.emit_return_current_completion(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_branch_to_target(loop_frame, function);
-
+        self.emit_branch_to_target(next, function);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            record_local,
-            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ActivationAsyncDisposeCapabilityState::Disposed.word(),
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEEDS_AWAIT)
+            .read(&capability.record, schema, function);
+        row.field(ActivationAsyncDisposeCapabilitySchema::HAS_AWAITED)
+            .read(&capability.record, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        // Clear the pending empty-resource await before suspension. A resume at
+        // cursor zero must finish this pass instead of awaiting a second time.
+        row.field(ActivationAsyncDisposeCapabilitySchema::NEEDS_AWAIT)
+            .write(
+                &capability.record,
+                GcOperand::boolean(false),
+                schema,
+                function,
+            );
+        awaited.set_undefined(function);
+        self.emit_activation_async_dispose_await(
+            owner,
+            &capability,
+            &awaited,
+            finalizer,
+            ActivationAsyncDisposeAwaitRole::Method,
             function,
-        );
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        arguments.clear(function);
+        called.clear(function);
+        awaited.clear(function);
+        method.clear(function);
+        value.clear(function);
+        schema.release_i32_local(should_await, function);
+        schema.release_i32_local(kind, function);
+        schema.release_i32_local(index, function);
+        schema.release_i64_local(cursor, function);
+        row.field(ActivationAsyncDisposeCapabilitySchema::STATE)
+            .write(
+                &capability.record,
+                GcOperand::constant(ActivationAsyncDisposeCapabilityState::Disposed),
+                schema,
+                function,
+            );
+        let cell = self.control_flow_owned_binding_cell(disposing.storage.binding, function)?;
+        schema
+            .struct_type::<BindingCell>()
+            .field(BindingCellSchema::ASYNC_DISPOSE_CAPABILITY)
+            .write(&cell, GcOperand::null(schema), schema, function);
+        cell.clear(function);
         self.finish_async_dispose_pending_completion(pending, function)?;
         match continuation {
             ActivationAsyncDisposeCompletionContinuation::Scope => {
-                self.emit_set_async_resume_state(
-                    activation_local,
-                    finalizer.exit_state(),
-                    function,
-                );
+                self.emit_set_resumable_resume_point(finalizer.exit_state(), function)?;
                 self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
+            }
+            ActivationAsyncDisposeCompletionContinuation::CompleteMixedScope => {
+                self.emit_set_resumable_resume_point(finalizer.exit_state(), function)?;
+                self.emit_save_resumable_environment(function)?;
+                self.emit_dispatch_current_completion(function)?;
             }
             ActivationAsyncDisposeCompletionContinuation::ClassicFor {
                 lexical_environment,
                 break_target,
             } => {
-                self.emit_set_async_resume_state(
-                    activation_local,
-                    finalizer.exit_state(),
-                    function,
-                );
-                match lexical_environment {
-                    ClassicForAsyncDisposeLexicalEnvironment::Absent => {}
-                    ClassicForAsyncDisposeLexicalEnvironment::Active => {
-                        self.emit_leave_lexical_environment(function);
-                    }
+                self.emit_set_resumable_resume_point(finalizer.exit_state(), function)?;
+                if let ClassicForAsyncDisposeLexicalEnvironment::Active = lexical_environment {
+                    self.emit_leave_lexical_environment(function);
                 }
                 self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
                 self.emit_branch_to_target(break_target, function);
             }
-            ActivationAsyncDisposeCompletionContinuation::ForOf(continuation) => {
-                self.finish_async_disposable_for_of_iteration(
+            ActivationAsyncDisposeCompletionContinuation::ForOf(continuation) => self
+                .finish_async_disposable_for_of_iteration(
                     owner,
                     finalizer,
                     continuation,
                     function,
-                )?;
-            }
+                )?,
         }
-
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(new_error_tag_local);
-        self.release_temp_local(new_error_payload_local);
-        self.release_temp_local(should_await_local);
-        self.release_temp_local(await_tag_local);
-        self.release_temp_local(await_payload_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(kind_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(entries_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(object_local);
+        schema.release_i32_local(resume_throw, function);
+        resumed.clear(function);
+        self.release_active_activation_async_dispose_capability(capability, function);
         Ok(())
     }
 
@@ -6493,109 +5852,48 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         owner: &ActivationAsyncDisposeOwner<'_>,
         finalizer: &AsyncDisposableFinalizerPlanIr,
-        continuation: AsyncDisposableForOfCompletionContinuationLocals,
+        continuation: AsyncDisposableForOfCompletionContinuationLocals<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async disposal requires the function call ABI")
-        })?;
-        match continuation.iteration_environment {
-            AsyncDisposableForOfIterationEnvironment::Absent => {}
-            AsyncDisposableForOfIterationEnvironment::Active => {
-                self.emit_leave_lexical_environment(function);
-            }
+        let schema = self.runtime_schema();
+        if let AsyncDisposableForOfIterationEnvironment::Active = continuation.iteration_environment
+        {
+            self.emit_leave_lexical_environment(function);
+            self.emit_save_resumable_environment(function)?;
         }
-
-        // LoopContinues is tested only after the iteration capability has been
-        // consumed and the fresh binding environment has been left. A local
-        // continue becomes Normal and is the only abrupt completion that may
-        // advance without IteratorClose.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::I64Const(
-            continuation.continue_target.frame as i64,
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(
+            CompletionKind::Continue.code() as i32
         ));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Eq);
+        self.completion().target().load(function);
+        function.instruction(&Instruction::I32Const(
+            continuation.continue_target.frame as i32,
+        ));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
         self.set_completion_kind(CompletionKind::Normal, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_set_async_resume_state(activation_local, finalizer.entry_state(), function);
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::LocalSet(continuation.state_local));
+        self.emit_set_resumable_resume_point(finalizer.entry_state(), function)?;
+        function.instruction(&Instruction::I32Const(finalizer.entry_state() as i32));
+        continuation.state.store(function);
         self.emit_branch_to_target(continuation.loop_target, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
-        self.save_current_completion(
-            continuation.saved_payload_local,
-            continuation.saved_tag_local,
-            continuation.saved_completion_local,
-            continuation.saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(continuation.saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.restore_saved_completion(
-            continuation.saved_payload_local,
-            continuation.saved_tag_local,
-            continuation.saved_completion_local,
-            continuation.saved_aux_local,
-            function,
-        );
-        self.emit_iterator_close_preserving_current_throw(
-            IteratorCloseOnThrowLocals {
-                iterator_payload_local: continuation.iterator_payload_local,
-                iterator_tag_local: continuation.iterator_tag_local,
-                key_local: continuation.key_local,
-                return_payload_local: continuation.return_payload_local,
-                return_tag_local: continuation.return_tag_local,
-                result_payload_local: continuation.result_payload_local,
-                result_tag_local: continuation.result_tag_local,
-                saved_payload_local: continuation.close_saved_payload_local,
-                saved_tag_local: continuation.close_saved_tag_local,
-                saved_completion_local: continuation.close_saved_completion_local,
-                saved_aux_local: continuation.close_saved_aux_local,
-            },
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_iterator_close(
-            continuation.iterator_payload_local,
-            continuation.iterator_tag_local,
-            continuation.key_local,
-            continuation.return_payload_local,
-            continuation.return_tag_local,
-            continuation.result_payload_local,
-            continuation.result_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(continuation.saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        self.open_frame(ControlFrameKind::If, function);
-        self.restore_saved_completion(
-            continuation.saved_payload_local,
-            continuation.saved_tag_local,
-            continuation.saved_completion_local,
-            continuation.saved_aux_local,
-            function,
-        );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
+        self.emit_set_resumable_resume_point(finalizer.exit_state(), function)?;
+        let pending = schema.reserve_completion(function);
+        let closed = schema.reserve_completion(function);
+        pending.copy_from(self.completion(), function);
+        self.emit_sync_iterator_close(continuation.iterator, &pending, &closed, function)?;
+        self.completion().copy_from(&closed, function);
+        closed.clear(function);
+        pending.clear(function);
         self.emit_dispatch_activation_async_dispose_completion(owner, function)
     }
 
@@ -6692,7 +5990,7 @@ impl<'a> FunctionBuilder<'a> {
         let execution_kind = owner.execution_kind();
         if !self
             .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == execution_kind)
+            .is_some_and(|meta| meta.protocol().execution_kind() == execution_kind)
         {
             return Err(EmitError::unsupported(
                 "activation-backed synchronous DisposeCapability has the wrong execution owner",
@@ -6735,23 +6033,8 @@ impl<'a> FunctionBuilder<'a> {
             }
         };
 
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("activation-backed using requires the function call ABI")
-        })?;
-        let resume_state_offset = owner.resume_state_offset();
         if let Some((entry_state, exit_state)) = suspension_span {
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                resume_state_offset,
-                self.scratch_local,
-                function,
-            );
-            Self::emit_state_in_inclusive_range_i32(
-                self.scratch_local,
-                entry_state,
-                exit_state,
-                function,
-            );
+            self.emit_resumable_state_in_range(entry_state, exit_state, true, function)?;
             self.open_frame(ControlFrameKind::If, function);
         }
 
@@ -6760,15 +6043,7 @@ impl<'a> FunctionBuilder<'a> {
         self.finally_stack.push(disposal_frame);
 
         if let Some((entry_state, _)) = suspension_span {
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                resume_state_offset,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.scratch_local));
-            function.instruction(&Instruction::I64Const(entry_state as i64));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_resumable_state_equals(entry_state, function)?;
             self.open_frame(ControlFrameKind::If, function);
         }
         self.initialize_activation_sync_dispose_capability(
@@ -6783,21 +6058,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.push_scope();
         if let Some((entry_state, _)) = suspension_span {
-            match &owner {
-                ActivationSyncDisposeOwner::PlainGenerator(_) => {
-                    self.compile_generator_block_contents(body, entry_state, true, function)?;
-                }
-                ActivationSyncDisposeOwner::AsyncFunction(_)
-                | ActivationSyncDisposeOwner::AsyncGenerator(_) => {
-                    self.compile_async_block_contents(
-                        body,
-                        entry_state,
-                        true,
-                        resume_state_offset,
-                        function,
-                    )?;
-                }
-            }
+            self.compile_resumable_block_contents(body, entry_state, true, function)?;
         } else {
             self.compile_block_contents(body, function)?;
         }
@@ -6813,6 +6074,7 @@ impl<'a> FunctionBuilder<'a> {
             resources.len(),
             function,
         );
+        self.release_detached_activation_sync_dispose_capability(detached, function);
         let pending = self.capture_pending_sync_dispose_completion(function);
         self.set_completion_kind(CompletionKind::Normal, function);
         self.consume_sync_disposable_resources(
@@ -6821,7 +6083,6 @@ impl<'a> FunctionBuilder<'a> {
             owner.completion_continuation(),
             function,
         )?;
-        self.release_detached_activation_sync_dispose_capability(detached);
 
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
@@ -6846,10 +6107,27 @@ impl<'a> FunctionBuilder<'a> {
                         resource.binding_name.clone(),
                         BindingMode::Const,
                         resource.initializer.kind,
+                        function,
                     )
                 });
             self.initialize_binding_uninitialized(storage, function);
         }
+    }
+
+    fn control_flow_owned_binding_cell(
+        &mut self,
+        binding: BindingStorage,
+        function: &mut Function,
+    ) -> Result<GcLocal<BindingCell>, EmitError> {
+        let BindingStorage::EnvSlot { slot, hops } = binding else {
+            return Err(EmitError::unsupported(
+                "compiler-private resumable capability requires an owned environment cell",
+            ));
+        };
+        let environment = self.resolve_env_handle_local(hops, function);
+        let cell = self.emit_environment_cell_local(&environment, slot, function);
+        environment.clear(function);
+        Ok(cell)
     }
 
     fn initialize_activation_sync_dispose_capability(
@@ -6858,78 +6136,19 @@ impl<'a> FunctionBuilder<'a> {
         resources: &SyncDisposableResourcesIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let capability = ActiveActivationSyncDisposeCapabilityLocals {
-            object: self.reserve_temp_local(),
-            record: self.reserve_temp_local(),
-            entries: self.reserve_temp_local(),
-        };
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(capability.object));
-        self.emit_heap_alloc_const(HEAP_DISPOSABLE_STACK_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(capability.record));
-        self.emit_heap_alloc_const(
-            resources.len() as u64 * HEAP_DISPOSABLE_STACK_ENTRY_SIZE,
+        let capability = self.initialize_empty_activation_sync_dispose_capability(
+            storage,
+            resources.len(),
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(capability.entries));
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            DisposableStackState::Pending.word(),
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            capability.entries,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            resources.len() as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            capability.object,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability.object,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            capability.record,
-            function,
-        );
-        let object_tag = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag));
-        self.write_binding_from_locals(storage.binding, capability.object, object_tag, function);
-        self.release_temp_local(object_tag);
-
+        // Publish the private capability before any initializer/GetMethod may throw.
         for resource in resources.iter() {
             let acquired = self.reserve_sync_disposable_resource_locals(function);
-            self.compile_expr_to_locals(
-                &resource.initializer,
-                acquired.value_payload,
-                acquired.value_tag,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                acquired.value_payload,
-                acquired.value_tag,
-                function,
-            )?;
+            self.compile_expr_to_value(&resource.initializer, &acquired.value, function)?;
+            self.emit_propagate_current_throw_if_needed(function);
             self.acquire_sync_disposable_resource_from_locals(&acquired, function)?;
             self.append_activation_sync_disposable_resource(&capability, &acquired, function);
-            let resource_storage = self
+            let binding = self
                 .lookup_current_scope_binding(&resource.binding_name)
                 .or_else(|| self.lookup_binding(&resource.binding_name))
                 .unwrap_or_else(|| {
@@ -6937,21 +6156,97 @@ impl<'a> FunctionBuilder<'a> {
                         resource.binding_name.clone(),
                         BindingMode::Const,
                         resource.initializer.kind,
+                        function,
                     )
                 });
-            self.write_binding_from_locals(
-                resource_storage,
-                acquired.value_payload,
-                acquired.value_tag,
+            self.write_binding_from_locals(binding, &acquired.value, function);
+            self.release_sync_disposable_resource_locals(acquired, function);
+        }
+        capability.entries.clear(function);
+        capability.record.clear(function);
+        Ok(())
+    }
+
+    fn initialize_empty_activation_sync_dispose_capability(
+        &mut self,
+        storage: &ActivationSyncDisposeCapabilityStorage,
+        resource_capacity: usize,
+        function: &mut Function,
+    ) -> Result<ActiveActivationSyncDisposeCapabilityLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let capacity = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(
+            i32::try_from(resource_capacity)
+                .map_err(|_| EmitError::unsupported("too many synchronous disposal resources"))?,
+        ));
+        capacity.store(function);
+        let entries = schema
+            .reserve_gc_local::<DisposableResourceTable, NonNullable>(function)
+            .initialize(
+                schema.array_type::<DisposableResourceTable>().filled(
+                    GcOperand::null(schema),
+                    capacity,
+                    function,
+                ),
                 function,
             );
-            self.release_sync_disposable_resource_locals(acquired);
-        }
+        let record = schema
+            .reserve_gc_local::<ActivationSyncDisposeCapability, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<ActivationSyncDisposeCapability>()
+                    .construct(
+                        (
+                            GcOperand::constant(DisposableStackState::Pending),
+                            GcOperand::reference(&entries, schema),
+                            GcOperand::i64(0),
+                        ),
+                        function,
+                    ),
+                function,
+            );
+        let capability = ActiveActivationSyncDisposeCapabilityLocals { record, entries };
+        let cell = self.control_flow_owned_binding_cell(storage.binding, function)?;
+        schema
+            .struct_type::<BindingCell>()
+            .field(BindingCellSchema::SYNC_DISPOSE_CAPABILITY)
+            .write(
+                &cell,
+                GcOperand::nullable_reference(&capability.record, schema),
+                schema,
+                function,
+            );
+        cell.clear(function);
+        schema.release_i32_local(capacity, function);
+        Ok(capability)
+    }
 
-        self.release_temp_local(capability.entries);
-        self.release_temp_local(capability.record);
-        self.release_temp_local(capability.object);
-        Ok(())
+    fn load_activation_sync_dispose_capability(
+        &mut self,
+        storage: &ActivationSyncDisposeCapabilityStorage,
+        function: &mut Function,
+    ) -> Result<ActiveActivationSyncDisposeCapabilityLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let cell = self.control_flow_owned_binding_cell(storage.binding, function)?;
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BindingCell>()
+                .field(BindingCellSchema::SYNC_DISPOSE_CAPABILITY)
+                .read(&cell, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        let entries = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ActivationSyncDisposeCapability>()
+                .field(ActivationSyncDisposeCapabilitySchema::RESOURCES)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        cell.clear(function);
+        Ok(ActiveActivationSyncDisposeCapabilityLocals { record, entries })
     }
 
     fn append_activation_sync_disposable_resource(
@@ -6960,64 +6255,67 @@ impl<'a> FunctionBuilder<'a> {
         resource: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(resource.registered));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        let schema = self.runtime_schema();
+        resource.registered.load(function);
         self.open_frame(ControlFrameKind::If, function);
-
-        self.load_i64_to_local_from_offset(
-            capability.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            self.scratch_local,
+        let count = schema.reserve_i64_local(function);
+        let index = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<ActivationSyncDisposeCapability>()
+            .field(ActivationSyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .read(&capability.record, schema, function)
+            .store_i64(count, function);
+        count.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        index.store(function);
+        let value = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&resource.value, function),
             function,
         );
-        let entry = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(capability.entries));
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(
-            HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-        ));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry));
-        self.store_i64_const_at_offset(
-            entry,
-            HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
-            DisposableStackEntryKind::Use.word(),
+        let method = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&resource.method, function),
             function,
         );
-        for (offset, local) in [
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-                resource.value_payload,
+        let entry = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<DisposableResource>().construct(
+                (
+                    GcOperand::constant(DisposableStackEntryKind::Use),
+                    GcOperand::reference(&value, schema),
+                    GcOperand::reference(&method, schema),
+                ),
+                function,
             ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-                resource.value_tag,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-                resource.method_payload,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-                resource.method_tag,
-            ),
-        ] {
-            self.store_i64_local_at_offset(entry, offset, local, function);
-        }
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function,
+        );
+        schema.array_type::<DisposableResourceTable>().write(
+            &capability.entries,
+            index,
+            GcOperand::nullable_reference(&entry, schema),
+            schema,
+            function,
+        );
+        count.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            capability.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        self.release_temp_local(entry);
-
+        count.store(function);
+        schema
+            .struct_type::<ActivationSyncDisposeCapability>()
+            .field(ActivationSyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .write(
+                &capability.record,
+                GcOperand::i64_local(count),
+                schema,
+                function,
+            );
+        entry.clear(function);
+        method.clear(function);
+        value.clear(function);
+        schema.release_i32_local(index, function);
+        schema.release_i64_local(count, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
@@ -7027,50 +6325,58 @@ impl<'a> FunctionBuilder<'a> {
         storage: ActivationSyncDisposeCapabilityStorage,
         function: &mut Function,
     ) -> Result<DetachedActivationSyncDisposeCapabilityLocals, EmitError> {
-        let detached = DetachedActivationSyncDisposeCapabilityLocals {
-            object: self.reserve_temp_local(),
-            object_tag: self.reserve_temp_local(),
-            record: self.reserve_temp_local(),
-            entries: self.reserve_temp_local(),
-            entry_count: self.reserve_temp_local(),
-        };
-        self.read_binding_to_locals(
-            storage.binding,
-            detached.object,
-            detached.object_tag,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            detached.object,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            detached.record,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            detached.record,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            DisposableStackState::Disposed.word(),
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            detached.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            detached.entries,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            detached.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            detached.entry_count,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            detached.record,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            0,
-            function,
-        );
-        Ok(detached)
+        let schema = self.runtime_schema();
+        let cell = self.control_flow_owned_binding_cell(storage.binding, function)?;
+        let record = schema
+            .reserve_gc_local::<ActivationSyncDisposeCapability, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<BindingCell>()
+                    .field(BindingCellSchema::SYNC_DISPOSE_CAPABILITY)
+                    .read(&cell, schema, function)
+                    .reference()
+                    .require_non_null(function),
+                function,
+            );
+        schema
+            .struct_type::<BindingCell>()
+            .field(BindingCellSchema::SYNC_DISPOSE_CAPABILITY)
+            .write(&cell, GcOperand::null(schema), schema, function);
+        cell.clear(function);
+        let entries = schema
+            .reserve_gc_local::<DisposableResourceTable, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<ActivationSyncDisposeCapability>()
+                    .field(ActivationSyncDisposeCapabilitySchema::RESOURCES)
+                    .read(&record, schema, function)
+                    .reference(),
+                function,
+            );
+        let entry_count = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<ActivationSyncDisposeCapability>()
+            .field(ActivationSyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .read(&record, schema, function)
+            .store_i64(entry_count, function);
+        schema
+            .struct_type::<ActivationSyncDisposeCapability>()
+            .field(ActivationSyncDisposeCapabilitySchema::STATE)
+            .write(
+                &record,
+                GcOperand::constant(DisposableStackState::Disposed),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<ActivationSyncDisposeCapability>()
+            .field(ActivationSyncDisposeCapabilitySchema::ENTRY_COUNT)
+            .write(&record, GcOperand::i64(0), schema, function);
+        Ok(DetachedActivationSyncDisposeCapabilityLocals {
+            record,
+            entries,
+            entry_count,
+        })
     }
 
     fn load_detached_activation_sync_disposable_resources(
@@ -7079,41 +6385,63 @@ impl<'a> FunctionBuilder<'a> {
         resource_count: usize,
         function: &mut Function,
     ) -> Vec<AcquiredSyncDisposableResourceLocals> {
+        let schema = self.runtime_schema();
         (0..resource_count)
-            .map(|index| {
+            .map(|ordinal| {
                 let resource = self.reserve_sync_disposable_resource_locals(function);
-                function.instruction(&Instruction::I64Const(index as i64));
-                function.instruction(&Instruction::LocalGet(detached.entry_count));
+                function.instruction(&Instruction::I64Const(ordinal as i64));
+                detached.entry_count.load(function);
                 function.instruction(&Instruction::I64LtU);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(resource.registered));
-
-                function.instruction(&Instruction::LocalGet(detached.entries));
-                function.instruction(&Instruction::I64Const(
-                    index as i64 * HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
-                ));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(self.scratch_local));
-                for (offset, local) in [
-                    (
-                        HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-                        resource.value_payload,
-                    ),
-                    (
-                        HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-                        resource.value_tag,
-                    ),
-                    (
-                        HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-                        resource.method_payload,
-                    ),
-                    (
-                        HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-                        resource.method_tag,
-                    ),
-                ] {
-                    self.load_i64_to_local_from_offset(self.scratch_local, offset, local, function);
-                }
+                resource.registered.store(function);
+                resource.registered.load(function);
+                self.open_frame(ControlFrameKind::If, function);
+                let index = schema.reserve_i32_local(function);
+                function.instruction(&Instruction::I32Const(ordinal as i32));
+                index.store(function);
+                let entry = schema
+                    .reserve_gc_local::<DisposableResource, NonNullable>(function)
+                    .initialize(
+                        schema
+                            .array_type::<DisposableResourceTable>()
+                            .read(&detached.entries, index, schema, function)
+                            .reference()
+                            .require_non_null(function),
+                        function,
+                    );
+                let value = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<DisposableResource>()
+                        .field(DisposableResourceSchema::VALUE)
+                        .read(&entry, schema, function)
+                        .reference(),
+                    function,
+                );
+                let method = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<DisposableResource>()
+                        .field(DisposableResourceSchema::METHOD)
+                        .read(&entry, schema, function)
+                        .reference(),
+                    function,
+                );
+                schema.struct_type::<StoredValue>().read_into(
+                    &value,
+                    &resource.value,
+                    schema,
+                    function,
+                );
+                schema.struct_type::<StoredValue>().read_into(
+                    &method,
+                    &resource.method,
+                    schema,
+                    function,
+                );
+                method.clear(function);
+                value.clear(function);
+                entry.clear(function);
+                schema.release_i32_local(index, function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
                 resource
             })
             .collect()
@@ -7122,68 +6450,56 @@ impl<'a> FunctionBuilder<'a> {
     fn release_detached_activation_sync_dispose_capability(
         &mut self,
         detached: DetachedActivationSyncDisposeCapabilityLocals,
+        function: &mut Function,
     ) {
-        self.release_temp_local(detached.entry_count);
-        self.release_temp_local(detached.entries);
-        self.release_temp_local(detached.record);
-        self.release_temp_local(detached.object_tag);
-        self.release_temp_local(detached.object);
+        self.runtime_schema()
+            .release_i64_local(detached.entry_count, function);
+        detached.entries.clear(function);
+        detached.record.clear(function);
     }
 
     fn reserve_sync_disposable_resource_locals(
         &mut self,
         function: &mut Function,
     ) -> AcquiredSyncDisposableResourceLocals {
-        let locals = AcquiredSyncDisposableResourceLocals {
-            registered: self.reserve_temp_local(),
-            value_payload: self.reserve_temp_local(),
-            value_tag: self.reserve_temp_local(),
-            method_payload: self.reserve_temp_local(),
-            method_tag: self.reserve_temp_local(),
+        let schema = self.runtime_schema();
+        let resource = AcquiredSyncDisposableResourceLocals {
+            registered: schema.reserve_i32_local(function),
+            value: schema.reserve_value_local(function),
+            method: schema.reserve_value_local(function),
         };
-        self.reset_sync_disposable_resource_locals(&locals, function);
-        locals
+        self.reset_sync_disposable_resource_locals(&resource, function);
+        resource
     }
-
     fn reset_sync_disposable_resource_locals(
         &mut self,
-        locals: &AcquiredSyncDisposableResourceLocals,
+        resource: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(locals.registered));
+        function.instruction(&Instruction::I32Const(0));
+        resource.registered.store(function);
+        resource.value.set_undefined(function);
+        resource.method.set_undefined(function);
     }
-
     fn release_sync_disposable_resource_locals(
         &mut self,
         resource: AcquiredSyncDisposableResourceLocals,
+        function: &mut Function,
     ) {
-        self.release_temp_local(resource.method_tag);
-        self.release_temp_local(resource.method_payload);
-        self.release_temp_local(resource.value_tag);
-        self.release_temp_local(resource.value_payload);
-        self.release_temp_local(resource.registered);
+        resource.method.clear(function);
+        resource.value.clear(function);
+        self.runtime_schema()
+            .release_i32_local(resource.registered, function);
     }
-
     fn compile_sync_disposable_resource(
         &mut self,
         resource: &SyncDisposableResourceIr,
         locals: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.compile_expr_to_locals(
-            &resource.initializer,
-            locals.value_payload,
-            locals.value_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            locals.value_payload,
-            locals.value_tag,
-            function,
-        )?;
-
-        let storage = self
+        self.compile_expr_to_value(&resource.initializer, &locals.value, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        let binding = self
             .lookup_current_scope_binding(&resource.binding_name)
             .or_else(|| self.lookup_binding(&resource.binding_name))
             .unwrap_or_else(|| {
@@ -7191,251 +6507,179 @@ impl<'a> FunctionBuilder<'a> {
                     resource.binding_name.clone(),
                     BindingMode::Const,
                     resource.initializer.kind,
+                    function,
                 )
             });
-        self.compile_sync_disposable_resource_from_locals(storage, locals, function)
+        self.compile_sync_disposable_resource_from_locals(binding, locals, function)
     }
 
+    fn emit_control_flow_type_error(
+        &mut self,
+        message: RuntimeErrorMessage,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let pending = self.runtime_schema().reserve_completion(function);
+        self.emit_throw_runtime_error_to_active_handler(
+            NativeErrorKind::TypeError,
+            message,
+            &pending,
+            function,
+        )?;
+        pending.clear(function);
+        Ok(())
+    }
     fn acquire_sync_disposable_resource_from_locals(
         &mut self,
-        locals: &AcquiredSyncDisposableResourceLocals,
+        resource: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(locals.value_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(locals.value_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::Else);
-
-        self.emit_is_heap_object_like_tag_i32(locals.value_tag, function);
+        let schema = self.runtime_schema();
+        self.compile_nullish_tagged_i32(resource.value.tag(), function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "using declaration resource is not an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.dispose"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            locals.value_payload,
-            locals.value_tag,
-            locals.value_payload,
-            locals.value_tag,
-            key_local,
-            locals.method_payload,
-            locals.method_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            locals.method_payload,
-            locals.method_tag,
-            function,
-        )?;
-        self.release_temp_local(key_local);
-
-        function.instruction(&Instruction::LocalGet(locals.method_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(locals.method_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "using declaration resource has no [Symbol.dispose] method",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.emit_is_callable_i32(locals.method_tag, locals.method_payload, function)?;
+        self.emit_is_heap_object_like_tag_i32(resource.value.tag(), function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "using declaration [Symbol.dispose] method is not callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::USING_DECLARATION_RESOURCE_IS_NOT_AN_OBJECT,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // Publication is the final acquisition step. An abrupt validation or
-        // GetMethod path branches to disposal while this flag is still zero.
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(locals.registered));
+        let symbol = schema.reserve_gc_local(function).initialize(
+            self.emit_well_known_symbol_reference(lila_ir::WellKnownSymbol::Dispose, function)?,
+            function,
+        );
+        let key = crate::operations::PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        let pending = schema.reserve_completion(function);
+        self.emit_object_read(&resource.value, &resource.value, &key, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        resource.method.copy_from(pending.value(), function);
+        pending.clear(function);
+        key.clear(function);
+        symbol.clear(function);
+        self.compile_nullish_tagged_i32(resource.method.tag(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::USING_DECLARATION_RESOURCE_HAS_NO_SYMBOL_DISPOSE_METHOD,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_callable_i32(&resource.method, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_control_flow_type_error(
+            RuntimeErrorMessage::USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // Publication follows every GetMethod and callability observation.
+        function.instruction(&Instruction::I32Const(1));
+        resource.registered.store(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
-
     fn compile_sync_disposable_resource_from_locals(
         &mut self,
-        storage: BindingStorage,
-        locals: &AcquiredSyncDisposableResourceLocals,
+        binding: BindingStorage,
+        resource: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.acquire_sync_disposable_resource_from_locals(locals, function)?;
-        self.write_binding_from_locals(storage, locals.value_payload, locals.value_tag, function);
+        self.acquire_sync_disposable_resource_from_locals(resource, function)?;
+        self.write_binding_from_locals(binding, &resource.value, function);
         Ok(())
     }
-
     fn capture_pending_sync_dispose_completion(
         &mut self,
         function: &mut Function,
     ) -> PendingSyncDisposeCompletionLocals {
-        let pending = PendingSyncDisposeCompletionLocals {
-            payload: self.reserve_temp_local(),
-            tag: self.reserve_temp_local(),
-            kind: self.reserve_temp_local(),
-            aux: self.reserve_temp_local(),
-        };
-        self.save_current_completion(
-            pending.payload,
-            pending.tag,
-            pending.kind,
-            pending.aux,
-            function,
-        );
-        pending
+        let completion = self.runtime_schema().reserve_completion(function);
+        completion.copy_from(self.completion(), function);
+        PendingSyncDisposeCompletionLocals { completion }
     }
-
     fn consume_sync_disposable_resources(
         &mut self,
         pending: PendingSyncDisposeCompletionLocals,
-        acquired: Vec<AcquiredSyncDisposableResourceLocals>,
+        resources: Vec<AcquiredSyncDisposableResourceLocals>,
         continuation: SyncDisposeCompletionContinuation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let call_result_payload_local = self.reserve_temp_local();
-        let call_result_tag_local = self.reserve_temp_local();
-        let new_error_payload_local = self.reserve_temp_local();
-        let new_error_tag_local = self.reserve_temp_local();
-        let combined_payload_local = self.reserve_temp_local();
-        let combined_tag_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let no_arguments: [(u32, u32); 0] = [];
-
-        for resource in acquired.iter().rev() {
-            function.instruction(&Instruction::LocalGet(resource.registered));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
+        let schema = self.runtime_schema();
+        let called = schema.reserve_completion(function);
+        let combined = schema.reserve_completion(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        for resource in resources.iter().rev() {
+            resource.registered.load(function);
             self.open_frame(ControlFrameKind::If, function);
-
-            self.set_completion_kind(CompletionKind::Normal, function);
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                resource.method_payload,
-                resource.method_tag,
-                resource.value_payload,
-                resource.value_tag,
-                &no_arguments,
-                call_result_payload_local,
-                call_result_tag_local,
+            // Detach before callback invocation: reentry cannot dispose this entry twice.
+            function.instruction(&Instruction::I32Const(0));
+            resource.registered.store(function);
+            self.emit_function_or_proxy_call_with_argv(
+                &resource.method,
+                &resource.value,
+                &arguments,
+                &called,
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Eq);
+            called.kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Eq);
             self.open_frame(ControlFrameKind::If, function);
-
-            function.instruction(&Instruction::LocalGet(self.result_local));
-            function.instruction(&Instruction::LocalSet(new_error_payload_local));
-            function.instruction(&Instruction::LocalGet(self.result_tag_local));
-            function.instruction(&Instruction::LocalSet(new_error_tag_local));
-            function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-            function.instruction(&Instruction::LocalSet(pending.aux));
-            self.set_completion_kind(CompletionKind::Normal, function);
-            function.instruction(&Instruction::LocalGet(new_error_payload_local));
-            function.instruction(&Instruction::LocalSet(combined_payload_local));
-            function.instruction(&Instruction::LocalGet(new_error_tag_local));
-            function.instruction(&Instruction::LocalSet(combined_tag_local));
-
-            function.instruction(&Instruction::LocalGet(pending.kind));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Eq);
+            pending.completion.kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Eq);
             self.open_frame(ControlFrameKind::If, function);
-            function.instruction(&Instruction::GlobalGet(
-                SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(prototype_local));
-            self.emit_alloc_suppressed_error_instance_from_locals(
+            let realm = self.load_current_realm(function);
+            let prototype = schema.reserve_value_local(function);
+            self.emit_load_non_array_realm_intrinsic(
+                &realm,
+                crate::functions::NonArrayRealmIntrinsicSlot::SuppressedErrorPrototype,
+                &prototype,
+                function,
+            );
+            self.emit_alloc_suppressed_error_instance(
                 None,
-                new_error_payload_local,
-                new_error_tag_local,
-                pending.payload,
-                pending.tag,
-                prototype_local,
-                combined_payload_local,
-                combined_tag_local,
+                called.value(),
+                pending.completion.value(),
+                &prototype,
+                &combined,
                 function,
             )?;
+            pending.completion.set_throw(combined.value(), function);
+            prototype.clear(function);
+            realm.clear(function);
+            function.instruction(&Instruction::Else);
+            pending.completion.copy_from(&called, function);
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-
-            function.instruction(&Instruction::LocalGet(combined_payload_local));
-            function.instruction(&Instruction::LocalSet(pending.payload));
-            function.instruction(&Instruction::LocalGet(combined_tag_local));
-            function.instruction(&Instruction::LocalSet(pending.tag));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::LocalSet(pending.kind));
-
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-
-        self.restore_saved_completion(
-            pending.payload,
-            pending.tag,
-            pending.kind,
-            pending.aux,
-            function,
-        );
+        self.completion().copy_from(&pending.completion, function);
+        arguments.clear(function);
+        combined.clear(function);
+        called.clear(function);
+        pending.completion.clear(function);
+        for resource in resources.into_iter().rev() {
+            self.release_sync_disposable_resource_locals(resource, function);
+        }
         match continuation {
             SyncDisposeCompletionContinuation::Dispatch => {
-                self.emit_dispatch_current_completion(function)?;
+                self.emit_dispatch_current_completion(function)?
             }
             SyncDisposeCompletionContinuation::DispatchAsyncFunction => {
-                self.emit_dispatch_async_completion(function)?;
+                self.emit_dispatch_async_completion(function)?
             }
             SyncDisposeCompletionContinuation::DispatchAsyncGenerator => {
-                self.emit_dispatch_async_generator_completion(function);
+                self.emit_dispatch_async_generator_completion(function)
             }
             SyncDisposeCompletionContinuation::DeferToIteratorClose => {}
-        }
-
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(combined_tag_local);
-        self.release_temp_local(combined_payload_local);
-        self.release_temp_local(new_error_tag_local);
-        self.release_temp_local(new_error_payload_local);
-        self.release_temp_local(call_result_tag_local);
-        self.release_temp_local(call_result_payload_local);
-        self.release_temp_local(pending.aux);
-        self.release_temp_local(pending.kind);
-        self.release_temp_local(pending.tag);
-        self.release_temp_local(pending.payload);
-        for resource in acquired.into_iter().rev() {
-            self.release_sync_disposable_resource_locals(resource);
         }
         Ok(())
     }
@@ -7450,11 +6694,8 @@ impl<'a> FunctionBuilder<'a> {
         finally_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_statement_result(function, ValueKind::Undefined);
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
+        self.emit_statement_result(function);
+        let saved = self.runtime_schema().reserve_completion(function);
 
         let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let _finally_frame = self.open_frame(ControlFrameKind::Block, function);
@@ -7481,7 +6722,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
-            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name));
+            .unwrap_or_else(|| self.allocate_dynamic_binding_storage(catch_name, function));
         self.binding_scopes
             .last_mut()
             .expect("binding scope stack must exist")
@@ -7492,13 +6733,11 @@ impl<'a> FunctionBuilder<'a> {
                 .expect("binding scope stack must exist")
                 .insert(catch_source_name.to_string(), catch_storage);
         }
-        self.write_binding_from_locals(
-            catch_storage,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        let caught = self.runtime_schema().reserve_value_local(function);
+        caught.copy_from(self.completion().value(), function);
+        self.write_binding_from_locals(catch_storage, &caught, function);
+        caught.clear(function);
+        self.emit_statement_result(function);
         self.push_scope();
         self.compile_block_contents(catch_block, function)?;
         self.pop_scope();
@@ -7510,32 +6749,17 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.save_current_completion(&saved, function);
+        self.emit_statement_result(function);
         self.push_scope();
         self.compile_block_contents(finally_block, function)?;
         self.pop_scope();
-        self.emit_resume_after_finally(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        )?;
+        self.emit_resume_after_finally(&saved, function)?;
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
+        saved.clear(function);
         Ok(())
     }
 
@@ -7546,7 +6770,7 @@ impl<'a> FunctionBuilder<'a> {
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let continue_frame = self.open_frame(ControlFrameKind::Loop, function);
@@ -7574,7 +6798,7 @@ impl<'a> FunctionBuilder<'a> {
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
@@ -7634,7 +6858,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         self.push_scope();
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
@@ -7691,11 +6915,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.compile_iteration_condition(test, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        self.emit_propagate_current_throw_if_needed(function);
         function.instruction(&Instruction::I32Eqz);
         self.emit_branch_if_to_target(false_target, function);
         Ok(())
@@ -7707,8 +6927,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let saved = self.save_statement_list_value(function);
-        self.compile_expr_payload(update, function)?;
-        function.instruction(&Instruction::Drop);
+        let value = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(update, &value, function)?;
+        value.clear(function);
         self.restore_statement_list_value(saved, function)
     }
 
@@ -7724,7 +6945,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         if !self
             .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+            .is_some_and(|meta| meta.protocol().execution_kind() == FunctionExecutionKind::Async)
         {
             return Err(EmitError::unsupported(
                 "await using for head requires a plain async function",
@@ -7742,21 +6963,13 @@ impl<'a> FunctionBuilder<'a> {
         debug_assert!(!resources.is_empty());
         let owner = ActivationAsyncDisposeOwner::AsyncFunction(init.capability());
         let finalizer = owner.finalizer();
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async disposal requires the function call ABI")
-        })?;
 
         self.push_scope();
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
 
-        self.emit_async_state_in_range(
-            activation_local,
-            finalizer.entry_state(),
-            finalizer.exit_state(),
-            function,
-        );
+        self.emit_async_state_in_range(finalizer.entry_state(), finalizer.exit_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
 
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
@@ -7789,21 +7002,12 @@ impl<'a> FunctionBuilder<'a> {
         self.finally_stack.push(disposal_frame);
 
         self.emit_async_state_in_range(
-            activation_local,
             finalizer.entry_state(),
             finalizer.dispose_state(),
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_resumable_state_equals(finalizer.entry_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
         self.initialize_async_disposable_resource_bindings(resources, function);
         self.initialize_activation_async_dispose_capability(&storage, resources, function)?;
@@ -7835,20 +7039,15 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
-        self.emit_async_finalizer_needs_pending_completion(
-            activation_local,
+        self.emit_resumable_finalizer_needs_pending_completion(
             finalizer.dispose_state(),
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         let pending = self.begin_async_dispose_pending_completion(function)?;
         self.set_completion_kind(CompletionKind::Normal, function);
-        let disposing = self.begin_activation_async_dispose_capability(
-            storage,
-            activation_local,
-            finalizer,
-            function,
-        )?;
+        let disposing =
+            self.begin_activation_async_dispose_capability(storage, finalizer, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -7900,7 +7099,7 @@ impl<'a> FunctionBuilder<'a> {
         debug_assert!(!resources.is_empty());
 
         self.push_scope();
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
@@ -7979,34 +7178,21 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn compile_switch(
         &mut self,
-        discriminant: &TypedExpr,
+        expression: &TypedExpr,
         lexical_environment: Option<&LexicalEnvironmentIr>,
         lexical_declarations: &[StatementIr],
         cases: &[SwitchCaseIr],
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let discriminant_payload_local = self.reserve_temp_local();
-        let discriminant_tag_local = self.reserve_temp_local();
-        let selected_local = self.reserve_temp_local();
-        let active_local = self.reserve_temp_local();
-        let default_index = cases
-            .iter()
-            .enumerate()
-            .find_map(|(index, case)| case.condition.is_none().then_some(index as i64));
-
-        self.emit_statement_result(function, ValueKind::Undefined);
-        self.compile_expr_to_locals(
-            discriminant,
-            discriminant_payload_local,
-            discriminant_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            discriminant_payload_local,
-            discriminant_tag_local,
-            function,
-        )?;
+        let schema = self.runtime_schema();
+        let discriminant = schema.reserve_value_local(function);
+        let selected = schema.reserve_i32_local(function);
+        let active = schema.reserve_i32_local(function);
+        let default = cases.iter().position(|case| case.condition.is_none());
+        self.emit_statement_result(function);
+        self.compile_expr_to_value(expression, &discriminant, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
         self.push_scope();
         if let Some(environment) = lexical_environment {
             self.emit_enter_lexical_environment(environment, function)?;
@@ -8017,67 +7203,61 @@ impl<'a> FunctionBuilder<'a> {
         for declaration in lexical_declarations {
             self.compile_statement(declaration, function)?;
         }
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(selected_local));
-
+        function.instruction(&Instruction::I32Const(-1));
+        selected.store(function);
         for (index, case) in cases.iter().enumerate() {
             let Some(condition) = &case.condition else {
                 continue;
             };
-            function.instruction(&Instruction::LocalGet(selected_local));
-            function.instruction(&Instruction::I64Const(-1));
-            function.instruction(&Instruction::I64Eq);
+            let index = i32::try_from(index).map_err(|_| {
+                EmitError::unsupported("switch clause index exceeds Wasm I32 domain")
+            })?;
+            selected.load(function);
+            function.instruction(&Instruction::I32Const(-1));
+            function.instruction(&Instruction::I32Eq);
             self.open_frame(ControlFrameKind::If, function);
-            self.compile_switch_case_match(
-                discriminant,
-                discriminant_payload_local,
-                discriminant_tag_local,
-                condition,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                self.scratch_local,
-                self.result_tag_local,
-                function,
-            )?;
+            self.compile_switch_case_match(&discriminant, condition, function)?;
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(index as i64));
-            function.instruction(&Instruction::LocalSet(selected_local));
+            function.instruction(&Instruction::I32Const(index));
+            selected.store(function);
             function.instruction(&Instruction::End);
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-
-        if let Some(default_index) = default_index {
-            function.instruction(&Instruction::LocalGet(selected_local));
-            function.instruction(&Instruction::I64Const(-1));
-            function.instruction(&Instruction::I64Eq);
+        if let Some(index) = default {
+            let index = i32::try_from(index).map_err(|_| {
+                EmitError::unsupported("switch clause index exceeds Wasm I32 domain")
+            })?;
+            selected.load(function);
+            function.instruction(&Instruction::I32Const(-1));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(default_index));
-            function.instruction(&Instruction::LocalSet(selected_local));
+            function.instruction(&Instruction::I32Const(index));
+            selected.store(function);
             function.instruction(&Instruction::End);
         }
-
-        self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(active_local));
+        self.emit_statement_result(function);
+        function.instruction(&Instruction::I32Const(0));
+        active.store(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         self.push_labels(labels, break_frame, None);
         for (index, case) in cases.iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(active_local));
-            function.instruction(&Instruction::I64Eqz);
+            let index = i32::try_from(index).map_err(|_| {
+                EmitError::unsupported("switch clause index exceeds Wasm I32 domain")
+            })?;
+            active.load(function);
+            function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(selected_local));
-            function.instruction(&Instruction::I64Const(index as i64));
-            function.instruction(&Instruction::I64Eq);
+            selected.load(function);
+            function.instruction(&Instruction::I32Const(index));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(active_local));
+            function.instruction(&Instruction::I32Const(1));
+            active.store(function);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(active_local));
-            function.instruction(&Instruction::I32WrapI64);
+            active.load(function);
             self.open_frame(ControlFrameKind::If, function);
             self.compile_switch_case_body(&case.body, function)?;
             self.pop_control(ControlFrameKind::If);
@@ -8091,10 +7271,9 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_leave_lexical_environment(function);
         }
         self.pop_scope();
-        self.release_temp_local(active_local);
-        self.release_temp_local(selected_local);
-        self.release_temp_local(discriminant_tag_local);
-        self.release_temp_local(discriminant_payload_local);
+        schema.release_i32_local(active, function);
+        schema.release_i32_local(selected, function);
+        discriminant.clear(function);
         Ok(())
     }
 
@@ -8111,76 +7290,15 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn compile_switch_case_match(
         &mut self,
-        discriminant: &TypedExpr,
-        discriminant_payload_local: u32,
-        discriminant_tag_local: u32,
+        discriminant: &ValueLocals,
         condition: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if discriminant.kind != ValueKind::Dynamic
-            && condition.kind != ValueKind::Dynamic
-            && discriminant.kind != condition.kind
-        {
-            self.compile_expr_to_locals(
-                condition,
-                self.scratch_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_tagged_payload_equality_i32(
-                discriminant_tag_local,
-                discriminant_payload_local,
-                self.result_tag_local,
-                self.scratch_local,
-                function,
-            )?;
-            return Ok(());
-        }
-
-        if discriminant.kind != ValueKind::Dynamic && condition.kind != ValueKind::Dynamic {
-            self.compile_expr_to_locals(
-                condition,
-                self.scratch_local,
-                self.result_tag_local,
-                function,
-            )?;
-            match discriminant.kind {
-                ValueKind::Number => {
-                    function.instruction(&Instruction::LocalGet(discriminant_payload_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Eq);
-                }
-                ValueKind::String => {
-                    self.emit_string_payload_equality_i32(
-                        discriminant_payload_local,
-                        self.scratch_local,
-                        function,
-                    );
-                }
-                _ => {
-                    function.instruction(&Instruction::LocalGet(discriminant_payload_local));
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::I64Eq);
-                }
-            }
-            return Ok(());
-        }
-
-        self.compile_expr_to_locals(
-            condition,
-            self.scratch_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_tagged_payload_equality_i32(
-            discriminant_tag_local,
-            discriminant_payload_local,
-            self.result_tag_local,
-            self.scratch_local,
-            function,
-        )?;
+        let selected = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(condition, &selected, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_tagged_payload_equality_i32(discriminant, &selected, function)?;
+        selected.clear(function);
         Ok(())
     }
 
@@ -8208,11 +7326,7 @@ impl<'a> FunctionBuilder<'a> {
             })?
         };
         if let Some(target) = self.active_finally_target_for_branch(break_frame) {
-            self.set_completion_kind_with_aux(
-                CompletionKind::Break,
-                break_frame.frame as i64,
-                function,
-            );
+            self.set_branch_completion(BranchCompletionKind::Break, break_frame, function);
             self.emit_branch_to_target(target, function);
             return Ok(());
         }
@@ -8248,11 +7362,7 @@ impl<'a> FunctionBuilder<'a> {
                 .continue_frame
         };
         if let Some(target) = self.active_finally_target_for_branch(continue_frame) {
-            self.set_completion_kind_with_aux(
-                CompletionKind::Continue,
-                continue_frame.frame as i64,
-                function,
-            );
+            self.set_branch_completion(BranchCompletionKind::Continue, continue_frame, function);
             self.emit_branch_to_target(target, function);
             return Ok(());
         }
@@ -8267,9 +7377,9 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match init {
             ForInitIr::Lexical { mode, name, init } => {
-                let storage = self
-                    .lookup_current_scope_binding(name)
-                    .unwrap_or_else(|| self.allocate_binding(name.clone(), *mode, init.kind));
+                let storage = self.lookup_current_scope_binding(name).unwrap_or_else(|| {
+                    self.allocate_binding(name.clone(), *mode, init.kind, function)
+                });
                 self.initialize_binding_uninitialized(storage, function);
                 self.compile_expr_to_binding(init, storage, function)?;
             }
@@ -8282,6 +7392,7 @@ impl<'a> FunctionBuilder<'a> {
                                 binding.name.clone(),
                                 binding.mode,
                                 binding.init.kind,
+                                function,
                             )
                         });
                     self.initialize_binding_uninitialized(storage, function);
@@ -8297,8 +7408,10 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_var_declarators(declarators, function)?;
             }
             ForInitIr::Expression(expr) => {
-                self.compile_expr_payload(expr, function)?;
-                function.instruction(&Instruction::Drop);
+                let value = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(expr, &value, function)?;
+                value.clear(function);
+                self.emit_propagate_current_throw_if_needed(function);
             }
             ForInitIr::Statements(statements) => {
                 // Compiled directly in the loop's scope - `compile_for` has
@@ -8333,18 +7446,11 @@ impl<'a> FunctionBuilder<'a> {
             };
             let storage = self.lookup_binding(&declarator.name);
             if self.is_script_global_binding(&declarator.name) && storage.is_none() {
-                let value_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(init, value_local, tag_local, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(value_local, tag_local, function)?;
-                self.emit_global_property_write(
-                    &declarator.name,
-                    value_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(tag_local);
-                self.release_temp_local(value_local);
+                let value = self.runtime_schema().reserve_value_local(function);
+                self.compile_expr_to_value(init, &value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.emit_global_property_write(&declarator.name, &value, function)?;
+                value.clear(function);
             } else {
                 let storage = storage.ok_or_else(|| {
                     EmitError::unsupported(format!(
@@ -8361,54 +7467,54 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_to_integer_clamped_to_string_len(
         &mut self,
-        number_payload_local: u32,
-        string_len_local: u32,
-        out_local: u32,
+        number_payload_local: I64Local,
+        string_len_local: I64Local,
+        out_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalSet(out_local));
+        string_len_local.load(function);
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(out_local));
-        function.instruction(&Instruction::LocalGet(out_local));
+        out_local.store(function);
+        out_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(out_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
+        out_local.load(function);
+        string_len_local.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalSet(out_local));
+        string_len_local.load(function);
+        out_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -8418,63 +7524,63 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_to_slice_index_clamped_to_string_len(
         &mut self,
-        number_payload_local: u32,
-        string_len_local: u32,
-        out_local: u32,
+        number_payload_local: I64Local,
+        string_len_local: I64Local,
+        out_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalSet(out_local));
+        string_len_local.load(function);
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(out_local));
-        function.instruction(&Instruction::LocalGet(out_local));
+        out_local.store(function);
+        out_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalGet(out_local));
+        string_len_local.load(function);
+        out_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(out_local));
-        function.instruction(&Instruction::LocalGet(out_local));
+        out_local.store(function);
+        out_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(out_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
+        out_local.load(function);
+        string_len_local.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalSet(out_local));
+        string_len_local.load(function);
+        out_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -8489,722 +7595,447 @@ impl<'a> FunctionBuilder<'a> {
     /// resumes into are allocated *inside* the loop's span and are not known
     /// to the loop itself — only their bounds are.
     fn emit_state_in_inclusive_range_i32(
-        state_local: u32,
+        state_local: I32Local,
         low: u32,
         high: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(i64::from(low)));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(i64::from(high)));
-        function.instruction(&Instruction::I64LeU);
+        state_local.load(function);
+        function.instruction(&Instruction::I32Const(low as i32));
+        function.instruction(&Instruction::I32GeU);
+        state_local.load(function);
+        function.instruction(&Instruction::I32Const(high as i32));
+        function.instruction(&Instruction::I32LeU);
         function.instruction(&Instruction::I32And);
     }
 
-    /// Load the completion of a `for-await-of` suspension into one normalized
-    /// i64 `is_throw` boolean.
-    ///
-    /// Ordinary async functions cross the strict two-word heap boundary.
-    /// Async generators keep their existing rule that only the dedicated
-    /// rejection kind turns an awaited result into a throw completion.
-    fn emit_load_for_await_resume_is_throw(
+    fn emit_for_await_state_table(
         &mut self,
-        layout: &ForAwaitActivationLayout,
-        activation_local: u32,
-        is_throw_local: u32,
+        frame: &GcLocal<InvocationFrame>,
+        entry: u32,
         function: &mut Function,
-    ) {
-        match layout {
-            ForAwaitActivationLayout::AsyncFunction => self
-                .emit_load_async_function_resume_is_throw(
-                    activation_local,
-                    is_throw_local,
-                    function,
-                ),
-            ForAwaitActivationLayout::AsyncGenerator => {
-                let resume_kind =
-                    self.emit_load_async_generator_resume_kind_strict(activation_local, function);
-                self.emit_async_generator_resume_kind_equals(
-                    &resume_kind,
-                    AsyncGeneratorResumeKind::Reject,
-                    function,
-                );
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(is_throw_local));
-                self.release_loaded_async_generator_resume_kind(resume_kind);
-            }
+    ) -> Result<GcLocal<ForAwaitIteratorTable>, EmitError> {
+        let schema = self.runtime_schema();
+        let selected = schema
+            .reserve_gc_local::<ForAwaitIteratorTable, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<InvocationFrame>()
+                    .field(InvocationFrameSchema::FOR_AWAIT_ITERATORS)
+                    .read(frame, schema, function)
+                    .reference(),
+                function,
+            );
+        let required = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(
+            i32::try_from(
+                entry
+                    .checked_add(1)
+                    .ok_or_else(|| EmitError::unsupported("for-await state index overflow"))?,
+            )
+            .map_err(|_| EmitError::unsupported("for-await state index exceeds array limit"))?,
+        ));
+        required.store(function);
+        let old_length = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        old_length.store(function);
+        selected.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let old = schema.reserve_gc_local(function).initialize(
+            selected.load(schema, function).require_non_null(function),
+            function,
+        );
+        schema
+            .array_type::<ForAwaitIteratorTable>()
+            .length(&old, schema, function);
+        old_length.store(function);
+        old.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        old_length.load(function);
+        required.load(function);
+        function.instruction(&Instruction::I32LtU);
+        self.open_frame(ControlFrameKind::If, function);
+        let grown = schema.reserve_gc_local(function).initialize(
+            schema.array_type::<ForAwaitIteratorTable>().filled(
+                GcOperand::null(schema),
+                required,
+                function,
+            ),
+            function,
+        );
+        let index = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        let finish = self.open_frame(ControlFrameKind::Block, function);
+        let copy = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        old_length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        self.emit_branch_if_to_target(finish, function);
+        let old = schema.reserve_gc_local(function).initialize(
+            selected.load(schema, function).require_non_null(function),
+            function,
+        );
+        let item = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ForAwaitIteratorTable>()
+                .read(&old, index, schema, function)
+                .reference(),
+            function,
+        );
+        schema.array_type::<ForAwaitIteratorTable>().write(
+            &grown,
+            index,
+            GcOperand::reference(&item, schema),
+            schema,
+            function,
+        );
+        item.clear(function);
+        old.clear(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        self.emit_branch_to_target(copy, function);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        selected.replace(grown.load(schema, function).nullable(), function);
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::FOR_AWAIT_ITERATORS)
+            .write(
+                frame,
+                GcOperand::nullable_reference(&grown, schema),
+                schema,
+                function,
+            );
+        schema.release_i32_local(index, function);
+        grown.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let table = schema.reserve_gc_local(function).initialize(
+            selected.load(schema, function).require_non_null(function),
+            function,
+        );
+        schema.release_i32_local(old_length, function);
+        schema.release_i32_local(required, function);
+        selected.clear(function);
+        Ok(table)
+    }
+
+    fn emit_finish_for_await_close(
+        &mut self,
+        outcome: &CompletionLocals,
+        require_object: bool,
+        exit: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_restore_for_await_close(outcome, require_object, function)?;
+        self.emit_set_resumable_resume_point(exit, function)?;
+        self.emit_dispatch_current_completion(function)
+    }
+
+    fn emit_restore_for_await_close(
+        &mut self,
+        outcome: &CompletionLocals,
+        require_object: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_pop_and_restore_async_pending_completion(function)?;
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        outcome.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().copy_from(outcome, function);
+        if require_object {
+            function.instruction(&Instruction::Else);
+            self.emit_is_heap_object_like_tag_i32(outcome.value().tag(), function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            let rejected = self.runtime_schema().reserve_completion(function);
+            self.emit_throw_runtime_error(
+                NativeErrorKind::TypeError,
+                RuntimeErrorMessage::FOR_AWAIT_OF_ASYNC_ITERATOR_RETURN_RESULT_MUST_BE_OBJECT,
+                &rejected,
+                function,
+            )?;
+            self.completion().copy_from(&rejected, function);
+            rejected.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
     }
 
     pub(crate) fn compile_async_for_of_iterator(
         &mut self,
-        mode: BindingMode,
-        name: &str,
         iterable: &TypedExpr,
-        body: &StatementIr,
-        lexical_environment: Option<&ForInOfEnvironmentIr>,
-        async_plan: &AsyncForOfIteratorPlanIr,
+        plan: ForAwaitIteratorPlan<'_>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("for-await-of requires the async function call ABI")
-        })?;
-        // The loop replays itself out of its plan states, and the two gates
-        // below read the plan as a *span* rather than as a set of three
-        // numbers: the loop is entered for any state in
-        // `[entry_state, close_resume_state]`, and one iteration is resumed
-        // for any state in `[value_resume_state, close_resume_state)`. The
-        // half-open upper end is what carries a suspension inside the body:
-        // `AsyncGeneratorSuspensionCollector::visit_for_of_loop`
-        // (lila-ir/src/lowering_helpers.rs) suspends `ForAwaitNext`, then
-        // visits the body — whose suspensions chain off `next()`'s resume
-        // state — then `reserve()`s one state, then suspends `ForAwaitClose`,
-        // so every state the body can resume into lies strictly between
-        // `value_resume_state` and `close_resume_state`. A body with no
-        // suspension is the degenerate case `entry, entry+1, entry+2,
-        // entry+3`, where the span collapses back onto the three states the
-        // loop owns itself.
-        //
-        // Both gates therefore depend on the plan being strictly ordered, and
-        // an out-of-order plan is unobservable at compile time: it would
-        // silently route a `next()` resume into the iterator-close path (or
-        // skip the loop entirely). Refuse instead of guessing.
-        if !(async_plan.entry_state < async_plan.value_resume_state
-            && async_plan.value_resume_state < async_plan.close_resume_state
-            && async_plan.close_resume_state < async_plan.exit_state)
-        {
-            return Err(EmitError::unsupported(format!(
-                "for-await-of resume plan is not strictly ordered (entry {}, value {}, close {}, exit {})",
-                async_plan.entry_state,
-                async_plan.value_resume_state,
-                async_plan.close_resume_state,
-                async_plan.exit_state,
-            )));
-        }
-        // Whether one iteration can be split across more than one wasm
-        // invocation. This is the same predicate `compile_block_contents`
-        // uses to decide that the body compiles as a resumable statement
-        // sequence, so the gates below and the body's own dispatch cannot
-        // disagree about which states exist.
-        let body_suspends = Self::async_statement_entry_state(body).is_some();
-        // A captured head has its own resumable environment lifecycle below.
-        // A body block's *additional* materialized environment still needs a
-        // separate state-aware owner; never reallocate it on each invocation.
-        if body_suspends
-            && matches!(body, StatementIr::Block(block) if block.lexical_environment.is_some())
-        {
-            return Err(EmitError::unsupported(
-                "for-await-of with a block-scoped body environment and a body suspension",
-            ));
-        }
-        let resume_layout = match self
+        let schema = self.runtime_schema();
+        let owner = match self
             .current_function_meta()
-            .map(|meta| meta.protocol.execution_kind())
+            .map(|meta| meta.protocol().execution_kind())
         {
-            Some(FunctionExecutionKind::Async) => ForAwaitActivationLayout::AsyncFunction,
-            Some(FunctionExecutionKind::AsyncGenerator) => ForAwaitActivationLayout::AsyncGenerator,
-            Some(FunctionExecutionKind::Ordinary | FunctionExecutionKind::Generator) | None => {
+            Some(FunctionExecutionKind::Async) => AsyncContinuationOwner::AsyncFunction,
+            Some(FunctionExecutionKind::AsyncGenerator)
+                if !plan.requires_plain_async_activation() =>
+            {
+                AsyncContinuationOwner::AsyncGenerator
+            }
+            Some(
+                FunctionExecutionKind::Ordinary
+                | FunctionExecutionKind::Generator
+                | FunctionExecutionKind::AsyncGenerator,
+            )
+            | None => {
                 return Err(EmitError::unsupported(
-                    "for-await-of requires an async function or async-generator activation",
-                ));
+                    "for-await requires its checked async activation owner",
+                ))
             }
         };
-        let resume_state_offset = resume_layout.resume_state_offset();
-        let resume_payload_offset = resume_layout.resume_payload_offset();
-        let resume_tag_offset = resume_layout.resume_tag_offset();
-        let state_local = self.reserve_temp_local();
-        let iterable_payload_local = self.reserve_temp_local();
-        let iterable_tag_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let async_iterator_payload_local = self.reserve_temp_local();
-        let async_iterator_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let close_get_method_aux_local = self.reserve_temp_local();
-        let result_payload_local = self.reserve_temp_local();
-        let result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let continuation_payload_local = self.reserve_temp_local();
-        let continuation_tag_local = self.reserve_temp_local();
-        let resume_is_throw_local = self.reserve_temp_local();
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_state_offset,
-            state_local,
-            function,
-        );
-        // Enter the loop for every state it owns *and* every state its body
-        // owns. For a suspension-free body the span is exactly
-        // `{entry, entry+1, entry+2}`, the three states the previous equality
-        // test admitted; for a suspending body it additionally admits the body's
-        // resume states, which is what stops a body resume from falling straight
-        // through the loop and completing the generator.
+        if !(plan.entry_state() < plan.value_resume_state()
+            && plan.value_resume_state() < plan.close_resume_state()
+            && plan.close_resume_state() < plan.exit_state())
+        {
+            return Err(EmitError::unsupported(
+                "for-await resume states are not strictly ordered",
+            ));
+        }
+        let body_suspends = plan.body_suspends();
+        if body_suspends && plan.has_unowned_body_environment() {
+            return Err(EmitError::unsupported(
+                "for-await body suspension has an unowned lexical environment",
+            ));
+        }
+        let point = self.emit_resumable_resume_point(function)?;
         Self::emit_state_in_inclusive_range_i32(
-            state_local,
-            async_plan.entry_state,
-            async_plan.close_resume_state,
+            point,
+            plan.entry_state(),
+            plan.close_resume_state(),
             function,
         );
         self.open_frame(ControlFrameKind::If, function);
-
-        let iteration_environment =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref());
-        let saved_iteration_environment = if body_suspends && iteration_environment.is_some() {
-            Some(self.detach_suspended_for_await_iteration_environment(
-                state_local,
-                async_plan,
-                activation_local,
-                &resume_layout,
+        let iteration_environment = plan
+            .head_environment()
+            .and_then(|environment| environment.iteration_environment.as_ref());
+        if body_suspends && iteration_environment.is_some() {
+            Self::emit_state_in_inclusive_range_i32(
+                point,
+                plan.value_resume_state() + 1,
+                plan.close_resume_state() - 1,
                 function,
-            ))
+            );
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_reattach_checked_async_generator_foreign_environment(function)?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        let saved_environment = if body_suspends && iteration_environment.is_some() {
+            Some(self.detach_suspended_for_await_iteration_environment(point, plan, function))
         } else {
             None
         };
-
         self.push_scope();
-        let storage_without_environment = if mode == BindingMode::Var {
-            Some(self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!("unbound for-await-of var `{name}`"))
-            })?)
-        } else if !iteration_environment_owns_binding(lexical_environment, name) {
-            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
-        } else {
-            None
-        };
-        // The loop variable is written on the invocation that resumes from
-        // `next()` and read by whatever the body does afterwards. Once the body
-        // can suspend those stop being the same invocation, so the binding has
-        // to live in an environment slot: wasm locals are reset on every
-        // resume. For-await lowering retains an uncaptured head in the
-        // activation when its per-iteration environment is elided. This
-        // guards that storage invariant. A captured head instead uses its
-        // existing per-iteration cell, reattached on every body resume.
+        let mode = plan.value_mode();
+        let name = plan.value_name();
+        let fallback =
+            if mode == BindingMode::Var {
+                Some(self.lookup_binding(name).ok_or_else(|| {
+                    EmitError::unsupported(format!("unbound for-await var `{name}`"))
+                })?)
+            } else if !iteration_environment_owns_binding(plan.head_environment(), name) {
+                Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic, function))
+            } else {
+                None
+            };
         if body_suspends
-            && !iteration_environment_owns_binding(lexical_environment, name)
-            && !matches!(
-                storage_without_environment,
-                Some(BindingStorage::EnvSlot { .. })
-            )
+            && iteration_environment.is_none()
+            && !matches!(fallback, Some(BindingStorage::EnvSlot { .. }))
         {
-            return Err(EmitError::unsupported(format!(
-                "for-await-of binding `{name}` does not survive a suspension in the loop body"
-            )));
+            return Err(EmitError::unsupported(
+                "for-await source binding does not survive body suspension",
+            ));
         }
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(
-                    name.to_string(),
-                    storage_without_environment.expect("for-await-of var storage must exist"),
-                );
+                .expect("scope exists")
+                .insert(name.to_string(), fallback.expect("var storage exists"));
         }
-        let iterator_storage = self.allocate_binding(
-            async_plan.record.iterator().as_str().to_string(),
-            BindingMode::Let,
-            ValueKind::Object,
+        let frame = schema.reserve_gc_local(function).initialize(
+            self.pending_completion_frame()?.load(schema, function),
+            function,
         );
-        let next_storage = self.allocate_binding(
-            async_plan.record.next_method().as_str().to_string(),
-            BindingMode::Let,
-            ValueKind::Dynamic,
-        );
-        let async_iterator_storage = self.allocate_binding(
-            async_plan.async_iterator_binding.clone(),
-            BindingMode::Let,
-            ValueKind::Boolean,
-        );
-        let done_storage = self.allocate_binding(
-            async_plan.record.done().as_str().to_string(),
-            BindingMode::Let,
-            ValueKind::Boolean,
-        );
-        let close_on_rejection_storage = self.allocate_binding(
-            async_plan.close_on_rejection_binding.clone(),
-            BindingMode::Let,
-            ValueKind::Boolean,
-        );
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
+        let table = self.emit_for_await_state_table(&frame, plan.entry_state(), function)?;
+        let index = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(plan.entry_state() as i32));
+        index.store(function);
+        let source = schema.reserve_value_local(function);
+        let iterator_value = schema.reserve_value_local(function);
+        let next_method = schema.reserve_value_local(function);
+        let awaited = schema.reserve_value_local(function);
+        let resumed = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        let method = schema.reserve_completion(function);
+        let called = schema.reserve_completion(function);
+        let pending = schema.reserve_completion(function);
+        let closed = schema.reserve_completion(function);
+        let is_async = schema.reserve_i32_local(function);
+        let rejected = schema.reserve_i32_local(function);
+        let done = schema.reserve_i32_local(function);
+        let state_root = schema
+            .reserve_gc_local::<ForAwaitIteratorState, Nullable>(function)
+            .initialize_null(schema, function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        let terminal = self.open_frame(ControlFrameKind::Block, function);
+        self.throw_handler_stack.push(terminal);
+        self.finally_stack.push(terminal);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(plan.entry_state() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        if let Some(environment) = lexical_environment {
+        if let Some(environment) = plan.head_environment() {
             self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
         }
-        self.compile_expr_to_locals(
-            iterable,
-            iterable_payload_local,
-            iterable_tag_local,
-            function,
-        )?;
-        if let Some(environment) = lexical_environment {
+        self.compile_expr_to_value(iterable, &source, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        if let Some(environment) = plan.head_environment() {
             self.emit_leave_for_in_of_tdz_scope(environment, function);
         }
-        let iterable_is_statically_nullish =
-            matches!(iterable.kind, ValueKind::Undefined | ValueKind::Null);
-        if iterable_is_statically_nullish {
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "for-await-of target is not iterable",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_propagate_current_throw(function);
-        } else {
-            self.emit_for_await_well_known_symbol_read(
-                ForAwaitIteratorSymbol::AsyncIterator,
-                iterable_payload_local,
-                iterable_tag_local,
-                method_payload_local,
-                method_tag_local,
-                function,
-            )?;
-        }
-        self.emit_propagate_current_completion_if_throw(function);
-        self.compile_nullish_tagged_i32(method_tag_local, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        if !iterable_is_statically_nullish {
-            self.emit_for_await_well_known_symbol_read(
-                ForAwaitIteratorSymbol::Iterator,
-                iterable_payload_local,
-                iterable_tag_local,
-                method_payload_local,
-                method_tag_local,
-                function,
-            )?;
-        }
-        self.emit_propagate_current_completion_if_throw(function);
+        let state = self.emit_acquire_for_await_iterator_state(&source, function)?;
+        schema.array_type::<ForAwaitIteratorTable>().write(
+            &table,
+            index,
+            GcOperand::nullable_reference(&state, schema),
+            schema,
+            function,
+        );
+        state_root.replace(state.load(schema, function).nullable(), function);
+        state.clear(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.write_binding_from_locals(
-            async_iterator_storage,
-            done_payload_local,
-            done_tag_local,
+        state_root.replace(
+            schema
+                .array_type::<ForAwaitIteratorTable>()
+                .read(&table, index, schema, function)
+                .reference(),
             function,
         );
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of iterator method must be callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of iterator method must return object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of iterator next must be callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.write_binding_from_locals(
-            iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
+        let state = schema.reserve_gc_local(function).initialize(
+            state_root.load(schema, function).require_non_null(function),
             function,
         );
-        self.write_binding_from_locals(next_storage, next_payload_local, next_tag_local, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
+        state_root.clear(function);
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ForAwaitIteratorState>()
+                .field(ForAwaitIteratorStateSchema::RECORD)
+                .read(&state, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<ForAwaitIteratorState>()
+            .field(ForAwaitIteratorStateSchema::ASYNC_ITERATOR)
+            .read(&state, schema, function)
+            .store(is_async, function);
+        let stored_iterator = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<IteratorRecord>()
+                .field(IteratorRecordSchema::ITERATOR)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        let stored_next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<IteratorRecord>()
+                .field(IteratorRecordSchema::NEXT_METHOD)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        schema.struct_type::<StoredValue>().read_into(
+            &stored_iterator,
+            &iterator_value,
+            schema,
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_next, &next_method, schema, function);
+        stored_next.clear(function);
+        stored_iterator.clear(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.close_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
+        // A close reaction restores the original five-part completion before
+        // deciding whether the inner error or object-result check can replace it.
+        point.load(function);
+        function.instruction(&Instruction::I32Const(plan.close_resume_state() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_load_for_await_resume_is_throw(
-            &resume_layout,
-            activation_local,
-            resume_is_throw_local,
+        self.emit_load_async_continuation_resume(owner, &resumed, rejected, function)?;
+        closed.set_normal(&resumed, function);
+        rejected.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        closed.set_throw(&resumed, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_finish_for_await_close(&closed, true, plan.exit_state(), function)?;
+        self.emit_branch_to_target(break_frame, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // Only next's own reaction unpacks the IteratorResult; body resumes
+        // retain the already initialized source cell and exact child environment.
+        Self::emit_state_in_inclusive_range_i32(
+            point,
+            plan.value_resume_state(),
+            plan.close_resume_state() - 1,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_payload_offset,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_tag_offset,
-            value_tag_local,
-            function,
-        );
-        self.emit_pop_and_restore_async_pending_completion(function)?;
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(async_plan.exit_state),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
+        point.load(function);
+        function.instruction(&Instruction::I32Const(plan.value_resume_state() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_load_async_continuation_resume(owner, &resumed, rejected, function)?;
+        rejected.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().set_throw(&resumed, function);
+        self.emit_set_resumable_resume_point(plan.exit_state(), function)?;
+        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.read_binding_to_locals(
-            async_iterator_storage,
-            async_iterator_payload_local,
-            async_iterator_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of async iterator return result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        self.emit_for_await_result_value(&record, &resumed, done, &value, function)?;
+        done.load(function);
+        self.emit_branch_if_to_target(break_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        // Everything from here to the close of this frame is one iteration:
-        // unpack the awaited `next()` result, bind the loop variable, run the
-        // body, then decide whether the iterator has to be closed. It is
-        // entered for `value_resume_state` — the invocation that resumes from
-        // `await next()` — and, when the body can suspend, for every state
-        // between that and `close_resume_state`, which is where the collector
-        // put the body's own resume states. Those are the invocations that
-        // finish an iteration whose body was cut in half.
-        if body_suspends {
-            Self::emit_state_in_inclusive_range_i32(
-                state_local,
-                async_plan.value_resume_state,
-                async_plan.close_resume_state - 1,
-                function,
-            );
-        } else {
-            function.instruction(&Instruction::LocalGet(state_local));
-            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-            function.instruction(&Instruction::I64Eq);
-        }
-        self.open_frame(ControlFrameKind::If, function);
-        // Unpacking the result reads the activation's resume payload/tag/kind,
-        // which describe the `await` that just settled. On a body resume they
-        // describe the body's own suspension instead, and the iteration's
-        // `value` was consumed an invocation ago, so this whole section runs
-        // only on the invocation that came back from `next()`.
-        if body_suspends {
-            function.instruction(&Instruction::LocalGet(state_local));
-            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            self.open_frame(ControlFrameKind::If, function);
-        }
-        self.emit_load_for_await_resume_is_throw(
-            &resume_layout,
-            activation_local,
-            resume_is_throw_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_payload_offset,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            resume_tag_offset,
-            value_tag_local,
-            function,
-        );
-        self.read_binding_to_locals(
-            async_iterator_storage,
-            async_iterator_payload_local,
-            async_iterator_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of async iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            value_payload_local,
-            value_tag_local,
-            value_payload_local,
-            value_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            value_payload_local,
-            value_tag_local,
-            value_payload_local,
-            value_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        if body_suspends {
-            // Close the `state == value_resume_state` gate around unpacking.
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
         let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
-        let finally_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.finally_stack.push(finally_frame);
-        // A sync iterator whose `next()` promise rejected reports the rejection
-        // here rather than through the async-iterator path. It reads the resume
-        // kind and the async-iterator flag, both of which only describe the
-        // `next()` await, so on a body resume it is skipped rather than left to
-        // be accidentally right about locals this invocation never assigned.
-        if body_suspends {
-            function.instruction(&Instruction::LocalGet(state_local));
-            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            self.open_frame(ControlFrameKind::If, function);
-        }
-        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
-        self.read_binding_to_locals(
-            close_on_rejection_storage,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(method_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.open_frame(ControlFrameKind::If, function);
-        // AsyncFromSyncIteratorContinuation closes the sync Iterator Record
-        // directly on a rejected value. Its return result is neither unwrapped
-        // nor awaited, and the original rejection wins over every close error.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(method_payload_local));
-        self.write_binding_from_locals(
-            close_on_rejection_storage,
-            method_payload_local,
-            method_tag_local,
-            function,
-        );
-        self.read_binding_to_locals(
-            iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_iterator_close_preserving_current_throw(
-            IteratorCloseOnThrowLocals {
-                iterator_payload_local,
-                iterator_tag_local,
-                key_local,
-                return_payload_local: method_payload_local,
-                return_tag_local: method_tag_local,
-                result_payload_local,
-                result_tag_local,
-                saved_payload_local,
-                saved_tag_local,
-                saved_completion_local,
-                saved_aux_local,
-            },
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(async_plan.exit_state),
-            function,
-        );
-        // This rejection has discharged its own close obligation. Propagate
-        // outside the loop finalizer so it cannot close the iterator twice.
-        let outer_finalizer = self.finally_stack.iter().rev().nth(1).copied();
-        let surrounding_throw_target =
-            match (self.throw_handler_stack.last().copied(), outer_finalizer) {
-                (Some(handler), Some(finalizer)) => Some(innermost_target(handler, finalizer)),
-                (Some(handler), None) => Some(handler),
-                (None, Some(finalizer)) => Some(finalizer),
-                (None, None) => None,
-            };
-        if let Some(target) = surrounding_throw_target {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        if body_suspends {
-            // Close the `state == value_resume_state` gate around the
-            // sync-iterator rejection pre-check.
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
-        // `done` is read from the loop's own suspension-owned binding, not from
-        // a local, so this test is meaningful on a body resume too: the
-        // `next()` that produced the in-flight iteration wrote `false` there,
-        // and the iteration is not finished, so the loop correctly does not
-        // break out from under a half-run body.
-        self.read_binding_to_locals(done_storage, done_payload_local, done_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.branch_if_to_label(break_frame.label);
-        // Reattach the captured head before compiling either side of the
-        // value gate. The layout is identical on first entry and body resume;
-        // only first entry allocates a cell or initializes the loop binding.
-        let active_iteration_environment = if let Some(saved) = saved_iteration_environment {
+        let close_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(close_frame);
+        let active_environment = if let Some(saved) = saved_environment {
             Some(self.enter_suspended_for_await_iteration_environment(
                 saved,
-                iteration_environment.expect("a saved iteration must have a binding layout"),
+                iteration_environment.expect("saved layout exists"),
                 function,
             )?)
         } else {
@@ -9213,24 +8044,23 @@ impl<'a> FunctionBuilder<'a> {
             }
             None
         };
-        if body_suspends {
-            function.instruction(&Instruction::LocalGet(state_local));
-            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-            function.instruction(&Instruction::I64Eq);
-            self.open_frame(ControlFrameKind::If, function);
-        }
-        let storage = self
+        let binding = self
             .lookup_current_scope_binding(name)
-            .or(storage_without_environment)
-            .expect("for-await-of lexical storage must exist");
-        self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
-        self.mirror_binding_to_global_object(name, storage, function)?;
-        if body_suspends {
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
+            .or(fallback)
+            .ok_or_else(|| EmitError::unsupported("for-await source binding has no storage"))?;
+        point.load(function);
+        function.instruction(&Instruction::I32Const(plan.value_resume_state() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        if mode != BindingMode::Var {
+            self.initialize_binding_uninitialized(binding, function);
         }
-        self.compile_statement(body, function)?;
-        if let Some(active) = active_iteration_environment {
+        self.write_binding_from_locals(binding, &value, function);
+        self.mirror_binding_to_global_object(name, binding, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        plan.compile_body(self, function)?;
+        if let Some(active) = active_environment {
             self.leave_suspended_for_await_iteration_environment(active, function)?;
         }
         self.finally_stack.pop();
@@ -9238,642 +8068,116 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_labels(labels.len());
         self.loop_stack.pop();
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(saved_aux_local));
-        function.instruction(&Instruction::I64Const(continue_frame.frame as i64));
-        function.instruction(&Instruction::I64Eq);
+        pending.copy_from(self.completion(), function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(
+            CompletionKind::Continue.code() as i32
+        ));
+        function.instruction(&Instruction::I32Eq);
+        pending.target().load(function);
+        function.instruction(&Instruction::I32Const(continue_frame.frame as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::LocalSet(saved_completion_local));
+        self.open_frame(ControlFrameKind::If, function);
+        pending.set_normal(pending.value(), function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        // Non-suspending iterations retain their existing same-invocation
-        // leave. Suspended iterations already crossed their consuming cleanup
-        // block, before iterator closing or the next step can suspend again.
         if iteration_environment.is_some() && !body_suspends {
-            function.instruction(&Instruction::LocalGet(resume_is_throw_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_leave_lexical_environment(function);
-            function.instruction(&Instruction::End);
+            self.emit_save_resumable_environment(function)?;
         }
-        self.emit_iterator_close_condition_i32(
-            saved_completion_local,
-            saved_aux_local,
-            continue_frame,
-            function,
-        );
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
         self.open_frame(ControlFrameKind::If, function);
-        self.read_binding_to_locals(
-            iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.read_binding_to_locals(
-            async_iterator_storage,
-            async_iterator_payload_local,
-            async_iterator_tag_local,
-            function,
-        )?;
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
+        self.completion().copy_from(&pending, function);
         self.emit_push_async_pending_completion(function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("return")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
+        self.emit_statement_result(function);
+        schema
+            .struct_type::<IteratorRecord>()
+            .field(IteratorRecordSchema::DONE)
+            .write(&record, GcOperand::boolean(true), schema, function);
+        self.emit_prepare_for_await_close(
+            &record,
+            is_async,
+            &iterator_value,
+            &awaited,
+            function,
+            |builder, outcome, function| {
+                builder.emit_finish_for_await_close(outcome, false, plan.exit_state(), function)?;
+                builder.emit_branch_to_target(break_frame, function);
+                Ok(())
+            },
+        )?;
+        self.emit_set_resumable_resume_point(plan.close_resume_state(), function)?;
+        let await_failure = self.open_frame(ControlFrameKind::Block, function);
+        self.throw_handler_stack.push(await_failure);
+        self.emit_async_continuation_await(owner, &awaited, function)?;
+        self.emit_return_async_suspension(function)?;
+        self.throw_handler_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        closed.copy_from(self.completion(), function);
+        self.emit_finish_for_await_close(&closed, false, plan.exit_state(), function)?;
+        self.emit_branch_to_target(break_frame, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&pending, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_cached_for_await_next(
+            &record,
+            is_async,
+            &iterator_value,
+            &next_method,
+            &awaited,
             function,
         )?;
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of iterator return must be callable",
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::LocalSet(close_get_method_aux_local));
-        self.emit_pop_and_restore_async_pending_completion(function)?;
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(async_plan.exit_state),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(method_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::LocalSet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(close_get_method_aux_local));
-        function.instruction(&Instruction::LocalSet(self.completion_aux_local));
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_function_handle_call_without_throw_propagation(
-            method_payload_local,
-            method_tag_local,
-            Some((iterator_payload_local, Some(iterator_tag_local))),
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of iterator return result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        let rejected_promise_record_local = self.reserve_temp_local();
-        let realm = match &resume_layout {
-            ForAwaitActivationLayout::AsyncFunction => self
-                .emit_async_function_execution_realm_context_from_activation(
-                    activation_local,
-                    function,
-                ),
-            ForAwaitActivationLayout::AsyncGenerator => self
-                .emit_async_generator_execution_realm_context_from_activation(
-                    activation_local,
-                    function,
-                ),
-        };
-        let promise_allocation_context =
-            self.emit_async_execution_promise_allocation_context(&realm, function);
-        self.emit_alloc_promise_with_prototype(
-            promise_allocation_context,
-            continuation_payload_local,
-            rejected_promise_record_local,
-            function,
-        )?;
-        self.release_async_execution_realm_context(realm);
-        self.emit_settle_promise_record(
-            rejected_promise_record_local,
-            PromiseSettlement::Reject,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(continuation_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.release_temp_local(rejected_promise_record_local);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(result_payload_local));
-        function.instruction(&Instruction::LocalSet(continuation_payload_local));
-        function.instruction(&Instruction::LocalGet(result_tag_local));
-        function.instruction(&Instruction::LocalSet(continuation_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_async_from_sync_value_continuation(
-            value_payload_local,
-            value_tag_local,
-            continuation_payload_local,
-            continuation_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(async_plan.close_resume_state),
-            function,
-        );
-        match &resume_layout {
-            ForAwaitActivationLayout::AsyncFunction => self.emit_async_await_reactions(
-                activation_local,
-                continuation_payload_local,
-                continuation_tag_local,
-                function,
-            )?,
-            ForAwaitActivationLayout::AsyncGenerator => {
-                self.emit_async_generator_await_reactions(
-                    activation_local,
-                    continuation_payload_local,
-                    continuation_tag_local,
-                    function,
-                )?;
-                self.emit_store_async_generator_body_status(
-                    activation_local,
-                    AsyncGeneratorBodyStatus::Await,
-                    function,
-                );
-                self.emit_store_async_generator_execution_state(
-                    activation_local,
-                    AsyncGeneratorExecutionState::Executing,
-                    function,
-                );
-            }
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(async_plan.close_resume_state),
-            function,
-        );
-        self.emit_return_current_completion(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dispatch_current_completion(function)?;
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.read_binding_to_locals(
-            iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.read_binding_to_locals(next_storage, next_payload_local, next_tag_local, function)?;
-        self.read_binding_to_locals(
-            async_iterator_storage,
-            async_iterator_payload_local,
-            async_iterator_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
-        self.write_binding_from_locals(
-            close_on_rejection_storage,
-            done_payload_local,
-            done_tag_local,
-            function,
-        );
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-await-of iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(method_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(method_tag_local));
-        self.write_binding_from_locals(
-            close_on_rejection_storage,
-            method_payload_local,
-            method_tag_local,
-            function,
-        );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        let rejected_promise_record_local = self.reserve_temp_local();
-        let realm = match &resume_layout {
-            ForAwaitActivationLayout::AsyncFunction => self
-                .emit_async_function_execution_realm_context_from_activation(
-                    activation_local,
-                    function,
-                ),
-            ForAwaitActivationLayout::AsyncGenerator => self
-                .emit_async_generator_execution_realm_context_from_activation(
-                    activation_local,
-                    function,
-                ),
-        };
-        let promise_allocation_context =
-            self.emit_async_execution_promise_allocation_context(&realm, function);
-        self.emit_alloc_promise_with_prototype(
-            promise_allocation_context,
-            continuation_payload_local,
-            rejected_promise_record_local,
-            function,
-        )?;
-        self.release_async_execution_realm_context(realm);
-        self.emit_settle_promise_record(
-            rejected_promise_record_local,
-            PromiseSettlement::Reject,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(continuation_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.release_temp_local(rejected_promise_record_local);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(result_payload_local));
-        function.instruction(&Instruction::LocalSet(continuation_payload_local));
-        function.instruction(&Instruction::LocalGet(result_tag_local));
-        function.instruction(&Instruction::LocalSet(continuation_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_async_from_sync_value_continuation(
-            value_payload_local,
-            value_tag_local,
-            continuation_payload_local,
-            continuation_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(async_plan.value_resume_state),
-            function,
-        );
-        match &resume_layout {
-            ForAwaitActivationLayout::AsyncFunction => self.emit_async_await_reactions(
-                activation_local,
-                continuation_payload_local,
-                continuation_tag_local,
-                function,
-            )?,
-            ForAwaitActivationLayout::AsyncGenerator => {
-                self.emit_async_generator_await_reactions(
-                    activation_local,
-                    continuation_payload_local,
-                    continuation_tag_local,
-                    function,
-                )?;
-                self.emit_store_async_generator_body_status(
-                    activation_local,
-                    AsyncGeneratorBodyStatus::Await,
-                    function,
-                );
-                self.emit_store_async_generator_execution_state(
-                    activation_local,
-                    AsyncGeneratorExecutionState::Executing,
-                    function,
-                );
-            }
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_return_current_completion(function);
-
+        self.emit_set_resumable_resume_point(plan.value_resume_state(), function)?;
+        self.emit_async_continuation_await(owner, &awaited, function)?;
+        self.emit_return_async_suspension(function)?;
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            resume_state_offset,
-            u64::from(async_plan.exit_state),
+        self.emit_statement_result(function);
+        self.finally_stack.pop();
+        self.throw_handler_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.array_type::<ForAwaitIteratorTable>().write(
+            &table,
+            index,
+            GcOperand::null(schema),
+            schema,
             function,
         );
-        self.emit_statement_result(function, ValueKind::Undefined);
+        self.emit_set_resumable_resume_point(plan.exit_state(), function)?;
+        self.emit_dispatch_current_completion(function)?;
         self.pop_scope();
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
-        self.release_temp_local(resume_is_throw_local);
-        self.release_temp_local(continuation_tag_local);
-        self.release_temp_local(continuation_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(result_tag_local);
-        self.release_temp_local(result_payload_local);
-        self.release_temp_local(close_get_method_aux_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(async_iterator_tag_local);
-        self.release_temp_local(async_iterator_payload_local);
-        self.release_temp_local(next_tag_local);
-        self.release_temp_local(next_payload_local);
-        self.release_temp_local(iterator_tag_local);
-        self.release_temp_local(iterator_payload_local);
-        self.release_temp_local(iterable_tag_local);
-        self.release_temp_local(iterable_payload_local);
-        self.release_temp_local(state_local);
+        arguments.clear(function);
+        record.clear(function);
+        state.clear(function);
+        table.clear(function);
+        frame.clear(function);
+        schema.release_i32_local(done, function);
+        schema.release_i32_local(rejected, function);
+        schema.release_i32_local(is_async, function);
+        closed.clear(function);
+        pending.clear(function);
+        called.clear(function);
+        method.clear(function);
+        value.clear(function);
+        resumed.clear(function);
+        awaited.clear(function);
+        next_method.clear(function);
+        iterator_value.clear(function);
+        source.clear(function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(point, function);
         Ok(())
     }
 
@@ -9888,454 +8192,241 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         if !self
             .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+            .is_some_and(|meta| meta.protocol().execution_kind() == FunctionExecutionKind::Async)
         {
             return Err(EmitError::unsupported(
                 "await using for-of head requires a plain async function",
             ));
         }
+        let schema = self.runtime_schema();
         let owner = ActivationAsyncDisposeOwner::AsyncFunctionForOf(head.capability());
         let finalizer = owner.finalizer();
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async disposal requires the function call ABI")
-        })?;
-        let state_local = self.reserve_temp_local();
-        let iterable_payload_local = self.reserve_temp_local();
-        let iterable_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let result_payload_local = self.reserve_temp_local();
-        let result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
-        let close_saved_payload_local = self.reserve_temp_local();
-        let close_saved_tag_local = self.reserve_temp_local();
-        let close_saved_completion_local = self.reserve_temp_local();
-        let close_saved_aux_local = self.reserve_temp_local();
-        let acquired = self.reserve_async_disposable_resource_locals(function);
-        let consumer = SyncIteratorConsumer::ForOf;
-
-        self.emit_async_state_in_range(
-            activation_local,
-            finalizer.entry_state(),
-            finalizer.exit_state(),
-            function,
-        );
+        let state = self.emit_resumable_resume_point(function)?;
+        self.emit_async_state_in_range(finalizer.entry_state(), finalizer.exit_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            state_local,
-            function,
-        );
-
         self.push_scope();
         let name = head.binding_name();
-        let storage_without_environment =
-            if !iteration_environment_owns_binding(lexical_environment, name) {
-                Some(self.allocate_binding(
-                    name.to_string(),
-                    BindingMode::Const,
-                    ValueKind::Dynamic,
-                ))
-            } else {
-                None
-            };
+        let fallback_binding = if !iteration_environment_owns_binding(lexical_environment, name) {
+            Some(self.allocate_binding(
+                name.to_string(),
+                BindingMode::Const,
+                ValueKind::Dynamic,
+                function,
+            ))
+        } else {
+            None
+        };
         let iterator_storage = self
             .activation_owned_binding_storage(head.record().iterator().as_str())
             .ok_or_else(|| {
                 EmitError::unsupported(
-                    "await using for-of Iterator is missing its activation-owned binding",
+                    "await using for-of Iterator lacks its activation-owned cell",
                 )
             })?;
         let next_storage = self
             .activation_owned_binding_storage(head.record().next_method().as_str())
             .ok_or_else(|| {
                 EmitError::unsupported(
-                    "await using for-of NextMethod is missing its activation-owned binding",
+                    "await using for-of NextMethod lacks its activation-owned cell",
                 )
             })?;
         let done_storage = self
             .activation_owned_binding_storage(head.record().done().as_str())
             .ok_or_else(|| {
-                EmitError::unsupported(
-                    "await using for-of Done is missing its activation-owned binding",
-                )
+                EmitError::unsupported("await using for-of Done lacks its activation-owned cell")
             })?;
-
-        // The iterable and sync Iterator Record are evaluated exactly once.
-        // Later disposal resumes enter this node at `resume_state`, skip this
-        // gate, and reload the activation-backed record below.
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        let source = schema.reserve_value_local(function);
+        let iterator_value = schema.reserve_value_local(function);
+        let next_method = schema.reserve_value_local(function);
+        let done_value = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        let done = schema.reserve_i32_local(function);
+        let retained = schema
+            .reserve_gc_local::<IteratorRecord, Nullable>(function)
+            .initialize_null(schema, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(finalizer.entry_state() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
         if let Some(environment) = lexical_environment {
             self.emit_enter_for_in_of_tdz_scope(BindingMode::Const, environment, function)?;
         }
-        self.compile_expr_to_locals(
-            iterable,
-            iterable_payload_local,
-            iterable_tag_local,
-            function,
-        )?;
+        self.compile_expr_to_value(iterable, &source, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
         if let Some(environment) = lexical_environment {
             self.emit_leave_for_in_of_tdz_scope(environment, function);
         }
-        self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NotIterable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        let iterable_object_payload_local = self.reserve_temp_local();
-        let iterable_object_tag_local = self.reserve_temp_local();
-        self.emit_value_to_current_function_realm_object_locals(
-            iterable_payload_local,
-            iterable_tag_local,
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        // Arguments has a dedicated iterator lookup in the current exotic
-        // representation. The generic object read below does not cover it.
-        // Dispatch on the runtime tag so aliases take the same path as a
-        // direct `arguments` expression, without changing the original this.
-        function.instruction(&Instruction::LocalGet(iterable_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_arguments_iterator_method_to_locals(
-            iterable_payload_local,
-            iterable_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_object_read(
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(iterable_object_tag_local);
-        self.release_temp_local(iterable_object_payload_local);
-        self.emit_propagate_throw_from_locals_if_needed(
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NotIterable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::MethodResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NextNotCallable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.write_binding_from_locals(
-            iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
+        let acquired =
+            self.emit_get_sync_iterator(&source, SyncIteratorConsumer::ForOf, function)?;
+        let stored_iterator = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<IteratorRecord>()
+                .field(IteratorRecordSchema::ITERATOR)
+                .read(acquired.record(), schema, function)
+                .reference(),
             function,
         );
-        self.write_binding_from_locals(next_storage, next_payload_local, next_tag_local, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
+        let stored_next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<IteratorRecord>()
+                .field(IteratorRecordSchema::NEXT_METHOD)
+                .read(acquired.record(), schema, function)
+                .reference(),
+            function,
+        );
+        schema.struct_type::<StoredValue>().read_into(
+            &stored_iterator,
+            &iterator_value,
+            schema,
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_next, &next_method, schema, function);
+        self.write_binding_from_locals(iterator_storage, &iterator_value, function);
+        self.write_binding_from_locals(next_storage, &next_method, function);
+        done_value.set_scalar(ScalarValue::Boolean(false), function);
+        self.write_binding_from_locals(done_storage, &done_value, function);
+        retained.replace(
+            acquired.record().load(schema, function).nullable(),
+            function,
+        );
+        stored_next.clear(function);
+        stored_iterator.clear(function);
+        acquired.clear(function);
+        function.instruction(&Instruction::Else);
+        self.read_binding_to_locals(iterator_storage, &iterator_value, function)?;
+        self.read_binding_to_locals(next_storage, &next_method, function)?;
+        self.read_binding_to_locals(done_storage, &done_value, function)?;
+        self.compile_truthy_tagged_i32(&done_value, function)?;
+        done.store(function);
+        let stored_iterator = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&iterator_value, function),
+            function,
+        );
+        let stored_next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&next_method, function),
+            function,
+        );
+        let restored = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<IteratorRecord>().construct(
+                (
+                    GcOperand::reference(&stored_iterator, schema),
+                    GcOperand::reference(&stored_next, schema),
+                    GcOperand::boolean_local(done),
+                ),
+                function,
+            ),
+            function,
+        );
+        retained.replace(restored.load(schema, function).nullable(), function);
+        restored.clear(function);
+        stored_next.clear(function);
+        stored_iterator.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_statement_result(function, ValueKind::Undefined);
+        let iterator = OwnedSyncIterator {
+            record: schema.reserve_gc_local(function).initialize(
+                retained.load(schema, function).require_non_null(function),
+                function,
+            ),
+            consumer: SyncIteratorConsumer::ForOf,
+        };
+        retained.clear(function);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
-
-        // `next`, `done`, and `value` all precede the fresh iteration
-        // environment. Their abrupt completions therefore propagate directly
-        // and never enter IteratorClose.
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(finalizer.entry_state() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.read_binding_to_locals(
-            iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.read_binding_to_locals(next_storage, next_payload_local, next_tag_local, function)?;
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
+        self.emit_sync_iterator_step_value(&iterator, done, &value, function)?;
+        done_value.set_boolean(done, function);
+        self.write_binding_from_locals(done_storage, &done_value, function);
+        done.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NextResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
-        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
+        self.emit_set_resumable_resume_point(finalizer.exit_state(), function)?;
         self.emit_branch_to_target(break_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
         let iteration_environment =
             lexical_environment.and_then(|environment| environment.iteration_environment.as_ref());
         if let Some(environment) = iteration_environment {
-            // Re-entry reconstructs the lexical layout from the activation
-            // root. Closures retain the original per-iteration record; when a
-            // nested implicit finalizer resumes source execution, the immutable
-            // head value is republished into this reconstructed record below.
-            self.emit_enter_lexical_environment(environment, function)?;
+            self.emit_enter_resumable_lexical_environment(
+                environment,
+                finalizer.entry_state(),
+                function,
+            )?;
         }
-        let storage = self
+        let binding = self
             .lookup_current_scope_binding(name)
-            .or(storage_without_environment)
-            .expect("await using for-of storage must exist before acquisition");
-        let capability_storage = ActivationAsyncDisposeCapabilityStorage {
+            .or(fallback_binding)
+            .ok_or_else(|| {
+                EmitError::unsupported("await using for-of source binding lacks storage")
+            })?;
+        let storage = ActivationAsyncDisposeCapabilityStorage {
             binding: self
                 .activation_owned_binding_storage(owner.binding_name())
                 .ok_or_else(|| {
                     EmitError::unsupported(
-                        "await using for-of DisposeCapability is missing its activation-owned binding",
+                        "await using for-of DisposeCapability lacks its activation-owned cell",
                     )
                 })?,
         };
-        // A nested implicit await-using finalizer resumes source execution in
-        // a reconstructed iteration environment. Republish the immutable head
-        // value from this iteration's sole activation-backed capability entry
-        // before compiling the resumed suffix. Disposal-only states never
-        // expose the reconstructed binding and therefore skip this transition.
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(finalizer.dispose_state() as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        self.restore_async_disposable_for_of_binding(&capability_storage, storage, function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        // Load the retained iterator while the iteration environment is still
-        // current, using the adjusted activation hop. The locals survive the
-        // explicit environment leave and are then consumed by IteratorClose.
-        let iteration_iterator_storage = self
-            .activation_owned_binding_storage(head.record().iterator().as_str())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "await using for-of Iterator is missing its activation-owned binding",
-                )
-            })?;
-        self.read_binding_to_locals(
-            iteration_iterator_storage,
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-
+        let acquired = self.reserve_async_disposable_resource_locals(function);
         let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
-        let _disposal_outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let _disposal_outer = self.open_frame(ControlFrameKind::Block, function);
         let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(disposal_frame);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
-        function.instruction(&Instruction::I64Eq);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(finalizer.entry_state() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.initialize_binding_uninitialized(storage, function);
-        let capability = self.initialize_empty_activation_async_dispose_capability(
-            &capability_storage,
-            1,
-            function,
-        )?;
-        self.reset_async_disposable_resource_locals(&acquired, function);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(acquired.value_payload));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(acquired.value_tag));
+        self.initialize_binding_uninitialized(binding, function);
+        let capability =
+            self.initialize_empty_activation_async_dispose_capability(&storage, 1, function)?;
+        acquired.value.copy_from(&value, function);
         self.acquire_async_disposable_resource_from_locals(&acquired, function)?;
         self.append_activation_async_disposable_resource(&capability, &acquired, function);
-        self.write_binding_from_locals(
-            storage,
-            acquired.value_payload,
-            acquired.value_tag,
-            function,
-        );
-        self.release_active_activation_async_dispose_capability(capability);
+        self.write_binding_from_locals(binding, &acquired.value, function);
+        self.release_active_activation_async_dispose_capability(capability, function);
+        self.emit_save_resumable_environment(function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // The producer excludes source `await`/`yield`, but a nested
-        // await-using scope owns implicit finalizer states inside this span.
-        // Resume those states through the body without reacquiring the outer
-        // resource or requesting another iterator value.
         self.emit_async_state_in_range(
-            activation_local,
             finalizer.entry_state(),
             finalizer.dispose_state(),
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
         self.pop_labels(labels.len());
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        // Body compilation has encoded any local continue with this frame's
-        // id. The disposal continuation consumes that completion explicitly
-        // before leaving the iteration environment. Do not expose the now
-        // deeper target to generic completion dispatch after the leave.
         self.loop_stack.pop();
-
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_async_finalizer_needs_pending_completion(
-            activation_local,
+        self.emit_resumable_finalizer_needs_pending_completion(
             finalizer.dispose_state(),
             function,
-        );
+        )?;
         self.open_frame(ControlFrameKind::If, function);
         let pending = self.begin_async_dispose_pending_completion(function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
-        let disposing = self.begin_activation_async_dispose_capability(
-            capability_storage,
-            activation_local,
-            finalizer,
-            function,
-        )?;
+        self.emit_statement_result(function);
+        let disposing =
+            self.begin_activation_async_dispose_capability(storage, finalizer, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
         self.consume_activation_async_dispose_capability(
             &owner,
             disposing,
@@ -10348,29 +8439,14 @@ impl<'a> FunctionBuilder<'a> {
                     } else {
                         AsyncDisposableForOfIterationEnvironment::Absent
                     },
-                    state_local,
-                    iterator_payload_local,
-                    iterator_tag_local,
-                    key_local,
-                    return_payload_local: method_payload_local,
-                    return_tag_local: method_tag_local,
-                    result_payload_local,
-                    result_tag_local,
-                    saved_payload_local,
-                    saved_tag_local,
-                    saved_completion_local,
-                    saved_aux_local,
-                    close_saved_payload_local,
-                    close_saved_tag_local,
-                    close_saved_completion_local,
-                    close_saved_aux_local,
+                    state,
+                    iterator: &iterator,
                     continue_target: continue_frame,
                     loop_target: loop_frame,
                 },
             ),
             function,
         )?;
-
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
@@ -10380,36 +8456,19 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
+        self.emit_set_resumable_resume_point(finalizer.exit_state(), function)?;
         self.pop_scope();
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_async_disposable_resource_locals(acquired);
-        self.release_temp_local(close_saved_aux_local);
-        self.release_temp_local(close_saved_completion_local);
-        self.release_temp_local(close_saved_tag_local);
-        self.release_temp_local(close_saved_payload_local);
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(result_tag_local);
-        self.release_temp_local(result_payload_local);
-        self.release_temp_local(next_tag_local);
-        self.release_temp_local(next_payload_local);
-        self.release_temp_local(iterator_tag_local);
-        self.release_temp_local(iterator_payload_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(iterable_tag_local);
-        self.release_temp_local(iterable_payload_local);
-        self.release_temp_local(state_local);
+        self.release_async_disposable_resource_locals(acquired, function);
+        iterator.clear(function);
+        schema.release_i32_local(done, function);
+        value.clear(function);
+        done_value.clear(function);
+        next_method.clear(function);
+        iterator_value.clear(function);
+        source.clear(function);
+        schema.release_i32_local(state, function);
         Ok(())
     }
 
@@ -10422,36 +8481,11 @@ impl<'a> FunctionBuilder<'a> {
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         let body = match &head {
             SyncForOfIteratorHead::Assignment(_) => body,
             SyncForOfIteratorHead::SyncDisposable { body, .. } => body.statement(),
         };
-
-        let iterable_payload_local = self.reserve_temp_local();
-        let iterable_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let result_payload_local = self.reserve_temp_local();
-        let result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
-        let close_saved_payload_local = self.reserve_temp_local();
-        let close_saved_tag_local = self.reserve_temp_local();
-        let close_saved_completion_local = self.reserve_temp_local();
-        let close_saved_aux_local = self.reserve_temp_local();
-        let consumer = SyncIteratorConsumer::ForOf;
-
         let lifecycle = match head {
             SyncForOfIteratorHead::Assignment(binding) => {
                 SyncForOfIterationLifecycleLocals::Assignment(binding)
@@ -10471,32 +8505,26 @@ impl<'a> FunctionBuilder<'a> {
                 (BindingMode::Const, head.binding_name())
             }
         };
-
+        let source = schema.reserve_value_local(function);
         if let Some(environment) = lexical_environment {
             self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
         }
-        self.compile_expr_to_locals(
-            iterable,
-            iterable_payload_local,
-            iterable_tag_local,
-            function,
-        )?;
+        self.compile_expr_to_value(iterable, &source, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
         if let Some(environment) = lexical_environment {
             self.emit_leave_for_in_of_tdz_scope(environment, function);
         }
-
         self.push_scope();
-        let storage_without_environment = if mode == BindingMode::Var {
-            Some(self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: unbound for-of var `{name}`"
-                ))
-            })?)
-        } else if !iteration_environment_owns_binding(lexical_environment, name) {
-            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
-        } else {
-            None
-        };
+        let storage_without_environment =
+            if mode == BindingMode::Var {
+                Some(self.lookup_binding(name).ok_or_else(|| {
+                    EmitError::unsupported(format!("unbound for-of var `{name}`"))
+                })?)
+            } else if !iteration_environment_owns_binding(lexical_environment, name) {
+                Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic, function))
+            } else {
+                None
+            };
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
@@ -10506,246 +8534,68 @@ impl<'a> FunctionBuilder<'a> {
                     storage_without_environment.expect("for-of var storage must exist"),
                 );
         }
-        // GetIterator(obj) is `GetMethod(obj, @@iterator)` followed by a call, and
-        // GetMethod routes through ToObject in the running function's Realm.
-        // Only `undefined` and `null` fail that conversion, so every other
-        // primitive has to reach that Realm's wrapper prototype rather than be
-        // rejected here.
-        self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NotIterable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        let iterable_object_payload_local = self.reserve_temp_local();
-        let iterable_object_tag_local = self.reserve_temp_local();
-        self.emit_value_to_current_function_realm_object_locals(
-            iterable_payload_local,
-            iterable_tag_local,
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        // The receiver stays the original value: `@@iterator` is looked up on the
-        // wrapper object but invoked with the primitive as `this`.
-        // Arguments has a dedicated iterator lookup in the current exotic
-        // representation. The generic object read below does not cover it.
-        // Dispatch on the runtime tag so aliases take the same path as a
-        // direct `arguments` expression, without changing the original this.
-        function.instruction(&Instruction::LocalGet(iterable_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_arguments_iterator_method_to_locals(
-            iterable_payload_local,
-            iterable_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_object_read(
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(iterable_object_tag_local);
-        self.release_temp_local(iterable_object_payload_local);
-        self.emit_propagate_throw_from_locals_if_needed(
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NotIterable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::MethodResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NextNotCallable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.emit_statement_result(function, ValueKind::Undefined);
+        let iterator =
+            self.emit_get_sync_iterator(&source, SyncIteratorConsumer::ForOf, function)?;
+        source.clear(function);
+        let value = schema.reserve_value_local(function);
+        let loop_value = schema.reserve_value_local(function);
+        loop_value.set_undefined(function);
+        let done = schema.reserve_i32_local(function);
+        let pending = schema.reserve_completion(function);
+        let closed = schema.reserve_completion(function);
+        self.emit_statement_result(function);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
-
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
+        self.emit_sync_iterator_step_value(&iterator, done, &value, function)?;
+        done.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            &consumer,
-            SyncIteratorProtocolError::NextResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
+        self.completion().set_normal(&loop_value, function);
+        self.emit_branch_to_target(break_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.branch_if_to_label(break_frame.label);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            result_payload_local,
-            result_tag_local,
-            result_payload_local,
-            result_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
         if let Some(environment) =
             lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
         {
             self.emit_enter_lexical_environment(environment, function)?;
         }
-        let storage = self
+        let binding = self
             .lookup_current_scope_binding(name)
             .or(storage_without_environment)
             .expect("for-of lexical storage must be allocated before assignment");
         let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
-        let finally_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.finally_stack.push(finally_frame);
-
+        let finalizer = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(finalizer);
+        self.completion().set_normal(&loop_value, function);
         match &lifecycle {
             SyncForOfIterationLifecycleLocals::Assignment(_) => {
-                self.write_binding_from_locals(
-                    storage,
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                );
-                self.mirror_binding_to_global_object(name, storage, function)?;
+                self.write_binding_from_locals(binding, &value, function);
+                self.mirror_binding_to_global_object(name, binding, function)?;
             }
             SyncForOfIterationLifecycleLocals::SyncDisposable { acquired, .. } => {
-                self.initialize_binding_uninitialized(storage, function);
+                self.initialize_binding_uninitialized(binding, function);
                 self.reset_sync_disposable_resource_locals(acquired, function);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::LocalSet(acquired.value_payload));
-                function.instruction(&Instruction::LocalGet(value_tag_local));
-                function.instruction(&Instruction::LocalSet(acquired.value_tag));
-
-                let _disposal_outer_frame = self.open_frame(ControlFrameKind::Block, function);
-                let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
-                self.finally_stack.push(disposal_frame);
-                self.compile_sync_disposable_resource_from_locals(storage, acquired, function)?;
+                acquired.value.copy_from(&value, function);
+                self.open_frame(ControlFrameKind::Block, function);
+                let disposal = self.open_frame(ControlFrameKind::Block, function);
+                self.finally_stack.push(disposal);
+                self.compile_sync_disposable_resource_from_locals(binding, acquired, function)?;
             }
         }
-
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
         self.pop_labels(labels.len());
-
         match lifecycle {
             SyncForOfIterationLifecycleLocals::Assignment(_) => {}
             SyncForOfIterationLifecycleLocals::SyncDisposable { acquired, .. } => {
                 self.finally_stack.pop();
                 self.pop_control(ControlFrameKind::Block);
                 function.instruction(&Instruction::End);
-                let pending = self.capture_pending_sync_dispose_completion(function);
+                let completion = self.capture_pending_sync_dispose_completion(function);
                 self.set_completion_kind(CompletionKind::Normal, function);
                 self.consume_sync_disposable_resources(
-                    pending,
+                    completion,
                     vec![acquired],
                     SyncDisposeCompletionContinuation::DeferToIteratorClose,
                     function,
@@ -10754,1209 +8604,585 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
         }
-
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.loop_stack.pop();
-
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
+        pending.copy_from(self.completion(), function);
         if lexical_environment
             .and_then(|environment| environment.iteration_environment.as_ref())
             .is_some()
         {
             self.emit_leave_lexical_environment(function);
         }
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(saved_aux_local));
-        function.instruction(&Instruction::I64Const(continue_frame.frame as i64));
-        function.instruction(&Instruction::I64Eq);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(
+            CompletionKind::Continue.code() as i32
+        ));
+        function.instruction(&Instruction::I32Eq);
+        pending.target().load(function);
+        function.instruction(&Instruction::I32Const(continue_frame.frame as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::LocalSet(saved_completion_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::LocalSet(self.completion_local));
-        self.emit_iterator_close_condition_i32(
-            saved_completion_local,
-            saved_aux_local,
-            continue_frame,
-            function,
-        );
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        self.emit_iterator_close_preserving_current_throw(
-            IteratorCloseOnThrowLocals {
-                iterator_payload_local,
-                iterator_tag_local,
-                key_local,
-                return_payload_local: method_payload_local,
-                return_tag_local: method_tag_local,
-                result_payload_local,
-                result_tag_local,
-                saved_payload_local: close_saved_payload_local,
-                saved_tag_local: close_saved_tag_local,
-                saved_completion_local: close_saved_completion_local,
-                saved_aux_local: close_saved_aux_local,
-            },
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_iterator_close(
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            method_payload_local,
-            method_tag_local,
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
+        pending.set_normal(pending.value(), function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_sync_iterator_close(&iterator, &pending, &closed, function)?;
+        self.completion().copy_from(&closed, function);
         self.emit_dispatch_current_completion(function)?;
+        function.instruction(&Instruction::Else);
+        loop_value.copy_from(pending.value(), function);
+        self.completion().copy_from(&pending, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.branch_to_label(loop_frame.label);
+        self.emit_branch_to_target(loop_frame, function);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.pop_scope();
-        self.release_temp_local(close_saved_aux_local);
-        self.release_temp_local(close_saved_completion_local);
-        self.release_temp_local(close_saved_tag_local);
-        self.release_temp_local(close_saved_payload_local);
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(result_tag_local);
-        self.release_temp_local(result_payload_local);
-        self.release_temp_local(next_tag_local);
-        self.release_temp_local(next_payload_local);
-        self.release_temp_local(iterator_tag_local);
-        self.release_temp_local(iterator_payload_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(iterable_tag_local);
-        self.release_temp_local(iterable_payload_local);
+        closed.clear(function);
+        pending.clear(function);
+        schema.release_i32_local(done, function);
+        loop_value.clear(function);
+        value.clear(function);
+        iterator.clear(function);
         Ok(())
-    }
-
-    pub(crate) fn compile_object_destructure_to_locals(
-        &mut self,
-        value: &TypedExpr,
-        pattern: &ObjectDestructuringPatternIr,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let source_payload = self.reserve_temp_local();
-        let source_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(value, source_payload, source_tag, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(source_payload, source_tag, function)?;
-        let result = self.compile_object_destructure_from_value_locals(
-            source_payload,
-            source_tag,
-            pattern,
-            payload_local,
-            tag_local,
-            function,
-        );
-        self.release_temp_local(source_tag);
-        self.release_temp_local(source_payload);
-        result
-    }
-
-    fn compile_object_destructure_from_value_locals(
-        &mut self,
-        source_payload: u32,
-        source_tag: u32,
-        pattern: &ObjectDestructuringPatternIr,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let source_object_payload = self.reserve_temp_local();
-        let source_object_tag = self.reserve_temp_local();
-        let property_value_payload = self.reserve_temp_local();
-        let property_value_tag = self.reserve_temp_local();
-        let mut excluded_keys = Vec::with_capacity(pattern.properties.len());
-
-        self.compile_nullish_tagged_i32(source_tag, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Cannot destructure undefined or null",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_value_to_object_locals(
-            source_payload,
-            source_tag,
-            source_object_payload,
-            source_object_tag,
-            function,
-        )?;
-
-        for property in &pattern.properties {
-            let key_payload = self.reserve_temp_local();
-            let key_tag = self.reserve_temp_local();
-            match &property.key {
-                DestructuringPropertyKeyIr::Static(key) => {
-                    function.instruction(&Instruction::I64Const(self.strings.payload(key)));
-                    function.instruction(&Instruction::LocalSet(key_payload));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(key_tag));
-                }
-                DestructuringPropertyKeyIr::Computed(key) => {
-                    self.compile_expr_to_locals(key, key_payload, key_tag, function)?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        key_payload,
-                        key_tag,
-                        function,
-                    )?;
-                    self.emit_value_to_property_key_locals(key_payload, key_tag, function)?;
-                }
-            }
-            let prepared = self.prepare_destructuring_target(&property.target, function)?;
-            self.emit_object_read(
-                source_object_payload,
-                source_object_tag,
-                source_object_payload,
-                source_object_tag,
-                key_payload,
-                property_value_payload,
-                property_value_tag,
-                function,
-            )?;
-            self.emit_propagate_current_completion_if_throw(function);
-            if let Some(default) = &property.default {
-                function.instruction(&Instruction::LocalGet(property_value_tag));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                self.open_frame(ControlFrameKind::If, function);
-                self.compile_expr_to_locals(
-                    default,
-                    property_value_payload,
-                    property_value_tag,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    property_value_payload,
-                    property_value_tag,
-                    function,
-                )?;
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
-            }
-            self.put_destructuring_target(
-                prepared,
-                property_value_payload,
-                property_value_tag,
-                function,
-            )?;
-            excluded_keys.push((key_payload, key_tag));
-        }
-
-        if let Some(rest) = &pattern.rest {
-            let prepared = self.prepare_destructuring_target(rest, function)?;
-            self.emit_copy_data_properties_rest(
-                source_object_payload,
-                source_object_tag,
-                &excluded_keys,
-                property_value_payload,
-                property_value_tag,
-                function,
-            )?;
-            self.put_destructuring_target(
-                prepared,
-                property_value_payload,
-                property_value_tag,
-                function,
-            )?;
-        }
-
-        function.instruction(&Instruction::LocalGet(source_payload));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(source_tag));
-        function.instruction(&Instruction::LocalSet(tag_local));
-
-        for (key_payload, key_tag) in excluded_keys.into_iter().rev() {
-            self.release_temp_local(key_tag);
-            self.release_temp_local(key_payload);
-        }
-        self.release_temp_local(property_value_tag);
-        self.release_temp_local(property_value_payload);
-        self.release_temp_local(source_object_tag);
-        self.release_temp_local(source_object_payload);
-        Ok(())
-    }
-
-    fn emit_copy_data_properties_rest(
-        &mut self,
-        source_payload: u32,
-        source_tag: u32,
-        excluded_keys: &[(u32, u32)],
-        target_payload: u32,
-        target_tag: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(target_payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(target_tag));
-
-        self.emit_copy_data_properties_into(
-            source_payload,
-            source_tag,
-            excluded_keys,
-            target_payload,
-            function,
-        )
     }
 
     pub(crate) fn emit_copy_data_properties_into(
         &mut self,
-        source_payload: u32,
-        source_tag: u32,
-        excluded_keys: &[(u32, u32)],
-        target_payload: u32,
+        source: &ValueLocals,
+        excluded_keys: &[&crate::operations::PropertyKeyLocals],
+        target: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let own_keys_meta = self
-            .functions
-            .get(&StandardBuiltinId::ReflectOwnKeys.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Reflect.ownKeys`",
-                )
-            })?;
-        let get_own_descriptor_meta = self
-            .functions
-            .get(&StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Reflect.getOwnPropertyDescriptor`",
-                )
-            })?;
-        let keys_payload = self.reserve_temp_local();
-        let keys_tag = self.reserve_temp_local();
-        let keys_length = self.reserve_temp_local();
-        let key_index = self.reserve_temp_local();
-        let key_payload = self.reserve_temp_local();
-        let key_tag = self.reserve_temp_local();
-        let key_internal_payload = self.reserve_temp_local();
-        let descriptor_payload = self.reserve_temp_local();
-        let descriptor_tag = self.reserve_temp_local();
-        let enumerable_key = self.reserve_temp_local();
-        let enumerable_payload = self.reserve_temp_local();
-        let enumerable_tag = self.reserve_temp_local();
-
-        self.emit_direct_js_call(
-            &own_keys_meta,
-            None,
-            &[(source_payload, source_tag)],
-            keys_payload,
-            keys_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(keys_payload, keys_tag, function)?;
-        self.load_i64_to_local_from_offset(keys_payload, HEAP_LEN_OFFSET, keys_length, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(key_index));
-        function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
-        function.instruction(&Instruction::LocalSet(enumerable_key));
-
-        let copy_break = self.open_frame(ControlFrameKind::Block, function);
-        let copy_loop = self.open_frame(ControlFrameKind::Loop, function);
-        function.instruction(&Instruction::LocalGet(key_index));
-        function.instruction(&Instruction::LocalGet(keys_length));
-        function.instruction(&Instruction::I64GeU);
-        self.emit_branch_if_to_target(copy_break, function);
-        self.emit_array_read(keys_payload, key_index, key_payload, key_tag, function);
-
-        let skip_key = self.open_frame(ControlFrameKind::Block, function);
-        for (excluded_payload, excluded_tag) in excluded_keys {
-            self.emit_tagged_payload_same_value_i32(
-                key_tag,
-                key_payload,
-                *excluded_tag,
-                *excluded_payload,
-                function,
-            )?;
-            self.emit_branch_if_to_target(skip_key, function);
+        let schema = self.runtime_schema();
+        result.initialize(function);
+        self.completion().initialize(function);
+        let boxed = schema.reserve_completion(function);
+        let get = schema.reserve_completion(function);
+        let define = schema.reserve_completion(function);
+        let count = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let flags = schema.reserve_i64_local(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.throw_handler_stack.push(exit);
+        self.compile_nullish_tagged_i32(source.tag(), function)?;
+        self.emit_branch_if_to_target(exit, function);
+        self.emit_value_to_object_locals(source, &boxed, function)?;
+        boxed.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(&boxed, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let keys = self.emit_object_own_property_keys(boxed.value(), function)?;
+        keys.length(count, schema, function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        let loop_target = self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I32GeU);
+        self.emit_branch_if_to_target(exit, function);
+        let key = keys.read_key(index, self, function)?;
+        let skip = self.open_frame(ControlFrameKind::Block, function);
+        self.throw_handler_stack.push(skip);
+        for excluded in excluded_keys {
+            self.emit_tagged_payload_same_value_i32(key.value(), excluded.value(), function)?;
+            self.emit_branch_if_to_target(skip, function);
         }
-
-        self.emit_direct_js_call(
-            &get_own_descriptor_meta,
-            None,
-            &[(source_payload, source_tag), (key_payload, key_tag)],
-            descriptor_payload,
-            descriptor_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            descriptor_payload,
-            descriptor_tag,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.emit_branch_if_to_target(skip_key, function);
-
-        self.emit_object_read(
-            descriptor_payload,
-            descriptor_tag,
-            descriptor_payload,
-            descriptor_tag,
-            enumerable_key,
-            enumerable_payload,
-            enumerable_tag,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.compile_truthy_tagged_i32(enumerable_tag, enumerable_payload, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.emit_branch_if_to_target(skip_key, function);
-
-        // `Reflect.ownKeys` yields keys as JS values; both the [[Get]] and the
-        // CreateDataPropertyOrThrow below index on the internal property-key
-        // payload, which re-marks symbol keys.
-        self.emit_property_key_payload_from_value_local(
-            key_payload,
-            key_tag,
-            key_internal_payload,
-            function,
-        );
-        self.emit_object_read_with_key_tag(
-            source_payload,
-            source_tag,
-            source_payload,
-            source_tag,
-            key_internal_payload,
-            Some(key_tag),
-            enumerable_payload,
-            enumerable_tag,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.emit_object_define_enumerable_data(
-            target_payload,
-            key_internal_payload,
-            enumerable_payload,
-            enumerable_tag,
-            function,
-        )?;
+        let descriptor = self.emit_direct_own_descriptor_fact(boxed.value(), &key, function)?;
+        descriptor.load(schema, function).is_null(function);
+        self.emit_branch_if_to_target(skip, function);
+        schema
+            .struct_type::<PropertyDescriptor>()
+            .field(PropertyDescriptorSchema::FLAGS)
+            .read(&descriptor, schema, function)
+            .store_i64(flags, function);
+        flags.load(function);
+        function.instruction(&Instruction::I64Const(
+            crate::heap::DescriptorBit::Enumerable.word() as i64,
+        ));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        self.emit_branch_if_to_target(skip, function);
+        // CopyDataProperties performs Get on the ToObject result, rather than
+        // GetV's original primitive receiver.
+        self.emit_object_read(boxed.value(), boxed.value(), &key, &get, function)?;
+        get.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(&get, function);
+        self.emit_branch_to_target(skip, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_create_data_property_or_throw(target, &key, get.value(), &define, function)?;
+        define.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(&define, function);
+        self.emit_branch_to_target(skip, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.throw_handler_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(key_index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(key_index));
-        self.emit_branch_to_target(copy_loop, function);
+        descriptor.clear(function);
+        key.clear(function);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(self.completion(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(exit, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        self.emit_branch_to_target(loop_target, function);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.throw_handler_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(enumerable_tag);
-        self.release_temp_local(enumerable_payload);
-        self.release_temp_local(enumerable_key);
-        self.release_temp_local(descriptor_tag);
-        self.release_temp_local(descriptor_payload);
-        self.release_temp_local(key_internal_payload);
-        self.release_temp_local(key_tag);
-        self.release_temp_local(key_payload);
-        self.release_temp_local(key_index);
-        self.release_temp_local(keys_length);
-        self.release_temp_local(keys_tag);
-        self.release_temp_local(keys_payload);
-        Ok(())
-    }
-
-    pub(crate) fn compile_array_destructure_to_locals(
-        &mut self,
-        value: &TypedExpr,
-        pattern: &ArrayDestructuringPatternIr,
-        evaluation: ArrayDestructuringEvaluationIr,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let source_payload = self.reserve_temp_local();
-        let source_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(value, source_payload, source_tag, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(source_payload, source_tag, function)?;
-        self.compile_array_destructure_from_value_locals(
-            value.value_info(),
-            source_payload,
-            source_tag,
-            pattern,
-            function,
-        )?;
-        match evaluation {
-            ArrayDestructuringEvaluationIr::BindingInitialization => {
-                self.emit_undefined_payload(function);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-            }
-            ArrayDestructuringEvaluationIr::AssignmentEvaluation => {
-                function.instruction(&Instruction::LocalGet(source_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(source_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-            }
-        }
-        self.release_temp_local(source_tag);
-        self.release_temp_local(source_payload);
-        Ok(())
-    }
-
-    pub(crate) fn compile_array_destructure_from_value_locals(
-        &mut self,
-        value_info: ValueInfo,
-        source_payload: u32,
-        source_tag: u32,
-        pattern: &ArrayDestructuringPatternIr,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let method_payload = self.reserve_temp_local();
-        let method_tag = self.reserve_temp_local();
-        let locals = DestructuringIteratorLocals {
-            iterator_payload: self.reserve_temp_local(),
-            iterator_tag: self.reserve_temp_local(),
-            next_payload: self.reserve_temp_local(),
-            next_tag: self.reserve_temp_local(),
-            key: self.reserve_temp_local(),
-            result_payload: self.reserve_temp_local(),
-            result_tag: self.reserve_temp_local(),
-            done_payload: self.reserve_temp_local(),
-            done_tag: self.reserve_temp_local(),
-            value_payload: self.reserve_temp_local(),
-            value_tag: self.reserve_temp_local(),
-            return_payload: self.reserve_temp_local(),
-            return_tag: self.reserve_temp_local(),
-            done: self.reserve_temp_local(),
-            close_saved_payload: self.reserve_temp_local(),
-            close_saved_tag: self.reserve_temp_local(),
-            close_saved_completion: self.reserve_temp_local(),
-            close_saved_aux: self.reserve_temp_local(),
-        };
-        let consumer = SyncIteratorConsumer::ArrayDestructuring;
-
-        self.emit_get_iterator_from_value_locals(
-            value_info,
-            source_payload,
-            source_tag,
-            method_payload,
-            method_tag,
-            &locals.protocol(),
-            &consumer,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(locals.done));
-
-        let exit_target = self.open_frame(ControlFrameKind::Block, function);
-        let abrupt_target = self.open_frame(ControlFrameKind::Block, function);
-        self.finally_stack.push(abrupt_target);
-        for element in &pattern.elements {
-            self.compile_array_destructuring_element(element, &locals, &consumer, function)?;
-        }
-        self.finally_stack.pop();
-
-        function.instruction(&Instruction::LocalGet(locals.done));
-        function.instruction(&Instruction::I64Eqz);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_iterator_close(
-            locals.iterator_payload,
-            locals.iterator_tag,
-            locals.key,
-            locals.return_payload,
-            locals.return_tag,
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
+        result.copy_from(self.completion(), function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_branch_to_target(exit_target, function);
-
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(locals.done));
-        function.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_iterator_close_preserving_current_throw(
-            IteratorCloseOnThrowLocals {
-                iterator_payload_local: locals.iterator_payload,
-                iterator_tag_local: locals.iterator_tag,
-                key_local: locals.key,
-                return_payload_local: locals.return_payload,
-                return_tag_local: locals.return_tag,
-                result_payload_local: locals.result_payload,
-                result_tag_local: locals.result_tag,
-                saved_payload_local: locals.close_saved_payload,
-                saved_tag_local: locals.close_saved_tag,
-                saved_completion_local: locals.close_saved_completion,
-                saved_aux_local: locals.close_saved_aux,
-            },
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_propagate_current_completion_if_throw(function);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-
-        for local in [
-            locals.close_saved_aux,
-            locals.close_saved_completion,
-            locals.close_saved_tag,
-            locals.close_saved_payload,
-            locals.done,
-            locals.return_tag,
-            locals.return_payload,
-            locals.value_tag,
-            locals.value_payload,
-            locals.done_tag,
-            locals.done_payload,
-            locals.result_tag,
-            locals.result_payload,
-            locals.key,
-            locals.next_tag,
-            locals.next_payload,
-            locals.iterator_tag,
-            locals.iterator_payload,
-            method_tag,
-            method_payload,
-        ] {
-            self.release_temp_local(local);
-        }
+        keys.clear(function);
+        schema.release_i64_local(flags, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(count, function);
+        define.clear(function);
+        get.clear(function);
+        boxed.clear(function);
         Ok(())
     }
 
     /// Reserves the common GetIterator/IteratorStep/IteratorValue working set.
     /// The matching release method owns the reverse-order discipline so a new
     /// iterator consumer cannot silently corrupt the temp-local stack.
-    pub(crate) fn reserve_sync_iterator_locals(&mut self) -> ReservedSyncIteratorLocals {
-        ReservedSyncIteratorLocals {
-            locals: SyncIteratorLocals {
-                iterator_payload: self.reserve_temp_local(),
-                iterator_tag: self.reserve_temp_local(),
-                next_payload: self.reserve_temp_local(),
-                next_tag: self.reserve_temp_local(),
-                key: self.reserve_temp_local(),
-                result_payload: self.reserve_temp_local(),
-                result_tag: self.reserve_temp_local(),
-                done_payload: self.reserve_temp_local(),
-                done_tag: self.reserve_temp_local(),
-                value_payload: self.reserve_temp_local(),
-                value_tag: self.reserve_temp_local(),
-            },
-        }
-    }
-
-    pub(crate) fn release_sync_iterator_locals(&mut self, reserved: ReservedSyncIteratorLocals) {
-        let ReservedSyncIteratorLocals { locals } = reserved;
-        for local in [
-            locals.value_tag,
-            locals.value_payload,
-            locals.done_tag,
-            locals.done_payload,
-            locals.result_tag,
-            locals.result_payload,
-            locals.key,
-            locals.next_tag,
-            locals.next_payload,
-            locals.iterator_tag,
-            locals.iterator_payload,
-        ] {
-            self.release_temp_local(local);
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_get_iterator_from_value_locals(
+    fn emit_control_flow_string_key(
         &mut self,
-        value_info: ValueInfo,
-        source_payload: u32,
-        source_tag: u32,
-        method_payload: u32,
-        method_tag: u32,
-        locals: &SyncIteratorLocals,
-        consumer: &SyncIteratorConsumer,
+        name: &str,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // The arguments exotic object resolves `@@iterator` through a dedicated
-        // arm in `compile_property_read_from_locals`, keyed on the *static* name
-        // rather than on a runtime key local. Routing it through the generic
-        // symbol-key read below misses that arm and leaves `arguments` without
-        // an iterator, so `const [x, y] = arguments;` throws TypeError.
-        if value_info.kind == ValueKind::Arguments {
-            self.emit_arguments_iterator_method_to_locals(
-                source_payload,
-                source_tag,
-                method_payload,
-                method_tag,
-                function,
-            )?;
-            return self.finish_get_iterator_from_method(
-                source_payload,
-                source_tag,
-                method_payload,
-                method_tag,
-                locals,
-                consumer,
+    ) -> Result<crate::operations::PropertyKeyLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let string = schema
+            .reserve_gc_local::<StringValue, NonNullable>(function)
+            .initialize(
+                self.emit_interned_string_reference(name, function)?,
                 function,
             );
-        }
-
-        // GetIterator always reads the well-known `@@iterator` symbol key, never a
-        // string property literally named "Symbol.iterator", so the key payload has
-        // to carry the property-key symbol marker for every receiver shape (arrays,
-        // strings, generators, user iterables, proxies).
-        let source_object_payload = self.reserve_temp_local();
-        let source_object_tag = self.reserve_temp_local();
-        self.compile_nullish_tagged_i32(source_tag, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::NotIterable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        // Primitive sources (notably strings) resolve `@@iterator` through their
-        // wrapper prototype; ToObject leaves objects, arrays and functions alone.
-        self.emit_value_to_current_function_realm_object_locals(
-            source_payload,
-            source_tag,
-            source_object_payload,
-            source_object_tag,
-            function,
-        )?;
-        let has_runtime_arguments_arm = value_info.possible_kinds.contains(ValueKind::Arguments);
-        if has_runtime_arguments_arm {
-            function.instruction(&Instruction::LocalGet(source_tag));
-            function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            self.open_frame(ControlFrameKind::If, function);
-            self.emit_arguments_iterator_method_to_locals(
-                source_payload,
-                source_tag,
-                method_payload,
-                method_tag,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-        }
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(locals.key));
-        self.emit_object_read(
-            source_object_payload,
-            source_object_tag,
-            source_payload,
-            source_tag,
-            locals.key,
-            method_payload,
-            method_tag,
-            function,
-        )?;
-        if has_runtime_arguments_arm {
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
-        self.release_temp_local(source_object_tag);
-        self.release_temp_local(source_object_payload);
-        self.finish_get_iterator_from_method(
-            source_payload,
-            source_tag,
-            method_payload,
-            method_tag,
-            locals,
-            consumer,
-            function,
-        )
+        let key = crate::operations::PropertyKeyLocals::from_string(schema, &string, function);
+        string.clear(function);
+        Ok(key)
     }
 
-    /// The half of GetIterator after the `@@iterator` method has been loaded:
-    /// callability check, the call itself, the object-result check, and caching
-    /// `next`. Shared because the arguments exotic object reaches the method
-    /// through a different read than every other receiver shape.
-    #[allow(clippy::too_many_arguments)]
-    fn finish_get_iterator_from_method(
+    pub(crate) fn emit_sync_iterator_close(
         &mut self,
-        source_payload: u32,
-        source_tag: u32,
-        method_payload: u32,
-        method_tag: u32,
-        locals: &SyncIteratorLocals,
-        consumer: &SyncIteratorConsumer,
+        iterator: &OwnedSyncIterator,
+        pending: &CompletionLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
-        self.emit_is_callable_i32(method_tag, method_payload, function)?;
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let done = schema.reserve_i32_local(function);
+        result.copy_from(pending, function);
+        schema
+            .struct_type::<IteratorRecord>()
+            .field(IteratorRecordSchema::DONE)
+            .read(iterator.record(), schema, function)
+            .store(done, function);
+        done.load(function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::NotIterable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
+        let stored = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<IteratorRecord>()
+                    .field(IteratorRecordSchema::ITERATOR)
+                    .read(iterator.record(), schema, function)
+                    .reference(),
+                function,
+            );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &receiver, schema, function);
+        self.emit_iterator_close_with_completion(&receiver, pending, result, function)?;
+        schema
+            .struct_type::<IteratorRecord>()
+            .field(IteratorRecordSchema::DONE)
+            .write(
+                iterator.record(),
+                GcOperand::boolean(true),
+                schema,
+                function,
+            );
+        stored.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(method_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_function_handle_call(
-            method_payload,
-            method_tag,
-            Some((source_payload, Some(source_tag))),
-            &[],
-            locals.iterator_payload,
-            locals.iterator_tag,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload,
-            method_tag,
-            source_payload,
-            source_tag,
-            &[],
-            locals.iterator_payload,
-            locals.iterator_tag,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed(
-            locals.iterator_payload,
-            locals.iterator_tag,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(locals.iterator_tag, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::MethodResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(locals.key));
-        self.emit_object_read(
-            locals.iterator_payload,
-            locals.iterator_tag,
-            locals.iterator_payload,
-            locals.iterator_tag,
-            locals.key,
-            locals.next_payload,
-            locals.next_tag,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            locals.next_payload,
-            locals.next_tag,
-            function,
-        )?;
+        schema.release_i32_local(done, function);
+        receiver.clear(function);
         Ok(())
+    }
+
+    pub(crate) fn emit_get_sync_iterator(
+        &mut self,
+        source: &ValueLocals,
+        consumer: SyncIteratorConsumer,
+        function: &mut Function,
+    ) -> Result<OwnedSyncIterator, EmitError> {
+        let schema = self.runtime_schema();
+        let boxed = schema.reserve_completion(function);
+        self.emit_value_to_object_locals(source, &boxed, function)?;
+        self.completion().copy_from(&boxed, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let symbol = schema
+            .reserve_gc_local::<SymbolValue, NonNullable>(function)
+            .initialize(
+                self.emit_well_known_symbol_reference(
+                    lila_ir::WellKnownSymbol::Iterator,
+                    function,
+                )?,
+                function,
+            );
+        let key = crate::operations::PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        let method = schema.reserve_completion(function);
+        self.emit_object_read(boxed.value(), source, &key, &method, function)?;
+        self.completion().copy_from(&method, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.emit_is_callable_i32(method.value(), function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NotIterable,
+            &method,
+            function,
+        )?;
+        self.completion().copy_from(&method, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        let iterator = schema.reserve_completion(function);
+        self.emit_function_or_proxy_call_with_argv(
+            method.value(),
+            source,
+            &arguments,
+            &iterator,
+            function,
+        )?;
+        self.completion().copy_from(&iterator, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let record = self.emit_get_sync_iterator_direct(iterator.value(), consumer, function)?;
+        iterator.clear(function);
+        arguments.clear(function);
+        method.clear(function);
+        key.clear(function);
+        symbol.clear(function);
+        boxed.clear(function);
+        Ok(record)
+    }
+
+    /// GetIteratorDirect after a keys()/iterator method Call: preserve the
+    /// original result receiver and cache its next property exactly once.
+    pub(crate) fn emit_get_sync_iterator_direct(
+        &mut self,
+        iterator: &ValueLocals,
+        consumer: SyncIteratorConsumer,
+        function: &mut Function,
+    ) -> Result<OwnedSyncIterator, EmitError> {
+        let schema = self.runtime_schema();
+        let invalid = schema.reserve_completion(function);
+        self.emit_is_heap_object_like_tag_i32(iterator.tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::MethodResultNotObject,
+            &invalid,
+            function,
+        )?;
+        self.completion().copy_from(&invalid, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let next_key = self.emit_control_flow_string_key("next", function)?;
+        let next = schema.reserve_completion(function);
+        self.emit_object_read(iterator, iterator, &next_key, &next, function)?;
+        self.completion().copy_from(&next, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        // GetIterator caches next without an eager callability observation.
+        let iterator_value = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(iterator, function),
+                function,
+            );
+        let next_value = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(next.value(), function),
+                function,
+            );
+        let record = schema
+            .reserve_gc_local::<IteratorRecord, NonNullable>(function)
+            .initialize(
+                schema.struct_type::<IteratorRecord>().construct(
+                    (
+                        GcOperand::reference(&iterator_value, schema),
+                        GcOperand::reference(&next_value, schema),
+                        GcOperand::boolean(false),
+                    ),
+                    function,
+                ),
+                function,
+            );
+        next_value.clear(function);
+        iterator_value.clear(function);
+        next.clear(function);
+        next_key.clear(function);
+        invalid.clear(function);
+        Ok(OwnedSyncIterator { record, consumer })
     }
 
     fn emit_sync_iterator_protocol_type_error(
         &mut self,
         consumer: &SyncIteratorConsumer,
         error: SyncIteratorProtocolError,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let message = match (consumer, error) {
             (SyncIteratorConsumer::ArrayDestructuring, SyncIteratorProtocolError::NotIterable) => {
-                "destructuring value is not iterable"
+                RuntimeErrorMessage::DESTRUCTURING_VALUE_IS_NOT_ITERABLE
             }
             (
                 SyncIteratorConsumer::ArrayDestructuring,
                 SyncIteratorProtocolError::MethodResultNotObject,
-            ) => "destructuring iterator method must return object",
+            ) => RuntimeErrorMessage::DESTRUCTURING_ITERATOR_METHOD_MUST_RETURN_OBJECT,
             (
                 SyncIteratorConsumer::ArrayDestructuring,
                 SyncIteratorProtocolError::NextNotCallable,
-            ) => "destructuring iterator next must be callable",
+            ) => RuntimeErrorMessage::DESTRUCTURING_ITERATOR_NEXT_MUST_BE_CALLABLE,
             (
                 SyncIteratorConsumer::ArrayDestructuring,
                 SyncIteratorProtocolError::NextResultNotObject,
-            ) => "destructuring iterator next result must be object",
+            ) => RuntimeErrorMessage::DESTRUCTURING_ITERATOR_NEXT_RESULT_MUST_BE_OBJECT,
             (SyncIteratorConsumer::ArrayAccumulation, SyncIteratorProtocolError::NotIterable) => {
-                "array spread value is not iterable"
+                RuntimeErrorMessage::ARRAY_SPREAD_VALUE_IS_NOT_ITERABLE
             }
             (
                 SyncIteratorConsumer::ArrayAccumulation,
                 SyncIteratorProtocolError::MethodResultNotObject,
-            ) => "array spread iterator method must return object",
+            ) => RuntimeErrorMessage::ARRAY_SPREAD_ITERATOR_METHOD_MUST_RETURN_OBJECT,
             (
                 SyncIteratorConsumer::ArrayAccumulation,
                 SyncIteratorProtocolError::NextNotCallable,
-            ) => "array spread iterator next must be callable",
+            ) => RuntimeErrorMessage::ARRAY_SPREAD_ITERATOR_NEXT_MUST_BE_CALLABLE,
             (
                 SyncIteratorConsumer::ArrayAccumulation,
                 SyncIteratorProtocolError::NextResultNotObject,
-            ) => "array spread iterator next result must be object",
+            ) => RuntimeErrorMessage::ARRAY_SPREAD_ITERATOR_NEXT_RESULT_MUST_BE_OBJECT,
+            (SyncIteratorConsumer::ArrayFrom, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::ARRAY_FROM_ITERATOR_METHOD_MUST_BE_CALLABLE
+            }
+            (SyncIteratorConsumer::ArrayFrom, SyncIteratorProtocolError::MethodResultNotObject) => {
+                RuntimeErrorMessage::ARRAY_FROM_ITERATOR_METHOD_MUST_RETURN_OBJECT
+            }
+            (SyncIteratorConsumer::ArrayFrom, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::ARRAY_FROM_ITERATOR_NEXT_MUST_BE_CALLABLE
+            }
+            (SyncIteratorConsumer::ArrayFrom, SyncIteratorProtocolError::NextResultNotObject) => {
+                RuntimeErrorMessage::ARRAY_FROM_ITERATOR_NEXT_RESULT_MUST_BE_OBJECT
+            }
             (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::NotIterable) => {
-                "for-of target is not iterable"
+                RuntimeErrorMessage::FOR_OF_TARGET_IS_NOT_ITERABLE
             }
             (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::MethodResultNotObject) => {
-                "for-of iterator method must return object"
+                RuntimeErrorMessage::FOR_OF_ITERATOR_METHOD_MUST_RETURN_OBJECT
             }
             (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::NextNotCallable) => {
-                "for-of iterator next must be callable"
+                RuntimeErrorMessage::FOR_OF_ITERATOR_NEXT_MUST_BE_CALLABLE
             }
             (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::NextResultNotObject) => {
-                "for-of iterator next result must be object"
+                RuntimeErrorMessage::FOR_OF_ITERATOR_NEXT_RESULT_MUST_BE_OBJECT
             }
             (SyncIteratorConsumer::MathSumPrecise, SyncIteratorProtocolError::NotIterable) => {
-                "Math.sumPrecise input is not iterable"
+                RuntimeErrorMessage::MATH_SUMPRECISE_INPUT_IS_NOT_ITERABLE
             }
             (
                 SyncIteratorConsumer::MathSumPrecise,
                 SyncIteratorProtocolError::MethodResultNotObject,
-            ) => "Math.sumPrecise iterator method must return an object",
+            ) => RuntimeErrorMessage::MATH_SUMPRECISE_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
             (SyncIteratorConsumer::MathSumPrecise, SyncIteratorProtocolError::NextNotCallable) => {
-                "Math.sumPrecise iterator next method is not callable"
+                RuntimeErrorMessage::MATH_SUMPRECISE_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE
             }
             (
                 SyncIteratorConsumer::MathSumPrecise,
                 SyncIteratorProtocolError::NextResultNotObject,
-            ) => "Math.sumPrecise iterator next result must be an object",
+            ) => RuntimeErrorMessage::MATH_SUMPRECISE_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::ListFormat, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::INTL_LISTFORMAT_INPUT_IS_NOT_ITERABLE
+            }
+            (
+                SyncIteratorConsumer::ListFormat,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::INTL_LISTFORMAT_ITERATOR_METHOD_RESULT_MUST_BE_OBJECT,
+            (SyncIteratorConsumer::ListFormat, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::INTL_LISTFORMAT_ITERATOR_NEXT_MUST_BE_CALLABLE
+            }
+            (SyncIteratorConsumer::ListFormat, SyncIteratorProtocolError::NextResultNotObject) => {
+                RuntimeErrorMessage::INTL_LISTFORMAT_ITERATOR_NEXT_RESULT_MUST_BE_OBJECT
+            }
+            (SyncIteratorConsumer::AggregateError, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::AGGREGATEERROR_ERRORS_INPUT_MUST_BE_ITERABLE
+            }
+            (
+                SyncIteratorConsumer::AggregateError,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::AGGREGATEERROR_ITERATOR_METHOD_MUST_RETURN_OBJECT,
+            (SyncIteratorConsumer::AggregateError, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::AGGREGATEERROR_ITERATOR_NEXT_MUST_BE_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::AggregateError,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::AGGREGATEERROR_ITERATOR_NEXT_RESULT_MUST_BE_OBJECT,
+            (SyncIteratorConsumer::MapConstructor, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::MAP_CONSTRUCTOR_ITERATOR_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::MapConstructor,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::MAP_CONSTRUCTOR_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (SyncIteratorConsumer::MapConstructor, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::MAP_CONSTRUCTOR_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::MapConstructor,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::MAP_CONSTRUCTOR_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::SetConstructor, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::SET_CONSTRUCTOR_ITERATOR_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::SetConstructor,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::SET_CONSTRUCTOR_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (SyncIteratorConsumer::SetConstructor, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::SET_CONSTRUCTOR_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::SetConstructor,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::SET_CONSTRUCTOR_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::ObjectFromEntries, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::OBJECT_FROMENTRIES_ITERATOR_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::ObjectFromEntries,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::OBJECT_FROMENTRIES_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (
+                SyncIteratorConsumer::ObjectFromEntries,
+                SyncIteratorProtocolError::NextNotCallable,
+            ) => RuntimeErrorMessage::OBJECT_FROMENTRIES_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE,
+            (
+                SyncIteratorConsumer::ObjectFromEntries,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::OBJECT_FROMENTRIES_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::MapGroupBy, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::MAP_GROUPBY_ITERATOR_METHOD_MUST_BE_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::MapGroupBy,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::MAP_GROUPBY_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (SyncIteratorConsumer::MapGroupBy, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::MAP_GROUPBY_ITERATOR_NEXT_METHOD_MUST_BE_CALLABLE
+            }
+            (SyncIteratorConsumer::MapGroupBy, SyncIteratorProtocolError::NextResultNotObject) => {
+                RuntimeErrorMessage::MAP_GROUPBY_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT
+            }
+            (SyncIteratorConsumer::ObjectGroupBy, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::OBJECT_GROUPBY_ITERATOR_METHOD_MUST_BE_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::ObjectGroupBy,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::OBJECT_GROUPBY_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (SyncIteratorConsumer::ObjectGroupBy, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::OBJECT_GROUPBY_ITERATOR_NEXT_METHOD_MUST_BE_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::ObjectGroupBy,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::OBJECT_GROUPBY_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::IteratorHelper, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::ITERATOR_FROM_ITERATOR_METHOD_MUST_BE_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::IteratorHelper,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::ITERATOR_FROM_ITERATOR_METHOD_MUST_RETURN_OBJECT,
+            (SyncIteratorConsumer::IteratorHelper, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::ITERATOR_PROTOTYPE_MAP_NEXT_METHOD_MUST_BE_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::IteratorHelper,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::ITERATOR_MAP_HELPER_NEXT_RESULT_MUST_BE_OBJECT,
+            (SyncIteratorConsumer::SetLike, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::SET_LIKE_KEYS_METHOD_IS_NOT_CALLABLE
+            }
+            (SyncIteratorConsumer::SetLike, SyncIteratorProtocolError::MethodResultNotObject) => {
+                RuntimeErrorMessage::SET_LIKE_KEYS_METHOD_MUST_RETURN_AN_OBJECT
+            }
+            (SyncIteratorConsumer::SetLike, SyncIteratorProtocolError::NextNotCallable) => {
+                RuntimeErrorMessage::SET_LIKE_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE
+            }
+            (SyncIteratorConsumer::SetLike, SyncIteratorProtocolError::NextResultNotObject) => {
+                RuntimeErrorMessage::SET_LIKE_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT
+            }
         };
-        match self.numeric_error_realm_source() {
-            NumericErrorRealmSource::StandardBuiltinEnvironment => self
-                .emit_throw_current_function_realm_type_error(
-                    message,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                ),
-            NumericErrorRealmSource::GlobalFallback
-            | NumericErrorRealmSource::NumericConversionHelperArgument => self
-                .emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    message,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                ),
-        }
-    }
-
-    fn compile_array_destructuring_element(
-        &mut self,
-        element: &ArrayDestructuringElementIr,
-        locals: &DestructuringIteratorLocals,
-        consumer: &SyncIteratorConsumer,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match element {
-            ArrayDestructuringElementIr::Elision => {
-                function.instruction(&Instruction::LocalGet(locals.done));
-                function.instruction(&Instruction::I64Eqz);
-                self.open_frame(ControlFrameKind::If, function);
-                self.emit_destructuring_iterator_step(
-                    locals,
-                    DestructuringIteratorStepKind::Elision,
-                    consumer,
-                    function,
-                )?;
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
-            }
-            ArrayDestructuringElementIr::Target { target, default } => {
-                let prepared = self.prepare_destructuring_target(target, function)?;
-                self.emit_undefined_payload(function);
-                function.instruction(&Instruction::LocalSet(locals.value_payload));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(locals.value_tag));
-                function.instruction(&Instruction::LocalGet(locals.done));
-                function.instruction(&Instruction::I64Eqz);
-                self.open_frame(ControlFrameKind::If, function);
-                self.emit_destructuring_iterator_step(
-                    locals,
-                    DestructuringIteratorStepKind::Value,
-                    consumer,
-                    function,
-                )?;
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
-                if let Some(default) = default {
-                    function.instruction(&Instruction::LocalGet(locals.value_tag));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    self.open_frame(ControlFrameKind::If, function);
-                    self.compile_expr_to_locals(
-                        default,
-                        locals.value_payload,
-                        locals.value_tag,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        locals.value_payload,
-                        locals.value_tag,
-                        function,
-                    )?;
-                    self.pop_control(ControlFrameKind::If);
-                    function.instruction(&Instruction::End);
-                }
-                self.put_destructuring_target(
-                    prepared,
-                    locals.value_payload,
-                    locals.value_tag,
-                    function,
-                )?;
-            }
-            ArrayDestructuringElementIr::Rest { target } => {
-                let prepared = self.prepare_destructuring_target(target, function)?;
-                let rest_payload = self.reserve_temp_local();
-                self.compile_array_literal_payload(&[], function)?;
-                function.instruction(&Instruction::LocalSet(rest_payload));
-                let rest_index = self.reserve_temp_local();
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(rest_index));
-                let rest_break = self.open_frame(ControlFrameKind::Block, function);
-                let rest_loop = self.open_frame(ControlFrameKind::Loop, function);
-                function.instruction(&Instruction::LocalGet(locals.done));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                self.emit_branch_if_to_target(rest_break, function);
-                self.emit_destructuring_iterator_step(
-                    locals,
-                    DestructuringIteratorStepKind::Value,
-                    consumer,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(locals.done));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                self.emit_branch_if_to_target(rest_break, function);
-                self.emit_array_write(
-                    rest_payload,
-                    rest_index,
-                    locals.value_payload,
-                    locals.value_tag,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(rest_index));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(rest_index));
-                self.emit_branch_to_target(rest_loop, function);
-                self.pop_control(ControlFrameKind::Loop);
-                function.instruction(&Instruction::End);
-                self.pop_control(ControlFrameKind::Block);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                function.instruction(&Instruction::LocalSet(locals.value_tag));
-                function.instruction(&Instruction::LocalGet(rest_payload));
-                function.instruction(&Instruction::LocalSet(locals.value_payload));
-                self.release_temp_local(rest_index);
-                self.release_temp_local(rest_payload);
-                self.put_destructuring_target(
-                    prepared,
-                    locals.value_payload,
-                    locals.value_tag,
-                    function,
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    fn emit_destructuring_iterator_step(
-        &mut self,
-        locals: &DestructuringIteratorLocals,
-        step_kind: DestructuringIteratorStepKind,
-        consumer: &SyncIteratorConsumer,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(locals.done));
-        self.emit_is_callable_i32(locals.next_tag, locals.next_payload, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::NextNotCallable,
+        self.emit_throw_runtime_error(
+            lila_ir::NativeErrorKind::TypeError,
+            message,
+            result,
             function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(locals.next_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_function_handle_call(
-            locals.next_payload,
-            locals.next_tag,
-            Some((locals.iterator_payload, Some(locals.iterator_tag))),
-            &[],
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            locals.next_payload,
-            locals.next_tag,
-            locals.iterator_payload,
-            locals.iterator_tag,
-            &[],
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed(
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(locals.done));
-        self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(locals.done));
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::NextResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(locals.key));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(locals.done));
-        self.emit_object_read(
-            locals.result_payload,
-            locals.result_tag,
-            locals.result_payload,
-            locals.result_tag,
-            locals.key,
-            locals.done_payload,
-            locals.done_tag,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(locals.done));
-        self.compile_truthy_tagged_i32(locals.done_tag, locals.done_payload, function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(locals.done));
-        self.emit_undefined_payload(function);
-        function.instruction(&Instruction::LocalSet(locals.value_payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(locals.value_tag));
-        function.instruction(&Instruction::Else);
-        match step_kind {
-            DestructuringIteratorStepKind::Elision => {}
-            DestructuringIteratorStepKind::Value => {
-                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-                function.instruction(&Instruction::LocalSet(locals.key));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(locals.done));
-                self.emit_object_read(
-                    locals.result_payload,
-                    locals.result_tag,
-                    locals.result_payload,
-                    locals.result_tag,
-                    locals.key,
-                    locals.value_payload,
-                    locals.value_tag,
-                    function,
-                )?;
-                self.emit_propagate_current_completion_if_throw(function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(locals.done));
-            }
-        }
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        Ok(())
+        )
     }
 
     /// Runs one sync IteratorStep/IteratorValue pair without introducing an
@@ -11965,106 +9191,189 @@ impl<'a> FunctionBuilder<'a> {
     /// set for a completed iterator, and `value` is read only on the false arm.
     pub(crate) fn emit_sync_iterator_step_value(
         &mut self,
-        locals: &SyncIteratorLocals,
-        done: u32,
-        consumer: &SyncIteratorConsumer,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(done));
-        self.emit_is_callable_i32(locals.next_tag, locals.next_payload, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::NextNotCallable,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(locals.next_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_function_handle_call(
-            locals.next_payload,
-            locals.next_tag,
-            Some((locals.iterator_payload, Some(locals.iterator_tag))),
-            &[],
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            locals.next_payload,
-            locals.next_tag,
-            locals.iterator_payload,
-            locals.iterator_tag,
-            &[],
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed(
-            locals.result_payload,
-            locals.result_tag,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_sync_iterator_protocol_type_error(
-            consumer,
-            SyncIteratorProtocolError::NextResultNotObject,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
+        value.set_undefined(function);
+        self.emit_sync_iterator_step(iterator, done, Some(value), function)
+    }
 
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(locals.key));
-        self.emit_object_read(
-            locals.result_payload,
-            locals.result_tag,
-            locals.result_payload,
-            locals.result_tag,
-            locals.key,
-            locals.done_payload,
-            locals.done_tag,
+    pub(crate) fn emit_sync_iterator_step_without_value(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_sync_iterator_step(iterator, done, None, function)
+    }
+
+    /// Native helpers must finalize their own state before publishing a Throw.
+    pub(crate) fn emit_sync_iterator_step_value_into(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        value: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        value.set_undefined(function);
+        self.emit_sync_iterator_step_into(iterator, done, Some(value), result, function)
+    }
+
+    pub(crate) fn emit_sync_iterator_step_without_value_into(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_sync_iterator_step_into(iterator, done, None, result, function)
+    }
+
+    fn emit_sync_iterator_step(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        value: Option<&ValueLocals>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        result.initialize(function);
+        self.emit_sync_iterator_step_into(iterator, done, value, &result, function)?;
+        self.completion().copy_from(&result, function);
+        result.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
+    }
+
+    fn emit_sync_iterator_step_into(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        value: Option<&ValueLocals>,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let row = schema.struct_type::<IteratorRecord>();
+        let receiver = schema.reserve_value_local(function);
+        let next = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        let next_result = schema.reserve_value_local(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        let done_key = self.emit_control_flow_string_key("done", function)?;
+        let value_key = self.emit_control_flow_string_key("value", function)?;
+        let finish = self.open_frame(ControlFrameKind::Block, function);
+        row.field(IteratorRecordSchema::DONE)
+            .read(iterator.record(), schema, function)
+            .store(done, function);
+        done.load(function);
+        self.emit_branch_if_to_target(finish, function);
+        let stored_receiver = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                row.field(IteratorRecordSchema::ITERATOR)
+                    .read(iterator.record(), schema, function)
+                    .reference(),
+                function,
+            );
+        let stored_next = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                row.field(IteratorRecordSchema::NEXT_METHOD)
+                    .read(iterator.record(), schema, function)
+                    .reference(),
+                function,
+            );
+        schema.struct_type::<StoredValue>().read_into(
+            &stored_receiver,
+            &receiver,
+            schema,
             function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.compile_truthy_tagged_i32(locals.done_tag, locals.done_payload, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(done));
-        function.instruction(&Instruction::LocalGet(done));
-        function.instruction(&Instruction::I64Eqz);
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_next, &next, schema, function);
+        self.emit_is_callable_i32(&next, function)?;
+        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(locals.key));
-        self.emit_object_read(
-            locals.result_payload,
-            locals.result_tag,
-            locals.result_payload,
-            locals.result_tag,
-            locals.key,
-            locals.value_payload,
-            locals.value_tag,
+        self.emit_sync_iterator_protocol_type_error(
+            &iterator.consumer,
+            SyncIteratorProtocolError::NextNotCallable,
+            &pending,
             function,
         )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::Else);
-        self.emit_undefined_payload(function);
-        function.instruction(&Instruction::LocalSet(locals.value_payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(locals.value_tag));
+        self.emit_branch_to_target(finish, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.emit_function_or_proxy_call_with_argv(
+            &next, &receiver, &arguments, &pending, function,
+        )?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(finish, function);
+        self.emit_is_heap_object_like_tag_i32(pending.value().tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_sync_iterator_protocol_type_error(
+            &iterator.consumer,
+            SyncIteratorProtocolError::NextResultNotObject,
+            &pending,
+            function,
+        )?;
+        self.emit_branch_to_target(finish, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        next_result.copy_from(pending.value(), function);
+        self.emit_object_read(&next_result, &next_result, &done_key, &pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(finish, function);
+        self.compile_truthy_tagged_i32(pending.value(), function)?;
+        done.store(function);
+        done.load(function);
+        self.emit_branch_if_to_target(finish, function);
+        if let Some(output) = value {
+            self.emit_object_read(&next_result, &next_result, &value_key, &pending, function)?;
+            pending.kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+            function.instruction(&Instruction::I32Eq);
+            self.emit_branch_if_to_target(finish, function);
+            output.copy_from(pending.value(), function);
+        }
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        // IteratorStepValue marks the record done on every step/value abrupt;
+        // its caller therefore never closes on a failed protocol observation.
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Const(1));
+        done.store(function);
+        function.instruction(&Instruction::End);
+        row.field(IteratorRecordSchema::DONE).write(
+            iterator.record(),
+            GcOperand::boolean_local(done),
+            schema,
+            function,
+        );
+        result.copy_from(&pending, function);
+        stored_next.clear(function);
+        stored_receiver.clear(function);
+        value_key.clear(function);
+        done_key.clear(function);
+        arguments.clear(function);
+        next_result.clear(function);
+        pending.clear(function);
+        next.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -12073,84 +9382,36 @@ impl<'a> FunctionBuilder<'a> {
         target: &'b DestructuringTargetIr,
         function: &mut Function,
     ) -> Result<PreparedDestructuringTarget<'b>, EmitError> {
+        let schema = self.runtime_schema();
         match target {
             DestructuringTargetIr::Binding { mode, name } => {
                 Ok(PreparedDestructuringTarget::Binding { mode: *mode, name })
             }
-            DestructuringTargetIr::AssignmentIdentifier(reference) => {
-                let write = match reference.write_disposition() {
-                    IdentifierWriteDisposition::Environment {
-                        referenced_name,
-                        strictness,
-                    } => {
-                        let key = self.reserve_temp_local();
-                        function.instruction(&Instruction::I64Const(
-                            self.strings.payload(referenced_name),
-                        ));
-                        function.instruction(&Instruction::LocalSet(key));
-                        let reference =
-                            self.emit_resolve_environment_identifier(key, strictness, function)?;
-                        return Ok(PreparedDestructuringTarget::EnvironmentIdentifier {
-                            key,
-                            reference,
-                        });
-                    }
-                    IdentifierWriteDisposition::MutableBinding { storage_name } => {
-                        PreparedIdentifierWrite::MutableBinding { storage_name }
-                    }
-                    IdentifierWriteDisposition::IgnoreImmutableBinding => {
-                        PreparedIdentifierWrite::IgnoreImmutableBinding
-                    }
-                    IdentifierWriteDisposition::Throw { error } => {
-                        PreparedIdentifierWrite::Throw { error }
-                    }
-                    IdentifierWriteDisposition::Global {
-                        referenced_name,
-                        strictness,
-                    } => PreparedIdentifierWrite::Global {
-                        referenced_name,
-                        strictness,
-                    },
-                };
-                Ok(PreparedDestructuringTarget::AssignmentIdentifier(write))
+            DestructuringTargetIr::ResolvedVarBinding { reference, .. }
+            | DestructuringTargetIr::AssignmentIdentifier(reference) => {
+                self.prepare_destructuring_identifier_reference(reference, function)
             }
             DestructuringTargetIr::AssignmentProperty {
                 target,
                 key,
                 strictness,
             } => {
-                let target_payload = self.reserve_temp_local();
-                let target_tag = self.reserve_temp_local();
-                self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    target_payload,
-                    target_tag,
-                    function,
-                )?;
+                let receiver = schema.reserve_value_local(function);
+                self.compile_expr_to_value(target, &receiver, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
                 let key = match key {
                     DestructuringPropertyKeyIr::Static(name) => {
                         PreparedDestructuringPropertyKey::Static(name)
                     }
-                    DestructuringPropertyKeyIr::Computed(key) => {
-                        let payload_local = self.reserve_temp_local();
-                        let tag_local = self.reserve_temp_local();
-                        self.compile_expr_to_locals(key, payload_local, tag_local, function)?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            payload_local,
-                            tag_local,
-                            function,
-                        )?;
-                        PreparedDestructuringPropertyKey::Computed {
-                            raw_key: key,
-                            payload_local,
-                            tag_local,
-                        }
+                    DestructuringPropertyKeyIr::Computed(expression) => {
+                        let value = schema.reserve_value_local(function);
+                        self.compile_expr_to_value(expression, &value, function)?;
+                        self.emit_propagate_current_throw_if_needed(function);
+                        PreparedDestructuringPropertyKey::Computed(value)
                     }
                 };
                 Ok(PreparedDestructuringTarget::Property {
-                    target,
-                    target_payload,
-                    target_tag,
+                    target: receiver,
                     key,
                     strictness: *strictness,
                 })
@@ -12159,19 +9420,24 @@ impl<'a> FunctionBuilder<'a> {
                 target,
                 private_name_id,
             } => {
-                let target_payload = self.reserve_temp_local();
-                let target_tag = self.reserve_temp_local();
-                self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    target_payload,
-                    target_tag,
-                    function,
-                )?;
+                let receiver = schema.reserve_value_local(function);
+                self.compile_expr_to_value(target, &receiver, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
                 Ok(PreparedDestructuringTarget::Private {
-                    target_payload,
-                    target_tag,
+                    target: receiver,
                     private_name_id: *private_name_id,
                 })
+            }
+            DestructuringTargetIr::AssignmentSuper {
+                capture,
+                value_binding,
+                put,
+            } => {
+                let captured = schema.reserve_value_local(function);
+                self.compile_expr_to_value(capture, &captured, function)?;
+                captured.clear(function);
+                self.emit_propagate_current_throw_if_needed(function);
+                Ok(PreparedDestructuringTarget::Super { value_binding, put })
             }
             DestructuringTargetIr::NestedArray(pattern) => {
                 Ok(PreparedDestructuringTarget::NestedArray(pattern))
@@ -12182,426 +9448,242 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    fn prepare_destructuring_identifier_reference<'b>(
+        &mut self,
+        reference: &'b IdentifierWriteReferenceIr,
+        function: &mut Function,
+    ) -> Result<PreparedDestructuringTarget<'b>, EmitError> {
+        let schema = self.runtime_schema();
+        let write = match reference.write_disposition() {
+            IdentifierWriteDisposition::WithObject {
+                referenced_name,
+                selection,
+                fallback_storage_name,
+                strictness,
+            } => {
+                let key = schema
+                    .reserve_gc_local::<StringValue, NonNullable>(function)
+                    .initialize(
+                        self.emit_interned_string_reference(referenced_name, function)?,
+                        function,
+                    );
+                let selected = schema.reserve_value_local(function);
+                self.compile_expr_to_value(selection, &selected, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                let reference = self.emit_selected_with_object_identifier_reference(
+                    &key, &selected, strictness, function,
+                );
+                key.clear(function);
+                return Ok(PreparedDestructuringTarget::WithObjectIdentifier {
+                    selected,
+                    reference,
+                    fallback_storage_name,
+                });
+            }
+            IdentifierWriteDisposition::Environment {
+                referenced_name,
+                strictness,
+            } => {
+                let key = schema
+                    .reserve_gc_local::<StringValue, NonNullable>(function)
+                    .initialize(
+                        self.emit_interned_string_reference(referenced_name, function)?,
+                        function,
+                    );
+                let reference =
+                    self.emit_resolve_environment_identifier(&key, strictness, function)?;
+                key.clear(function);
+                return Ok(PreparedDestructuringTarget::EnvironmentIdentifier(
+                    reference,
+                ));
+            }
+            IdentifierWriteDisposition::MutableBinding { storage_name } => {
+                PreparedIdentifierWrite::MutableBinding { storage_name }
+            }
+            IdentifierWriteDisposition::IgnoreImmutableBinding => {
+                PreparedIdentifierWrite::IgnoreImmutableBinding
+            }
+            IdentifierWriteDisposition::Throw { error } => PreparedIdentifierWrite::Throw { error },
+            IdentifierWriteDisposition::Global {
+                referenced_name,
+                strictness,
+            } => PreparedIdentifierWrite::Global {
+                referenced_name,
+                strictness,
+            },
+        };
+        Ok(PreparedDestructuringTarget::AssignmentIdentifier(write))
+    }
+
     fn put_destructuring_target(
         &mut self,
         prepared: PreparedDestructuringTarget<'_>,
-        value_payload: u32,
-        value_tag: u32,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         match prepared {
             PreparedDestructuringTarget::Binding { mode, name } => {
                 let storage = self
                     .lookup_current_scope_binding(name)
                     .or_else(|| self.lookup_binding(name))
                     .unwrap_or_else(|| {
-                        self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
+                        self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic, function)
                     });
-                self.write_binding_from_locals(storage, value_payload, value_tag, function);
+                self.write_binding_from_locals(storage, value, function);
                 self.mirror_binding_to_global_object(name, storage, function)?;
             }
-            PreparedDestructuringTarget::EnvironmentIdentifier { key, reference } => {
-                self.emit_environment_identifier_put(
-                    &reference,
-                    value_payload,
-                    value_tag,
-                    function,
-                )?;
-                self.release_environment_identifier_reference(reference);
-                self.release_temp_local(key);
+            PreparedDestructuringTarget::EnvironmentIdentifier(reference) => {
+                self.emit_environment_identifier_put(&reference, value, function)?;
+                self.release_environment_identifier_reference(reference, function);
             }
-            PreparedDestructuringTarget::AssignmentIdentifier(write) => {
-                match write {
-                    PreparedIdentifierWrite::MutableBinding { storage_name } => {
-                        let storage = self.lookup_binding(storage_name).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "unsupported in lila wasm-aot first slice: unbound destructuring assignment `{storage_name}`"
-                            ))
-                        })?;
-                        self.write_binding_from_locals(storage, value_payload, value_tag, function);
-                        self.mirror_binding_to_global_object(storage_name, storage, function)?;
-                    }
-                    PreparedIdentifierWrite::IgnoreImmutableBinding => {}
-                    PreparedIdentifierWrite::Throw { error } => {
-                        // The value and any default initializer have already
-                        // been evaluated. Emitting the abrupt completion here
-                        // is 13.15.5.3's PutValue position, not an eager target
-                        // preparation failure.
-                        self.emit_throw_runtime_error(
-                            error.kind().as_str(),
-                            error.message(),
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_current_throw(function);
-                    }
-                    PreparedIdentifierWrite::Global {
-                        referenced_name,
-                        strictness,
-                    } => {
-                        // PutValue steps 2.a and 3.d consume the Reference's
-                        // carried `[[Strict]]`. The old `global: bool` arm used
-                        // the unchecked writer, so strict destructuring could
-                        // create an unresolvable implicit global.
-                        self.with_reference_strictness(
+            PreparedDestructuringTarget::WithObjectIdentifier {
+                selected,
+                reference,
+                fallback_storage_name,
+            } => {
+                selected.tag().load(function);
+                function.instruction(&Instruction::I32Const(
+                    WasmRuntimeValueTag::Undefined as i32,
+                ));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                let storage = self.lookup_binding(fallback_storage_name).ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unbound var destructuring fallback `{fallback_storage_name}`"
+                    ))
+                })?;
+                self.write_binding_from_locals_checked(storage, value, function)?;
+                self.mirror_binding_to_global_object(fallback_storage_name, storage, function)?;
+                function.instruction(&Instruction::Else);
+                self.emit_environment_identifier_put(&reference, value, function)?;
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                self.release_environment_identifier_reference(reference, function);
+                selected.clear(function);
+            }
+            PreparedDestructuringTarget::AssignmentIdentifier(write) => match write {
+                PreparedIdentifierWrite::MutableBinding { storage_name } => {
+                    let storage = self.lookup_binding(storage_name).ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unbound destructuring assignment `{storage_name}`"
+                        ))
+                    })?;
+                    self.write_binding_from_locals_checked(storage, value, function)?;
+                    self.mirror_binding_to_global_object(storage_name, storage, function)?;
+                }
+                PreparedIdentifierWrite::IgnoreImmutableBinding => {}
+                PreparedIdentifierWrite::Throw { error } => {
+                    // Target preparation and the complete value/default precede PutValue.
+                    let pending = schema.reserve_completion(function);
+                    self.emit_throw_runtime_error(
+                        error.kind(),
+                        self.strings.source_runtime_error_message(
+                            SourceRuntimeErrorMessage::IdentifierWrite(error),
+                        )?,
+                        &pending,
+                        function,
+                    )?;
+                    self.completion().copy_from(&pending, function);
+                    pending.clear(function);
+                    self.emit_propagate_current_throw(function);
+                }
+                PreparedIdentifierWrite::Global {
+                    referenced_name,
+                    strictness,
+                } => {
+                    self.with_reference_strictness(strictness, function, |emitter, function| {
+                        emitter.emit_global_property_write_checked(
+                            referenced_name,
+                            value,
                             strictness,
                             function,
-                            |emitter, function| {
-                                emitter.emit_global_property_write_checked(
-                                    referenced_name,
-                                    value_payload,
-                                    value_tag,
-                                    strictness,
-                                    function,
-                                )
-                            },
-                        )?;
-                    }
+                        )
+                    })?;
                 }
-            }
+            },
             PreparedDestructuringTarget::Property {
                 target,
-                target_payload,
-                target_tag,
                 key,
                 strictness,
             } => {
-                let target_name = "$array.destructure.target";
-                let value_name = "$array.destructure.value";
-                let key_name = "$array.destructure.key";
-                self.push_scope();
-                let scope = self
-                    .binding_scopes
-                    .last_mut()
-                    .expect("binding scope stack must exist");
-                scope.insert(
-                    target_name.to_string(),
-                    BindingStorage::Dynamic {
-                        tag_local: target_tag,
-                        payload_local: target_payload,
-                    },
-                );
-                scope.insert(
-                    value_name.to_string(),
-                    BindingStorage::Dynamic {
-                        tag_local: value_tag,
-                        payload_local: value_payload,
-                    },
-                );
-                if let PreparedDestructuringPropertyKey::Computed {
-                    payload_local,
-                    tag_local,
-                    ..
-                } = &key
-                {
-                    scope.insert(
-                        key_name.to_string(),
-                        BindingStorage::Dynamic {
-                            tag_local: *tag_local,
-                            payload_local: *payload_local,
-                        },
-                    );
-                }
-                let target_expr = TypedExpr::from_info(
-                    target.value_info(),
-                    ExprIr::Identifier(target_name.to_string()),
-                );
-                let property_key = match &key {
+                // Nullish rejection belongs to PutValue and precedes ToPropertyKey.
+                self.compile_nullish_tagged_i32(target.tag(), function)?;
+                self.open_frame(ControlFrameKind::If, function);
+                let pending = schema.reserve_completion(function);
+                self.emit_throw_runtime_error(
+                    NativeErrorKind::TypeError,
+                    RuntimeErrorMessage::CANNOT_CONVERT_UNDEFINED_OR_NULL_TO_OBJECT,
+                    &pending,
+                    function,
+                )?;
+                self.completion().copy_from(&pending, function);
+                pending.clear(function);
+                self.emit_propagate_current_throw(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                let key = match key {
                     PreparedDestructuringPropertyKey::Static(name) => {
-                        PropertyKeyIr::StaticString((*name).to_string())
+                        self.emit_control_flow_string_key(name, function)?
                     }
-                    PreparedDestructuringPropertyKey::Computed { raw_key, .. } => {
-                        let raw_key = TypedExpr::from_info(
-                            raw_key.value_info(),
-                            ExprIr::Identifier(key_name.to_string()),
-                        );
-                        PropertyKeyIr::StringExpr(Box::new(TypedExpr::spec_to_property_key(
-                            raw_key,
-                        )))
+                    PreparedDestructuringPropertyKey::Computed(raw) => {
+                        let key = self.emit_value_to_property_key_locals(&raw, function)?;
+                        raw.clear(function);
+                        key
                     }
                 };
-                let value_expr = TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                    ExprIr::Identifier(value_name.to_string()),
-                );
-                // 13.15.5.4's PutValue, under *this* Reference's `[[Strict]]`.
-                // Without the scope the write would fall back to
-                // `ambient_object_write_strict_flag_word`, i.e. the mode of the
-                // Wasm function the pattern was emitted into.
-                self.with_reference_strictness(strictness, function, |emitter, function| {
-                    emitter.compile_property_write_to_locals(
-                        &target_expr,
-                        &property_key,
-                        &value_expr,
-                        emitter.scratch_local,
-                        emitter.result_tag_local,
-                        function,
-                    )
-                })?;
-                self.emit_propagate_current_completion_if_throw(function);
-                self.pop_scope();
-                match key {
-                    PreparedDestructuringPropertyKey::Static(_) => {}
-                    PreparedDestructuringPropertyKey::Computed {
-                        payload_local,
-                        tag_local,
-                        ..
-                    } => {
-                        self.release_temp_local(tag_local);
-                        self.release_temp_local(payload_local);
-                    }
-                }
-                self.release_temp_local(target_tag);
-                self.release_temp_local(target_payload);
+                let strict = schema.reserve_i32_local(function);
+                function.instruction(&Instruction::I32Const(i32::from(
+                    strictness.throws_on_failed_set(),
+                )));
+                strict.store(function);
+                let pending = schema.reserve_completion(function);
+                self.emit_object_write(&target, &key, value, strict, &pending, function)?;
+                self.completion().copy_from(&pending, function);
+                pending.clear(function);
+                schema.release_i32_local(strict, function);
+                key.clear(function);
+                target.clear(function);
             }
             PreparedDestructuringTarget::Private {
-                target_payload,
-                target_tag,
+                target,
                 private_name_id,
             } => {
+                let pending = schema.reserve_completion(function);
                 self.emit_private_write_from_locals(
-                    target_payload,
-                    target_tag,
+                    &target,
                     private_name_id,
-                    value_payload,
-                    value_tag,
+                    value,
+                    &pending,
                     function,
                 )?;
-                self.release_temp_local(target_tag);
-                self.release_temp_local(target_payload);
+                self.completion().copy_from(&pending, function);
+                pending.clear(function);
+                target.clear(function);
+            }
+            PreparedDestructuringTarget::Super { value_binding, put } => {
+                let storage = self.lookup_binding(value_binding).ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unbound super destructuring value `{value_binding}`"
+                    ))
+                })?;
+                self.write_binding_from_locals(storage, value, function);
+                let written = schema.reserve_value_local(function);
+                self.compile_expr_to_value(put, &written, function)?;
+                written.clear(function);
             }
             PreparedDestructuringTarget::NestedArray(pattern) => {
-                self.compile_array_destructure_from_value_locals(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                    value_payload,
-                    value_tag,
-                    pattern,
-                    function,
-                )?;
+                self.compile_array_destructure_from_value_locals(value, pattern, function)?
             }
             PreparedDestructuringTarget::NestedObject(pattern) => {
+                let ignored = schema.reserve_value_local(function);
                 self.compile_object_destructure_from_value_locals(
-                    value_payload,
-                    value_tag,
-                    pattern,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
+                    value, pattern, &ignored, function,
                 )?;
+                ignored.clear(function);
             }
         }
-        Ok(())
-    }
-
-    pub(crate) fn emit_iterator_close_condition_i32(
-        &self,
-        completion_local: u32,
-        aux_local: u32,
-        current_continue_target: ControlTarget,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_BREAK));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(aux_local));
-        function.instruction(&Instruction::I64Const(current_continue_target.frame as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-    }
-
-    pub(crate) fn emit_iterator_close(
-        &mut self,
-        iterator_payload_local: u32,
-        iterator_tag_local: u32,
-        key_local: u32,
-        return_payload_local: u32,
-        return_tag_local: u32,
-        result_payload_local: u32,
-        result_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(self.strings.payload("return")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_undefined_payload(function);
-        function.instruction(&Instruction::LocalSet(return_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(return_tag_local));
-        self.emit_object_read(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            return_payload_local,
-            return_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_is_callable_i32(return_tag_local, return_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "IteratorClose return method must be callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_function_handle_call(
-            return_payload_local,
-            return_tag_local,
-            Some((iterator_payload_local, Some(iterator_tag_local))),
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            return_payload_local,
-            return_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            result_payload_local,
-            result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_current_function_realm_type_error(
-            "IteratorClose return result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(crate) fn emit_iterator_close_preserving_current_throw(
-        &mut self,
-        close: IteratorCloseOnThrowLocals,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.save_current_completion(
-            close.saved_payload_local,
-            close.saved_tag_local,
-            close.saved_completion_local,
-            close.saved_aux_local,
-            function,
-        );
-        self.emit_iterator_close_preserving_saved_throw(close, function)
-    }
-
-    pub(crate) fn emit_iterator_close_preserving_saved_throw(
-        &mut self,
-        close: IteratorCloseOnThrowLocals,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.set_completion_kind(CompletionKind::Normal, function);
-        let close_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.finally_stack.push(close_frame);
-        self.emit_iterator_close(
-            close.iterator_payload_local,
-            close.iterator_tag_local,
-            close.key_local,
-            close.return_payload_local,
-            close.return_tag_local,
-            close.result_payload_local,
-            close.result_tag_local,
-            function,
-        )?;
-        self.finally_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.restore_saved_completion(
-            close.saved_payload_local,
-            close.saved_tag_local,
-            close.saved_completion_local,
-            close.saved_aux_local,
-            function,
-        );
-        Ok(())
-    }
-
-    pub(crate) fn emit_iterator_flat_map_close_outer_after_throw(
-        &mut self,
-        helper_payload_local: u32,
-        close: IteratorCloseOnThrowLocals,
-        inner_state: IteratorFlatMapInnerState,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_iterator_close_preserving_current_throw(close, function)?;
-        self.emit_object_define_bool_data(
-            helper_payload_local,
-            "$IteratorFlatMapDone",
-            true,
-            function,
-        )?;
-        match inner_state {
-            IteratorFlatMapInnerState::NotInstalled => {}
-            IteratorFlatMapInnerState::Active => {
-                self.emit_object_define_bool_data(
-                    helper_payload_local,
-                    "$IteratorFlatMapInnerActive",
-                    false,
-                    function,
-                )?;
-            }
-        }
-        self.emit_object_define_bool_data(
-            helper_payload_local,
-            "$IteratorFlatMapExecuting",
-            false,
-            function,
-        )?;
+        self.emit_propagate_current_throw_if_needed(function);
         Ok(())
     }
 }

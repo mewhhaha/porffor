@@ -1,0 +1,32 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/dynamic-parse-failure",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "script",
+      "identity": "entry.js",
+      "source": "var key = 'broken';\nconst first = import(key), second = import(key);\nif (first === second) throw 'fresh failed import promises';\nPromise.all([first.then(() => { throw 'invalid source fulfilled'; }, error => error instanceof SyntaxError), second.then(() => { throw 'invalid source fulfilled'; }, error => error instanceof SyntaxError)]).then(values => {\n if (!values[0] || !values[1]) throw 'parse rejection class';\n print('embedded-parse:rejected');\n});\n262;\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "broken.js",
+        "source": "export const =",
+        "meta_url": "lila://broken.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "script",
+          "identity": "entry.js"
+        },
+        "specifier": "broken",
+        "attributes": [],
+        "target": "broken.js"
+      }
+    ]
+  }
+}

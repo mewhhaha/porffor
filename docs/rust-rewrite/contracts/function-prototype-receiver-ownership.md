@@ -1,3 +1,28 @@
+# Function prototype receiver ownership: whole GC values
+
+Current source status — 2026-10-05: the five prototype operations capture one
+whole ValueLocals invocation receiver, and pass that rooted value through the
+actual Value/Completion emitters. Standard dispatch has seven fixed Function entries
+behind the private `FunctionBuiltin` domain. Bound calls and constructs
+use direct GC BoundFunction records through the shared call/construct dispatch;
+there is no independent native invoker catalog entry. Generic bound-function
+results have unknown target knowledge and no unproven constructability shape;
+a known target preserves only its proven constructability shape.
+
+The existing lexical control now checks the complete receiver authority,
+private domain and fixed routing, together with actual whole GC bound-record
+call/construct ownership. Compilation, guards, semantic tests and runtime
+verification of this successor are unrun. Root owns the capped batch checkpoint.
+
+## Historical source checkpoint
+
+The complete earlier body below is preserved as history from preimage SHA-256
+`8cba40d4492bc0af170896e42f2fdf478b3759d5cb276c8b7add2a73874253f1`. Its paired-carrier, split-local, eight-entry
+invoker and earlier passing receipts describe that source checkpoint. They do
+not establish correctness or current structure of the whole GC implementation.
+
+---
+
 # Function prototype receiver ownership
 
 Status: normative for the AOT Function prototype builtin receiver boundary.

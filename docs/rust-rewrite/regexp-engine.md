@@ -1,5 +1,30 @@
 # RegExp engine architecture: ordered bytecode in emitted Wasm
 
+## Current candidate verification
+
+The seven new operand-fold IR controls and nine paired direct Engine fixtures
+pass. The selected ten-file/20-mode adjacent RegExp replay passes; it includes
+two circled-M property files and the Unicode case-mapping neighbor. The
+33-file/66-mode /v inventory remains separate from this selected replay and
+from direct /iv evidence. Emitted runtime-pattern compilation remains open.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
 ## Status and boundary
 
 This document is the source of truth for T19's engine choice. It selects the
@@ -39,27 +64,30 @@ wire format, ownership inventory and corruption controls.
 
 This is a foundation, not the complete design:
 
-- computed legacy patterns reach an iterative RegExp-only parser/compiler in
-  emitted Wasm after a static-cache miss. It supports the ordinary legacy grammar,
-  numbered captures/references, lookahead, nullable quantifiers and scoped
-  `i`/`m`/`s` modifiers. Runtime Unicode modes, named groups and lookbehind remain
-  explicit capability gaps; see the [runtime compiler contract](contracts/regexp-runtime-compiler.md);
+- computed patterns reach an iterative RegExp-only parser/compiler in emitted
+  Wasm after a static-cache miss. Its current unverified source adds validated
+  Unicode character modes, named groups/references, lookbehind, braced escapes
+  and exact code-point property escapes to the ordinary grammar. Runtime
+  finite-string properties and nested code-point/string algebra now share the
+  complete catalog and existing matcher instructions in unverified source; see the [runtime compiler contract](contracts/regexp-runtime-compiler.md)
+  and [computed property contract](contracts/runtime-regexp-codepoint-property.md);
 - the static parser and program lowerer still recurse on the Rust stack;
   the emitted runtime compiler uses bounded arena and task stacks;
-- legal constructs such as general lookahead, `v`-mode string properties and
-  several nullable or astral forms outside the direct legacy term seam still
-  return `UnsupportedFeature`;
-- expanded programs are capped at 4096 instructions and range pools at 65536
+- static compilation retains `UnsupportedFeature` for compiler limitations,
+  including expanded instruction/range limits; these do not prove invalid syntax.
+  Computed finite strings no longer select an unsupported helper outcome;
+- expanded programs are capped at 32768 instructions and range pools at 65536
   entries, but those limits are not yet one typed resource policy;
 - the matcher has checked scratch-address calculations and one closed status
   ABI: normal completion, corrupt-program failure and scratch-resource
   exhaustion are distinct, every result writer takes that domain, and the
   wrapper routes the two failures only after rewinding transient storage;
   however, there is still no deterministic execution-step budget; and
-- the `regress` crate still decides membership inside one shape-limited static
-  generator-fold optimization, so an accepted result can influence emitted IR.
-  That fold must eventually prove equivalence with the Lila engine or decline;
-  a third-party engine cannot decide product RegExp semantics.
+- the former third-party generator membership fold has been removed. The
+  remaining vendored `regress` dependency supplies pinned Unicode property,
+  string-sequence and fold data; product parsing and matching consume Lila's
+  own program representation. Third-party matching cannot decide product
+  RegExp semantics.
 
 The pattern parser no longer asks `regress` to classify named-group identifier
 characters. A closed start/continue domain now selects the pinned ICU
@@ -74,9 +102,15 @@ path cannot admit Annex B control/octal or unrestricted identity escapes under
 representation. An incomplete legacy `\c` likewise preserves Annex B's
 standalone-backslash atom boundary through either encoder. See the
 focused [Unicode ordinary-class escape contract](contracts/regexp-unicode-class-escape-grammar.md).
-This does not change the separate UnicodeSets class grammar. The runtime
-compiler shares the legacy lexical facts while Unicode runtime modes remain an
-explicit capability gap.
+This does not complete the separate UnicodeSets class grammar. The current
+unverified runtime compiler retains a validated character mode through class
+parsing, complement and folding. Its computed code-point properties share the
+complete exact native alias catalog. The emitted `v` grammar now handles nested
+code-point algebra through operand-local closure and checked lazy depth bitmaps.
+The finite-string extension adds complete q/property keys, empty members and
+operand-local folding to that same algebra and checked checkpoint. Complete
+pattern/capture validation precedes lowering and publication; see the
+[computed set-algebra contract](contracts/runtime-regexp-computed-unicode-sets.md).
 
 Legacy direct astral source now has its own closed parsed-term case. It stores a
 validated UTF-16 surrogate pair, emits the lead once, and applies any following
@@ -97,9 +131,14 @@ entire enclosing expression, closing bracket, range rules, and exact
 valid Pattern may turn that value into the exact finite matcher atom described
 by the
 [finite-string algebra contract](contracts/regexp-unicode-set-finite-string-algebra.md).
-The same finite domain now owns Unicode 17 `Emoji_Keycap_Sequence`; properties
-of strings without exact tables and direct class strings under `iv` remain
-typed capability gaps. See also the focused
+The same finite domain now owns all seven pinned Unicode 17 string properties.
+The prepared `/iv` successor folds direct and finite-property operands before
+set algebra and lowers folded positions through existing range instructions.
+`Basic_Emoji` and `RGI_Emoji` require the same folding because their circled-M
+sequence has a simple-case alias. Its seven new IR controls and nine paired
+Engine fixtures are unexecuted. The later computed finite-string source batch
+uses the same property catalog and matching priority in the emitted compiler,
+with three additional paired semantic sources; broad conformance remains open. See also the focused
 [class-expression shape contract](contracts/regexp-unicode-set-expression-shape.md).
 
 ## Decision and rejected alternatives
@@ -198,9 +237,11 @@ reported indices are UTF-16 code-unit indexes.
   are compiled from normalized immutable sets and string tries, not delegated
   to a host regex parser.
 - Property names/aliases, `ID_Start`, `ID_Continue`, case closure and string
-  properties come from one pinned Unicode data identity. The current lock's
-  ICU4X 2.0 data line is Unicode 16.0.0; an upgrade is an atomic T18/T19/T23
-  conformance event and invalidates compiled-program caches.
+  properties come from one pinned Unicode data identity. The RegExp projection
+  combines the pinned ICU4X 2.0 Unicode 16 data with committed Unicode 17
+  additions and fold/string tables. Changes to that authority are a coordinated
+  T18/T19/T23 conformance event and invalidate compiled-program caches; this
+  projection does not imply an upgrade of the Intl provider.
 - Ignore-case matching implements ECMA-262 `Canonicalize` for the selected
   Unicode mode. General ICU lowercasing or full case folding is not a
   substitute, because it can expand strings or apply mappings ECMAScript does

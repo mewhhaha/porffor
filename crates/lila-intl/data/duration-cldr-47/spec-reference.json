@@ -1,0 +1,22 @@
+{
+  "actual_url": "https://tc39.es/ecma402/2025/",
+  "edition": "ECMA-402 12th edition June 2025",
+  "full_spec_reproduction": false,
+  "primary_response_bytes": 1071015,
+  "primary_response_sha256": "ed380931f9c7f00492558231a35eec361b4e94e6847ef053fc546d9ccb53ec6b",
+  "primary_url": "https://tc39.es/ecma402/2025/",
+  "retrieved_utc": "2026-10-01T11:16:29.767580+00:00",
+  "runtime_status": "UNEXECUTED",
+  "schema": 1,
+  "sections": [
+    "durationformat-objects",
+    "sec-intl-durationformat-constructor",
+    "sec-getdurationunitoptions",
+    "sec-validatedurationunitstyle",
+    "sec-computefractionaldigits",
+    "sec-formatnumericunits",
+    "sec-partitiondurationformatpattern",
+    "sec-isvalidduration"
+  ],
+  "source_only": true
+}

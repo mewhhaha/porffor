@@ -2,6 +2,92 @@
 
 Status: implemented T02 ownership and effect-admission boundaries.
 
+## Optional chains, conditional facts and object literals
+
+The 2026-10-06 source successor gives twelve consumed optional-chain methods
+one private `lowering/optional_chain.rs` owner. Its initial Reference domain
+also closes the private optional-call gap described in the
+[private Reference contract](optional-private-call-reference.md). The existing
+optional-call source-authority control reads that real owner and retains its
+exact source-proof construction and borrowed-transport obligations.
+
+`lowering/conditional_flow.rs` owns the captured conditional facts, equal-map
+intersection and ten complete capture, installation and join methods. The
+captured fields stay private to their lifecycle owner. Ordinary branch,
+short-circuit, environment and value-analysis consumers reach its narrow
+parent-visible methods directly.
+
+`lowering/object_literal.rs` owns the complete ordered object-literal walk,
+method admission, computed-key shape decision, string-key shape insertion and
+duplicate prototype-setter validation. Property ordering, accessors, spread,
+class name inference and abrupt paths retain their existing algorithms. The
+generic `lower_object_property_key` read/effect authority remains shared in
+the parent; it is not an object-literal helper.
+
+Both latter extractions preserve complete bodies and literal bytes. Module
+declarations attach real private consumers, without forwarding APIs or
+implementation reassembly. The original 605 test bodies remain; one new T09
+control expands the unit inventory to 606. No mirrored extraction tests are
+added. Source comparison and isolated formatting do not establish executable
+equivalence; current combined type, focused, artifact-equivalence and broad
+acceptance remain pending. Emitted artifact equivalence, measured compilation and broader ownership remain
+separate T02 acceptance work.
+
+## Signature evidence and declaration families
+
+The 2026-10-06 source successor extracts 32 complete propagation, exact-context,
+callback and signature-evidence methods into private
+`lowering/signature_evidence.rs`. Their pass ordering, finite propagation limit,
+observation joins, capture authority, target canonicalization and return evidence
+remain the original algorithms. Methods used by the parent or another lowering
+family are visible only within `lowering`; internal evidence joins remain private.
+
+`lowering/var_declaration.rs` owns the four complete var statement, For-head,
+declarator-list and declarator methods. `lowering/function_declaration.rs` owns
+ordinary, generator, async and async-generator declaration publication plus the
+Annex B copy. `lowering/lexical_declaration.rs` owns the full lexical initialization
+walk and its consumed pending InitializeBinding obligations. Suspended
+initializers, patterns, borrowed eval variables, Object Environment ordering,
+callable registration and binding facts retain their existing implementations.
+The parent keeps the exhaustive `lower_declaration` dispatcher, generic parameter
+lowering, resource-declaration admission and shared binding/property authorities.
+
+These are whole-body source extractions with four direct private module
+attachments. No forwarding facade, duplicate algorithm, public helper or new
+behavioral test is introduced. Exact predecessor groups and the moved method
+inventory are retained in the source receipt. Isolated formatting and source
+comparison do not establish execution or artifact equivalence; joined type,
+focused and broad verification and measured T02 acceptance remain pending.
+
+## Public facade and test source ownership
+
+The public IR facade is a 264-line declaration/reexport surface. Production
+content ends before its final `#[cfg(test)] mod tests;`; the former 21,544-line
+file put 605 unit tests and their private support inside one inline module. Raw
+file size therefore overstated the remaining production work in this facade.
+
+`src/tests/mod.rs` registers 36 coherent test families and one shared private
+support source. Families cover entry/module roots, environment analysis,
+references, operators, destructuring, object/class/capture ownership, generators,
+async control, native invocation, global effects, prepared eval, collections,
+Annex B, templates and disposal. Its ordered whole-item `include!` declarations
+keep the existing `tests::name` namespace and private access without forwarding
+functions or public support APIs. They exist only inside the test-gated module;
+production roots and feature owners continue to prohibit `include!`/`#[path]`
+implementation reassembly.
+
+The extraction retains all 605 names, assertions and embedded source literals.
+Shared exhaustive walkers remain test-private in `src/tests/support.rs`. The
+module policy must audit their test obligations separately from actual product
+lowering and emission consumers. The Annex B source control binds to the real
+`src/tests/annex_b.rs` owner instead of looking in the public facade. Existing
+exact test filters remain valid; no new test duplicates the extraction.
+
+Source comparison and isolated formatting establish only source authorship.
+The complete successor still requires its combined type check, affected controls
+and broad verification. This physical extraction supplies no new conformance
+counts, runtime result or full T02 completion.
+
 ## Callable source representation
 
 `lila-ir/src/builtins/callable_to_string.rs` owns the closed

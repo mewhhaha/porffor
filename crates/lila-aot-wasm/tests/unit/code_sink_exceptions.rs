@@ -10,7 +10,7 @@ use wasm_encoder::{
 mod fixtures;
 
 fn empty_body() -> Function {
-    Function::new_with_locals_types(std::iter::empty())
+    Function::new(LocalDeclarations::from_types(std::iter::empty()))
 }
 
 fn table(ty: BlockType, catches: Vec<CatchClause>) -> Instruction<'static> {
@@ -266,19 +266,36 @@ fn exception_instructions_cannot_reopen_a_finished_body() {
 }
 
 #[test]
-fn cloning_and_rewriting_locals_preserve_handler_state_and_identity() {
-    let mut function = Function::new_with_locals_types([ValType::I64; 4]);
+fn cloning_and_allocating_typed_locals_preserve_handler_state_and_identity() {
+    let mut function = Function::new(LocalDeclarations::from_types([ValType::I64; 4]));
     function.instruction(&Instruction::Try(BlockType::Empty));
     function.instruction(&Instruction::CatchAll);
     let handler = function.label_depth();
-    let mut cloned = function.clone().rewrite_local_declaration(4, 2);
+    let mut cloned = function.clone();
+    let exception_type = ValType::Ref(RefType::EXNREF);
+    let exception_local = cloned.reserve_typed_local(exception_type);
+    assert_eq!(exception_local, 4);
+    cloned.release_typed_local(exception_local);
+    assert_eq!(cloned.reserve_typed_local(exception_type), exception_local);
+    assert_eq!(cloned.allocated_local_count(), 5);
+    assert_eq!(function.allocated_local_count(), 4);
     assert_eq!(cloned.label_depth(), handler);
     cloned.instruction(&Instruction::Rethrow(0));
     rejected_without_mutation(&mut cloned, Instruction::Catch(0));
     rejected_without_mutation(&mut cloned, Instruction::Delegate(0));
     cloned.instruction(&Instruction::End);
     cloned.instruction(&Instruction::End);
-    let _ = cloned.into_body();
+    let mut expected = wasm_encoder::Function::new([(4, ValType::I64), (1, exception_type)]);
+    for instruction in [
+        Instruction::Try(BlockType::Empty),
+        Instruction::CatchAll,
+        Instruction::Rethrow(0),
+        Instruction::End,
+        Instruction::End,
+    ] {
+        expected.instruction(&instruction);
+    }
+    assert_eq!(cloned.into_body(), expected);
 }
 
 fn encoded_module(instructions: &[Instruction<'_>], legacy: bool) -> Vec<u8> {

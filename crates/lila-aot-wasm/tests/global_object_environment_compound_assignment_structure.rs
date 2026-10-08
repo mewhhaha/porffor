@@ -1,7 +1,21 @@
+use lila_front::{parse, ParseOptions};
+use lila_ir::{
+    lower, ArithmeticBinaryOp, BitwiseBinaryOp, EnvironmentCompoundOperationIr,
+    EnvironmentIdentifierOperationIr, EnvironmentIdentifierResolutionStart, ExprIr, StatementIr,
+    TypedExpr,
+};
+
+fn lower_control(source: &str) -> lila_ir::ProgramIr {
+    let parsed = parse(source, ParseOptions::script()).expect("Reference control parses");
+    let program = lower(&parsed);
+    assert!(
+        program.is_wasm_supported(),
+        "{source}: {:?}",
+        program.diagnostics
+    );
+    program
+}
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
-const COMPOUND_SOURCE: &str =
-    include_str!("../../lila-ir/src/lowering/with_environment_compound.rs");
 const FIXTURE: &str = include_str!(
     "../../lila-cli/tests/fixtures/wasm_global_object_environment_compound_assignment.js"
 );
@@ -140,50 +154,35 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 }
 
 #[test]
-fn distinct_noncopy_global_plan_selects_plain_has_property_without_unscopables() {
-    let objects = bounded(
-        REFERENCE_SOURCE,
-        "pub(crate) struct ObjectEnvironmentBindingObject {",
-        "/// Declarative-frame depth in the function currently being lowered.",
-    );
-    for marker in [
-        "enum ObjectEnvironmentBindingObjectSource {",
-        "Materialized(String)",
-        "GlobalObject",
-        "pub(crate) fn materialized(",
-        "fn global_object(info: ValueInfo) -> Self",
-        "ObjectEnvironmentBindingObjectSource::Materialized(storage_name)",
-        "ObjectEnvironmentBindingObjectSource::GlobalObject",
-        "fn get_value(self, referenced_name: &str, strictness: Strictness)",
-        "fn put_value(",
-        "fn eager_compound_assignment(",
-    ] {
-        assert!(
-            objects.contains(marker),
-            "missing object boundary: {marker}"
+fn global_eager_assignments_retain_global_resolution_in_root_and_nested_owners() {
+    let program = lower_control("var value = 1; value += 2; function mutate() { value += 3; }");
+    let script = program.script.as_ref().expect("script IR");
+    let nested = script
+        .functions
+        .iter()
+        .find(|function| function.name == "mutate")
+        .expect("nested owner");
+    for (body, expected_rhs) in [(&script.body, 2.0f64), (&nested.body, 3.0f64)] {
+        let reference = body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::EnvironmentIdentifier(reference),
+                    ..
+                }) => Some(reference),
+                _ => None,
+            })
+            .expect("eager assignment retains one Environment Reference");
+        assert_eq!(reference.name, "value");
+        assert_eq!(
+            reference.resolution_start(),
+            EnvironmentIdentifierResolutionStart::GlobalEnvironment
         );
+        assert!(matches!(&reference.operation,
+            EnvironmentIdentifierOperationIr::EagerCompound { operation: EnvironmentCompoundOperationIr::Add, rhs }
+            if matches!(&rhs.expr, ExprIr::Number(value) if *value == expected_rhs.to_bits())));
     }
-
-    let plan = bounded(
-        REFERENCE_SOURCE,
-        "#[must_use = \"a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment\"]",
-        "/// Compiler-private bindings used by one Object Environment numeric update.",
-    );
-    assert!(plan.contains("pub(crate) struct GlobalObjectEnvironmentReferencePlan"));
-    assert!(!plan.contains("Clone"));
-    assert!(!plan.contains("Copy"));
-    assert!(plan.contains("ObjectEnvironmentBindingObject::global_object(global_object_info)"));
-    assert!(plan.contains("pub(crate) fn compound_assignment(self,"));
-    assert!(plan.contains("let present = binding_object.has_property(&referenced_name);"));
-    assert!(plan.contains("binding_object.eager_compound_assignment("));
-    assert!(plan.contains("name: NativeErrorKind::ReferenceError"));
-    assert!(plan.contains("condition: Box::new(present)"));
-    assert!(plan.contains("then_expr: Box::new(selected)"));
-    assert!(plan.contains("else_expr: Box::new(missing)"));
-    assert!(!plan.contains("binding_visible"));
-    assert!(!plan.contains("unscopables_binding"));
-    assert_before(plan, "let present =", "let selected =");
-    assert_before(plan, "let selected =", "let missing =");
 }
 
 #[test]
@@ -244,7 +243,6 @@ fn shared_sealed_lifecycle_rechecks_get_and_put_before_exposing_result() {
     assert_before(lifecycle, "let result_info =", "let write =");
     assert_before(lifecycle, "let write =", "let after_write =");
     assert_before(lifecycle, "let after_write =", "let after_apply =");
-    assert!(!lifecycle.contains("ExprIr::GlobalPropertyCompoundAssign"));
 
     let carrier = bounded(
         REFERENCE_SOURCE,
@@ -274,87 +272,50 @@ fn shared_sealed_lifecycle_rechecks_get_and_put_before_exposing_result() {
 }
 
 #[test]
-fn lowering_routes_the_closed_eager_domain_through_the_global_plan() {
-    let helper = bounded(
-        COMPOUND_SOURCE,
-        "    pub(super) fn lower_global_object_environment_eager_compound_assignment(",
-        "\n}\n\n#[cfg(test)]",
-    );
-    for marker in [
-        "info.value_info.widen_for_possible_replacement();",
-        "if info.configurable",
-        "info.proven_present = false;",
-        "EagerCompoundAssignmentBindings::allocate(",
-        "op.apply(bindings.old_value(), rhs)",
-        "let strictness = self.reference_strictness();",
-        "GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)",
-        ".compound_assignment(bindings.seal(applied))",
+fn all_eager_operators_preserve_the_rhs_and_global_reference_owner() {
+    use EnvironmentCompoundOperationIr as Operation;
+    for (spelling, expected) in [
+        ("+=", Operation::Add),
+        ("-=", Operation::Arithmetic(ArithmeticBinaryOp::Sub)),
+        ("*=", Operation::Arithmetic(ArithmeticBinaryOp::Mul)),
+        ("/=", Operation::Arithmetic(ArithmeticBinaryOp::Div)),
+        ("%=", Operation::Arithmetic(ArithmeticBinaryOp::Mod)),
+        ("**=", Operation::Arithmetic(ArithmeticBinaryOp::Exp)),
+        ("&=", Operation::Bitwise(BitwiseBinaryOp::And)),
+        ("|=", Operation::Bitwise(BitwiseBinaryOp::Or)),
+        ("^=", Operation::Bitwise(BitwiseBinaryOp::Xor)),
+        ("<<=", Operation::Bitwise(BitwiseBinaryOp::Shl)),
+        (">>=", Operation::Bitwise(BitwiseBinaryOp::Shr)),
+        (">>>=", Operation::Bitwise(BitwiseBinaryOp::UShr)),
     ] {
-        assert!(
-            helper.contains(marker),
-            "missing global lowering seam: {marker}"
-        );
-    }
-    assert_before(helper, "let bindings =", "let applied =");
-    assert_before(helper, "let applied =", "let strictness =");
-    assert_before(
-        helper,
-        "let strictness =",
-        "GlobalObjectEnvironmentReferencePlan::new(",
-    );
-    assert!(!helper.contains("GlobalPropertyCompoundAssign"));
-
-    let operation = bounded(
-        REFERENCE_SOURCE,
-        "pub(crate) enum EagerCompoundAssignmentOp {",
-        "impl EagerCompoundAssignmentOp {",
-    );
-    assert!(operation.contains("Arithmetic(ArithmeticOp)"));
-    assert!(operation.contains("Bitwise(BitwiseOp)"));
-    assert!(!operation.contains("Logical"));
-
-    let apply = bounded(
-        REFERENCE_SOURCE,
-        "impl EagerCompoundAssignmentOp {",
-        "/// One fused mutation of a Super Property Reference.",
-    );
-    for marker in [
-        "EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add)",
-        "ArithmeticOp::Sub => ArithmeticBinaryOp::Sub",
-        "ArithmeticOp::Mul => ArithmeticBinaryOp::Mul",
-        "ArithmeticOp::Div => ArithmeticBinaryOp::Div",
-        "ArithmeticOp::Mod => ArithmeticBinaryOp::Mod",
-        "ArithmeticOp::Exp => ArithmeticBinaryOp::Exp",
-        "BitwiseOp::And => BitwiseBinaryOp::And",
-        "BitwiseOp::Or => BitwiseBinaryOp::Or",
-        "BitwiseOp::Xor => BitwiseBinaryOp::Xor",
-        "BitwiseOp::Shl => BitwiseBinaryOp::Shl",
-        "BitwiseOp::Shr => BitwiseBinaryOp::Shr",
-        "BitwiseOp::UShr => BitwiseBinaryOp::UShr",
-    ] {
-        assert!(
-            apply.contains(marker),
-            "missing exhaustive operation: {marker}"
-        );
-    }
-    assert!(!apply.contains("_ =>"));
-
-    // `lower_assign` lives in `lowering/assignment.rs`; the bitwise arm is
-    // its last arm, so it is bounded by the end of the function and impl.
-    let arithmetic = bounded(
-        ASSIGNMENT_SOURCE,
-        "            AssignOp::Add\n            | AssignOp::Sub",
-        "            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {",
-    );
-    let bitwise = bounded(
-        ASSIGNMENT_SOURCE,
-        "            AssignOp::And\n            | AssignOp::Or",
-        "\n        }\n    }\n}\n",
-    );
-    for arm in [arithmetic, bitwise] {
-        assert!(arm.contains("self.locate_identifier_reference(&name)"));
-        assert!(arm.contains("lower_with_scoped_identifier_eager_compound_assignment("));
-        assert!(arm.contains("lower_global_object_environment_eager_compound_assignment("));
+        for declaration in ["", "var value = 7;"] {
+            let program = lower_control(&format!("{declaration} value {spelling} 2;"));
+            let StatementIr::Expression(TypedExpr {
+                expr: ExprIr::EnvironmentIdentifier(reference),
+                ..
+            }) = program
+                .script
+                .as_ref()
+                .expect("script IR")
+                .body
+                .statements
+                .last()
+                .expect("source mutation")
+            else {
+                panic!("{spelling} must keep ResolveBinding/Get/RHS/Put together");
+            };
+            assert_eq!(
+                reference.resolution_start(),
+                EnvironmentIdentifierResolutionStart::GlobalEnvironment
+            );
+            let EnvironmentIdentifierOperationIr::EagerCompound { operation, rhs } =
+                &reference.operation
+            else {
+                panic!("expected eager operation for {spelling}");
+            };
+            assert_eq!(*operation, expected);
+            assert!(matches!(&rhs.expr, ExprIr::Number(value) if *value == 2.0f64.to_bits()));
+        }
     }
 }
 

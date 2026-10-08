@@ -1,10 +1,8 @@
-//! Ordered Unicode-extension options and views into immutable Locale tags.
-
+//! Ordered Unicode keyword replacement on native-validated canonical tags.
 use super::language_options::CoercedIntlLocaleOptions;
 use super::*;
-
 #[derive(Clone, Copy)]
-enum LocaleExtensionOption {
+pub(super) enum LocaleExtensionOption {
     Calendar,
     Collation,
     FirstDayOfWeek,
@@ -15,6 +13,20 @@ enum LocaleExtensionOption {
 }
 
 impl LocaleExtensionOption {
+    const fn error_message(self) -> RuntimeErrorMessage {
+        match self {
+            Self::Calendar => RuntimeErrorMessage::INVALID_INTL_LOCALE_CALENDAR_OPTION,
+            Self::Collation => RuntimeErrorMessage::INVALID_INTL_LOCALE_COLLATION_OPTION,
+            Self::FirstDayOfWeek => RuntimeErrorMessage::INVALID_INTL_LOCALE_FIRSTDAYOFWEEK_OPTION,
+            Self::HourCycle => RuntimeErrorMessage::INVALID_INTL_LOCALE_HOURCYCLE_OPTION,
+            Self::CaseFirst => RuntimeErrorMessage::INVALID_INTL_LOCALE_CASEFIRST_OPTION,
+            Self::Numeric => RuntimeErrorMessage::INVALID_INTL_LOCALE_NUMERIC_OPTION,
+            Self::NumberingSystem => {
+                RuntimeErrorMessage::INVALID_INTL_LOCALE_NUMBERINGSYSTEM_OPTION
+            }
+        }
+    }
+
     const ORDERED: [Self; 7] = [
         Self::Calendar,
         Self::Collation,
@@ -37,7 +49,7 @@ impl LocaleExtensionOption {
         }
     }
 
-    const fn key(self) -> &'static str {
+    pub(super) const fn key(self) -> &'static str {
         match self {
             Self::Calendar => "ca",
             Self::Collation => "co",
@@ -50,748 +62,640 @@ impl LocaleExtensionOption {
     }
 }
 
-impl<'a> FunctionBuilder<'a> {
-    fn emit_intl_add_const(&self, local: u32, amount: i64, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(local));
-        function.instruction(&Instruction::I64Const(amount));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(local));
+struct LocaleKeywordSpan {
+    units: GcLocal<CodeUnitArray>,
+    length: I32Local,
+    unicode_start: I32Local,
+    unicode_end: I32Local,
+    insertion: I32Local,
+    key_start: I32Local,
+    key_end: I32Local,
+}
+impl LocaleKeywordSpan {
+    fn clear(self, schema: &RuntimeSchema, f: &mut Function) {
+        for v in [
+            self.key_end,
+            self.key_start,
+            self.insertion,
+            self.unicode_end,
+            self.unicode_start,
+            self.length,
+        ] {
+            schema.release_i32_local(v, f);
+        }
+        self.units.clear(f);
     }
-
-    pub(super) fn emit_intl_locale_extension_options(
+}
+impl FunctionBuilder<'_> {
+    fn emit_intl_locale_keyword_span(
+        &self,
+        tag: &GcLocal<StringValue>,
+        option: LocaleExtensionOption,
+        function: &mut Function,
+    ) -> LocaleKeywordSpan {
+        let schema = self.runtime_schema();
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(tag, schema, function)
+                .reference(),
+            function,
+        );
+        let length = schema.reserve_i32_local(function);
+        let unicode_start = schema.reserve_i32_local(function);
+        let unicode_end = schema.reserve_i32_local(function);
+        let insertion = schema.reserve_i32_local(function);
+        let key_start = schema.reserve_i32_local(function);
+        let key_end = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let end = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        let second = schema.reserve_i32_local(function);
+        let in_unicode = schema.reserve_i32_local(function);
+        let private = schema.reserve_i32_local(function);
+        let selected = schema.reserve_i32_local(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        length.store(function);
+        for local in [
+            unicode_start,
+            key_start,
+            key_end,
+            index,
+            in_unicode,
+            private,
+            selected,
+        ] {
+            set_i32(local, 0, function);
+        }
+        for local in [unicode_end, insertion] {
+            length.load(function);
+            local.store(function);
+        }
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        private.load(function);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_intl_locale_token_end(&units, length, index, end, function);
+        end.load(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Sub);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        in_unicode.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        unicode_end.store(function);
+        function.instruction(&Instruction::End);
+        set_i32(in_unicode, 0, function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, index, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(b'u' as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        unicode_start.store(function);
+        set_i32(in_unicode, 1, function);
+        function.instruction(&Instruction::End);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(b'x' as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        insertion.store(function);
+        set_i32(private, 1, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        end.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        unicode_start.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        unicode_start.load(function);
+        function.instruction(&Instruction::I32Const(3));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        unicode_end.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_intl_locale_token_end(&units, unicode_end, index, end, function);
+        end.load(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Sub);
+        function.instruction(&Instruction::I32Const(2));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        selected.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        key_end.store(function);
+        function.instruction(&Instruction::Br(3));
+        function.instruction(&Instruction::End);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, index, schema, function)
+            .store(unit, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        second.store(function);
+        let key = option.key().as_bytes();
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(i32::from(key[0])));
+        function.instruction(&Instruction::I32Eq);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, second, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(i32::from(key[1])));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        key_start.store(function);
+        unicode_end.load(function);
+        key_end.store(function);
+        set_i32(selected, 1, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        end.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        for local in [selected, private, in_unicode, second, unit, end, index] {
+            schema.release_i32_local(local, function);
+        }
+        LocaleKeywordSpan {
+            units,
+            length,
+            unicode_start,
+            unicode_end,
+            insertion,
+            key_start,
+            key_end,
+        }
+    }
+    pub(super) fn emit_intl_locale_extension_value(
+        &self,
+        tag: &GcLocal<StringValue>,
+        option: LocaleExtensionOption,
+        function: &mut Function,
+    ) -> GcLocal<StringValue, Nullable> {
+        let schema = self.runtime_schema();
+        let span = self.emit_intl_locale_keyword_span(tag, option, function);
+        let output = schema
+            .reserve_gc_local::<StringValue, Nullable>(function)
+            .initialize_null(schema, function);
+        let start = schema.reserve_i32_local(function);
+        span.key_start.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        span.key_start.load(function);
+        function.instruction(&Instruction::I32Const(4));
+        function.instruction(&Instruction::I32Add);
+        start.store(function);
+        start.load(function);
+        span.key_end.load(function);
+        function.instruction(&Instruction::I32GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        span.key_end.load(function);
+        start.store(function);
+        function.instruction(&Instruction::End);
+        let selected = self.emit_intl_locale_slice(tag, start, span.key_end, function);
+        output.replace(selected.load(schema, function).nullable(), function);
+        selected.clear(function);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(start, function);
+        span.clear(schema, function);
+        output
+    }
+    fn emit_intl_locale_replace_keyword(
         &mut self,
-        options: &CoercedIntlLocaleOptions,
-        tag: u32,
+        tag: &GcLocal<StringValue>,
+        option: LocaleExtensionOption,
+        value: &GcLocal<StringValue>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let options = options.receiver();
-        let key = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        let value_tag = self.reserve_temp_local();
-        let result = (|| {
-            function.instruction(&Instruction::LocalGet(options.tag));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            for option in LocaleExtensionOption::ORDERED {
-                self.emit_intl_set_const(key, self.strings.payload(option.property()), function);
-                self.emit_object_read(
-                    options.payload,
-                    options.tag,
-                    options.payload,
-                    options.tag,
-                    key,
-                    value,
-                    value_tag,
-                    function,
-                )?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(value_tag));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                match option {
-                    LocaleExtensionOption::Numeric => {
-                        self.compile_truthy_tagged_i32(value_tag, value, function)?;
-                        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                        function.instruction(&Instruction::I64Const(self.strings.payload("true")));
-                        function.instruction(&Instruction::Else);
-                        function.instruction(&Instruction::I64Const(self.strings.payload("false")));
-                        function.instruction(&Instruction::End);
-                        function.instruction(&Instruction::LocalSet(value));
-                    }
-                    LocaleExtensionOption::Calendar
-                    | LocaleExtensionOption::Collation
-                    | LocaleExtensionOption::FirstDayOfWeek
-                    | LocaleExtensionOption::HourCycle
-                    | LocaleExtensionOption::CaseFirst
-                    | LocaleExtensionOption::NumberingSystem => {
-                        self.emit_value_to_string_payload(value, value_tag, function)?;
-                        function.instruction(&Instruction::LocalSet(value));
-                        self.emit_return_current_completion_if_throw(function);
-                        self.emit_intl_locale_validate_extension_option(option, value, function)?;
-                    }
-                }
-                self.emit_intl_locale_replace_keyword(tag, option, value, function)?;
-                function.instruction(&Instruction::End);
-            }
-            function.instruction(&Instruction::End);
-            Ok(())
-        })();
-        for local in [value_tag, value, key] {
-            self.release_temp_local(local);
+        let schema = self.runtime_schema();
+        let span = self.emit_intl_locale_keyword_span(tag, option, function);
+        let zero = schema.reserve_i32_local(function);
+        let start = schema.reserve_i32_local(function);
+        let end = schema.reserve_i32_local(function);
+        set_i32(zero, 0, function);
+        span.key_start.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        span.unicode_start.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        span.insertion.load(function);
+        start.store(function);
+        function.instruction(&Instruction::Else);
+        span.unicode_end.load(function);
+        start.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        start.load(function);
+        end.store(function);
+        function.instruction(&Instruction::Else);
+        span.key_start.load(function);
+        start.store(function);
+        span.key_end.load(function);
+        end.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let prefix = self.emit_intl_locale_slice(tag, zero, start, function);
+        let suffix = self.emit_intl_locale_slice(tag, end, span.length, function);
+        span.unicode_start.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let u = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("-u", function)?,
+            function,
+        );
+        prefix.replace(self.emit_concat_gc_strings(&prefix, &u, function), function);
+        u.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let separator = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("-", function)?,
+            function,
+        );
+        let key = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(option.key(), function)?,
+            function,
+        );
+        prefix.replace(
+            self.emit_concat_gc_strings(&prefix, &separator, function),
+            function,
+        );
+        prefix.replace(
+            self.emit_concat_gc_strings(&prefix, &key, function),
+            function,
+        );
+        prefix.replace(
+            self.emit_concat_gc_strings(&prefix, &separator, function),
+            function,
+        );
+        prefix.replace(
+            self.emit_concat_gc_strings(&prefix, value, function),
+            function,
+        );
+        tag.replace(
+            self.emit_concat_gc_strings(&prefix, &suffix, function),
+            function,
+        );
+        key.clear(function);
+        separator.clear(function);
+        suffix.clear(function);
+        prefix.clear(function);
+        for local in [end, start, zero] {
+            schema.release_i32_local(local, function);
         }
-        result
+        span.clear(schema, function);
+        Ok(())
     }
-
     fn emit_intl_locale_validate_extension_option(
         &mut self,
         option: LocaleExtensionOption,
-        value: u32,
+        text: &GcLocal<StringValue>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let expected = self.reserve_temp_local();
-        let offset = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let byte = self.reserve_temp_local();
-        let folded = self.reserve_temp_local();
-        let subtag_length = self.reserve_temp_local();
-        let result = (|| {
-            if matches!(option, LocaleExtensionOption::FirstDayOfWeek) {
-                for (number, day) in [
-                    (0, "sun"),
-                    (1, "mon"),
-                    (2, "tue"),
-                    (3, "wed"),
-                    (4, "thu"),
-                    (5, "fri"),
-                    (6, "sat"),
-                    (7, "sun"),
-                ] {
-                    self.emit_intl_set_const(
-                        expected,
-                        self.strings.payload(&number.to_string()),
-                        function,
-                    );
-                    self.emit_string_payload_equality_i32(value, expected, function);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_intl_set_const(value, self.strings.payload(day), function);
-                    function.instruction(&Instruction::End);
-                }
+        let schema = self.runtime_schema();
+        if matches!(option, LocaleExtensionOption::FirstDayOfWeek) {
+            for (number, day) in [
+                (0, "sun"),
+                (1, "mon"),
+                (2, "tue"),
+                (3, "wed"),
+                (4, "thu"),
+                (5, "fri"),
+                (6, "sat"),
+                (7, "sun"),
+            ] {
+                let expected = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference(&number.to_string(), function)?,
+                    function,
+                );
+                self.emit_string_payload_equality_i32(text, &expected, function);
+                self.open_frame(ControlFrameKind::If, function);
+                text.replace(
+                    self.emit_interned_string_reference(day, function)?,
+                    function,
+                );
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                expected.clear(function);
             }
-            let allowed: &[&str] = match option {
-                LocaleExtensionOption::HourCycle => &["h11", "h12", "h23", "h24"],
-                LocaleExtensionOption::CaseFirst => &["upper", "lower", "false"],
-                LocaleExtensionOption::Calendar
-                | LocaleExtensionOption::Collation
-                | LocaleExtensionOption::FirstDayOfWeek
-                | LocaleExtensionOption::Numeric
-                | LocaleExtensionOption::NumberingSystem => &[],
-            };
-            if !allowed.is_empty() {
-                function.instruction(&Instruction::I32Const(0));
-                for candidate in allowed {
-                    self.emit_intl_set_const(expected, self.strings.payload(candidate), function);
-                    self.emit_string_payload_equality_i32(value, expected, function);
-                    function.instruction(&Instruction::I32Or);
-                }
-                self.emit_intl_locale_extension_option_guard(option, function)?;
-                return Ok(());
+        }
+        let allowed: &[&str] = match option {
+            LocaleExtensionOption::HourCycle => &["h11", "h12", "h23", "h24"],
+            LocaleExtensionOption::CaseFirst => &["upper", "lower", "false"],
+            LocaleExtensionOption::Calendar
+            | LocaleExtensionOption::Collation
+            | LocaleExtensionOption::FirstDayOfWeek
+            | LocaleExtensionOption::Numeric
+            | LocaleExtensionOption::NumberingSystem => &[],
+        };
+        if !allowed.is_empty() {
+            function.instruction(&Instruction::I32Const(0));
+            for candidate in allowed {
+                let expected = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference(candidate, function)?,
+                    function,
+                );
+                self.emit_string_payload_equality_i32(text, &expected, function);
+                function.instruction(&Instruction::I32Or);
+                expected.clear(function);
             }
-            self.emit_unpack_string_payload(value, offset, length, function);
-            self.emit_intl_set_const(index, 0, function);
-            self.emit_intl_set_const(subtag_length, 0, function);
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(index));
-            function.instruction(&Instruction::LocalGet(length));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::BrIf(1));
-            self.emit_load_string_byte(offset, index, byte, function);
-            function.instruction(&Instruction::LocalGet(byte));
-            function.instruction(&Instruction::I64Const(b'-' as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_intl_locale_in_range(subtag_length, 3, 8, function);
-            self.emit_intl_locale_extension_option_guard(option, function)?;
-            self.emit_intl_set_const(subtag_length, 0, function);
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(byte));
-            function.instruction(&Instruction::I64Const(32));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(folded));
-            self.emit_intl_locale_in_range(folded, b'a' as i64, b'z' as i64, function);
-            self.emit_intl_locale_in_range(byte, b'0' as i64, b'9' as i64, function);
-            function.instruction(&Instruction::I32Or);
-            self.emit_intl_locale_extension_option_guard(option, function)?;
-            self.emit_intl_add_const(subtag_length, 1, function);
-            function.instruction(&Instruction::End);
-            self.emit_intl_add_const(index, 1, function);
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            self.emit_intl_locale_in_range(subtag_length, 3, 8, function);
-            self.emit_intl_locale_extension_option_guard(option, function)?;
-            Ok(())
-        })();
-        for local in [subtag_length, folded, byte, index, length, offset, expected] {
-            self.release_temp_local(local);
+            return self.emit_intl_locale_option_guard(option.error_message(), function);
         }
-        result
-    }
-
-    fn emit_intl_locale_extension_option_guard(
-        &mut self,
-        option: LocaleExtensionOption,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            &format!("Invalid Intl.Locale {} option", option.property()),
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    // The input is a validated tag. Bounds include each extension's leading
-    // separator; private-use content is never interpreted as extension keys.
-    fn emit_intl_locale_unicode_bounds(
-        &mut self,
-        tag: u32,
-        unicode_start: u32,
-        unicode_end: u32,
-        insertion: u32,
-        function: &mut Function,
-    ) {
-        let offset = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let end = self.reserve_temp_local();
-        let byte = self.reserve_temp_local();
-        let in_unicode = self.reserve_temp_local();
-        let private = self.reserve_temp_local();
-        self.emit_unpack_string_payload(tag, offset, length, function);
-        for local in [unicode_start, in_unicode, private, index] {
-            self.emit_intl_set_const(local, 0, function);
-        }
-        for local in [unicode_end, insertion] {
-            function.instruction(&Instruction::LocalGet(length));
-            function.instruction(&Instruction::LocalSet(local));
-        }
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(length));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(private));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_intl_locale_token_end(offset, length, index, end, function);
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(in_unicode));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(unicode_end));
-        function.instruction(&Instruction::End);
-        self.emit_intl_set_const(in_unicode, 0, function);
-        self.emit_load_string_byte(offset, index, byte, function);
-        function.instruction(&Instruction::LocalGet(byte));
-        function.instruction(&Instruction::I64Const(b'u' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(unicode_start));
-        self.emit_intl_set_const(in_unicode, 1, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte));
-        function.instruction(&Instruction::I64Const(b'x' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(insertion));
-        self.emit_intl_set_const(private, 1, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        for local in [private, in_unicode, byte, end, index, length, offset] {
-            self.release_temp_local(local);
-        }
-    }
-
-    fn emit_intl_locale_token_end(
-        &mut self,
-        offset: u32,
-        limit: u32,
-        start: u32,
-        end: u32,
-        function: &mut Function,
-    ) {
-        let byte = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(start));
-        function.instruction(&Instruction::LocalSet(end));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::LocalGet(limit));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_load_string_byte(offset, end, byte, function);
-        function.instruction(&Instruction::LocalGet(byte));
-        function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_intl_add_const(end, 1, function);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(byte);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_intl_locale_keyword_span(
-        &mut self,
-        tag: u32,
-        option: LocaleExtensionOption,
-        unicode_start: u32,
-        unicode_end: u32,
-        key_start: u32,
-        key_end: u32,
-        function: &mut Function,
-    ) {
-        let offset = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        let index = self.reserve_temp_local();
-        let end = self.reserve_temp_local();
-        let byte = self.reserve_temp_local();
-        let code = self.reserve_temp_local();
-        let second = self.reserve_temp_local();
-        let selected = self.reserve_temp_local();
-        self.emit_unpack_string_payload(tag, offset, length, function);
-        self.emit_intl_set_const(key_start, 0, function);
-        self.emit_intl_set_const(key_end, 0, function);
-        self.emit_intl_set_const(selected, 0, function);
-        function.instruction(&Instruction::LocalGet(unicode_start));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(unicode_start));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::LocalGet(unicode_end));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_intl_locale_token_end(offset, unicode_end, index, end, function);
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(selected));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(key_end));
-        function.instruction(&Instruction::Br(3));
-        function.instruction(&Instruction::End);
-        self.emit_load_string_byte(offset, index, code, function);
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(second));
-        self.emit_load_string_byte(offset, second, byte, function);
-        function.instruction(&Instruction::LocalGet(code));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(byte));
-        function.instruction(&Instruction::I64Or);
-        let key = option.key().as_bytes();
-        function.instruction(&Instruction::I64Const(
-            ((key[0] as i64) << 8) | key[1] as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(key_start));
-        function.instruction(&Instruction::LocalGet(unicode_end));
-        function.instruction(&Instruction::LocalSet(key_end));
-        self.emit_intl_set_const(selected, 1, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        for local in [selected, second, code, byte, end, index, length, offset] {
-            self.release_temp_local(local);
-        }
-    }
-
-    fn emit_intl_locale_replace_keyword(
-        &mut self,
-        tag: u32,
-        option: LocaleExtensionOption,
-        value: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let unicode_start = self.reserve_temp_local();
-        let unicode_end = self.reserve_temp_local();
-        let insertion = self.reserve_temp_local();
-        let start = self.reserve_temp_local();
-        let end = self.reserve_temp_local();
-        let offset = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        let scratch = self.reserve_temp_local();
-        let size = self.reserve_temp_local();
-        let output = self.reserve_temp_local();
-        let position = self.reserve_temp_local();
-        let span = self.reserve_temp_local();
-        let separator = self.reserve_temp_local();
-        let result = (|| {
-            self.emit_intl_locale_unicode_bounds(
-                tag,
-                unicode_start,
-                unicode_end,
-                insertion,
-                function,
-            );
-            self.emit_intl_locale_keyword_span(
-                tag,
-                option,
-                unicode_start,
-                unicode_end,
-                start,
-                end,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(start));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(unicode_start));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::LocalGet(insertion));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(unicode_end));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalTee(start));
-            function.instruction(&Instruction::LocalSet(end));
-            function.instruction(&Instruction::End);
-            self.emit_unpack_string_payload(tag, offset, length, function);
-            self.emit_unpack_string_payload(value, scratch, size, function);
-            function.instruction(&Instruction::LocalGet(size));
-            function.instruction(&Instruction::LocalGet(length));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I64Const(6));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(size));
-            self.emit_heap_alloc_from_local(size, function)?;
-            function.instruction(&Instruction::LocalSet(output));
-            self.emit_intl_set_const(position, 0, function);
-            self.emit_pack_string_payload(offset, start, function);
-            function.instruction(&Instruction::LocalSet(span));
-            self.emit_intl_locale_append_payload(span, output, position, function);
-            function.instruction(&Instruction::LocalGet(unicode_start));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_intl_set_const(span, self.strings.payload("-u"), function);
-            self.emit_intl_locale_append_payload(span, output, position, function);
-            function.instruction(&Instruction::End);
-            self.emit_intl_write_separator(output, position, separator, function);
-            self.emit_intl_set_const(span, self.strings.payload(option.key()), function);
-            self.emit_intl_locale_append_payload(span, output, position, function);
-            self.emit_intl_write_separator(output, position, separator, function);
-            self.emit_intl_locale_append_payload(value, output, position, function);
-            function.instruction(&Instruction::LocalGet(offset));
-            function.instruction(&Instruction::LocalGet(end));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(scratch));
-            function.instruction(&Instruction::LocalGet(length));
-            function.instruction(&Instruction::LocalGet(end));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(size));
-            self.emit_pack_string_payload(scratch, size, function);
-            function.instruction(&Instruction::LocalSet(span));
-            self.emit_intl_locale_append_payload(span, output, position, function);
-            self.emit_pack_string_payload(output, position, function);
-            function.instruction(&Instruction::LocalSet(tag));
-            Ok(())
-        })();
-        for local in [
-            separator,
-            span,
-            position,
-            output,
-            size,
-            scratch,
-            length,
-            offset,
-            end,
-            start,
-            insertion,
-            unicode_end,
-            unicode_start,
-        ] {
-            self.release_temp_local(local);
-        }
-        result
-    }
-
-    fn emit_intl_locale_extension_value(
-        &mut self,
-        tag: u32,
-        option: LocaleExtensionOption,
-        value: u32,
-        function: &mut Function,
-    ) {
-        let unicode_start = self.reserve_temp_local();
-        let unicode_end = self.reserve_temp_local();
-        let insertion = self.reserve_temp_local();
-        let start = self.reserve_temp_local();
-        let end = self.reserve_temp_local();
-        let offset = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        self.emit_intl_locale_unicode_bounds(tag, unicode_start, unicode_end, insertion, function);
-        self.emit_intl_locale_keyword_span(
-            tag,
-            option,
-            unicode_start,
-            unicode_end,
-            start,
-            end,
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(text, schema, function)
+                .reference(),
             function,
         );
-        self.emit_intl_set_const(value, 0, function);
-        function.instruction(&Instruction::LocalGet(start));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_unpack_string_payload(tag, offset, length, function);
-        self.emit_intl_add_const(start, 3, function);
-        function.instruction(&Instruction::LocalGet(start));
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_intl_add_const(start, 1, function);
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let end = schema.reserve_i32_local(function);
+        let unit = schema.reserve_i32_local(function);
+        let folded = schema.reserve_i32_local(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        length.store(function);
+        set_i32(index, 0, function);
+        length.load(function);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::I32GtU);
+        self.emit_intl_locale_option_guard(option.error_message(), function)?;
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_intl_locale_token_end(&units, length, index, end, function);
+        end.load(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Sub);
+        unit.store(function);
+        self.emit_intl_locale_range(unit, 3, 8, function);
+        self.emit_intl_locale_option_guard(option.error_message(), function)?;
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        end.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, index, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        function.instruction(&Instruction::I32Const(32));
+        function.instruction(&Instruction::I32Or);
+        folded.store(function);
+        self.emit_intl_locale_range(folded, b'a' as i32, b'z' as i32, function);
+        self.emit_intl_locale_range(unit, b'0' as i32, b'9' as i32, function);
+        function.instruction(&Instruction::I32Or);
+        self.emit_intl_locale_option_guard(option.error_message(), function)?;
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(offset));
-        function.instruction(&Instruction::LocalGet(start));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(offset));
-        function.instruction(&Instruction::LocalGet(end));
-        function.instruction(&Instruction::LocalGet(start));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(length));
-        self.emit_pack_string_payload(offset, length, function);
-        function.instruction(&Instruction::LocalSet(value));
         function.instruction(&Instruction::End);
-        for local in [
-            length,
-            offset,
-            end,
-            start,
-            insertion,
-            unicode_end,
-            unicode_start,
-        ] {
-            self.release_temp_local(local);
+        end.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::BrIf(1));
+        end.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32LtU);
+        self.emit_intl_locale_option_guard(option.error_message(), function)?;
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        for local in [folded, unit, end, index, length] {
+            schema.release_i32_local(local, function);
         }
+        units.clear(function);
+        Ok(())
     }
-
+    pub(super) fn emit_intl_locale_extension_options(
+        &mut self,
+        options: &CoercedIntlLocaleOptions,
+        tag: GcLocal<StringValue>,
+        function: &mut Function,
+    ) -> Result<GcLocal<StringValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        for option in LocaleExtensionOption::ORDERED {
+            self.emit_intl_number_get_option(
+                options.receiver(),
+                option.property(),
+                &value,
+                function,
+            )?;
+            emit_tag_is(&value, WasmRuntimeValueTag::Undefined, function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            let text = if matches!(option, LocaleExtensionOption::Numeric) {
+                let text = schema
+                    .reserve_gc_local::<StringValue, Nullable>(function)
+                    .initialize_null(schema, function);
+                self.compile_truthy_tagged_i32(&value, function)?;
+                self.open_frame(ControlFrameKind::If, function);
+                text.replace(
+                    self.emit_interned_string_reference("true", function)?
+                        .nullable(),
+                    function,
+                );
+                function.instruction(&Instruction::Else);
+                text.replace(
+                    self.emit_interned_string_reference("false", function)?
+                        .nullable(),
+                    function,
+                );
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                let result = schema.reserve_gc_local(function).initialize(
+                    text.load(schema, function).require_non_null(function),
+                    function,
+                );
+                text.clear(function);
+                result
+            } else {
+                let text = self.emit_intl_number_to_string(&value, function)?;
+                self.emit_intl_locale_validate_extension_option(option, &text, function)?;
+                text
+            };
+            self.emit_intl_locale_replace_keyword(&tag, option, &text, function)?;
+            text.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        value.clear(function);
+        Ok(tag)
+    }
     fn emit_intl_locale_extension_getter(
         &mut self,
         option: LocaleExtensionOption,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        let expected = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        self.emit_intl_locale_record_from_receiver(record, function)?;
-        self.load_i64_to_local_from_offset(record, HEAP_INTL_LOCALE_TAG_OFFSET, tag, function);
-        self.emit_intl_locale_extension_value(tag, option, value, function);
+        let schema = self.runtime_schema();
+        let record = self.emit_intl_locale_record_from_receiver(function)?;
+        let tag = self.emit_intl_locale_tag(&record, function);
+        let text = self.emit_intl_locale_extension_value(&tag, option, function);
+        let output = schema.reserve_value_local(function);
+        self.emit_intl_locale_optional_string(&text, &output, function);
         if matches!(option, LocaleExtensionOption::Numeric) {
-            self.emit_intl_set_const(self.result_local, 0, function);
-            self.emit_intl_set_const(
-                self.result_tag_local,
-                ValueKind::Boolean.tag() as i64,
+            text.load(schema, function).is_null(function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            let selected = schema.reserve_gc_local(function).initialize(
+                text.load(schema, function).require_non_null(function),
                 function,
             );
-            function.instruction(&Instruction::LocalGet(value));
-            function.instruction(&Instruction::I64Eqz);
+            let expected = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference("true", function)?,
+                function,
+            );
+            self.emit_string_payload_equality_i32(&selected, &expected, function);
+            let length = schema.reserve_i32_local(function);
+            let units = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StringValue>()
+                    .field(StringValueSchema::CODE_UNITS)
+                    .read(&selected, schema, function)
+                    .reference(),
+                function,
+            );
+            schema
+                .array_type::<CodeUnitArray>()
+                .length(&units, schema, function);
+            length.store(function);
+            units.clear(function);
+            length.load(function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_unpack_string_payload(value, expected, length, function);
-            function.instruction(&Instruction::LocalGet(length));
-            function.instruction(&Instruction::I64Eqz);
-            self.emit_intl_set_const(expected, self.strings.payload("true"), function);
-            self.emit_string_payload_equality_i32(value, expected, function);
             function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(self.result_local));
+            length.store(function);
+            output.set_boolean(length, function);
+            schema.release_i32_local(length, function);
+            expected.clear(function);
+            selected.clear(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-        } else {
-            self.emit_intl_locale_optional_string_result(value, function);
         }
-        for local in [length, expected, value, tag, record] {
-            self.release_temp_local(local);
-        }
+        self.completion().initialize(function);
+        self.completion().value().copy_from(&output, function);
+        output.clear(function);
+        text.clear(function);
+        tag.clear(function);
+        record.clear(function);
         Ok(())
     }
-
-    fn emit_intl_locale_optional_string_result(&mut self, value: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(value));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_intl_locale_variants_payload(
-        &mut self,
-        tag: u32,
-        language: u32,
-        script: u32,
-        region: u32,
-        base_name: u32,
-        value: u32,
-        function: &mut Function,
-    ) {
-        let prefix = self.reserve_temp_local();
-        let offset = self.reserve_temp_local();
-        let length = self.reserve_temp_local();
-        let base_length = self.reserve_temp_local();
-        self.emit_intl_locale_prefix_length(
-            language, script, region, prefix, offset, length, function,
-        );
-        self.emit_unpack_string_payload(base_name, offset, base_length, function);
-        self.emit_intl_set_const(value, 0, function);
-        function.instruction(&Instruction::LocalGet(base_length));
-        function.instruction(&Instruction::LocalGet(prefix));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_intl_add_const(prefix, 1, function);
-        self.emit_unpack_string_payload(tag, offset, length, function);
-        function.instruction(&Instruction::LocalGet(offset));
-        function.instruction(&Instruction::LocalGet(prefix));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(offset));
-        function.instruction(&Instruction::LocalGet(base_length));
-        function.instruction(&Instruction::LocalGet(prefix));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(length));
-        self.emit_pack_string_payload(offset, length, function);
-        function.instruction(&Instruction::LocalSet(value));
-        function.instruction(&Instruction::End);
-        for local in [base_length, length, offset, prefix] {
-            self.release_temp_local(local);
-        }
-    }
-
     pub(in crate::builtins) fn emit_intl_locale_variants_getter_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        let language = self.reserve_temp_local();
-        let script = self.reserve_temp_local();
-        let region = self.reserve_temp_local();
-        let base_name = self.reserve_temp_local();
-        let value = self.reserve_temp_local();
-        self.emit_intl_locale_record_from_receiver(record, function)?;
-        for (offset, local) in [
-            (HEAP_INTL_LOCALE_TAG_OFFSET, tag),
-            (HEAP_INTL_LOCALE_LANGUAGE_OFFSET, language),
-            (HEAP_INTL_LOCALE_SCRIPT_OFFSET, script),
-            (HEAP_INTL_LOCALE_REGION_OFFSET, region),
-            (HEAP_INTL_LOCALE_BASE_NAME_OFFSET, base_name),
-        ] {
-            self.load_i64_to_local_from_offset(record, offset, local, function);
-        }
-        self.emit_intl_locale_variants_payload(
-            tag, language, script, region, base_name, value, function,
-        );
-        self.emit_intl_locale_optional_string_result(value, function);
-        for local in [value, base_name, region, script, language, tag, record] {
-            self.release_temp_local(local);
-        }
+        let record = self.emit_intl_locale_record_from_receiver(function)?;
+        let tag = self.emit_intl_locale_tag(&record, function);
+        let components = self.emit_intl_locale_components(tag, function)?;
+        let schema = self.runtime_schema();
+        let output = schema.reserve_value_local(function);
+        self.emit_intl_locale_optional_string(&components.variants, &output, function);
+        self.completion().initialize(function);
+        self.completion().value().copy_from(&output, function);
+        output.clear(function);
+        components.clear(function);
+        record.clear(function);
         Ok(())
     }
-
     pub(in crate::builtins) fn emit_intl_locale_calendar_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::Calendar, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::Calendar, f)
     }
-
     pub(in crate::builtins) fn emit_intl_locale_collation_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::Collation, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::Collation, f)
     }
-
     pub(in crate::builtins) fn emit_intl_locale_first_day_of_week_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::FirstDayOfWeek, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::FirstDayOfWeek, f)
     }
-
     pub(in crate::builtins) fn emit_intl_locale_hour_cycle_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::HourCycle, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::HourCycle, f)
     }
-
     pub(in crate::builtins) fn emit_intl_locale_case_first_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::CaseFirst, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::CaseFirst, f)
     }
-
     pub(in crate::builtins) fn emit_intl_locale_numeric_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::Numeric, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::Numeric, f)
     }
-
     pub(in crate::builtins) fn emit_intl_locale_numbering_system_getter_builtin(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_locale_extension_getter(LocaleExtensionOption::NumberingSystem, function)
+        self.emit_intl_locale_extension_getter(LocaleExtensionOption::NumberingSystem, f)
     }
 }

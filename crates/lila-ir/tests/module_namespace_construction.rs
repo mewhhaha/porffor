@@ -34,6 +34,7 @@ fn graph(files: &[(&str, &str)], entry_goal: ParseGoal) -> ScriptIr {
         }
     }
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions,

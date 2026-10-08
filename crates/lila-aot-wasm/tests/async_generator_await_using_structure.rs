@@ -1,12 +1,15 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
-const LOWERING_HELPERS_SOURCE: &str = include_str!("../../lila-ir/src/lowering_helpers.rs");
-const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
+const ALLOCATOR_SOURCE: &str =
+    include_str!("../../lila-ir/src/async_generator_source/allocator.rs");
+const STATEMENT_SOURCE: &str =
+    include_str!("../../lila-ir/src/async_generator_source/statement.rs");
+const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/tests/resource_disposal.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
-const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
+const ADMISSION_SOURCE: &str = include_str!("../src/emit/async_generator_admission.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_await_using_async_generator_lifecycle.js");
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/resource_management.rs");
@@ -169,12 +172,10 @@ fn lowering_mints_the_async_generator_owner_before_initializers_and_finalizes_on
     positions_in_order(
         allocate_finalizer,
         &[
-            "let dispose_state = self",
-            "let resume_state = dispose_state",
-            "let exit_state = resume_state",
-            "self.current_async_resume_state = Some(exit_state)",
-            "self.current_generator_resume_state = Some(exit_state)",
-            "AsyncDisposableFinalizerPlanIr::new(entry_state, dispose_state, resume_state, exit_state)",
+            "let suffix_end = self",
+            "AsyncDisposableFinalizerPlanIr::after_source_suffix(entry_state, suffix_end)",
+            "self.current_async_resume_state = Some(finalizer.exit_state())",
+            "self.current_generator_resume_state = Some(finalizer.exit_state())",
         ],
     );
     assert!(IR_TEST_SOURCE
@@ -196,33 +197,33 @@ fn lowering_mints_the_async_generator_owner_before_initializers_and_finalizes_on
             "assert_eq!(inner.finalizer().exit_state(), 4)",
         ],
     );
-    assert!(IR_TEST_SOURCE.contains("$async.generator.await.dispose.capability."));
+    assert!(IR_TEST_SOURCE.contains(".filter(|binding| binding.name == capability.binding_name())"));
+    assert!(IR_TEST_SOURCE
+        .contains("each async-generator async-dispose capability must own one activation slot"));
 
-    let allocator = bounded(
-        LOWERING_HELPERS_SOURCE,
-        "struct ResumableStateAllocator {",
-        "struct AsyncGeneratorSuspensionCollector",
-    );
     positions_in_order(
-        allocator,
+        ALLOCATOR_SOURCE,
         &[
-            "fn reserve_async_disposable_finalizer(&mut self)",
-            "0..AsyncDisposableFinalizerPlanIr::IMPLICIT_STATE_COUNT",
-            "self.reserve()",
+            "fn reserve_async_disposable_finalizer(",
+            "self.reserve_resource_finalizer(self.current_state)",
+            "self.finish_resource_finalizer(entry, self.current_state)",
+            "AsyncDisposableFinalizerPlanIr::after_source_suffix(entry, end)",
+            "self.enclosing_scope_resume_states.push(plan.resume_state())",
+            "self.current_state = plan.exit_state()",
         ],
     );
     let collector = bounded(
-        LOWERING_HELPERS_SOURCE,
-        "impl<'ast> Visitor<'ast> for AsyncGeneratorSuspensionCollector",
-        "fn async_generator_await_using_is_admitted",
+        STATEMENT_SOURCE,
+        "pub(super) fn append_items(",
+        "pub(super) fn append_item(",
     );
     positions_in_order(
         collector,
         &[
-            "let async_disposable_scope_count = statement_list",
-            "self.visit_statement_list_item(item)",
+            "let mut async_disposable_scope_count = 0",
+            "visitor.visit_statement_list_item(item)",
             "0..async_disposable_scope_count",
-            "self.states.reserve_async_disposable_finalizer()",
+            "states.reserve_async_disposable_finalizer()?",
         ],
     );
 }
@@ -240,24 +241,21 @@ fn backend_owner_selects_layout_and_scope_compilation_exhaustively() {
     for marker in [
         "AsyncFunction(&'a AsyncFunctionAsyncDisposableCapabilityIr)",
         "AsyncFunctionForOf(&'a AsyncFunctionAsyncDisposableForOfCapabilityIr)",
+        "AsyncCompleteIterator(&'a AsyncGeneratorAsyncDisposableCapabilityIr)",
         "AsyncGenerator(&'a AsyncGeneratorAsyncDisposableCapabilityIr)",
         "fn from_execution(execution: &'a AsyncDisposableScopeExecutionIr)",
         "AsyncDisposableScopeExecutionIr::AsyncFunction(capability)",
         "AsyncDisposableScopeExecutionIr::AsyncGenerator(capability)",
         "Self::AsyncFunction(capability) => capability.binding_name()",
         "Self::AsyncFunctionForOf(capability) => capability.binding_name()",
+        "Self::AsyncCompleteIterator(capability) => capability.binding_name()",
         "Self::AsyncGenerator(capability) => capability.binding_name()",
         "Self::AsyncFunction(capability) => capability.finalizer()",
         "Self::AsyncFunctionForOf(capability) => capability.finalizer()",
+        "Self::AsyncCompleteIterator(capability) => capability.finalizer()",
         "Self::AsyncGenerator(capability) => capability.finalizer()",
-        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => FunctionExecutionKind::Async",
+        "Self::AsyncFunction(_)\n            | Self::AsyncFunctionForOf(_)\n            | Self::AsyncCompleteIterator(_) => FunctionExecutionKind::Async",
         "Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator",
-        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_STATE_OFFSET",
-        "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET",
-        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => {\n                HEAP_ASYNC_RESUME_PAYLOAD_OFFSET",
-        "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET",
-        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_TAG_OFFSET",
-        "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET",
     ] {
         assert!(owner.contains(marker), "{marker}");
     }
@@ -274,15 +272,12 @@ fn backend_owner_selects_layout_and_scope_compilation_exhaustively() {
         compile,
         &[
             "ActivationAsyncDisposeOwner::from_execution(execution)",
-            "meta.protocol.execution_kind() == owner.execution_kind()",
+            "meta.protocol().execution_kind() == owner.execution_kind()",
             "activation_owned_binding_storage(owner.binding_name())",
             "let finalizer = owner.finalizer()",
-            "let resume_state_offset = owner.resume_state_offset()",
             "finalizer.entry_state()",
             "finalizer.exit_state()",
             "initialize_activation_async_dispose_capability",
-            "compile_async_block_contents(",
-            "resume_state_offset",
             "begin_async_dispose_pending_completion",
             "begin_activation_async_dispose_capability",
             "consume_activation_async_dispose_capability(\n            &owner",
@@ -295,117 +290,6 @@ fn backend_owner_selects_layout_and_scope_compilation_exhaustively() {
 
 #[test]
 fn backend_walker_awaits_and_dispatches_through_the_selected_owner() {
-    let statement_sequence = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn compile_async_statement_sequence(",
-        "fn async_await_resume_state_offset(",
-    );
-    positions_in_order(
-        statement_sequence,
-        &[
-            "let statement_entry_state = Self::async_statement_entry_state(statement)",
-            "assert_eq!(",
-            "segment_state, statement_entry_state",
-            "resumable statement entry must continue the preceding segment exit",
-            "self.compile_statement(statement, function)",
-            "segment_state = exit_state",
-        ],
-    );
-
-    let load_resume = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn emit_load_activation_async_dispose_resume_is_throw(",
-        "fn emit_activation_async_dispose_await_reactions(",
-    );
-    for marker in [
-        "ActivationAsyncDisposeOwner::AsyncFunction(_)",
-        "emit_load_async_function_resume_is_throw",
-        "ActivationAsyncDisposeOwner::AsyncGenerator(_)",
-        "emit_load_async_generator_resume_kind_strict",
-        "AsyncGeneratorResumeKind::Fulfill",
-        "AsyncGeneratorResumeKind::Reject",
-        "Instruction::Unreachable",
-        "release_loaded_async_generator_resume_kind",
-    ] {
-        assert!(load_resume.contains(marker), "{marker}");
-    }
-    assert!(!load_resume.contains("_ =>"));
-
-    let await_reactions = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn emit_activation_async_dispose_await_reactions(",
-        "fn consume_activation_async_dispose_capability(",
-    );
-    positions_in_order(
-        await_reactions,
-        &[
-            "ActivationAsyncDisposeOwner::AsyncFunction(_)",
-            "emit_async_await_reactions",
-            "ActivationAsyncDisposeOwner::AsyncGenerator(_)",
-            "emit_async_generator_await_reactions",
-            "emit_store_async_generator_body_status",
-            "AsyncGeneratorBodyStatus::Await",
-            "emit_store_async_generator_execution_state",
-            "AsyncGeneratorExecutionState::Executing",
-        ],
-    );
-    assert!(!await_reactions.contains("_ =>"));
-
-    let consume = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn consume_activation_async_dispose_capability(",
-        "fn finish_async_dispose_pending_completion(",
-    );
-    positions_in_order(
-        consume,
-        &[
-            "owner.resume_state_offset()",
-            "finalizer.resume_state()",
-            "emit_load_activation_async_dispose_resume_is_throw",
-            "owner.resume_payload_offset()",
-            "owner.resume_tag_offset()",
-            "fold_error_into_async_dispose_pending_completion",
-            "finalizer.dispose_state()",
-            "Instruction::I64Sub",
-            "for entry_kind in ActivationAsyncDisposeEntryKind::ALL",
-            "ActivationAsyncDisposeEntryKind::Empty => {}",
-            "ActivationAsyncDisposeEntryKind::AsyncMethod =>",
-            "ActivationAsyncDisposeEntryKind::SyncFallbackMethod =>",
-            "emit_rejected_intrinsic_promise_from_error",
-            "emit_set_async_resume_state(activation_local, finalizer.resume_state()",
-            "emit_activation_async_dispose_await_reactions",
-            "emit_return_current_completion",
-            "ActivationAsyncDisposeCapabilityState::Disposed.word()",
-            "finish_async_dispose_pending_completion",
-            "finalizer.exit_state()",
-            "emit_dispatch_activation_async_dispose_completion",
-        ],
-    );
-    assert_eq!(
-        consume
-            .matches("for entry_kind in ActivationAsyncDisposeEntryKind::ALL")
-            .count(),
-        1
-    );
-    assert!(!consume.contains("_ =>"));
-
-    let dispatch = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn emit_dispatch_activation_async_dispose_completion(",
-        "fn consume_activation_async_dispose_capability(",
-    );
-    positions_in_order(
-        dispatch,
-        &[
-            "ActivationAsyncDisposeOwner::AsyncFunction(_)",
-            "emit_dispatch_current_completion",
-            "ActivationAsyncDisposeOwner::AsyncGenerator(_)",
-            "emit_dispatch_async_generator_completion",
-            "Ok(())",
-        ],
-    );
-    assert!(!dispatch.contains("_ =>"));
-
     let suspension = bounded(
         EMIT_SOURCE,
         "fn async_generator_contains_suspension(",
@@ -422,34 +306,17 @@ fn backend_walker_awaits_and_dispatches_through_the_selected_owner() {
             "=> false",
         ],
     );
-    let preflight = bounded(
-        EMIT_SOURCE,
-        "fn async_generator_dispatcher_unsupported_feature(",
-        "fn async_generator_for_await_is_transparent_yield(",
-    );
+    let preflight = ADMISSION_SOURCE;
     positions_in_order(
         preflight,
         &[
             "AsyncDisposableScopeExecutionIr::AsyncGenerator(_)",
-            "find_map(async_generator_dispatcher_unsupported_feature)",
+            "find_map(visit)",
             "AsyncDisposableScopeExecutionIr::AsyncFunction(_)",
             "await using scope with a mismatched execution owner",
         ],
     );
 
-    let planning = bounded(
-        PLANNING_SOURCE,
-        "fn count_async_disposable_scope_temp_locals(",
-        "pub(crate) fn count_expr_temp_locals(",
-    );
-    for marker in [
-        "ACTIVATION_ASYNC_DISPOSE_ACTIVE_TEMP_LOCALS",
-        "ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS",
-        "ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS",
-        "acquisition_peak.max(disposal_peak).max(body_temps)",
-    ] {
-        assert!(planning.contains(marker));
-    }
     let state = bounded(
         HEAP_SOURCE,
         "pub(crate) enum ActivationAsyncDisposeCapabilityState",

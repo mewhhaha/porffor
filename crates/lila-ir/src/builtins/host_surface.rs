@@ -69,8 +69,8 @@ mod tests {
 
     #[test]
     fn policy_is_the_authority_for_test262_globals() {
-        assert_eq!(HostBuiltinId::ALL.len(), 23);
-        assert_eq!(HostBuiltinId::global_builtins().count(), 18);
+        assert_eq!(HostBuiltinId::ALL.len(), 24);
+        assert_eq!(HostBuiltinId::global_builtins().count(), 19);
         assert_eq!(
             HostBuiltinId::ALL
                 .iter()
@@ -100,6 +100,16 @@ mod tests {
         assert_eq!(
             HostSurfacePolicy::Test262.resolve_global(HostBuiltinId::CreateRealm.as_str()),
             Some(HostBuiltinId::CreateRealm)
+        );
+        assert_eq!(
+            HostSurfacePolicy::Product
+                .resolve_global(HostBuiltinId::GetAbstractModuleSource.as_str()),
+            None
+        );
+        assert_eq!(
+            HostSurfacePolicy::Test262
+                .resolve_global(HostBuiltinId::GetAbstractModuleSource.as_str()),
+            Some(HostBuiltinId::GetAbstractModuleSource)
         );
         for builtin in [
             HostBuiltinId::HTMLDDA,

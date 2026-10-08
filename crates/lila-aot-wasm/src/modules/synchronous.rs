@@ -1,7 +1,6 @@
-//! Private module records own canonical resumable activations and environment cells.
+//! Private module activations publish canonical environments before import links.
 
 use super::*;
-use crate::objects::TaggedLocals;
 use lila_ir::{
     DeferredModuleEvaluationIr, ModuleActivationKindIr, ModuleCellIr, ModuleEvaluationIr,
     ModuleExecutionGraphIr, ModuleImportBindingIr, ModuleNamespaceModeIr, ModuleRequestPhaseIr,
@@ -23,54 +22,137 @@ pub(crate) fn module_execution_record_count(script: &ScriptIr) -> u32 {
 }
 
 impl FunctionBuilder<'_> {
+    pub(crate) fn json_module_realm(
+        &mut self,
+        plan: &lila_ir::JsonModuleValueIr,
+        function: &mut Function,
+    ) -> Result<GcLocal<RealmRecord>, EmitError> {
+        if !self
+            .function_id
+            .as_ref()
+            .and_then(|id| self.functions.get(id))
+            .is_some_and(|owner| owner.protocol() == FunctionProtocolIr::ModuleActivation)
+        {
+            return Err(EmitError::unsupported(
+                "JSON evaluation requires its private module activation",
+            ));
+        }
+        let schema = self.runtime_schema();
+        let record = self.module_record_local(plan.module(), function)?;
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::REALM)
+                .read(&record, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        record.clear(function);
+        Ok(realm)
+    }
+
     pub(super) fn module_record_local(
         &mut self,
         module: u32,
         function: &mut Function,
-    ) -> Result<u32, EmitError> {
+    ) -> Result<GcLocal<ModuleRecord>, EmitError> {
+        let realm = self.load_current_realm(function);
+        let record = self.module_record_in_realm(module, &realm, function)?;
+        realm.clear(function);
+        Ok(record)
+    }
+
+    pub(crate) fn module_record_in_realm(
+        &mut self,
+        module: u32,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> Result<GcLocal<ModuleRecord>, EmitError> {
         if module >= self.functions.module_execution_record_count() {
             return Err(EmitError::unsupported(
                 "private module operation requires its validated execution graph",
             ));
         }
-        let record = self.reserve_temp_local();
-        let index = GLOBAL_INDEX_REGISTRY.len() as u32
-            + self.strings.template_objects.len() as u32
-            + self.functions.module_unit_guard_count()
-            + module;
-        function.instruction(&Instruction::GlobalGet(index));
-        function.instruction(&Instruction::LocalSet(record));
+        let schema = self.runtime_schema();
+        let records = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<RealmRecord>()
+                .field(RealmRecordSchema::MODULES)
+                .read(realm, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        let index = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(module as i32));
+        index.store(function);
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleRegistry>()
+                .read(&records, index, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        schema.release_i32_local(index, function);
+        records.clear(function);
         Ok(record)
     }
 
-    fn module_namespace_cell_offset(mode: ModuleNamespaceModeIr) -> u64 {
-        match mode {
-            ModuleNamespaceModeIr::Eager => MODULE_NAMESPACE_CELL_OFFSET,
-            ModuleNamespaceModeIr::Deferred => MODULE_DEFERRED_NAMESPACE_CELL_OFFSET,
-        }
+    pub(super) fn module_namespace_cell(
+        &self,
+        record: &GcLocal<ModuleRecord>,
+        mode: ModuleNamespaceModeIr,
+        function: &mut Function,
+    ) -> GcLocal<BindingCell> {
+        let schema = self.runtime_schema();
+        let field = match mode {
+            ModuleNamespaceModeIr::Eager => ModuleRecordSchema::NAMESPACE_CELL,
+            ModuleNamespaceModeIr::Deferred => ModuleRecordSchema::DEFERRED_NAMESPACE_CELL,
+        };
+        schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(field)
+                .read(record, schema, function)
+                .reference(),
+            function,
+        )
     }
 
-    fn module_cell_address(
+    fn module_cell(
         &mut self,
         target: &ModuleCellIr,
         function: &mut Function,
-    ) -> Result<u32, EmitError> {
-        let (module, offset) = match target {
-            ModuleCellIr::Binding { module, slot } => {
-                (*module, ENV_SLOT_BASE_OFFSET + *slot as u64 * ENV_SLOT_SIZE)
-            }
-            ModuleCellIr::Namespace { module, mode } => {
-                (*module, Self::module_namespace_cell_offset(*mode))
+    ) -> Result<GcLocal<BindingCell>, EmitError> {
+        let module = match target {
+            ModuleCellIr::Binding { module, .. } | ModuleCellIr::Namespace { module, .. } => {
+                *module
             }
         };
-        let cell = self.module_record_local(module, function)?;
-        if matches!(target, ModuleCellIr::Binding { .. }) {
-            self.load_i64_to_local_from_offset(cell, MODULE_ENVIRONMENT_OFFSET, cell, function);
-        }
-        function.instruction(&Instruction::LocalGet(cell));
-        function.instruction(&Instruction::I64Const(offset as i64));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cell));
+        let schema = self.runtime_schema();
+        let record = self.module_record_local(module, function)?;
+        let cell = match target {
+            ModuleCellIr::Binding { slot, .. } => {
+                let environment = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<ModuleRecord>()
+                        .field(ModuleRecordSchema::ENVIRONMENT)
+                        .read(&record, schema, function)
+                        .reference()
+                        .require_non_null(function),
+                    function,
+                );
+                let cell = self.emit_environment_cell_local(&environment, *slot, function);
+                environment.clear(function);
+                cell
+            }
+            ModuleCellIr::Namespace { mode, .. } => {
+                self.module_namespace_cell(&record, *mode, function)
+            }
+        };
+        record.clear(function);
         Ok(cell)
     }
 
@@ -82,35 +164,39 @@ impl FunctionBuilder<'_> {
         let slot = self
             .owned_env_slot(&import.name)
             .ok_or_else(|| EmitError::unsupported("module import must own an environment slot"))?;
-        let cell = self.module_cell_address(&import.target, function)?;
-        self.emit_initialize_indirect_binding(slot, cell, function);
-        self.release_temp_local(cell);
+        let cell = self.module_cell(&import.target, function)?;
+        self.emit_initialize_indirect_binding(slot, &cell, function);
+        cell.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_module_binding_read(
         &mut self,
         target: &ModuleCellIr,
-        payload: u32,
-        tag: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let cell = self.module_cell_address(target, function)?;
-        self.emit_read_environment_cell(cell, payload, tag, function);
-        self.release_temp_local(cell);
-        function.instruction(&Instruction::LocalGet(tag));
-        function.instruction(&Instruction::I64Const(ENV_SLOT_UNINITIALIZED_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let cell = self.module_cell(target, function)?;
+        let initialized = self.emit_read_environment_cell(&cell, output, function);
+        cell.clear(function);
+        initialized.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        schema.release_i32_local(initialized, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let pending = schema.reserve_completion(function);
         self.emit_throw_runtime_error(
-            "ReferenceError",
-            "module binding accessed before initialization",
-            payload,
-            tag,
+            NativeErrorKind::ReferenceError,
+            RuntimeErrorMessage::MODULE_BINDING_ACCESSED_BEFORE_INITIALIZATION,
+            &pending,
             function,
         )?;
+        self.completion().copy_from(&pending, function);
+        pending.clear(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed(payload, tag, function)
+        Ok(())
     }
 
     pub(crate) fn emit_module_namespace_publish(
@@ -120,66 +206,131 @@ impl FunctionBuilder<'_> {
         namespace: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        self.compile_expr_to_locals(namespace, value.payload, value.tag, function)?;
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        self.compile_expr_to_value(namespace, &value, function)?;
         let record = self.module_record_local(module, function)?;
-        let offset = Self::module_namespace_cell_offset(mode);
-        self.store_i64_local_at_offset(record, offset + ENV_SLOT_TAG_OFFSET, value.tag, function);
-        self.store_i64_local_at_offset(
-            record,
-            offset + ENV_SLOT_PAYLOAD_OFFSET,
-            value.payload,
-            function,
-        );
-        self.release_temp_local(record);
-        self.release_temp_local(value.tag);
-        self.release_temp_local(value.payload);
-        function.instruction(&Instruction::I64Const(0));
+        let cell = self.module_namespace_cell(&record, mode, function);
+        self.emit_initialize_environment_cell(&cell, &value, function);
+        cell.clear(function);
+        record.clear(function);
+        value.clear(function);
         Ok(())
     }
 
     pub(super) fn emit_private_module_resume(
         &mut self,
-        record: u32,
-        result: TaggedLocals,
+        record: &GcLocal<ModuleRecord>,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let generator = self.reserve_temp_local();
-        let generator_tag = self.reserve_temp_local();
-        let callee = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        self.load_i64_to_local_from_offset(record, MODULE_ACTIVATION_OFFSET, generator, function);
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(generator_tag));
-        self.compile_expr_to_locals(
-            &TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Function),
-                ExprIr::FunctionValue(StandardBuiltinId::GeneratorPrototypeNext.function_id()),
-            ),
-            callee.payload,
-            callee.tag,
+        let schema = self.runtime_schema();
+        let activation = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::GENERATOR)
+                .read(record, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
-        )?;
-        self.emit_function_handle_call_without_throw_propagation(
-            callee.payload,
-            callee.tag,
-            Some((generator, Some(generator_tag))),
-            &[],
-            result.payload,
-            result.tag,
+        );
+        schema
+            .struct_type::<GeneratorActivation>()
+            .field(GeneratorActivationSchema::STATUS)
+            .write(
+                &activation,
+                GcOperand::constant(GeneratorState::Executing),
+                schema,
+                function,
+            );
+        self.emit_saved_generator_body_call(&activation, result, function);
+        // The body publishes suspension in its actual activation. Completion
+        // targets belong to Break/Continue and cannot carry a resume point.
+        let state = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<GeneratorActivation>()
+            .field(GeneratorActivationSchema::STATUS)
+            .read(&activation, schema, function)
+            .store(state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            GeneratorState::SuspendedYield,
+        )));
+        function.instruction(&Instruction::I32Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        schema
+            .struct_type::<GeneratorActivation>()
+            .field(GeneratorActivationSchema::STATUS)
+            .write(
+                &activation,
+                GcOperand::constant(GeneratorState::Completed),
+                schema,
+                function,
+            );
+        let frame = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<GeneratorActivation>()
+                .field(GeneratorActivationSchema::FRAME)
+                .read(&activation, schema, function)
+                .reference(),
             function,
-        )?;
-        self.release_temp_local(callee.tag);
-        self.release_temp_local(callee.payload);
-        self.release_temp_local(generator_tag);
-        self.release_temp_local(generator);
+        );
+        let retired = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<PrivateArgumentListTable>()
+                .fixed(std::iter::empty(), function),
+            function,
+        );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PRIVATE_ARGUMENT_LISTS)
+            .write(
+                &frame,
+                GcOperand::reference(&retired, schema),
+                schema,
+                function,
+            );
+        retired.clear(function);
+        frame.clear(function);
+        function.instruction(&Instruction::Else);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        schema
+            .struct_type::<GeneratorActivation>()
+            .field(GeneratorActivationSchema::RESUME_POINT)
+            .read(&activation, schema, function)
+            .store(state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(state, function);
+        activation.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_module_execution_graph(
         &mut self,
         graph: &ModuleExecutionGraphIr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if graph.initializer().is_some() {
+            let schema = self.runtime_schema();
+            let realm = self.load_current_realm(function);
+            let pending = schema.reserve_completion(function);
+            self.emit_module_initialize_in_realm(&realm, &pending, function)?;
+            self.completion().copy_from(&pending, function);
+            output.copy_from(pending.value(), function);
+            pending.clear(function);
+            realm.clear(function);
+            self.emit_propagate_current_throw_if_needed(function);
+            return Ok(());
+        }
         for activation in graph.activations() {
             let expected = match activation.kind() {
                 ModuleActivationKindIr::Synchronous => FunctionProtocolIr::ModuleActivation,
@@ -188,380 +339,459 @@ impl FunctionBuilder<'_> {
             if !self
                 .functions
                 .get(activation.function())
-                .is_some_and(|owner| owner.protocol == expected)
+                .is_some_and(|owner| owner.protocol() == expected)
             {
                 return Err(EmitError::unsupported(
                     "module activation requires its matching private function protocol",
                 ));
             }
         }
-        let graph_record = self.reserve_temp_local();
-        let records = self.reserve_temp_local();
-        let record = self.reserve_temp_local();
-        let requests = self.reserve_temp_local();
-        let env = self.reserve_temp_local();
-        let table = self.reserve_temp_local();
-        let zero = self.reserve_temp_local();
-        let undefined = self.reserve_temp_local();
-        let promise = self.reserve_temp_local();
-        let promise_record = self.reserve_temp_local();
-        let callee = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        let result = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined));
-        self.emit_heap_alloc_const(MODULE_GRAPH_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(graph_record));
-        self.emit_heap_alloc_const(u64::from(graph.record_count()) * 8, function)?;
-        function.instruction(&Instruction::LocalSet(records));
-        self.store_i64_const_at_offset(
-            graph_record,
-            MODULE_GRAPH_COUNT_OFFSET,
-            u64::from(graph.record_count()),
+        let schema = self.runtime_schema();
+        let realm = self.load_current_realm(function);
+        let length = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(graph.record_count() as i32));
+        length.store(function);
+        let records = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleRegistry>()
+                .filled(GcOperand::null(schema), length, function),
             function,
         );
-        self.store_i64_local_at_offset(
-            graph_record,
-            MODULE_GRAPH_RECORDS_OFFSET,
-            records,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            graph_record,
-            MODULE_GRAPH_NEXT_ASYNC_ORDER_OFFSET,
-            1,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            graph_record,
-            MODULE_GRAPH_PARENT_BUDGET_OFFSET,
-            u64::from(graph.record_count()).pow(2),
-            function,
-        );
-        self.store_i64_const_at_offset(graph_record, MODULE_GRAPH_PARENT_COUNT_OFFSET, 0, function);
-        for module in 0..graph.record_count() {
-            self.emit_heap_alloc_const(MODULE_RECORD_SIZE, function)?;
-            function.instruction(&Instruction::LocalSet(record));
-            let index = GLOBAL_INDEX_REGISTRY.len() as u32
-                + self.strings.template_objects.len() as u32
-                + self.functions.module_unit_guard_count()
-                + module;
-            function.instruction(&Instruction::LocalGet(record));
-            function.instruction(&Instruction::GlobalSet(index));
-            self.store_i64_local_at_offset(records, u64::from(module) * 8, record, function);
-            for offset in (0..MODULE_RECORD_SIZE).step_by(8) {
-                self.store_i64_const_at_offset(record, offset, 0, function);
-            }
-            self.store_i64_local_at_offset(record, MODULE_GRAPH_OFFSET, graph_record, function);
-            for offset in [
-                MODULE_NAMESPACE_CELL_OFFSET,
-                MODULE_DEFERRED_NAMESPACE_CELL_OFFSET,
-            ] {
-                self.store_i64_const_at_offset(
-                    record,
-                    offset + ENV_SLOT_TAG_OFFSET,
-                    ENV_SLOT_UNINITIALIZED_TAG as u64,
-                    function,
-                );
-            }
-        }
-        for activation in graph.activations() {
-            let target = self.module_record_local(activation.module(), function)?;
-            self.compile_expr_to_locals(
-                &TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Function),
-                    ExprIr::FunctionValue(activation.function().clone()),
+        let graph_record = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<ModuleGraph>().construct(
+                (
+                    GcOperand::reference(&records, schema),
+                    GcOperand::i64(1),
+                    GcOperand::i64(
+                        i64::from(graph.record_count())
+                            .checked_mul(i64::from(graph.record_count()))
+                            .ok_or_else(|| {
+                                EmitError::unsupported("module graph parent budget overflows")
+                            })?,
+                    ),
+                    GcOperand::i64(0),
                 ),
-                callee.payload,
-                callee.tag,
                 function,
-            )?;
-            self.store_i64_local_at_offset(
-                target,
-                MODULE_FUNCTION_OFFSET,
-                callee.payload,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                callee.payload,
-                HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-                env,
-                function,
-            );
-            self.store_i64_local_at_offset(target, MODULE_REALM_OFFSET, env, function);
-            match activation.kind() {
-                ModuleActivationKindIr::Synchronous => {
-                    self.store_i64_const_at_offset(
-                        target,
-                        MODULE_ACTIVATION_KIND_OFFSET,
-                        ModuleActivationKind::Synchronous.word(),
-                        function,
-                    );
-                    self.emit_function_handle_call_without_throw_propagation(
-                        callee.payload,
-                        callee.tag,
-                        None,
-                        &[],
-                        result.payload,
-                        result.tag,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        result.payload,
-                        result.tag,
-                        function,
-                    )?;
-                    self.store_i64_local_at_offset(
-                        target,
-                        MODULE_ACTIVATION_OFFSET,
-                        result.payload,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        result.payload,
-                        HEAP_GENERATOR_ENV_OFFSET,
-                        env,
-                        function,
-                    );
-                }
-                ModuleActivationKindIr::Async => {
-                    self.store_i64_const_at_offset(
-                        target,
-                        MODULE_ACTIVATION_KIND_OFFSET,
-                        ModuleActivationKind::Async.word(),
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        callee.payload,
-                        HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                        env,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        callee.payload,
-                        HEAP_FUNCTION_TABLE_INDEX_OFFSET,
-                        table,
-                        function,
-                    );
-                    self.emit_allocate_async_activation(
-                        callee.payload,
-                        env,
-                        table,
-                        zero,
-                        undefined,
-                        zero,
-                        zero,
-                        AsyncModuleEntryMode::Allocate,
-                        record,
-                        promise,
-                        promise_record,
-                        function,
-                    )?;
-                    self.store_i64_local_at_offset(
-                        target,
-                        MODULE_ACTIVATION_OFFSET,
-                        record,
-                        function,
-                    );
-                    self.emit_invoke_async_activation(record, result.payload, result.tag, function);
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        result.payload,
-                        result.tag,
-                        function,
-                    )?;
-                    self.load_i64_to_local_from_offset(
-                        record,
-                        HEAP_ASYNC_INVOCATION_ENV_OFFSET,
-                        env,
-                        function,
-                    );
-                }
-            }
-            self.store_i64_local_at_offset(target, MODULE_ENVIRONMENT_OFFSET, env, function);
-            if !activation.requests().is_empty() {
-                self.emit_heap_alloc_const(
-                    activation.requests().len() as u64 * MODULE_REQUEST_SIZE,
+            ),
+            function,
+        );
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let error = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&undefined, function),
+            function,
+        );
+        let index = schema.reserve_i32_local(function);
+        for module in 0..graph.record_count() {
+            let namespace =
+                self.emit_allocate_environment_cell(&undefined, false, false, true, function);
+            let deferred =
+                self.emit_allocate_environment_cell(&undefined, false, false, true, function);
+            let record = schema.reserve_gc_local(function).initialize(
+                schema.struct_type::<ModuleRecord>().construct(
+                    (
+                        GcOperand::reference(&graph_record, schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::reference(&namespace, schema),
+                        GcOperand::reference(&deferred, schema),
+                        GcOperand::constant(ModuleActivationKind::Synchronous),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::constant(ModuleEvaluationState::Linked),
+                        GcOperand::constant(ModuleEvaluationCompletion::Empty),
+                        GcOperand::constant(ModuleBodyState::NotStarted),
+                        GcOperand::reference(&error, schema),
+                        GcOperand::i64(0),
+                        GcOperand::i64(0),
+                        GcOperand::i64(0),
+                        GcOperand::i64(0),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                    ),
                     function,
-                )?;
-                function.instruction(&Instruction::LocalSet(requests));
-                self.store_i64_local_at_offset(target, MODULE_REQUESTS_OFFSET, requests, function);
-                self.store_i64_const_at_offset(
-                    target,
-                    MODULE_REQUEST_COUNT_OFFSET,
-                    activation.requests().len() as u64,
+                ),
+                function,
+            );
+            function.instruction(&Instruction::I32Const(module as i32));
+            index.store(function);
+            schema.array_type::<ModuleRegistry>().write(
+                &records,
+                index,
+                GcOperand::nullable_reference(&record, schema),
+                schema,
+                function,
+            );
+            record.clear(function);
+            deferred.clear(function);
+            namespace.clear(function);
+        }
+        schema
+            .struct_type::<RealmRecord>()
+            .field(RealmRecordSchema::MODULES)
+            .write(
+                &realm,
+                GcOperand::nullable_reference(&records, schema),
+                schema,
+                function,
+            );
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        for activation in graph.activations() {
+            let target = self.module_record_local(activation.module(), function)?;
+            let meta = self
+                .functions
+                .get(activation.function())
+                .expect("validated module activation")
+                .clone();
+            let callable = schema
+                .reserve_gc_local(function)
+                .initialize(self.emit_function_value_payload(&meta, function)?, function);
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::FUNCTION)
+                .write(
+                    &target,
+                    GcOperand::nullable_reference(&callable, schema),
+                    schema,
                     function,
                 );
-                for (index, request) in activation.requests().iter().enumerate() {
-                    let dependency = self.module_record_local(request.target(), function)?;
-                    let phase = match request.phase() {
-                        ModuleRequestPhaseIr::Evaluation => ModuleRequestPhase::Evaluation,
-                        ModuleRequestPhaseIr::Defer => ModuleRequestPhase::Defer,
-                    };
-                    self.store_i64_const_at_offset(
-                        requests,
-                        index as u64 * MODULE_REQUEST_SIZE + MODULE_REQUEST_PHASE_OFFSET,
-                        phase.word(),
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::REALM)
+                .write(
+                    &target,
+                    GcOperand::nullable_reference(&realm, schema),
+                    schema,
+                    function,
+                );
+            let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+            let frame = self.emit_alloc_invocation_frame(
+                &callable, &undefined, &undefined, &arguments, function,
+            );
+            let initial = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(&undefined, function),
+                function,
+            );
+            match activation.kind() {
+                ModuleActivationKindIr::Synchronous => {
+                    let state = schema.reserve_gc_local(function).initialize(
+                        schema.struct_type::<GeneratorActivation>().construct(
+                            (
+                                GcOperand::reference(&frame, schema),
+                                GcOperand::reference(&initial, schema),
+                                GcOperand::constant(GeneratorResumeKind::Normal),
+                                GcOperand::null(schema),
+                                GcOperand::i32(crate::gc_types::INITIALIZING_RESUME_POINT),
+                                GcOperand::constant(GeneratorState::SuspendedStart),
+                            ),
+                            function,
+                        ),
                         function,
                     );
-                    self.store_i64_local_at_offset(
-                        requests,
-                        index as u64 * MODULE_REQUEST_SIZE + MODULE_REQUEST_TARGET_OFFSET,
-                        dependency,
+                    self.emit_saved_generator_body_call(&state, &pending, function);
+                    self.completion().copy_from(&pending, function);
+                    self.emit_propagate_current_throw_if_needed(function);
+                    schema
+                        .struct_type::<GeneratorActivation>()
+                        .field(GeneratorActivationSchema::RESUME_POINT)
+                        .write(&state, GcOperand::i32(0), schema, function);
+                    schema
+                        .struct_type::<ModuleRecord>()
+                        .field(ModuleRecordSchema::GENERATOR)
+                        .write(
+                            &target,
+                            GcOperand::nullable_reference(&state, schema),
+                            schema,
+                            function,
+                        );
+                    state.clear(function);
+                }
+                ModuleActivationKindIr::Async => {
+                    let promise = self.emit_alloc_promise_in_realm(&realm, function)?;
+                    let state = schema.reserve_gc_local(function).initialize(
+                        schema.struct_type::<AsyncActivation>().construct(
+                            (
+                                GcOperand::reference(&frame, schema),
+                                GcOperand::reference(&initial, schema),
+                                GcOperand::constant(AwaitCompletionKind::Normal),
+                                GcOperand::reference(&promise, schema),
+                                GcOperand::i32(0),
+                                GcOperand::boolean(false),
+                                GcOperand::reference(&realm, schema),
+                                GcOperand::constant(AsyncModuleEntryMode::Allocate),
+                            ),
+                            function,
+                        ),
                         function,
                     );
-                    self.release_temp_local(dependency);
+                    self.emit_saved_async_body_call(&state, &pending, function);
+                    self.completion().copy_from(&pending, function);
+                    self.emit_propagate_current_throw_if_needed(function);
+                    schema
+                        .struct_type::<ModuleRecord>()
+                        .field(ModuleRecordSchema::ACTIVATION_KIND)
+                        .write(
+                            &target,
+                            GcOperand::constant(ModuleActivationKind::Async),
+                            schema,
+                            function,
+                        );
+                    schema
+                        .struct_type::<ModuleRecord>()
+                        .field(ModuleRecordSchema::ASYNC_ACTIVATION)
+                        .write(
+                            &target,
+                            GcOperand::nullable_reference(&state, schema),
+                            schema,
+                            function,
+                        );
+                    state.clear(function);
+                    promise.clear(function);
                 }
             }
-            self.release_temp_local(target);
+            let environment = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<InvocationFrame>()
+                    .field(InvocationFrameSchema::INVOCATION_ENVIRONMENT)
+                    .read(&frame, schema, function)
+                    .reference(),
+                function,
+            );
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::ENVIRONMENT)
+                .write(
+                    &target,
+                    GcOperand::reference(&environment, schema),
+                    schema,
+                    function,
+                );
+            environment.clear(function);
+            let mut requests = Vec::with_capacity(activation.requests().len());
+            for request in activation.requests() {
+                let dependency = self.module_record_local(request.target(), function)?;
+                let phase = match request.phase() {
+                    ModuleRequestPhaseIr::Evaluation => ModuleRequestPhase::Evaluation,
+                    ModuleRequestPhaseIr::Defer => ModuleRequestPhase::Defer,
+                };
+                requests.push(schema.reserve_gc_local(function).initialize(
+                    schema.struct_type::<ModuleRequest>().construct(
+                        (
+                            GcOperand::constant(phase),
+                            GcOperand::reference(&dependency, schema),
+                        ),
+                        function,
+                    ),
+                    function,
+                ));
+                dependency.clear(function);
+            }
+            let request_table = schema.reserve_gc_local(function).initialize(
+                schema.array_type::<ModuleRequestTable>().fixed(
+                    requests
+                        .iter()
+                        .map(|request| GcOperand::reference(request, schema)),
+                    function,
+                ),
+                function,
+            );
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::REQUESTS)
+                .write(
+                    &target,
+                    GcOperand::nullable_reference(&request_table, schema),
+                    schema,
+                    function,
+                );
+            request_table.clear(function);
+            for request in requests.into_iter().rev() {
+                request.clear(function);
+            }
+            initial.clear(function);
+            frame.clear(function);
+            arguments.clear(function);
+            callable.clear(function);
+            target.clear(function);
         }
-        // Canonical environments and request vectors exist before any import aliases them.
+        // All canonical records and environments precede instantiation/import links.
         for activation in graph.activations() {
             let target = self.module_record_local(activation.module(), function)?;
             match activation.kind() {
                 ModuleActivationKindIr::Synchronous => {
-                    self.emit_private_module_resume(target, result, function)?
+                    self.emit_private_module_resume(&target, &pending, function)?
                 }
                 ModuleActivationKindIr::Async => {
-                    self.load_i64_to_local_from_offset(
-                        target,
-                        MODULE_ACTIVATION_OFFSET,
-                        record,
+                    let state = schema.reserve_gc_local(function).initialize(
+                        schema
+                            .struct_type::<ModuleRecord>()
+                            .field(ModuleRecordSchema::ASYNC_ACTIVATION)
+                            .read(&target, schema, function)
+                            .reference()
+                            .require_non_null(function),
                         function,
                     );
-                    self.emit_store_async_module_entry_mode(
-                        record,
-                        AsyncModuleEntryMode::Instantiate,
-                        function,
-                    );
-                    self.emit_invoke_async_activation(record, result.payload, result.tag, function);
+                    schema
+                        .struct_type::<AsyncActivation>()
+                        .field(AsyncActivationSchema::MODULE_ENTRY_MODE)
+                        .write(
+                            &state,
+                            GcOperand::constant(AsyncModuleEntryMode::Instantiate),
+                            schema,
+                            function,
+                        );
+                    self.emit_saved_async_body_call(&state, &pending, function);
+                    state.clear(function);
                 }
             }
-            self.emit_propagate_throw_from_locals_if_needed(result.payload, result.tag, function)?;
-            self.release_temp_local(target);
+            self.completion().copy_from(&pending, function);
+            self.emit_propagate_current_throw_if_needed(function);
+            target.clear(function);
         }
-        for local in [
-            result.tag,
-            result.payload,
-            callee.tag,
-            callee.payload,
-            promise_record,
-            promise,
-            undefined,
-            zero,
-            table,
-            env,
-            requests,
-            record,
-            records,
-            graph_record,
-        ] {
-            self.release_temp_local(local);
-        }
-        function.instruction(&Instruction::I64Const(0));
+        output.set_undefined(function);
+        self.completion().initialize(function);
+        pending.clear(function);
+        schema.release_i32_local(index, function);
+        error.clear(function);
+        undefined.clear(function);
+        graph_record.clear(function);
+        records.clear(function);
+        schema.release_i32_local(length, function);
+        realm.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_module_evaluate(
         &mut self,
-        evaluation: &ModuleEvaluationIr,
-        payload: u32,
-        tag: u32,
+        plan: &ModuleEvaluationIr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.module_record_local(evaluation.module(), function)?;
-        self.emit_module_runtime_call(
-            super::runtime::ModuleRuntimeOperation::Evaluate,
-            &[record],
-            payload,
-            tag,
-            function,
-        )?;
-        self.release_temp_local(record);
-        self.emit_propagate_throw_from_locals_if_needed(payload, tag, function)
+        let schema = self.runtime_schema();
+        let record = self.module_record_local(plan.module(), function)?;
+        let pending = schema.reserve_completion(function);
+        schema
+            .call_helper(
+                ModuleEvaluateArguments::new(&record),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
+        record.clear(function);
+        self.completion().copy_from(&pending, function);
+        output.copy_from(pending.value(), function);
+        pending.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
     }
 
     pub(crate) fn emit_module_has_async_dependencies(
         &mut self,
-        evaluation: &ModuleEvaluationIr,
-        payload: u32,
-        tag: u32,
+        plan: &ModuleEvaluationIr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.module_record_local(evaluation.module(), function)?;
-        self.emit_module_runtime_call(
-            super::runtime::ModuleRuntimeOperation::Gather,
-            &[record],
-            payload,
-            tag,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(tag));
+        let schema = self.runtime_schema();
+        let record = self.module_record_local(plan.module(), function)?;
+        let gathered = self.emit_module_gather_call(&record, function)?;
+        let found = schema.reserve_i32_local(function);
+        gathered.count.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag));
-        self.release_temp_local(record);
+        found.store(function);
+        output.set_boolean(found, function);
+        schema.release_i32_local(found, function);
+        gathered.clear(schema, function);
+        record.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_module_deferred_import_evaluate(
         &mut self,
-        evaluation: &ModuleEvaluationIr,
-        payload: u32,
-        tag: u32,
+        plan: &ModuleEvaluationIr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.module_record_local(evaluation.module(), function)?;
-        self.emit_module_runtime_call(
-            super::runtime::ModuleRuntimeOperation::DeferredImport,
-            &[record],
-            payload,
-            tag,
-            function,
-        )?;
-        self.release_temp_local(record);
-        self.emit_propagate_throw_from_locals_if_needed(payload, tag, function)
+        let schema = self.runtime_schema();
+        let record = self.module_record_local(plan.module(), function)?;
+        let pending = schema.reserve_completion(function);
+        schema
+            .call_helper(
+                ModuleDeferredImportArguments::new(&record, self.current_environment()),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
+        record.clear(function);
+        self.completion().copy_from(&pending, function);
+        output.copy_from(pending.value(), function);
+        pending.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
     }
 
     pub(crate) fn emit_deferred_module_evaluate(
         &mut self,
-        evaluation: &DeferredModuleEvaluationIr,
-        payload: u32,
-        tag: u32,
+        plan: &DeferredModuleEvaluationIr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.module_record_local(evaluation.module(), function)?;
-        self.emit_module_runtime_call(
-            super::runtime::ModuleRuntimeOperation::Ready,
-            &[record],
-            payload,
-            tag,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(payload));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let record = self.module_record_local(plan.module(), function)?;
+        let ready = schema.reserve_i32_local(function);
+        let pending = schema.reserve_completion(function);
+        schema
+            .call_helper(
+                ModuleReadyArguments::new(&record),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(ready, function);
+        ready.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
-            "TypeError",
-            "deferred module is not ready for synchronous evaluation",
-            payload,
-            tag,
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::DEFERRED_MODULE_IS_NOT_READY_FOR_SYNCHRONOUS_EVALUATION,
+            &pending,
             function,
         )?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed(payload, tag, function)?;
-        self.emit_module_runtime_call(
-            super::runtime::ModuleRuntimeOperation::Evaluate,
-            &[record],
-            payload,
-            tag,
+        schema
+            .call_helper(
+                ModuleEvaluateArguments::new(&record),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let promise = schema.reserve_gc_local(function).initialize(
+            pending
+                .value()
+                .cast_reference::<PromiseObject>(schema, function),
             function,
-        )?;
-        self.emit_module_read_settled_evaluation(payload, tag, function)?;
-        self.release_temp_local(record);
-        self.emit_propagate_throw_from_locals_if_needed(payload, tag, function)
+        );
+        self.emit_module_read_settled_evaluation(&promise, &pending, function)?;
+        promise.clear(function);
+        record.clear(function);
+        schema.release_i32_local(ready, function);
+        self.completion().copy_from(&pending, function);
+        output.copy_from(pending.value(), function);
+        pending.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
     }
 }

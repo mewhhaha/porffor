@@ -1,5 +1,17 @@
 # Temporal field-offset table privacy
 
+## Source replacement — 2026-10-05
+
+The GC backend stores Duration and PlainDateTime fields in concrete schema tuples. The integer-offset tables below describe the retired manual object layout. The obsolete source recipe checks have been retired. Exact historical receipts and any public fixture inventory remain recorded.
+
+The pre-retirement source is identified exactly:
+
+- `temporal_field_offset_table_privacy_structure.rs`: SHA-256 `5997b104f58db6679e59c5e1a52a2be34e8cf556b434a5d25595c0d74c88ca5e`.
+
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
+
+## Historical contract and checkpoints
+
 Status: implemented as a source-equivalent T22 invariant closure.
 
 The owner-private `TEMPORAL_DURATION_FIELD_OFFSETS` table maps the ten Duration

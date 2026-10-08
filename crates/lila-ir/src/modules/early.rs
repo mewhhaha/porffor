@@ -51,7 +51,7 @@ const UNDECLARED_EXPORT: ParseClassified =
 /// `ExportEntriesForModule` ever disagrees with `ExportedNames`, that
 /// disagreement has to surface as a compile error rather than as a namespace
 /// object with a silently missing or duplicated key.
-pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDiagnostic> {
+pub(crate) fn module_early_errors(record: &ModuleRecordIr) -> Vec<IrDiagnostic> {
     let mut diagnostics = Vec::new();
 
     // 16.2.3.1: "It is a Syntax Error if the ExportedNames of ModuleItemList
@@ -113,6 +113,18 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
     diagnostics
 }
 
+pub(super) fn json_parse_failure_diagnostic(error: &lila_front::JsonParseError) -> IrDiagnostic {
+    IrDiagnostic::rejected(
+        EarlyErrorCode::ModuleSyntax,
+        format!(
+            "invalid JSON module at byte {}: {}",
+            error.byte_offset(),
+            error.message()
+        ),
+        None,
+    )
+}
+
 /// Maps a retained failed module parse into an IR diagnostic.
 ///
 /// The classification itself is `lila_front::classify_parse_failure`, the
@@ -157,22 +169,14 @@ mod tests {
         }
     }
 
-    fn record() -> SourceTextModuleRecordIr {
-        SourceTextModuleRecordIr {
-            id: 0,
-            key: ModuleKey::from_host("main.mjs"),
-            source_len: 0,
-            has_top_level_await: false,
-            requested_modules: Vec::new(),
-            module_resolution_requests: Vec::new(),
-            import_entries: Vec::new(),
-            local_export_entries: Vec::new(),
-            indirect_export_entries: Vec::new(),
-            star_export_entries: Vec::new(),
-            environment: Vec::new(),
-            import_meta_sites: Vec::new(),
-            dynamic_import_sites: Vec::new(),
-        }
+    fn record() -> ModuleRecordIr {
+        let lila_front::ParsedSource::Module(source) =
+            lila_front::parse("", lila_front::ParseOptions::module()).expect("empty Module parses")
+        else {
+            unreachable!("Module options retain Module syntax")
+        };
+        super::super::record::parse_module_record(&source, 0, ModuleKey::from_host("main.mjs"))
+            .expect("empty Module has no early errors")
     }
 
     fn classified_parse_error(message: &str) -> lila_front::ParseError {

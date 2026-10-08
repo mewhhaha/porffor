@@ -29,4 +29,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run dependency-free tooling regressions
-        run: python3 -m unittest discover -s scripts/tests -p 'test_tooling_*.py' -v
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_tooling_*.py' -v
+          python3 -m unittest discover -s scripts/tests -p test_limited_verification.py -v

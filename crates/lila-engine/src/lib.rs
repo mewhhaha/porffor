@@ -1,19 +1,17 @@
 use lila_aot_wasm::{
-    decode_heap_bigint_decimal, WasmModuleEvaluationStatus, WasmRuntimeValueTag,
-    MODULE_EVALUATION_STATUS_EXPORT,
+    WasmModuleEvaluationStatus, WasmRuntimeValueTag, MODULE_EVALUATION_STATUS_EXPORT,
 };
 use lila_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, ParsedSource, SourceUnit};
 use lila_intl::{
-    CanonicalizeLocale, EmbeddedIntlProvider, IntlDataIdentity, IntlHostCallOutcome, IntlHostOp,
-    IntlHostReadSpan, IntlHostWriteSpan, IntlKernel, IntlProvider, LocaleId, LocaleTransformError,
-    LocaleTransformRequest, MaximizeLocale, MinimizeLocale, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
+    CanonicalizeLocale, EmbeddedIntlProvider, IntlDataIdentity, IntlHostOp, IntlKernel, LocaleId,
+    LocaleTransformError, LocaleTransformRequest, MaximizeLocale, MinimizeLocale,
+    INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
 };
 use lila_ir::{
-    lower_module_graph_with_host_surface_policy, lower_module_graph_with_prelude,
-    lower_script_graph_with_host_surface_policy, lower_with_host_surface_policy,
     source_writes_dynamic_import, CompletionKindIr, DynamicSourceRuntimeOperation, IrDiagnostic,
-    ProgramIr, ValueKind,
+    ProgramIr, RuntimeSemanticGap, RuntimeSemanticRejection, ValueKind,
 };
+pub use lila_runtime::rooted_snapshot::{SnapshotCompletion, SnapshotLimits, SnapshotOutcome};
 use lila_runtime::AgentHostOperation;
 use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
@@ -34,31 +32,79 @@ use std::sync::{Arc, Mutex, OnceLock};
 #[cfg(test)]
 mod agent_failure_tests;
 mod cache;
+mod compilation_profile;
+mod compiler_identity;
+mod compiler_inspection;
+pub use compilation_profile::{
+    ScriptCompilationProfile, WasmArtifactFootprint, WasmSectionFootprint,
+};
+pub use compiler_inspection::{CompilerInspectionFailure, CompilerInspectionStage};
+mod runtime_profile;
+pub use compiler_identity::{
+    CompilerCommitId, CompilerDigest, CompilerIdentity, CompilerSourceRevision,
+};
+pub use runtime_profile::{
+    wasm_runtime_profile_policy, WasmProcessMemoryObservation, WasmProcessMemorySample,
+    WasmProcessMemoryScope, WasmProcessMemoryUnavailable, WasmRuntimeHeapObservation,
+    WasmRuntimeMetricUnavailable, WasmRuntimeModuleCacheOutcome, WasmRuntimeProfile,
+    WasmRuntimeTimings,
+};
 mod execution_failure;
+mod graph_observation;
+mod prepared_source_catalog;
+pub use graph_observation::GraphRunOutcome;
+mod wasm_rooted_snapshot;
+mod wasm_runtime_link;
 pub use execution_failure::WasmExecutionFailureKind;
 use execution_failure::{finish_wasm_execution, EngineExecutionFailure};
+pub use wasm_runtime_link::LinkedRuntime;
+use wasm_runtime_link::WasmProgramRef;
+mod intl_collator_host;
+mod intl_data_images;
 mod intl_datetime_host;
+mod intl_display_names_host;
+mod intl_duration_host;
 #[cfg(test)]
 mod intl_host_probe;
-mod intl_host_request;
+mod intl_list_host;
 mod intl_locale_host;
 mod intl_number_host;
+mod intl_plural_host;
+mod intl_relative_time_host;
+mod intl_segmenter_host;
 mod intl_time_zone_host;
+mod memory_module_cache;
+use memory_module_cache::MemoryWasmModuleCache;
 mod module_loader;
+#[cfg(test)]
+mod system_time_zone_host_tests;
+mod wasm_shared_resource;
 mod wasmtime_policy;
+use wasm_shared_resource::{
+    WasmSharedBufferResource, WasmSharedMemoryBacking, WasmStoreAsyncWaiters,
+};
+mod wasm_gc_completion;
+mod wasm_gc_host;
+mod wasm_gc_intl_host;
+use wasm_gc_completion::GcMainCompletion;
+use wasmtime::AsContext;
 
 pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus};
 pub use lila_aot_wasm::PromiseRejectionPolicy;
+pub use lila_intl::{
+    CustomIntlProfile, CustomListProfile, CustomProfileId, IntlCompilationProfile,
+    IntlDataSelection, SelectedIntlDataBundle,
+};
 pub use lila_ir::HostSurfacePolicy;
+pub use lila_ir::{RuntimeUnavailableCapability, WasmWeakReachabilityCapability};
+pub use lila_runtime::OracleExceptionPhase;
 pub use module_loader::{
     load_module_graph, FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind,
     ModuleEntry, ModuleKey, ModuleLoadError, ModuleRequestKeyIr,
 };
-pub use wasmtime_policy::{WasmGcCapability, WasmWeakReachabilityCapability};
+pub use wasmtime_policy::WasmGcCapability;
 use wasmtime_policy::{WasmtimeRuntimePolicy, PRODUCT_WASMTIME_POLICY};
 
-const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
-const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
 const WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT: &str = "throw_error_constructor_name";
@@ -68,67 +114,35 @@ const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
 const WASM_HOST_IMPORT_NUMBER_POW: &str = "number_pow";
 const WASM_HOST_IMPORT_PRIVATE_MEMORY: &str = "private_memory";
 const WASM_HOST_IMPORT_SHARED_MEMORY: &str = "shared_memory";
-const WASM_HOST_IMPORT_SHARED_MEMORY_ALLOC: &str = "shared_memory_alloc";
 const WASM_HOST_IMPORT_AGENT_CALL: &str = "agent_call";
-const WASM_HOST_IMPORT_INTL_CALL: &str = "intl_call";
+const WASM_HOST_IMPORT_INTL_CALL: &str = lila_aot_wasm::GcHostImport::IntlProviderCall.name();
+const WASM_HOST_IMPORT_SYSTEM_TIME_ZONE: &str =
+    lila_aot_wasm::GcHostImport::SystemTimeZoneSnapshot.name();
 const WASM_HOST_IMPORT_RANDOM_F64: &str = "random_f64";
+const WASM_HOST_IMPORT_MATH_ACOS: &str = "math_acos";
+const WASM_HOST_IMPORT_MATH_ACOSH: &str = "math_acosh";
+const WASM_HOST_IMPORT_MATH_ASIN: &str = "math_asin";
+const WASM_HOST_IMPORT_MATH_ASINH: &str = "math_asinh";
+const WASM_HOST_IMPORT_MATH_ATAN: &str = "math_atan";
+const WASM_HOST_IMPORT_MATH_ATANH: &str = "math_atanh";
+const WASM_HOST_IMPORT_MATH_CBRT: &str = "math_cbrt";
+const WASM_HOST_IMPORT_MATH_COS: &str = "math_cos";
+const WASM_HOST_IMPORT_MATH_COSH: &str = "math_cosh";
+const WASM_HOST_IMPORT_MATH_EXP: &str = "math_exp";
+const WASM_HOST_IMPORT_MATH_EXPM1: &str = "math_expm1";
+const WASM_HOST_IMPORT_MATH_LOG: &str = "math_log";
+const WASM_HOST_IMPORT_MATH_LOG10: &str = "math_log10";
+const WASM_HOST_IMPORT_MATH_LOG1P: &str = "math_log1p";
+const WASM_HOST_IMPORT_MATH_LOG2: &str = "math_log2";
+const WASM_HOST_IMPORT_MATH_SIN: &str = "math_sin";
+const WASM_HOST_IMPORT_MATH_SINH: &str = "math_sinh";
+const WASM_HOST_IMPORT_MATH_TAN: &str = "math_tan";
+const WASM_HOST_IMPORT_MATH_TANH: &str = "math_tanh";
+const WASM_HOST_IMPORT_MATH_ATAN2: &str = "math_atan2";
 const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
 const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
 const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
-const WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE: &str = "reject_dynamic_source";
-/// Default bound on [`memory_wasm_modules`], **in entries and in nothing else**.
-///
-/// # This is the in-process retention that the disk-cache knobs do not touch
-///
-/// Read this next to `cache.rs`'s `LILA_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`.
-/// Those three bound bytes *on disk*. This one bounds fully compiled native
-/// Wasmtime modules held in **this process's memory**, and it bounds them by
-/// count, so the resident cost is `entries x whatever a module happens to weigh`
-/// with no ceiling on the second factor.
-///
-/// That distinction was measured the expensive way. `crates/lila-cli`'s
-/// `language` CLI module (105 tests in one libtest process) was OOM-SIGKILLed
-/// three times on a 4-CPU / 15.7 GiB container with `avail` falling
-/// *monotonically* — 8.5 GiB at ~7 tests, 3.56 at ~49, 1.14 at ~67 — and the
-/// three per-tier byte knobs changed nothing, because none of them reaches this
-/// deque. The in-process CLI test path is `Retain` (see
-/// `run_source_with_cached_wasm` and `run_with_wasm_bytes`), so it retains one
-/// native module per distinct fixture; the three fatal runs sat at roughly
-/// 53-62 entries, i.e. just short of the 64-entry cap where growth would finally
-/// have plateaued. A test module that spawns `lila` as a child process
-/// contributes nothing here, which is why the cheap tests in that file are free.
-///
-/// So the override below is a real lever for a memory-constrained run, and the
-/// standing follow-up it does not discharge is to bound this deque by **bytes**
-/// as well, the way the disk tiers already are. Until that lands, "fewer tests
-/// per process" is not the only lever — it is the lever that needs no code
-/// change.
-const WASM_MODULE_MEMORY_CACHE_ENTRIES: usize = 64;
-
-/// Override for [`WASM_MODULE_MEMORY_CACHE_ENTRIES`], named to sit beside the
-/// three `LILA_*_CACHE_LIMIT_BYTES` disk knobs it is repeatedly confused
-/// with.
-const MODULE_MEMORY_CACHE_ENTRIES_ENV: &str = "LILA_MODULE_MEMORY_CACHE_ENTRIES";
-
-/// Entry bound actually applied to [`memory_wasm_modules`].
-///
-/// Unset, blank, unparseable and zero all fall back to the default rather than
-/// panicking or disabling the cache, matching `cache.rs::parse_cache_limit`: a
-/// typo in an environment variable must not silently change execution cost for
-/// a run that has been going for hours.
-fn wasm_module_memory_cache_entries() -> usize {
-    static ENTRIES: OnceLock<usize> = OnceLock::new();
-    *ENTRIES.get_or_init(|| {
-        std::env::var(MODULE_MEMORY_CACHE_ENTRIES_ENV)
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|entries| *entries > 0)
-            .unwrap_or(WASM_MODULE_MEMORY_CACHE_ENTRIES)
-    })
-}
+const WASM_HOST_IMPORT_REJECT_RUNTIME_SEMANTICS: &str = "reject_runtime_semantics";
 /// Cut over before the multi-megabyte function bodies seen in slow Test262
 /// artifacts can exhaust Cranelift's fast-compilation per-function limits.
 /// This is a performance heuristic only; the normal compiler retains its
@@ -211,9 +225,117 @@ fn wasm_number_pow(base: f64, exponent: f64) -> f64 {
     }
     base.powf(exponent)
 }
-#[cfg(test)]
-const WASM_STATIC_DATA_OFFSET: usize = 4096;
 
+/// Host implementations of the Math transcendental imports. Each delegates
+/// to the Rust `f64` method, whose IEEE-754 edge behavior (NaN propagation,
+/// signed zeros, infinities, out-of-domain NaN) matches every ECMA-262 Math
+/// special-case row; the Wasm call sites additionally keep their exact
+/// fast-path guards around these calls, so tabled inputs never change value.
+fn wasm_math_acos(value: f64) -> f64 {
+    value.acos()
+}
+
+fn wasm_math_acosh(value: f64) -> f64 {
+    value.acosh()
+}
+
+fn wasm_math_asin(value: f64) -> f64 {
+    value.asin()
+}
+
+fn wasm_math_asinh(value: f64) -> f64 {
+    value.asinh()
+}
+
+fn wasm_math_atan(value: f64) -> f64 {
+    value.atan()
+}
+
+fn wasm_math_atanh(value: f64) -> f64 {
+    value.atanh()
+}
+
+fn wasm_math_cbrt(value: f64) -> f64 {
+    value.cbrt()
+}
+
+fn wasm_math_cos(value: f64) -> f64 {
+    value.cos()
+}
+
+fn wasm_math_cosh(value: f64) -> f64 {
+    value.cosh()
+}
+
+fn wasm_math_exp(value: f64) -> f64 {
+    value.exp()
+}
+
+fn wasm_math_expm1(value: f64) -> f64 {
+    value.exp_m1()
+}
+
+fn wasm_math_log(value: f64) -> f64 {
+    value.ln()
+}
+
+fn wasm_math_log10(value: f64) -> f64 {
+    value.log10()
+}
+
+fn wasm_math_log1p(value: f64) -> f64 {
+    value.ln_1p()
+}
+
+fn wasm_math_log2(value: f64) -> f64 {
+    value.log2()
+}
+
+fn wasm_math_sin(value: f64) -> f64 {
+    value.sin()
+}
+
+fn wasm_math_sinh(value: f64) -> f64 {
+    value.sinh()
+}
+
+fn wasm_math_tan(value: f64) -> f64 {
+    value.tan()
+}
+
+fn wasm_math_tanh(value: f64) -> f64 {
+    value.tanh()
+}
+
+fn wasm_math_atan2(y: f64, x: f64) -> f64 {
+    y.atan2(x)
+}
+
+/// `(import name, implementation)` table for the nineteen unary Math
+/// transcendental imports. Both linker sites iterate this one table so a new
+/// builtin cannot be registered in one and forgotten in the other; the binary
+/// `math_atan2` is registered alongside it at each site.
+const WASM_MATH_UNARY_IMPORTS: [(&str, fn(f64) -> f64); 19] = [
+    (WASM_HOST_IMPORT_MATH_ACOS, wasm_math_acos),
+    (WASM_HOST_IMPORT_MATH_ACOSH, wasm_math_acosh),
+    (WASM_HOST_IMPORT_MATH_ASIN, wasm_math_asin),
+    (WASM_HOST_IMPORT_MATH_ASINH, wasm_math_asinh),
+    (WASM_HOST_IMPORT_MATH_ATAN, wasm_math_atan),
+    (WASM_HOST_IMPORT_MATH_ATANH, wasm_math_atanh),
+    (WASM_HOST_IMPORT_MATH_CBRT, wasm_math_cbrt),
+    (WASM_HOST_IMPORT_MATH_COS, wasm_math_cos),
+    (WASM_HOST_IMPORT_MATH_COSH, wasm_math_cosh),
+    (WASM_HOST_IMPORT_MATH_EXP, wasm_math_exp),
+    (WASM_HOST_IMPORT_MATH_EXPM1, wasm_math_expm1),
+    (WASM_HOST_IMPORT_MATH_LOG, wasm_math_log),
+    (WASM_HOST_IMPORT_MATH_LOG10, wasm_math_log10),
+    (WASM_HOST_IMPORT_MATH_LOG1P, wasm_math_log1p),
+    (WASM_HOST_IMPORT_MATH_LOG2, wasm_math_log2),
+    (WASM_HOST_IMPORT_MATH_SIN, wasm_math_sin),
+    (WASM_HOST_IMPORT_MATH_SINH, wasm_math_sinh),
+    (WASM_HOST_IMPORT_MATH_TAN, wasm_math_tan),
+    (WASM_HOST_IMPORT_MATH_TANH, wasm_math_tanh),
+];
 /// Stack size for the worker thread that runs lowering, Wasm codegen, and
 /// Wasm execution.
 ///
@@ -229,6 +351,7 @@ const WASM_STATIC_DATA_OFFSET: usize = 4096;
 /// harness sizes its worker threads (see `crates/lila-test262/src/lib.rs`),
 /// so this crate is safe to call from any host thread by default.
 const ENGINE_WORKER_STACK_SIZE: usize = 64 * 1024 * 1024;
+const _: () = assert!(WASM_MAX_STACK_SIZE > 0 && WASM_MAX_STACK_SIZE < ENGINE_WORKER_STACK_SIZE);
 
 /// Runs `f` on a dedicated worker thread with `ENGINE_WORKER_STACK_SIZE`
 /// bytes of stack, then joins and returns its result.
@@ -326,11 +449,17 @@ struct ProgramWasmCacheEntry {
 
 #[derive(Clone)]
 struct ProgramWasmArtifact {
+    /// The program module; standalone when `runtime` is `None`.
     bytes: Arc<[u8]>,
+    runtime: Option<Arc<lila_aot_wasm::RuntimeArtifact>>,
     cached_entry: Option<ProgramWasmCacheEntry>,
 }
 
 impl ProgramWasmArtifact {
+    fn program(&self) -> WasmProgramRef<'_> {
+        WasmProgramRef::new(&self.bytes, self.runtime.as_ref())
+    }
+
     fn evict_if_invalid(&self, error: &EngineError) -> bool {
         let invalid_artifact = error
             .message()
@@ -376,7 +505,7 @@ fn compiler_fingerprint() -> &'static [u8; 32] {
     })
 }
 
-const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v4";
+const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v18";
 
 fn hash_program_cache_field(hash: &mut Sha256, bytes: &[u8]) {
     let length = u64::try_from(bytes.len()).expect("cache-key field length must fit in u64");
@@ -389,6 +518,20 @@ fn hash_optional_program_cache_field(hash: &mut Sha256, value: Option<&str>) {
         Some(value) => {
             hash.update([1]);
             hash_program_cache_field(hash, value.as_bytes());
+        }
+        None => hash.update([0]),
+    }
+}
+
+fn hash_optional_program_cache_locales(hash: &mut Sha256, locales: Option<&[lila_intl::LocaleId]>) {
+    match locales {
+        Some(locales) => {
+            hash.update([1]);
+            let count = u64::try_from(locales.len()).expect("cache locale count must fit in u64");
+            hash.update(count.to_le_bytes());
+            for locale in locales {
+                hash_program_cache_field(hash, locale.as_str().as_bytes());
+            }
         }
         None => hash.update([0]),
     }
@@ -423,14 +566,106 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
         PromiseRejectionPolicy::FailRun => 0,
         PromiseRejectionPolicy::Ignore => 1,
     }]);
+    match &options.intl_profile {
+        IntlCompilationProfile::Minimal => hash.update([0]),
+        IntlCompilationProfile::Conformance => hash.update([3]),
+        IntlCompilationProfile::Custom(id) => {
+            hash.update([1]);
+            hash_program_cache_field(&mut hash, id.as_str().as_bytes());
+        }
+        IntlCompilationProfile::CustomProjection(selection) => {
+            hash.update([2]);
+            hash_program_cache_field(&mut hash, selection.id().as_str().as_bytes());
+            hash_optional_program_cache_locales(
+                &mut hash,
+                selection
+                    .list_projection()
+                    .map(CustomListProfile::requested_locales),
+            );
+            hash_optional_program_cache_locales(&mut hash, selection.relative_time_locales());
+            hash_optional_program_cache_locales(&mut hash, selection.display_names_locales());
+            hash_optional_program_cache_locales(&mut hash, selection.duration_locales());
+            hash_optional_program_cache_locales(&mut hash, selection.number_locales());
+            hash_optional_program_cache_locales(&mut hash, selection.date_time_locales());
+            hash_optional_program_cache_locales(&mut hash, selection.collator_locales());
+            hash_optional_program_cache_locales(&mut hash, selection.segmenter_locales());
+            match selection.currency_codes() {
+                None => hash.update([0]),
+                Some(codes) => {
+                    hash.update([1]);
+                    hash.update(
+                        u64::try_from(codes.len())
+                            .expect("checked currency count fits u64")
+                            .to_le_bytes(),
+                    );
+                    for code in codes {
+                        hash_program_cache_field(&mut hash, &code.clone().ascii());
+                    }
+                }
+            }
+            match selection.date_time_calendars() {
+                None => hash.update([0]),
+                Some(calendars) => {
+                    hash.update([1]);
+                    hash.update(
+                        u64::try_from(calendars.len())
+                            .expect("checked calendar count fits u64")
+                            .to_le_bytes(),
+                    );
+                    for calendar in calendars {
+                        hash_program_cache_field(&mut hash, calendar.as_str().as_bytes());
+                    }
+                }
+            }
+            match selection.numbering_systems() {
+                None => hash.update([0]),
+                Some(systems) => {
+                    hash.update([1]);
+                    hash.update(
+                        u64::try_from(systems.len())
+                            .expect("checked numbering-system count fits u64")
+                            .to_le_bytes(),
+                    );
+                    for system in systems {
+                        hash_program_cache_field(&mut hash, system.name().as_bytes());
+                    }
+                }
+            }
+            match selection.named_time_zones() {
+                None => hash.update([0]),
+                Some(zones) => {
+                    hash.update([1]);
+                    hash.update(
+                        u64::try_from(zones.len())
+                            .expect("checked named-zone count fits u64")
+                            .to_le_bytes(),
+                    );
+                    for zone in zones {
+                        hash_program_cache_field(&mut hash, zone.as_str().as_bytes());
+                    }
+                }
+            }
+            match selection.service_selection() {
+                None => hash.update([0]),
+                Some(services) => {
+                    hash.update([1]);
+                    hash.update(services.wire().to_le_bytes());
+                }
+            }
+        }
+    }
     hash_optional_program_cache_field(&mut hash, options.filename.as_deref());
     hash_optional_program_cache_field(&mut hash, options.target_triple.as_deref());
     hash_optional_program_cache_field(&mut hash, options.module_root.as_deref());
     hash_optional_program_cache_field(&mut hash, options.module_prelude.as_deref());
-    hash.update([match options.module_loading_policy {
-        ModuleLoadingPolicy::Filesystem => 0,
-        ModuleLoadingPolicy::RejectAll => 1,
-    }]);
+    match &options.module_loading_policy {
+        ModuleLoadingPolicy::Filesystem => hash.update([0]),
+        ModuleLoadingPolicy::RejectAll => hash.update([1]),
+        ModuleLoadingPolicy::Embedded(graph) => {
+            hash.update([2]);
+            hash.update(graph.fingerprint());
+        }
+    }
     hash_program_cache_field(&mut hash, source.as_bytes());
     match graph_digest {
         Some(digest) => {
@@ -448,13 +683,57 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
 /// entry's own text is unchanged, so the key would be unchanged too.
 fn module_graph_digest(sources: &lila_ir::ModuleGraphSources) -> [u8; 32] {
     let mut hash = Sha256::new();
+    hash.update(b"lila-loaded-module-records-v3");
+    hash.update(sources.modules.len().to_le_bytes());
+    hash.update(sources.entry.to_le_bytes());
     for (index, module) in sources.modules.iter().enumerate() {
         if index == sources.entry as usize {
             continue;
         }
+        hash.update([module.kind().code()]);
+        hash.update(module.key().as_str().len().to_le_bytes());
         hash.update(module.key().as_str().as_bytes());
         hash.update(module.source_text().len().to_le_bytes());
         hash.update(module.source_text().as_bytes());
+        hash.update(module.meta_url().len().to_le_bytes());
+        hash.update(module.meta_url().as_bytes());
+    }
+    hash.update(sources.resolutions.len().to_le_bytes());
+    for (referrer, request, target) in &sources.resolutions {
+        hash.update(referrer.to_le_bytes());
+        hash.update(target.to_le_bytes());
+        hash.update(request.specifier().len().to_le_bytes());
+        hash.update(request.specifier().as_bytes());
+        hash.update(request.attributes().len().to_le_bytes());
+        for attribute in request.attributes() {
+            hash.update(attribute.key.len().to_le_bytes());
+            hash.update(attribute.key.as_bytes());
+            hash.update(attribute.value.len().to_le_bytes());
+            hash.update(attribute.value.as_bytes());
+        }
+    }
+    hash.update(sources.realm_requests.len().to_le_bytes());
+    for (request, resolution) in &sources.realm_requests {
+        hash.update(request.specifier().len().to_le_bytes());
+        hash.update(request.specifier().as_bytes());
+        hash.update(request.attributes().len().to_le_bytes());
+        for attribute in request.attributes() {
+            hash.update(attribute.key.len().to_le_bytes());
+            hash.update(attribute.key.as_bytes());
+            hash.update(attribute.value.len().to_le_bytes());
+            hash.update(attribute.value.as_bytes());
+        }
+        match resolution {
+            lila_ir::RealmModuleResolutionIr::Loaded(target) => {
+                hash.update([0]);
+                hash.update(target.to_le_bytes());
+            }
+            lila_ir::RealmModuleResolutionIr::Rejected(message) => {
+                hash.update([1]);
+                hash.update(message.len().to_le_bytes());
+                hash.update(message.as_bytes());
+            }
+        }
     }
     hash.finalize().into()
 }
@@ -469,18 +748,27 @@ fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOption
     )
 }
 
+#[derive(Clone, Copy)]
+enum AmbientModuleLoaderPolicy {
+    Filesystem,
+    RejectAll,
+}
+
 fn configured_module_loader(
     options: &CompileOptions,
+    policy: AmbientModuleLoaderPolicy,
 ) -> Option<Box<dyn HostModuleLoader + 'static>> {
-    match options.module_loading_policy {
-        ModuleLoadingPolicy::Filesystem => Some(Box::new(
+    match policy {
+        AmbientModuleLoaderPolicy::Filesystem => Some(Box::new(
             FilesystemModuleLoader::new(
                 options.module_root.as_deref(),
                 options.filename.as_deref(),
             )
             .ok()?,
         )),
-        ModuleLoadingPolicy::RejectAll => Some(Box::new(module_loader::RejectAllModuleLoader)),
+        AmbientModuleLoaderPolicy::RejectAll => {
+            Some(Box::new(module_loader::RejectAllModuleLoader))
+        }
     }
 }
 
@@ -494,8 +782,9 @@ fn configured_module_loader(
 fn module_entry_graph(
     source: &lila_front::ParsedModule,
     options: &CompileOptions,
+    policy: AmbientModuleLoaderPolicy,
 ) -> Option<lila_ir::ModuleGraphSources> {
-    let loader = configured_module_loader(options)?;
+    let loader = configured_module_loader(options, policy)?;
     let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
     module_loader::load_module_graph_from_parsed(entry_locator, source.clone(), loader.as_ref())
         .ok()
@@ -506,9 +795,12 @@ fn module_entry_graph(
 ///
 /// A Script is not module code, but `import()` is legal in it (13.3.10 takes
 /// `GetActiveScriptOrModule`, which a Script satisfies) and names a module, so
-/// serving one needs the target compiled into the artifact exactly as a
-/// module's `import()` does. Request discovery walks the retained Script AST;
-/// it does not change the parse goal, so sloppy Script forms remain valid.
+/// statically discoverable targets are compiled into the artifact exactly as
+/// a module's `import()` targets are. A computed-only call still needs the
+/// one-node graph's dispatcher: operand evaluation can throw, coercion can
+/// reject, and a name outside the compiled registry rejects its Promise.
+/// Discovery walks the retained Script AST without changing the parse goal,
+/// so sloppy Script forms remain valid.
 ///
 /// Two gates, cheap one first. The lexical scan runs on every Script and answers
 /// `false` for almost all of them; the retained AST is what actually decides,
@@ -518,11 +810,14 @@ fn module_entry_graph(
 fn script_entry_graph(
     source: &lila_front::ParsedScript,
     options: &CompileOptions,
+    policy: AmbientModuleLoaderPolicy,
 ) -> Option<lila_ir::ModuleGraphSources> {
-    if !source_writes_dynamic_import(&source.source_text) {
+    if !source_writes_dynamic_import(&source.source_text)
+        && lila_ir::scan_script_realm_module_requests(source).is_empty()
+    {
         return None;
     }
-    let loader = configured_module_loader(options)?;
+    let loader = configured_module_loader(options, policy)?;
     let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
     let graph = module_loader::load_module_graph_from_parsed_script(
         entry_locator,
@@ -530,11 +825,36 @@ fn script_entry_graph(
         loader.as_ref(),
     )
     .ok()?;
-    let requests = graph.modules.get(graph.entry as usize)?.module_requests()?;
-    if requests.is_empty() {
+    let entry = graph.modules.get(graph.entry as usize)?;
+    if !entry.script_has_dynamic_import_sites()? {
         return None;
     }
     Some(graph)
+}
+
+fn parse_ambient_entry(
+    source_text: &str,
+    goal: ParseGoal,
+    options: &CompileOptions,
+    policy: AmbientModuleLoaderPolicy,
+) -> Result<(ParsedSource, Option<lila_ir::ModuleGraphSources>), EngineError> {
+    let parse_started = std::time::Instant::now();
+    let source = parse(
+        source_text,
+        ParseOptions {
+            goal,
+            filename: options.filename.clone(),
+        },
+    )
+    .map_err(EngineError::from_parse_error)?;
+    if std::env::var_os("LILA_WASM_TRACE").is_some() {
+        eprintln!("lila wasm trace: parse: {:?}", parse_started.elapsed());
+    }
+    let graph = match &source {
+        ParsedSource::Script(source) => script_entry_graph(source, options, policy),
+        ParsedSource::Module(source) => module_entry_graph(source, options, policy),
+    };
+    Ok((source, graph))
 }
 
 /// Cache key for a program, covering the whole module graph when there is one.
@@ -559,18 +879,62 @@ fn program_cache_key(
     )
 }
 
+fn program_cache_key_for_role(
+    source: &str,
+    goal: ParseGoal,
+    options: &CompileOptions,
+    graph: Option<&lila_ir::ModuleGraphSources>,
+    role: module_loader::EmbeddedSourceRole,
+) -> [u8; 32] {
+    let key = program_cache_key(source, goal, options, graph);
+    match (&options.module_loading_policy, role) {
+        (ModuleLoadingPolicy::Embedded(_), module_loader::EmbeddedSourceRole::UnlocatedScript) => {
+            let mut hash = Sha256::new();
+            hash.update(b"lila-embedded-unlocated-program-v1");
+            hash.update(key);
+            hash.finalize().into()
+        }
+        (
+            ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll,
+            module_loader::EmbeddedSourceRole::Entry
+            | module_loader::EmbeddedSourceRole::UnlocatedScript,
+        )
+        | (ModuleLoadingPolicy::Embedded(_), module_loader::EmbeddedSourceRole::Entry) => key,
+    }
+}
+
 /// One parse/graph-discovery result consumed by one lowering attempt.
 ///
 /// The cache key and the lowerer borrow this same graph. Previously each built
 /// its own graph, which parsed every module twice on a cache miss even after the
 /// front-end/lowering boundary itself became parse-once.
+enum PreparedModuleCompilation {
+    Ambient {
+        policy: AmbientModuleLoaderPolicy,
+        graph: Option<lila_ir::ModuleGraphSources>,
+    },
+    Embedded {
+        owner: Arc<EmbeddedModuleGraph>,
+        graph: lila_ir::ModuleGraphSources,
+    },
+}
+
+impl PreparedModuleCompilation {
+    fn graph(&self) -> Option<&lila_ir::ModuleGraphSources> {
+        match self {
+            Self::Ambient { graph, .. } => graph.as_ref(),
+            Self::Embedded { graph, .. } => Some(graph),
+        }
+    }
+}
+
 struct PreparedCompilation {
     source: ParsedSource,
     module_prelude: Option<lila_front::ParsedScript>,
-    graph: Option<lila_ir::ModuleGraphSources>,
-    host_surface_policy: HostSurfacePolicy,
+    modules: PreparedModuleCompilation,
+    ir: ProgramIr,
     promise_rejection_policy: PromiseRejectionPolicy,
-    module_loading_policy: ModuleLoadingPolicy,
+    intl_profile: IntlCompilationProfile,
 }
 
 fn wasm_aot_program_is_cached(source: &str, goal: ParseGoal, options: &CompileOptions) -> bool {
@@ -642,13 +1006,14 @@ enum WasmModuleMemoryCachePolicy {
     BypassRetention,
 }
 
+#[derive(Clone, Copy)]
 enum WasmModuleMemoryCacheOutcome {
     Hit,
     Miss,
     Bypassed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum WasmNativeCompilationMode {
     Fast,
     SizeOptimized,
@@ -675,10 +1040,9 @@ struct WasmModuleMemoryCacheKey {
     wasm_sha256: [u8; 32],
 }
 
-fn memory_wasm_modules() -> &'static Mutex<VecDeque<(WasmModuleMemoryCacheKey, WasmtimeModule)>> {
-    static MODULES: OnceLock<Mutex<VecDeque<(WasmModuleMemoryCacheKey, WasmtimeModule)>>> =
-        OnceLock::new();
-    MODULES.get_or_init(|| Mutex::new(VecDeque::new()))
+fn memory_wasm_modules() -> &'static Mutex<MemoryWasmModuleCache> {
+    static MODULES: OnceLock<Mutex<MemoryWasmModuleCache>> = OnceLock::new();
+    MODULES.get_or_init(|| Mutex::new(MemoryWasmModuleCache::from_env()))
 }
 
 fn plan_wasm_native_compilation(bytes: &[u8]) -> WasmNativeCompilationPlan {
@@ -879,12 +1243,7 @@ fn memory_cached_wasm_module(
         let mut modules = modules
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(index) = modules.iter().position(|(candidate, _)| *candidate == key) {
-            let entry = modules
-                .remove(index)
-                .expect("module cache index should exist");
-            let module = entry.1.clone();
-            modules.push_back(entry);
+        if let Some(module) = modules.get(&key) {
             return Ok((module, WasmModuleMemoryCacheOutcome::Hit));
         }
     }
@@ -893,10 +1252,7 @@ fn memory_cached_wasm_module(
     let mut modules = modules
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    while modules.len() >= wasm_module_memory_cache_entries() {
-        modules.pop_front();
-    }
-    modules.push_back((key, module.clone()));
+    let module = modules.retain_compiled(key, module);
     Ok((module, WasmModuleMemoryCacheOutcome::Miss))
 }
 
@@ -923,8 +1279,7 @@ fn memory_wasm_module_is_cached(bytes: &[u8]) -> bool {
     memory_wasm_modules()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .iter()
-        .any(|(candidate, _)| candidate.wasm_sha256 == wasm_sha256)
+        .contains_wasm_sha256(&wasm_sha256)
 }
 
 /// Wall-clock tick between `Engine::increment_epoch()` calls made by
@@ -1003,6 +1358,8 @@ fn product_wasmtime_config(
     });
     config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
     config.max_wasm_stack(WASM_MAX_STACK_SIZE);
+    // Wasmtime 47 validates this bound even for synchronous engines.
+    config.async_stack_size(ENGINE_WORKER_STACK_SIZE);
     configure_wasm_linear_memory(&mut config);
     PRODUCT_WASMTIME_POLICY.configure(&mut config);
     config.parallel_compilation(compilation_jobs() > 1);
@@ -1041,8 +1398,12 @@ fn product_wasmtime_engine(
     mode: WasmNativeCompilationMode,
 ) -> Result<WasmtimeEngine, WasmtimeEngineSetupError> {
     let config = product_wasmtime_config(mode)?;
-    WasmtimeEngine::new(&config)
-        .map_err(|err| WasmtimeEngineSetupError::new(mode, format!("{err:#}")))
+    let engine = WasmtimeEngine::new(&config)
+        .map_err(|err| WasmtimeEngineSetupError::new(mode, format!("{err:#}")))?;
+    PRODUCT_WASMTIME_POLICY
+        .verify_engine(&engine)
+        .map_err(|message| WasmtimeEngineSetupError::new(mode, message))?;
+    Ok(engine)
 }
 
 fn cached_product_wasmtime_engine(
@@ -1128,9 +1489,12 @@ fn is_wasm_epoch_interrupt(err: &wasmtime::Error) -> bool {
 }
 
 pub use lila_runtime::{
-    AgentId, GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom,
-    HostRandomError, IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind,
-    IntrinsicLink, IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
+    AgentId, EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph,
+    EmbeddedModuleGraphError, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
+    EmbeddedModuleRequest, EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
+    GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom, HostRandomError,
+    IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind, IntrinsicLink,
+    IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
     IntrinsicPropertyValue, IntrinsicRole, InvalidObservedBigInt, ModuleLoadingPolicy,
     MonotonicClockDuration, MonotonicClockInstant, NullHostHooks, ObservedBigInt,
     ObservedCompletion, ObservedJsValue, ObservedNumber, RandomUnitInterval, Realm, RealmBuilder,
@@ -1191,6 +1555,16 @@ pub struct Artifact {
     /// use it from, and `LILA_EMIT_SIZE_REPORT` silently reported nothing
     /// for a whole batch of size work.
     pub debug_dump: String,
+    /// For Wasm artifacts: the runtime module `bytes` links against. `bytes`
+    /// alone is then only the small program module; `None` means `bytes` is a
+    /// standalone module. Always `None` for non-Wasm backends.
+    pub runtime: Option<LinkedRuntime>,
+}
+
+impl Artifact {
+    fn program(&self) -> WasmProgramRef<'_> {
+        WasmProgramRef::new(&self.bytes, self.runtime.as_ref().map(|runtime| &runtime.0))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1217,6 +1591,9 @@ pub struct CompileOptions {
     pub host_surface_policy: HostSurfacePolicy,
     /// Host policy applied after Promise jobs drain; part of the emitted artifact.
     pub promise_rejection_policy: PromiseRejectionPolicy,
+    /// Complete pinned Intl image selection retained by Wasm emission and execution.
+    /// Named Custom profiles select the same pinned domains under their validated identity.
+    pub intl_profile: IntlCompilationProfile,
 }
 
 impl Default for CompileOptions {
@@ -1230,6 +1607,7 @@ impl Default for CompileOptions {
             module_loading_policy: ModuleLoadingPolicy::default(),
             host_surface_policy: HostSurfacePolicy::default(),
             promise_rejection_policy: PromiseRejectionPolicy::default(),
+            intl_profile: IntlCompilationProfile::default(),
         }
     }
 }
@@ -1270,6 +1648,37 @@ pub struct CompilationUnit {
     module_prelude: Option<String>,
     module_loading_policy: ModuleLoadingPolicy,
     promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: IntlCompilationProfile,
+}
+
+fn require_default_intl_profile(
+    profile: &IntlCompilationProfile,
+    backend: &str,
+) -> Result<(), EngineError> {
+    match profile {
+        IntlCompilationProfile::Minimal => Ok(()),
+        IntlCompilationProfile::Conformance => Err(EngineError::new(format!(
+            "the Conformance Intl data producer is unsupported by {backend}; use Wasm AOT"
+        ))),
+        IntlCompilationProfile::Custom(id) => Err(EngineError::new(format!(
+            "custom Intl profile '{}' is unsupported by {backend}; use Wasm AOT",
+            id.as_str()
+        ))),
+        IntlCompilationProfile::CustomProjection(selection) => Err(EngineError::new(format!(
+            "custom Intl projection '{}' is unsupported by {backend}; use Wasm AOT",
+            selection.id().as_str()
+        ))),
+    }
+}
+
+fn validate_execution_intl_profile(
+    profile: &IntlCompilationProfile,
+    backend: ExecutionBackend,
+) -> Result<(), EngineError> {
+    match backend {
+        ExecutionBackend::WasmAot => Ok(()),
+        ExecutionBackend::SpecExec => require_default_intl_profile(profile, "spec-exec"),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1302,6 +1711,11 @@ pub struct InspectionReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineError {
     message: String,
+    oracle_entry_syntax_rejection: bool,
+    oracle_javascript_exception: Option<(
+        lila_runtime::OracleExceptionPhase,
+        lila_runtime::OracleExceptionType,
+    )>,
     parse_diagnostic: Option<ParseDiagnostic>,
     ir_diagnostic: Option<IrDiagnostic>,
     intl_artifact_identity_error: Option<IntlArtifactIdentityError>,
@@ -1317,6 +1731,7 @@ pub enum IntlArtifactIdentityError {
     DuplicateSections,
     IdentityMismatch,
     UnexpectedSection,
+    InvalidDataImage,
 }
 
 impl core::fmt::Display for IntlArtifactIdentityError {
@@ -1324,7 +1739,7 @@ impl core::fmt::Display for IntlArtifactIdentityError {
         match self {
             Self::MissingSection => write!(
                 f,
-                "Wasm artifact imports {WASM_HOST_IMPORT_NAMESPACE}.{WASM_HOST_IMPORT_INTL_CALL} but is missing the required {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} custom section"
+                "Wasm artifact imports {WASM_HOST_IMPORT_NAMESPACE}.{WASM_HOST_IMPORT_INTL_CALL} or {WASM_HOST_IMPORT_NAMESPACE}.{WASM_HOST_IMPORT_SYSTEM_TIME_ZONE} but is missing the required {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} custom section"
             ),
             Self::DuplicateSections => write!(
                 f,
@@ -1334,9 +1749,10 @@ impl core::fmt::Display for IntlArtifactIdentityError {
                 f,
                 "Wasm artifact {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} does not match the shared embedded Intl provider identity"
             ),
+            Self::InvalidDataImage => f.write_str("Wasm Intl component images are missing, duplicated or incompatible with their selected provider"),
             Self::UnexpectedSection => write!(
                 f,
-                "Wasm artifact carries {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} but does not import {WASM_HOST_IMPORT_NAMESPACE}.{WASM_HOST_IMPORT_INTL_CALL}"
+                "Wasm artifact carries {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} but does not import {WASM_HOST_IMPORT_NAMESPACE}.{WASM_HOST_IMPORT_INTL_CALL} or {WASM_HOST_IMPORT_NAMESPACE}.{WASM_HOST_IMPORT_SYSTEM_TIME_ZONE}"
             ),
         }
     }
@@ -1348,6 +1764,8 @@ impl EngineError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            oracle_entry_syntax_rejection: false,
+            oracle_javascript_exception: None,
             parse_diagnostic: None,
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
@@ -1359,6 +1777,8 @@ impl EngineError {
     fn from_parse_error(err: lila_front::ParseError) -> Self {
         Self {
             message: err.to_string(),
+            oracle_entry_syntax_rejection: false,
+            oracle_javascript_exception: None,
             parse_diagnostic: Some(err.diagnostic().clone()),
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
@@ -1370,6 +1790,8 @@ impl EngineError {
     fn from_ir_diagnostic(diagnostic: IrDiagnostic) -> Self {
         Self {
             message: diagnostic.message.clone(),
+            oracle_entry_syntax_rejection: false,
+            oracle_javascript_exception: None,
             parse_diagnostic: None,
             ir_diagnostic: Some(diagnostic),
             intl_artifact_identity_error: None,
@@ -1391,6 +1813,8 @@ impl EngineError {
     fn from_wasmtime_setup(err: WasmtimeEngineSetupError) -> Self {
         Self {
             message: err.to_string(),
+            oracle_entry_syntax_rejection: false,
+            oracle_javascript_exception: None,
             parse_diagnostic: None,
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
@@ -1402,6 +1826,8 @@ impl EngineError {
     fn from_intl_artifact_identity(error: IntlArtifactIdentityError) -> Self {
         Self {
             message: error.to_string(),
+            oracle_entry_syntax_rejection: false,
+            oracle_javascript_exception: None,
             parse_diagnostic: None,
             ir_diagnostic: None,
             intl_artifact_identity_error: Some(error),
@@ -1412,6 +1838,36 @@ impl EngineError {
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// The optional differential oracle rejected its entry in its native
+    /// parser. It does not separately classify grammar and static semantics.
+    pub const fn is_oracle_entry_syntax_rejection(&self) -> bool {
+        self.oracle_entry_syntax_rejection
+    }
+    pub const fn oracle_javascript_exception_phase(
+        &self,
+    ) -> Option<lila_runtime::OracleExceptionPhase> {
+        match self.oracle_javascript_exception {
+            Some((phase, _)) => Some(phase),
+            None => None,
+        }
+    }
+    pub const fn oracle_javascript_exception_constructor_name(&self) -> Option<&'static str> {
+        match self.oracle_javascript_exception {
+            Some((_, kind)) => kind.constructor_name(),
+            None => None,
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    fn from_spec_exec(error: lila_spec_exec::ExecutionError) -> Self {
+        let mut result = Self::new(error.to_string());
+        result.oracle_entry_syntax_rejection = error.is_entry_syntax_rejection();
+        result.oracle_javascript_exception = error
+            .javascript_exception_phase()
+            .zip(error.javascript_exception_type());
+        result
     }
 
     pub fn parse_diagnostic(&self) -> Option<&ParseDiagnostic> {
@@ -1459,14 +1915,13 @@ impl core::fmt::Display for EngineError {
 
 impl std::error::Error for EngineError {}
 
-fn wasm_reject_dynamic_source(operation_code: i64) -> wasmtime::Result<()> {
-    let operation =
-        DynamicSourceRuntimeOperation::from_abi_code(operation_code).ok_or_else(|| {
-            wasmtime::Error::msg(format!(
-                "invalid dynamic source host operation code {operation_code}"
-            ))
-        })?;
-    Err(wasmtime::Error::new(operation))
+fn wasm_reject_runtime_semantics(operation_code: i64) -> wasmtime::Result<()> {
+    let rejection = RuntimeSemanticRejection::from_abi_code(operation_code).ok_or_else(|| {
+        wasmtime::Error::msg(format!(
+            "invalid runtime semantic rejection code {operation_code}"
+        ))
+    })?;
+    Err(wasmtime::Error::new(rejection))
 }
 
 pub struct Engine {
@@ -1476,18 +1931,20 @@ pub struct Engine {
 enum WasmExecutionMode {
     Legacy,
     Structured,
+    Graph(SnapshotLimits),
 }
 
 enum WasmExecutionOutcome {
     Legacy(RunOutcome),
     Structured(ObservedRunOutcome),
+    Graph(GraphRunOutcome),
 }
 
 impl WasmExecutionOutcome {
     fn into_legacy(self) -> Result<RunOutcome, EngineError> {
         match self {
             Self::Legacy(outcome) => Ok(outcome),
-            Self::Structured(_) => Err(EngineError::new(
+            Self::Structured(_) | Self::Graph(_) => Err(EngineError::new(
                 "internal wasm execution mode mismatch: expected legacy outcome",
             )),
         }
@@ -1496,7 +1953,7 @@ impl WasmExecutionOutcome {
     fn into_structured(self) -> Result<ObservedRunOutcome, EngineError> {
         match self {
             Self::Structured(outcome) => Ok(outcome),
-            Self::Legacy(_) => Err(EngineError::new(
+            Self::Legacy(_) | Self::Graph(_) => Err(EngineError::new(
                 "internal wasm execution mode mismatch: expected structured outcome",
             )),
         }
@@ -1513,7 +1970,9 @@ impl WasmOutputEvents {
     fn for_mode(mode: &WasmExecutionMode) -> Self {
         match mode {
             WasmExecutionMode::Legacy => Self::DelegateOnly,
-            WasmExecutionMode::Structured => Self::Capture(Arc::new(Mutex::new(Vec::new()))),
+            WasmExecutionMode::Structured | WasmExecutionMode::Graph(_) => {
+                Self::Capture(Arc::new(Mutex::new(Vec::new())))
+            }
         }
     }
 
@@ -1545,6 +2004,7 @@ struct WasmHostState {
     can_block: bool,
     monotonic_clock_origin: MonotonicClockInstant,
     shared_memory_backing: Option<Arc<WasmSharedMemoryBacking>>,
+    async_waiters: Arc<WasmStoreAsyncWaiters>,
     agent_group: Option<Arc<WasmAgentGroup>>,
     agent_commands: Option<Arc<Mutex<std::sync::mpsc::Receiver<WasmAgentCommand>>>>,
     agent_leaving: Option<Arc<std::sync::atomic::AtomicBool>>,
@@ -1552,28 +2012,23 @@ struct WasmHostState {
 }
 
 fn shared_embedded_intl_kernel() -> Result<Arc<IntlKernel<EmbeddedIntlProvider>>, EngineError> {
-    static KERNEL: OnceLock<Result<Arc<IntlKernel<EmbeddedIntlProvider>>, String>> =
-        OnceLock::new();
-    KERNEL
-        .get_or_init(|| {
-            let provider = EmbeddedIntlProvider::new()
-                .map_err(|error| format!("embedded Intl provider setup failed: {error}"))?;
-            let expected_identity = provider.identity().clone();
-            IntlKernel::new(expected_identity, provider)
-                .map(Arc::new)
-                .map_err(|error| format!("embedded Intl kernel setup failed: {error}"))
-        })
-        .clone()
-        .map_err(EngineError::new)
+    lila_intl::shared_embedded_intl_kernel().map_err(|error| EngineError::new(error.to_string()))
 }
 
-/// Enforces the import-to-provider identity relation while the artifact is
+#[derive(Clone, Copy)]
+enum IntlArtifactIdentityRequirement {
+    HostImports,
+    AdmittedComponents,
+}
+
+/// Enforces the selected data-to-provider identity relation while the artifact is
 /// still inert bytes. The section is compared to `lila-intl`'s canonical
 /// serialization directly; the engine deliberately owns no parallel decoder
 /// or field vocabulary.
 fn validate_wasm_intl_artifact_identity(
     bytes: &[u8],
     expected: &IntlDataIdentity,
+    requirement: IntlArtifactIdentityRequirement,
 ) -> Result<(), EngineError> {
     let mut imports_intl_host = false;
     let mut section_count = 0usize;
@@ -1595,7 +2050,10 @@ fn validate_wasm_intl_artifact_identity(
                         ))
                     })?;
                     if import.module == WASM_HOST_IMPORT_NAMESPACE
-                        && import.name == WASM_HOST_IMPORT_INTL_CALL
+                        && matches!(
+                            import.name,
+                            WASM_HOST_IMPORT_INTL_CALL | WASM_HOST_IMPORT_SYSTEM_TIME_ZONE
+                        )
                     {
                         imports_intl_host = true;
                     }
@@ -1611,7 +2069,11 @@ fn validate_wasm_intl_artifact_identity(
         }
     }
 
-    let error = match (imports_intl_host, section_count, identity_matches) {
+    let requires_identity = match requirement {
+        IntlArtifactIdentityRequirement::HostImports => imports_intl_host,
+        IntlArtifactIdentityRequirement::AdmittedComponents => true,
+    };
+    let error = match (requires_identity, section_count, identity_matches) {
         (_, 2.., _) => Some(IntlArtifactIdentityError::DuplicateSections),
         (true, 0, _) => Some(IntlArtifactIdentityError::MissingSection),
         (false, 1, _) => Some(IntlArtifactIdentityError::UnexpectedSection),
@@ -1621,79 +2083,6 @@ fn validate_wasm_intl_artifact_identity(
     match error {
         Some(error) => Err(EngineError::from_intl_artifact_identity(error)),
         None => Ok(()),
-    }
-}
-
-fn wasm_intl_call(
-    caller: WasmtimeCaller<'_, WasmHostState>,
-    operation_wire: i64,
-    request_span_wire: i64,
-    result_span_wire: i64,
-) -> wasmtime::Result<i64> {
-    let operation = IntlHostOp::from_wire(operation_wire).ok_or_else(|| {
-        wasmtime::Error::msg(format!("unknown Intl host operation {operation_wire}"))
-    })?;
-    match operation {
-        IntlHostOp::CanonicalizeLocale => intl_locale_host::wasm_intl_locale_call::<
-            CanonicalizeLocale,
-        >(caller, request_span_wire, result_span_wire),
-        IntlHostOp::MaximizeLocale => intl_locale_host::wasm_intl_locale_call::<MaximizeLocale>(
-            caller,
-            request_span_wire,
-            result_span_wire,
-        ),
-        IntlHostOp::MinimizeLocale => intl_locale_host::wasm_intl_locale_call::<MinimizeLocale>(
-            caller,
-            request_span_wire,
-            result_span_wire,
-        ),
-        IntlHostOp::LookupNamedTimeZone => {
-            intl_time_zone_host::lookup_named_time_zone(caller, request_span_wire, result_span_wire)
-        }
-        IntlHostOp::ResolveTimeZone => {
-            intl_time_zone_host::resolve_time_zone(caller, request_span_wire, result_span_wire)
-        }
-        IntlHostOp::ResolveDateTimeLocale => intl_datetime_host::call::<
-            lila_intl::ResolveDateTimeLocale,
-        >(caller, request_span_wire, result_span_wire),
-        IntlHostOp::SupportedDateTimeLocales => intl_datetime_host::call::<
-            lila_intl::SupportedDateTimeLocales,
-        >(
-            caller, request_span_wire, result_span_wire
-        ),
-        IntlHostOp::SelectDateTimeFormat => intl_datetime_host::call::<
-            lila_intl::SelectDateTimeFormat,
-        >(caller, request_span_wire, result_span_wire),
-        IntlHostOp::FormatDateTimeParts => {
-            intl_datetime_host::call::<lila_intl::FormatDateTimeParts>(
-                caller,
-                request_span_wire,
-                result_span_wire,
-            )
-        }
-        IntlHostOp::FormatDateTimeRangeParts => intl_datetime_host::call::<
-            lila_intl::FormatDateTimeRangeParts,
-        >(
-            caller, request_span_wire, result_span_wire
-        ),
-        IntlHostOp::ResolveNumberLocale => {
-            intl_number_host::call::<lila_intl::ResolveNumberLocale>(
-                caller,
-                request_span_wire,
-                result_span_wire,
-            )
-        }
-        IntlHostOp::SupportedNumberLocales => intl_number_host::call::<
-            lila_intl::SupportedNumberLocales,
-        >(caller, request_span_wire, result_span_wire),
-        IntlHostOp::FormatNumberParts => intl_number_host::call::<lila_intl::FormatNumberParts>(
-            caller,
-            request_span_wire,
-            result_span_wire,
-        ),
-        IntlHostOp::FormatNumberRangeParts => intl_number_host::call::<
-            lila_intl::FormatNumberRangeParts,
-        >(caller, request_span_wire, result_span_wire),
     }
 }
 
@@ -1709,18 +2098,10 @@ fn wasm_random_f64(caller: WasmtimeCaller<'_, WasmHostState>) -> wasmtime::Resul
         })
 }
 
-struct WasmSharedMemoryBacking {
-    memory: WasmtimeSharedMemory,
-    next_offset: Mutex<u64>,
-    async_waiters: Mutex<WasmAgentAsyncWaiterRegistry>,
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct WasmAgentBroadcast {
-    data_offset: i64,
-    byte_length: i64,
-    max_byte_length: i64,
-    flags: i64,
+    resource: Arc<WasmSharedBufferResource>,
+    id: i64,
 }
 
 enum WasmAgentCommand {
@@ -1733,44 +2114,36 @@ struct WasmAgentWorker {
     join: std::thread::JoinHandle<Result<(), EngineError>>,
 }
 
-struct WasmAgentAsyncWaiter {
-    id: i64,
-    address: i64,
-    notified: bool,
-}
-
-struct WasmAgentAsyncWaiterRegistry {
-    next_id: i64,
-    waiters: VecDeque<WasmAgentAsyncWaiter>,
-}
-
 /// The closed subset of root compilation authority inherited by an agent.
 ///
 /// Keeping these policies in one value prevents either the harness-to-group
 /// handoff or a worker-cache retry from rebuilding options with an ambient
 /// default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct WasmAgentCompilePolicy {
     host_surface_policy: HostSurfacePolicy,
     module_loading_policy: ModuleLoadingPolicy,
     promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: IntlCompilationProfile,
 }
 
 impl WasmAgentCompilePolicy {
-    const fn from_root(options: &CompileOptions) -> Self {
+    fn from_root(options: &CompileOptions) -> Self {
         Self {
             host_surface_policy: options.host_surface_policy,
-            module_loading_policy: options.module_loading_policy,
+            module_loading_policy: options.module_loading_policy.clone(),
             promise_rejection_policy: options.promise_rejection_policy,
+            intl_profile: options.intl_profile.clone(),
         }
     }
 
-    fn worker_options(self) -> CompileOptions {
+    fn worker_options(&self) -> CompileOptions {
         CompileOptions {
             filename: Some("<test262-agent>".to_string()),
             host_surface_policy: self.host_surface_policy,
-            module_loading_policy: self.module_loading_policy,
+            module_loading_policy: self.module_loading_policy.clone(),
             promise_rejection_policy: self.promise_rejection_policy,
+            intl_profile: self.intl_profile.clone(),
             ..CompileOptions::default()
         }
     }
@@ -1778,6 +2151,8 @@ impl WasmAgentCompilePolicy {
 
 struct WasmAgentGroup {
     engine: WasmtimeEngine,
+    /// The native mode `engine` was built for.
+    native_compilation_mode: WasmNativeCompilationMode,
     realm: Realm,
     shared_memory_backing: Arc<WasmSharedMemoryBacking>,
     prelude: Arc<str>,
@@ -1801,98 +2176,6 @@ struct WasmAgentExecution {
     ready: std::sync::mpsc::SyncSender<()>,
 }
 
-impl WasmSharedMemoryBacking {
-    fn allocate(&self, byte_length: i64) -> i64 {
-        const PAGE_BYTES: u64 = 64 * 1024;
-        let Ok(byte_length) = u64::try_from(byte_length) else {
-            return 0;
-        };
-        let mut next_offset = self
-            .next_offset
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let allocation_size = byte_length.max(1);
-        let Some(end) = next_offset.checked_add(allocation_size) else {
-            return 0;
-        };
-        if end > WASM_STORE_MEMORY_CAP_BYTES as u64 {
-            return 0;
-        }
-        let required_pages = end.div_ceil(PAGE_BYTES);
-        let current_pages = self.memory.size();
-        if required_pages > current_pages
-            && self.memory.grow(required_pages - current_pages).is_err()
-        {
-            return 0;
-        }
-        let allocation_offset = *next_offset;
-        *next_offset = (end + 7) & !7;
-        allocation_offset as i64
-    }
-
-    fn register_async_waiter(&self, address: i64) -> i64 {
-        let mut registry = self
-            .async_waiters
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let id = registry.next_id;
-        registry.next_id = registry.next_id.checked_add(1).unwrap_or(1);
-        registry.waiters.push_back(WasmAgentAsyncWaiter {
-            id,
-            address,
-            notified: false,
-        });
-        id
-    }
-
-    fn notify_async_waiters(&self, address: i64, count: i64) -> i64 {
-        let mut registry = self
-            .async_waiters
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let mut notified = 0;
-        for waiter in &mut registry.waiters {
-            if notified >= count {
-                break;
-            }
-            if waiter.address != address || waiter.notified {
-                continue;
-            }
-            waiter.notified = true;
-            notified += 1;
-        }
-        notified
-    }
-
-    fn poll_async_waiter(&self, id: i64) -> i64 {
-        let mut registry = self
-            .async_waiters
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(position) = registry.waiters.iter().position(|waiter| waiter.id == id) else {
-            return -1;
-        };
-        if !registry.waiters[position].notified {
-            return 0;
-        }
-        registry.waiters.remove(position);
-        1
-    }
-
-    fn cancel_async_waiter(&self, id: i64) -> i64 {
-        let mut registry = self
-            .async_waiters
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(position) = registry.waiters.iter().position(|waiter| waiter.id == id) else {
-            return -1;
-        };
-        let notified = registry.waiters[position].notified;
-        registry.waiters.remove(position);
-        i64::from(notified)
-    }
-}
-
 impl WasmAgentGroup {
     fn start(self: &Arc<Self>, source: String) -> Result<(), EngineError> {
         let worker_source = format!("{}\n{}", self.prelude, source);
@@ -1905,11 +2188,12 @@ impl WasmAgentGroup {
             .cloned();
         if worker_artifact.is_none() {
             let worker_engine = Engine::new(self.realm.clone());
-            let artifact = worker_engine.load_or_compile_program_wasm_on_current_thread(
+            let artifact = worker_engine.load_or_compile_program_wasm_for_role(
                 &worker_source,
                 ParseGoal::Script,
                 worker_options.clone(),
                 program_wasm_cache(),
+                module_loader::EmbeddedSourceRole::UnlocatedScript,
             )?;
             self.worker_artifacts
                 .lock()
@@ -1938,7 +2222,7 @@ impl WasmAgentGroup {
                 .spawn(move || {
                     worker_engine
                         .run_with_wasm_bytes_inner_with_agents(
-                            &execution_artifact.bytes,
+                            execution_artifact.program(),
                             timeout_ms,
                             true,
                             WasmModuleMemoryCachePolicy::BypassRetention,
@@ -2013,19 +2297,14 @@ impl WasmAgentGroup {
             .filter(|worker| {
                 worker
                     .commands
-                    .send(WasmAgentCommand::Broadcast(broadcast))
+                    .send(WasmAgentCommand::Broadcast(broadcast.clone()))
                     .is_ok()
             })
             .count()
     }
 
     fn finish(&self) -> Result<(), EngineError> {
-        self.shared_memory_backing
-            .async_waiters
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .waiters
-            .clear();
+        self.shared_memory_backing.cancel_all_waiters();
         let workers = {
             let mut workers = self
                 .workers
@@ -2100,6 +2379,7 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
+        validate_execution_intl_profile(&options.intl_profile, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
@@ -2129,6 +2409,7 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
+        validate_execution_intl_profile(&options.intl_profile, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
@@ -2180,6 +2461,7 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<ObservedRunOutcome, EngineError> {
+        validate_execution_intl_profile(&options.intl_profile, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.observe_with_spec_exec(
                 source,
@@ -2264,10 +2546,10 @@ impl Engine {
         let agent_prelude: Arc<str> = Arc::from(agent_prelude);
         let agent_harness = || WasmAgentHarness {
             prelude: Arc::clone(&agent_prelude),
-            compile_policy: agent_compile_policy,
+            compile_policy: agent_compile_policy.clone(),
         };
         let result = self.run_with_wasm_bytes_inner_with_agents(
-            &artifact.bytes,
+            artifact.program(),
             timeout_ms,
             can_block,
             WasmModuleMemoryCachePolicy::BypassRetention,
@@ -2284,7 +2566,7 @@ impl Engine {
         let artifact =
             self.compile_program_wasm_on_current_thread(source, ParseGoal::Script, options, cache)?;
         self.run_with_wasm_bytes_inner_with_agents(
-            &artifact.bytes,
+            artifact.program(),
             timeout_ms,
             can_block,
             WasmModuleMemoryCachePolicy::BypassRetention,
@@ -2401,7 +2683,7 @@ impl Engine {
             cache.clone(),
         )?;
         let result = self.execute_with_wasm_bytes_inner(
-            &artifact.bytes,
+            artifact.program(),
             timeout_ms,
             can_block,
             memory_cache_policy,
@@ -2416,7 +2698,7 @@ impl Engine {
 
         let artifact = self.compile_program_wasm_on_current_thread(source, goal, options, cache)?;
         self.execute_with_wasm_bytes_inner(
-            &artifact.bytes,
+            artifact.program(),
             timeout_ms,
             can_block,
             memory_cache_policy,
@@ -2431,11 +2713,32 @@ impl Engine {
         options: CompileOptions,
         cache: Option<Arc<cache::FunctionCache>>,
     ) -> Result<ProgramWasmArtifact, EngineError> {
-        let prepared = self.prepare_compilation(source, goal, &options)?;
-        let key = program_cache_key(source, goal, &options, prepared.graph.as_ref());
+        self.load_or_compile_program_wasm_for_role(
+            source,
+            goal,
+            options,
+            cache,
+            module_loader::EmbeddedSourceRole::Entry,
+        )
+    }
+
+    fn load_or_compile_program_wasm_for_role(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        cache: Option<Arc<cache::FunctionCache>>,
+        role: module_loader::EmbeddedSourceRole,
+    ) -> Result<ProgramWasmArtifact, EngineError> {
+        let prepared = self.prepare_compilation_for_role(source, goal, &options, role)?;
+        let key =
+            program_cache_key_for_role(source, goal, &options, prepared.modules.graph(), role);
         if let Some(cache) = &cache {
             let cache_started = std::time::Instant::now();
-            if let Some(bytes) = cache.read(&key) {
+            // A cached program recorded against another runtime is a miss.
+            if let Some((bytes, runtime)) = cache.read(&key).and_then(|entry| {
+                wasm_runtime_link::decode_cache_entry(&entry, &options.intl_profile)
+            }) {
                 if std::env::var_os("LILA_WASM_TRACE").is_some() {
                     eprintln!(
                         "lila wasm trace: program-cache hit: {} bytes in {:?}",
@@ -2444,7 +2747,8 @@ impl Engine {
                     );
                 }
                 return Ok(ProgramWasmArtifact {
-                    bytes: Arc::from(bytes),
+                    bytes,
+                    runtime,
                     cached_entry: Some(ProgramWasmCacheEntry {
                         cache: Arc::clone(cache),
                         key,
@@ -2470,7 +2774,7 @@ impl Engine {
         cache: Option<Arc<cache::FunctionCache>>,
     ) -> Result<ProgramWasmArtifact, EngineError> {
         let prepared = self.prepare_compilation(source, goal, &options)?;
-        let key = program_cache_key(source, goal, &options, prepared.graph.as_ref());
+        let key = program_cache_key(source, goal, &options, prepared.modules.graph());
         self.compile_program_wasm_with_key_on_current_thread(prepared, cache, key)
     }
 
@@ -2492,8 +2796,14 @@ impl Engine {
         }
         if let Some(cache) = cache {
             let cache_started = std::time::Instant::now();
-            if !cache.write(&key, artifact.bytes.clone())
-                && std::env::var_os("LILA_WASM_TRACE").is_some()
+            let runtime = artifact.runtime.as_ref().map(|runtime| &runtime.0);
+            if !cache.write(
+                &key,
+                wasm_runtime_link::encode_cache_entry(WasmProgramRef::new(
+                    &artifact.bytes,
+                    runtime,
+                )),
+            ) && std::env::var_os("LILA_WASM_TRACE").is_some()
             {
                 eprintln!("lila wasm trace: program-cache write failed");
             } else if std::env::var_os("LILA_WASM_TRACE").is_some() {
@@ -2505,6 +2815,7 @@ impl Engine {
         }
         Ok(ProgramWasmArtifact {
             bytes: Arc::from(artifact.bytes),
+            runtime: artifact.runtime.map(|runtime| runtime.0),
             cached_entry: None,
         })
     }
@@ -2514,9 +2825,10 @@ impl Engine {
     }
 
     fn emit_wasm_on_current_thread(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        match lila_aot_wasm::emit_with_promise_rejection_policy(
+        match lila_aot_wasm::emit_with_intl_profile(
             &unit.ir,
             unit.promise_rejection_policy,
+            &unit.intl_profile,
         ) {
             Ok(wasm) => {
                 // `lila build wasm` and the Test262 wasm-aot backend both reach
@@ -2529,6 +2841,7 @@ impl Engine {
                 }
                 Ok(Artifact {
                     kind: ArtifactKind::Wasm,
+                    runtime: wasm.runtime().cloned().map(LinkedRuntime),
                     bytes: wasm.bytes,
                     description: wasm.invariant_note.to_string(),
                     debug_dump: wasm.debug_dump,
@@ -2539,6 +2852,7 @@ impl Engine {
     }
 
     pub fn emit_c(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
+        require_default_intl_profile(&unit.intl_profile, "C emission")?;
         run_on_sized_stack(|| match lila_backend_c::emit(&unit.ir) {
             Ok(c) => Ok(Artifact {
                 kind: ArtifactKind::C,
@@ -2546,6 +2860,7 @@ impl Engine {
                 description: "shared IR to C artifact".to_string(),
                 // The C backend produces no self-description today.
                 debug_dump: String::new(),
+                runtime: None,
             }),
             Err(err) => Err(EngineError::new(err)),
         })
@@ -2556,6 +2871,7 @@ impl Engine {
         unit: &CompilationUnit,
         target_triple: Option<&str>,
     ) -> Result<Artifact, EngineError> {
+        require_default_intl_profile(&unit.intl_profile, "native emission")?;
         run_on_sized_stack(
             || match lila_backend_native::emit(&unit.ir, target_triple) {
                 Ok(native) => Ok(Artifact {
@@ -2567,6 +2883,7 @@ impl Engine {
                     ),
                     // The native backend produces no self-description today.
                     debug_dump: String::new(),
+                    runtime: None,
                 }),
                 Err(err) => Err(EngineError::new(err)),
             },
@@ -2628,25 +2945,62 @@ impl Engine {
         goal: ParseGoal,
         options: &CompileOptions,
     ) -> Result<PreparedCompilation, EngineError> {
+        self.prepare_compilation_for_role(
+            source_text,
+            goal,
+            options,
+            module_loader::EmbeddedSourceRole::Entry,
+        )
+    }
+
+    fn prepare_compilation_for_role(
+        &self,
+        source_text: &str,
+        goal: ParseGoal,
+        options: &CompileOptions,
+        role: module_loader::EmbeddedSourceRole,
+    ) -> Result<PreparedCompilation, EngineError> {
         if goal == ParseGoal::Script && options.module_prelude.is_some() {
             return Err(EngineError::new("a Module prelude requires a Module entry"));
         }
         let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
         let parse_started = std::time::Instant::now();
-        let source = parse(
-            source_text,
-            ParseOptions {
-                goal,
-                filename: options.filename.clone(),
-            },
-        )
-        .map_err(EngineError::from_parse_error)?;
-        if trace {
-            eprintln!("lila wasm trace: parse: {:?}", parse_started.elapsed());
-        }
-        let graph = match &source {
-            ParsedSource::Script(source) => script_entry_graph(source, options),
-            ParsedSource::Module(source) => module_entry_graph(source, options),
+        let (source, mut modules) = match &options.module_loading_policy {
+            ModuleLoadingPolicy::Embedded(graph) => {
+                let admitted = role
+                    .parse_entry(graph, source_text, goal, options.filename.as_deref())
+                    .map_err(|error| match error {
+                        module_loader::EmbeddedEntryError::Authority(error) => {
+                            EngineError::new(error.to_string())
+                        }
+                        module_loader::EmbeddedEntryError::Parse(error) => {
+                            EngineError::from_parse_error(error)
+                        }
+                    })?;
+                if trace {
+                    eprintln!("lila wasm trace: parse: {:?}", parse_started.elapsed());
+                }
+                let (source, catalog) = admitted
+                    .into_graph()
+                    .map_err(|error| EngineError::new(error.to_string()))?;
+                (
+                    source,
+                    PreparedModuleCompilation::Embedded {
+                        owner: Arc::clone(graph),
+                        graph: catalog,
+                    },
+                )
+            }
+            ModuleLoadingPolicy::Filesystem => {
+                let policy = AmbientModuleLoaderPolicy::Filesystem;
+                let (source, graph) = parse_ambient_entry(source_text, goal, options, policy)?;
+                (source, PreparedModuleCompilation::Ambient { policy, graph })
+            }
+            ModuleLoadingPolicy::RejectAll => {
+                let policy = AmbientModuleLoaderPolicy::RejectAll;
+                let (source, graph) = parse_ambient_entry(source_text, goal, options, policy)?;
+                (source, PreparedModuleCompilation::Ambient { policy, graph })
+            }
         };
         let module_prelude = options
             .module_prelude
@@ -2660,13 +3014,23 @@ impl Engine {
                     })
             })
             .transpose()?;
+        let lower_started = std::time::Instant::now();
+        let ir = prepared_source_catalog::prepare_source_catalog(
+            &source,
+            module_prelude.as_ref(),
+            &mut modules,
+            options,
+        )?;
+        if trace {
+            eprintln!("lila wasm trace: lower: {:?}", lower_started.elapsed());
+        }
         Ok(PreparedCompilation {
             source,
             module_prelude,
-            graph,
-            host_surface_policy: options.host_surface_policy,
+            modules,
+            ir,
             promise_rejection_policy: options.promise_rejection_policy,
-            module_loading_policy: options.module_loading_policy,
+            intl_profile: options.intl_profile.clone(),
         })
     }
 
@@ -2677,51 +3041,20 @@ impl Engine {
         let PreparedCompilation {
             source,
             module_prelude,
-            graph,
-            host_surface_policy,
+            modules,
+            ir,
             promise_rejection_policy,
-            module_loading_policy,
+            intl_profile,
         } = prepared;
-        let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
-        let lower_started = std::time::Instant::now();
-        let ir = match (&source, graph.as_ref(), module_prelude.as_ref()) {
-            // A Script's `import()` targets are compiled into the same artifact
-            // as the Script, which needs the graph the same way a module does.
-            // Without one the call has nothing to resolve against.
-            (ParsedSource::Script(_), Some(sources), None) => {
-                lower_script_graph_with_host_surface_policy(sources, host_surface_policy)
+        let module_loading_policy = match modules {
+            PreparedModuleCompilation::Embedded { owner, .. } => {
+                ModuleLoadingPolicy::Embedded(owner)
             }
-            (ParsedSource::Script(_), None, None) => {
-                lower_with_host_surface_policy(&source, host_surface_policy)
-            }
-            // A module is lowered together with its loaded dependency closure.
-            // If the closure cannot be assembled at all, fall back to the
-            // one-node graph so the failure is reported by the lowerer rather
-            // than swallowed here.
-            (ParsedSource::Module(_), Some(sources), None) => {
-                lower_module_graph_with_host_surface_policy(sources, host_surface_policy)
-            }
-            (ParsedSource::Module(source), None, None) => {
-                lower_module_graph_with_host_surface_policy(
-                    &lila_ir::ModuleGraphSources::single(source),
-                    host_surface_policy,
-                )
-            }
-            (ParsedSource::Module(_), Some(sources), Some(prelude)) => {
-                lower_module_graph_with_prelude(sources, prelude, host_surface_policy)
-            }
-            (ParsedSource::Module(source), None, Some(prelude)) => lower_module_graph_with_prelude(
-                &lila_ir::ModuleGraphSources::single(source),
-                prelude,
-                host_surface_policy,
-            ),
-            (ParsedSource::Script(_), _, Some(_)) => {
-                unreachable!("preparation rejects a Module prelude for a Script entry")
-            }
+            PreparedModuleCompilation::Ambient { policy, .. } => match policy {
+                AmbientModuleLoaderPolicy::Filesystem => ModuleLoadingPolicy::Filesystem,
+                AmbientModuleLoaderPolicy::RejectAll => ModuleLoadingPolicy::RejectAll,
+            },
         };
-        if trace {
-            eprintln!("lila wasm trace: lower: {:?}", lower_started.elapsed());
-        }
         // Every *coded* diagnostic is a pre-evaluation rejection: `code()` is
         // `Some` exactly for `IrDiagnostic::rejected`, whose kind is derived by
         // `rejection_kind`. Matching on `kind == EarlyError` instead dropped the
@@ -2744,6 +3077,7 @@ impl Engine {
             module_prelude: module_prelude.map(|prelude| prelude.source_text.to_string()),
             module_loading_policy,
             promise_rejection_policy,
+            intl_profile,
         })
     }
 
@@ -2753,12 +3087,13 @@ impl Engine {
         source: &str,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
+        validate_execution_intl_profile(&unit.intl_profile, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
                 unit.source.filename.as_deref(),
                 unit.source.goal,
-                unit.module_loading_policy,
+                unit.module_loading_policy.clone(),
                 unit.module_prelude.as_deref(),
                 run,
             ),
@@ -2807,7 +3142,7 @@ impl Engine {
                     run.can_block,
                 ),
             }
-            .map_err(|err| EngineError::new(err.to_string()))?;
+            .map_err(EngineError::from_spec_exec)?;
 
             Ok(RunOutcome {
                 backend_used: ExecutionBackend::SpecExec,
@@ -2854,7 +3189,7 @@ impl Engine {
                     host_hooks,
                 ),
             }
-            .map_err(|err| EngineError::new(err.to_string()))?;
+            .map_err(EngineError::from_spec_exec)?;
 
             Ok(ObservedRunOutcome {
                 backend_used: ExecutionBackend::SpecExec,
@@ -2927,9 +3262,10 @@ impl Engine {
         };
 
         let emit_started = std::time::Instant::now();
-        let artifact = lila_aot_wasm::emit_with_promise_rejection_policy(
+        let artifact = lila_aot_wasm::emit_with_intl_profile(
             &unit.ir,
             unit.promise_rejection_policy,
+            &unit.intl_profile,
         )
         .map_err(|err| EngineError::from_wasm_emit_error(&unit.ir, err))?;
         if std::env::var_os("LILA_WASM_TRACE_DUMP").is_some() {
@@ -2937,7 +3273,7 @@ impl Engine {
         }
         trace_phase("emit", emit_started);
         self.run_with_wasm_bytes_inner(
-            &artifact.bytes,
+            WasmProgramRef::new(&artifact.bytes, artifact.runtime()),
             timeout_ms,
             can_block,
             WasmModuleMemoryCachePolicy::Retain,
@@ -2946,13 +3282,13 @@ impl Engine {
 
     fn run_with_wasm_bytes_inner(
         &self,
-        bytes: &[u8],
+        program: WasmProgramRef<'_>,
         timeout_ms: Option<u64>,
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
     ) -> Result<RunOutcome, EngineError> {
         self.execute_with_wasm_bytes_inner(
-            bytes,
+            program,
             timeout_ms,
             can_block,
             memory_cache_policy,
@@ -2963,14 +3299,14 @@ impl Engine {
 
     fn execute_with_wasm_bytes_inner(
         &self,
-        bytes: &[u8],
+        program: WasmProgramRef<'_>,
         timeout_ms: Option<u64>,
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
         mode: &WasmExecutionMode,
     ) -> Result<WasmExecutionOutcome, EngineError> {
         self.execute_with_wasm_bytes_inner_with_agents(
-            bytes,
+            program,
             timeout_ms,
             can_block,
             memory_cache_policy,
@@ -2982,7 +3318,7 @@ impl Engine {
 
     fn run_with_wasm_bytes_inner_with_agents(
         &self,
-        bytes: &[u8],
+        program: WasmProgramRef<'_>,
         timeout_ms: Option<u64>,
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
@@ -2990,7 +3326,7 @@ impl Engine {
         agent_execution: Option<WasmAgentExecution>,
     ) -> Result<RunOutcome, EngineError> {
         self.execute_with_wasm_bytes_inner_with_agents(
-            bytes,
+            program,
             timeout_ms,
             can_block,
             memory_cache_policy,
@@ -3003,7 +3339,7 @@ impl Engine {
 
     fn execute_with_wasm_bytes_inner_with_agents(
         &self,
-        bytes: &[u8],
+        program: WasmProgramRef<'_>,
         timeout_ms: Option<u64>,
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
@@ -3011,8 +3347,36 @@ impl Engine {
         agent_execution: Option<WasmAgentExecution>,
         mode: &WasmExecutionMode,
     ) -> Result<WasmExecutionOutcome, EngineError> {
+        self.execute_with_wasm_bytes_profiled(
+            program,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+            agent_harness,
+            agent_execution,
+            mode,
+            None,
+        )
+    }
+
+    fn execute_with_wasm_bytes_profiled(
+        &self,
+        program: WasmProgramRef<'_>,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
+        agent_harness: Option<WasmAgentHarness>,
+        agent_execution: Option<WasmAgentExecution>,
+        mode: &WasmExecutionMode,
+        profile: Option<&mut runtime_profile::RuntimeObservation>,
+    ) -> Result<WasmExecutionOutcome, EngineError> {
         let trace_wasm = std::env::var_os("LILA_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
+        // Only opt-in profiling owns a sampler. Its Drop also joins on every
+        // admission/setup error before execution or on a host unwind.
+        let process_memory_sampler = profile
+            .as_ref()
+            .map(|_| runtime_profile::ProcessMemorySampler::start());
         let trace_phase = |phase: &str, started: std::time::Instant| {
             if trace_wasm {
                 eprintln!(
@@ -3023,7 +3387,10 @@ impl Engine {
             }
         };
         if trace_wasm {
-            eprintln!("lila wasm trace: artifact bytes: {}", bytes.len());
+            eprintln!("lila wasm trace: artifact bytes: {}", program.bytes.len());
+            if let Some(runtime) = program.runtime {
+                eprintln!("lila wasm trace: runtime bytes: {}", runtime.bytes().len());
+            }
             eprintln!(
                 "lila wasm trace: runtime policy: {}",
                 PRODUCT_WASMTIME_POLICY.report()
@@ -3034,10 +3401,17 @@ impl Engine {
         // same gate covers fresh and cached artifacts. Validate while the
         // artifact is inert, before either Wasmtime compilation or instance
         // construction can run module start code.
-        let intl_kernel = shared_embedded_intl_kernel()?;
-        validate_wasm_intl_artifact_identity(bytes, intl_kernel.identity())?;
-
-        let native_compilation_plan = plan_wasm_native_compilation(bytes);
+        let intl_kernel = wasm_runtime_link::intl_kernel_for(program)?;
+        if !self
+            .realm
+            .system_time_zone()
+            .is_compatible_with(intl_kernel.identity())
+        {
+            return Err(EngineError::new(
+                "configured system time zone does not match the executing Intl provider",
+            ));
+        }
+        let native_compilation_plan = wasm_runtime_link::plan_native_compilation(program);
         if trace_wasm {
             match native_compilation_plan.largest_code_body_bytes {
                 Some(largest_code_body_bytes) => eprintln!(
@@ -3061,6 +3435,11 @@ impl Engine {
             }
         };
         trace_phase("engine", engine_started);
+        let engine_elapsed = if profile.is_some() {
+            engine_started.elapsed()
+        } else {
+            Default::default()
+        };
         ensure_wasm_epoch_ticker(&engine);
         let module_started = std::time::Instant::now();
         let function_cache_before = trace_wasm
@@ -3069,21 +3448,24 @@ impl Engine {
             .map(|cache| cache.counters());
         let module_cache_before =
             wasmtime_module_cache().map(|cache| (cache.cache_hits(), cache.cache_misses()));
-        let compiled_module = if agent_execution.is_some() {
-            compile_wasm_module(&engine, bytes)
-                .map(|module| (module, WasmModuleMemoryCacheOutcome::Bypassed))
-        } else {
-            wasm_module_for_execution(
-                &engine,
-                bytes,
-                memory_cache_policy,
-                native_compilation_plan.mode,
-            )
-        };
-        let (module, memory_cache_outcome) = match compiled_module {
+        // Agent workers share their group's engine, so their runtime module
+        // must be compiled for the mode that engine was built for.
+        let mut native_mode = agent_execution
+            .as_ref()
+            .map_or(native_compilation_plan.mode, |execution| {
+                execution.group.native_compilation_mode
+            });
+        let compiled_module = wasm_runtime_link::compile_modules(
+            &engine,
+            program,
+            memory_cache_policy,
+            agent_execution.is_some(),
+            native_mode,
+        );
+        let modules = match compiled_module {
             Ok(compiled) => compiled,
             Err(error)
-                if native_compilation_plan.mode == WasmNativeCompilationMode::Fast
+                if native_mode == WasmNativeCompilationMode::Fast
                     && agent_execution.is_none()
                     && error.to_string().contains(WASM_CODE_TOO_LARGE_MESSAGE) =>
             {
@@ -3096,14 +3478,19 @@ impl Engine {
                     );
                 }
                 engine = shared_size_optimized_wasm_engine()?;
+                native_mode = WasmNativeCompilationMode::SizeOptimized;
                 ensure_wasm_epoch_ticker(&engine);
-                (
-                    compile_wasm_module(&engine, bytes)?,
-                    WasmModuleMemoryCacheOutcome::Bypassed,
-                )
+                wasm_runtime_link::compile_modules(
+                    &engine,
+                    program,
+                    memory_cache_policy,
+                    true,
+                    native_mode,
+                )?
             }
             Err(error) => return Err(error),
         };
+        let memory_cache_outcome = modules.memory_cache_outcome;
         let module_elapsed = module_started.elapsed();
         if trace_wasm {
             eprintln!(
@@ -3143,7 +3530,9 @@ impl Engine {
         }
         trace_phase("module", module_started);
         let store_started = std::time::Instant::now();
-        let shared_memory_type = module.imports().find_map(|import| {
+        // Memory imports and the GC host imports live in the module that owns
+        // the runtime: `R` when linked, the standalone module otherwise.
+        let shared_memory_type = modules.host().imports().find_map(|import| {
             (import.module() == WASM_HOST_IMPORT_NAMESPACE
                 && import.name() == WASM_HOST_IMPORT_SHARED_MEMORY)
                 .then(|| match import.ty() {
@@ -3158,16 +3547,7 @@ impl Engine {
             shared_memory_type
                 .map(|memory_type| {
                     WasmtimeSharedMemory::new(&engine, memory_type)
-                        .map(|memory| {
-                            Arc::new(WasmSharedMemoryBacking {
-                                memory,
-                                next_offset: Mutex::new(8),
-                                async_waiters: Mutex::new(WasmAgentAsyncWaiterRegistry {
-                                    next_id: 1,
-                                    waiters: VecDeque::new(),
-                                }),
-                            })
-                        })
+                        .map(|memory| WasmSharedMemoryBacking::new(memory))
                         .map_err(|err| {
                             EngineError::new(format!("wasmtime shared-memory setup failed: {err}"))
                         })
@@ -3177,6 +3557,7 @@ impl Engine {
         let root_agent_group = match (agent_harness, shared_memory_backing.as_ref()) {
             (Some(agent_harness), Some(shared_memory_backing)) => Some(Arc::new(WasmAgentGroup {
                 engine: engine.clone(),
+                native_compilation_mode: native_mode,
                 realm: self.realm.clone(),
                 shared_memory_backing: Arc::clone(shared_memory_backing),
                 prelude: agent_harness.prelude,
@@ -3206,6 +3587,9 @@ impl Engine {
                 intl_kernel,
                 can_block,
                 monotonic_clock_origin: self.realm.host_clock().monotonic_instant(),
+                async_waiters: WasmStoreAsyncWaiters::new(
+                    shared_memory_backing.as_ref().map(Arc::clone),
+                ),
                 shared_memory_backing,
                 agent_group,
                 agent_commands: agent_execution
@@ -3227,7 +3611,7 @@ impl Engine {
         // user-program execution, so keep them outside the execution bound.
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&engine);
-        if let Some(private_memory_type) = module.imports().find_map(|import| {
+        if let Some(private_memory_type) = modules.host().imports().find_map(|import| {
             (import.module() == WASM_HOST_IMPORT_NAMESPACE
                 && import.name() == WASM_HOST_IMPORT_PRIVATE_MEMORY)
                 .then(|| match import.ty() {
@@ -3267,8 +3651,8 @@ impl Engine {
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
-                wasm_reject_dynamic_source,
+                WASM_HOST_IMPORT_REJECT_RUNTIME_SEMANTICS,
+                wasm_reject_runtime_semantics,
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         linker
@@ -3280,19 +3664,7 @@ impl Engine {
                 },
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_SHARED_MEMORY_ALLOC,
-                |caller: WasmtimeCaller<'_, WasmHostState>, byte_length: i64| -> i64 {
-                    caller
-                        .data()
-                        .shared_memory_backing
-                        .as_ref()
-                        .map_or(0, |backing| backing.allocate(byte_length))
-                },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        wasm_gc_host::link(&mut linker, modules.host())?;
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
@@ -3303,7 +3675,6 @@ impl Engine {
                  second: i64|
                  -> wasmtime::Result<i64> {
                     let group = caller.data().agent_group.clone();
-                    let shared_memory_backing = caller.data().shared_memory_backing.clone();
                     let private_memory = match caller.get_export("memory") {
                         Some(WasmtimeExtern::Memory(memory)) => memory,
                         _ => {
@@ -3371,65 +3742,6 @@ impl Engine {
                             })?;
                             if std::env::var_os("LILA_WASM_TRACE").is_some() {
                                 eprintln!("lila wasm trace: Test262 agent started");
-                            }
-                            Ok(0)
-                        }
-                        AgentHostOperation::Broadcast => {
-                            let group = group.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "agent.broadcast used without an active Test262 agent group",
-                                )
-                            })?;
-                            let descriptor = read_bytes(&caller, first, 32)?;
-                            let field = |offset: usize| {
-                                i64::from_le_bytes(
-                                    descriptor[offset..offset + 8]
-                                        .try_into()
-                                        .expect("agent descriptor field has fixed width"),
-                                )
-                            };
-                            let sent = group.broadcast(WasmAgentBroadcast {
-                                data_offset: field(0),
-                                byte_length: field(8),
-                                max_byte_length: field(16),
-                                flags: field(24),
-                            });
-                            if std::env::var_os("LILA_WASM_TRACE").is_some() {
-                                eprintln!("lila wasm trace: Test262 broadcast sent to {sent} agents");
-                            }
-                            Ok(sent as i64)
-                        }
-                        AgentHostOperation::ReceiveBroadcast => {
-                            let _group = group.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "agent.receiveBroadcast used without an active Test262 agent group",
-                                )
-                            })?;
-                            let commands = caller.data().agent_commands.clone().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "agent.receiveBroadcast may only run inside an agent",
-                                )
-                            })?;
-                            let command = commands
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .recv()
-                                .map_err(|err| {
-                                    wasmtime::Error::msg(format!(
-                                        "Test262 agent broadcast channel closed: {err}"
-                                    ))
-                                })?;
-                            let WasmAgentCommand::Broadcast(broadcast) = command else {
-                                return Ok(-1);
-                            };
-                            let mut descriptor = Vec::with_capacity(32);
-                            descriptor.extend_from_slice(&broadcast.data_offset.to_le_bytes());
-                            descriptor.extend_from_slice(&broadcast.byte_length.to_le_bytes());
-                            descriptor.extend_from_slice(&broadcast.max_byte_length.to_le_bytes());
-                            descriptor.extend_from_slice(&broadcast.flags.to_le_bytes());
-                            write_bytes(&mut caller, first, &descriptor)?;
-                            if std::env::var_os("LILA_WASM_TRACE").is_some() {
-                                eprintln!("lila wasm trace: Test262 agent received broadcast");
                             }
                             Ok(0)
                         }
@@ -3513,51 +3825,14 @@ impl Engine {
                             }
                             Ok(0)
                         }
-                        AgentHostOperation::RegisterAsyncWaiter => {
-                            let shared_memory_backing =
-                                shared_memory_backing.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "Atomics.waitAsync registration requires imported shared memory",
-                                )
-                            })?;
-                            Ok(shared_memory_backing.register_async_waiter(first))
-                        }
                         AgentHostOperation::PollAsyncWaiter => {
-                            let shared_memory_backing =
-                                shared_memory_backing.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "Atomics.waitAsync polling requires imported shared memory",
-                                )
-                            })?;
-                            Ok(shared_memory_backing.poll_async_waiter(first))
-                        }
-                        AgentHostOperation::NotifyAsyncWaiters => {
-                            let shared_memory_backing =
-                                shared_memory_backing.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "Atomics.notify requires imported shared memory",
-                                )
-                            })?;
-                            Ok(shared_memory_backing.notify_async_waiters(first, second))
+                            Ok(caller.data().async_waiters.poll(first))
                         }
                         AgentHostOperation::CancelAsyncWaiter => {
-                            let shared_memory_backing =
-                                shared_memory_backing.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "Atomics.waitAsync cancellation requires imported shared memory",
-                                )
-                            })?;
-                            Ok(shared_memory_backing.cancel_async_waiter(first))
+                            Ok(caller.data().async_waiters.cancel(first))
                         }
                     }
                 },
-            )
-            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_INTL_CALL,
-                wasm_intl_call,
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         linker
@@ -3678,17 +3953,46 @@ impl Engine {
                 wasm_number_pow,
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        for (name, func) in WASM_MATH_UNARY_IMPORTS {
+            linker
+                .func_wrap(WASM_HOST_IMPORT_NAMESPACE, name, func)
+                .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        }
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_MATH_ATAN2,
+                wasm_math_atan2,
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         trace_phase("store + linker", store_started);
+        let store_elapsed = if profile.is_some() {
+            store_started.elapsed()
+        } else {
+            Default::default()
+        };
         let instantiate_started = std::time::Instant::now();
-        let instance = linker
-            .instantiate(&mut store, &module)
-            .map_err(|err| EngineError::new(format!("wasmtime instantiate failed: {err}")))?;
+        // `observed_instance` owns the diagnostic globals and snapshot roots:
+        // the runtime instance when linked. The program instance exports the
+        // module status of a module entry.
+        let (instance, observed_instance) =
+            wasm_runtime_link::instantiate(&mut linker, &mut store, &modules)?;
         trace_phase("instantiate", instantiate_started);
+        let instantiate_elapsed = if profile.is_some() {
+            instantiate_started.elapsed()
+        } else {
+            Default::default()
+        };
         let lookup_started = std::time::Instant::now();
         let main = instance
-            .get_typed_func::<(), i64>(&mut store, "main")
+            .get_typed_func::<(), GcMainCompletion>(&mut store, "main")
             .map_err(|err| EngineError::new(format!("wasmtime export lookup failed: {err}")))?;
         trace_phase("lookup main", lookup_started);
+        let lookup_elapsed = if profile.is_some() {
+            lookup_started.elapsed()
+        } else {
+            Default::default()
+        };
         let epoch_deadline_ticks = match timeout_ms {
             // The ticker's phase is independent of this Store. One guard
             // tick ensures the deadline cannot expire before the requested
@@ -3702,10 +4006,12 @@ impl Engine {
                 EngineError::new("Test262 agent owner stopped before the agent became ready")
             })?;
         }
+        let gc_heap_before = profile.as_ref().map(|_| store.gc_heap_capacity());
         let execution_started = std::time::Instant::now();
-        let execution_result = main.call(&mut store, ()).map_err(|err| {
-            if let Some(operation) = err.downcast_ref::<DynamicSourceRuntimeOperation>() {
-                EngineError::from_runtime_dynamic_source_operation(*operation)
+        let mut roots = wasmtime::RootScope::new(&mut store);
+        let execution_result = main.call(&mut roots, ()).map_err(|err| {
+            if let Some(rejection) = err.downcast_ref::<RuntimeSemanticRejection>() {
+                EngineError::from_runtime_semantic_rejection(*rejection)
             } else if let Some(cause) = err.downcast_ref::<EngineError>() {
                 let mut error = cause.clone();
                 error.message = format!("wasmtime host execution failed: {err:#}");
@@ -3736,48 +4042,9 @@ impl Engine {
         let agent_result = root_agent_group
             .as_ref()
             .map_or(Ok(()), |group| group.finish());
-        let execution_result = execution_result.and_then(|payload| {
+        let execution_result = execution_result.and_then(|completion| {
             trace_phase("execution", execution_started);
-            let result_tag = instance
-                .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
-                .ok_or_else(|| {
-                    EngineError::new("wasmtime export lookup failed: missing result_tag")
-                })?
-                .get(&mut store);
-            let WasmtimeVal::I32(result_tag) = result_tag else {
-                return Err(EngineError::new(
-                    "wasm result_tag export had unexpected type",
-                ));
-            };
-            let result_tag = WasmRuntimeValueTag::from_tag(result_tag).ok_or_else(|| {
-                EngineError::new(format!("unknown wasm result tag: {result_tag}"))
-            })?;
-            let result_kind = result_tag.value_kind();
-            let completion = instance
-                .get_global(&mut store, WASM_COMPLETION_KIND_EXPORT)
-                .ok_or_else(|| {
-                    EngineError::new("wasmtime export lookup failed: missing completion_kind")
-                })?
-                .get(&mut store);
-            let WasmtimeVal::I32(completion_kind) = completion else {
-                return Err(EngineError::new(
-                    "wasm completion_kind export had unexpected type",
-                ));
-            };
-            let completion_kind = match i64::from(completion_kind) {
-                kind if kind == CompletionKindIr::Normal.abi_code() => {
-                    WasmTopLevelCompletionKind::Normal
-                }
-                kind if kind == CompletionKindIr::Throw.abi_code() => {
-                    WasmTopLevelCompletionKind::Throw
-                }
-                other => {
-                    return Err(EngineError::new(format!(
-                    "wasm top-level completion used invalid kind {other}; expected normal or throw"
-                )));
-                }
-            };
-            let module_status = read_module_entry_status(&instance, &mut store)?;
+            let module_status = read_module_entry_status(&instance, &mut roots)?;
             match module_status {
                 Some(WasmModuleEvaluationStatus::Pending) => {
                     return Err(EngineError::from_execution_failure(
@@ -3793,25 +4060,33 @@ impl Engine {
                 }
                 Some(WasmModuleEvaluationStatus::Settled) | None => {}
             }
+            if let WasmExecutionMode::Graph(limits) = mode {
+                let completion = wasm_rooted_snapshot::observe(&mut roots, &observed_instance, completion, *limits)?;
+                return Ok(WasmExecutionOutcome::Graph(GraphRunOutcome {
+                    backend_used: ExecutionBackend::WasmAot, completion,
+                    output_events: roots.as_context().data().output_events.take(),
+                    note: "wasm-aot rooted completion snapshot after quiescence".into(),
+                }));
+            }
+            let (result_tag, completion_kind, value) =
+                wasm_gc_completion::observe(&mut roots, completion)?.into_parts();
+            let result_kind = result_tag.value_kind();
             match mode {
                 WasmExecutionMode::Legacy => {
-                    // Legacy callers retain the historical human rendering. Keep
-                    // all Error-property/global reads and heap-handle formatting
-                    // in this mode so structured Object/Symbol observation remains
-                    // type-only by construction.
+                    // Diagnostic GC globals are read only for human throw text.
+                    // Structured Object/Symbol observations remain category-only;
+                    // no backend address escapes the rooted completion boundary.
                     let thrown_error = match &completion_kind {
                         WasmTopLevelCompletionKind::Normal => ThrownErrorText::NONE,
                         WasmTopLevelCompletionKind::Throw => {
-                            ThrownErrorText::read(&instance, &mut store, result_kind)?
+                            ThrownErrorText::read(&observed_instance, &mut roots, result_kind)?
                         }
                     };
-                    let note = render_wasmtime_completion(
+                    let note = wasm_gc_completion::render_value(
                         result_tag,
-                        payload,
-                        wasmtime_exported_memory(&instance, &mut store),
-                        &mut store,
+                        &value,
                         thrown_error.message(),
-                    )?;
+                    );
                     match &completion_kind {
                         WasmTopLevelCompletionKind::Normal => {
                             Ok(WasmExecutionOutcome::Legacy(RunOutcome {
@@ -3831,12 +4106,6 @@ impl Engine {
                     }
                 }
                 WasmExecutionMode::Structured => {
-                    let value = observe_wasmtime_value(
-                        result_tag,
-                        payload,
-                        wasmtime_exported_memory(&instance, &mut store),
-                        &mut store,
-                    )?;
                     let completion = match completion_kind {
                         WasmTopLevelCompletionKind::Normal => ObservedCompletion::Normal(value),
                         WasmTopLevelCompletionKind::Throw => ObservedCompletion::Throw(value),
@@ -3852,19 +4121,50 @@ impl Engine {
                     Ok(WasmExecutionOutcome::Structured(ObservedRunOutcome {
                         backend_used: ExecutionBackend::WasmAot,
                         completion,
-                        output_events: store.data().output_events.take(),
+                        output_events: roots.as_context().data().output_events.take(),
                         note,
                     }))
                 }
+                WasmExecutionMode::Graph(_) => unreachable!("graph mode returned before scalar decoding"),
             }
         });
-        finish_wasm_execution(execution_result, agent_result)
+        let result = finish_wasm_execution(execution_result, agent_result);
+        let execution_elapsed = if profile.is_some() {
+            execution_started.elapsed()
+        } else {
+            Default::default()
+        };
+        drop(roots);
+        if let Some(profile) = profile {
+            let process_memory = process_memory_sampler
+                .expect("profile requested its invocation sampler")
+                .finish();
+            *profile = runtime_profile::RuntimeObservation {
+                timings: WasmRuntimeTimings {
+                    engine: engine_elapsed,
+                    module: module_elapsed,
+                    store_and_linker: store_elapsed,
+                    instantiate: instantiate_elapsed,
+                    export_lookup: lookup_elapsed,
+                    execution_and_completion: execution_elapsed,
+                    total: trace_start.elapsed(),
+                },
+                module_cache: memory_cache_outcome.into(),
+                heap: WasmRuntimeHeapObservation {
+                    capacity_before_execution_bytes: gc_heap_before
+                        .expect("profile requested its first snapshot"),
+                    capacity_after_execution_bytes: store.gc_heap_capacity(),
+                },
+                process_memory: Some(process_memory),
+            };
+        }
+        result
     }
 }
 
 fn read_module_entry_status(
     instance: &wasmtime::Instance,
-    store: &mut WasmtimeStore<WasmHostState>,
+    store: &mut impl wasmtime::AsContextMut<Data = WasmHostState>,
 ) -> Result<Option<WasmModuleEvaluationStatus>, EngineError> {
     let Some(exported) = instance.get_export(&mut *store, MODULE_EVALUATION_STATUS_EXPORT) else {
         return Ok(None);
@@ -3896,121 +4196,6 @@ enum WasmTopLevelCompletionKind {
     Throw,
 }
 
-enum WasmtimeExportedMemory {
-    Unshared(wasmtime::Memory),
-    Shared(wasmtime::SharedMemory),
-}
-
-fn observe_wasmtime_value(
-    tag: WasmRuntimeValueTag,
-    payload: i64,
-    memory: Option<WasmtimeExportedMemory>,
-    store: &mut WasmtimeStore<WasmHostState>,
-) -> Result<ObservedJsValue, EngineError> {
-    match tag {
-        WasmRuntimeValueTag::HeapBigInt => {
-            let decimal = decode_wasmtime_heap_bigint(payload, memory, store)?;
-            let bigint = ObservedBigInt::parse_canonical_decimal(decimal.into_boxed_str())
-                .map_err(|error| EngineError::new(error.to_string()))?;
-            Ok(ObservedJsValue::BigInt(bigint))
-        }
-        WasmRuntimeValueTag::ValueKind(kind) => match kind {
-            ValueKind::Undefined => Ok(ObservedJsValue::Undefined),
-            ValueKind::Null => Ok(ObservedJsValue::Null),
-            ValueKind::Boolean => match payload {
-                0 => Ok(ObservedJsValue::Boolean(false)),
-                1 => Ok(ObservedJsValue::Boolean(true)),
-                other => Err(EngineError::new(format!(
-                    "wasm boolean completion used invalid payload {other}; expected 0 or 1"
-                ))),
-            },
-            ValueKind::Number => Ok(ObservedJsValue::Number(ObservedNumber::from_bits(
-                payload as u64,
-            ))),
-            ValueKind::String => {
-                let value = decode_wasmtime_string_units(payload, memory, store)?;
-                Ok(ObservedJsValue::String(value))
-            }
-            ValueKind::BigInt => {
-                let bigint =
-                    ObservedBigInt::parse_canonical_decimal(payload.to_string().into_boxed_str())
-                        .map_err(|error| EngineError::new(error.to_string()))?;
-                Ok(ObservedJsValue::BigInt(bigint))
-            }
-            ValueKind::Symbol => Ok(ObservedJsValue::Symbol),
-            ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments => {
-                Ok(ObservedJsValue::Object)
-            }
-            ValueKind::Dynamic => Err(EngineError::new(
-                "wasm completion used dynamic tag; expected concrete runtime tag",
-            )),
-        },
-    }
-}
-
-fn decode_wasmtime_heap_bigint(
-    payload: i64,
-    memory: Option<WasmtimeExportedMemory>,
-    store: &mut WasmtimeStore<WasmHostState>,
-) -> Result<String, EngineError> {
-    let memory = memory.ok_or_else(|| {
-        EngineError::new("wasm heap BigInt result needs exported memory, but none exists")
-    })?;
-    let memory_byte_len = match &memory {
-        WasmtimeExportedMemory::Unshared(memory) => memory.data_size(&*store),
-        WasmtimeExportedMemory::Shared(memory) => memory.data_size(),
-    };
-    decode_heap_bigint_decimal(payload as u64, memory_byte_len, |offset, bytes| {
-        memory.read(store, offset, bytes)
-    })
-    .map_err(|error| {
-        EngineError::new(format!(
-            "failed to decode wasm heap BigInt completion: {error}"
-        ))
-    })
-}
-
-fn decode_wasmtime_string(
-    payload: i64,
-    memory: Option<WasmtimeExportedMemory>,
-    store: &mut WasmtimeStore<WasmHostState>,
-) -> Result<String, EngineError> {
-    let bytes = read_wasmtime_string_bytes(payload, memory, store)?;
-    render_legacy_wtf8_text(bytes)
-}
-
-fn decode_wasmtime_string_units(
-    payload: i64,
-    memory: Option<WasmtimeExportedMemory>,
-    store: &mut WasmtimeStore<WasmHostState>,
-) -> Result<Box<[u16]>, EngineError> {
-    let bytes = read_wasmtime_string_bytes(payload, memory, store)?;
-    decode_utf8_wtf8_to_utf16(&bytes)
-}
-
-fn read_wasmtime_string_bytes(
-    payload: i64,
-    memory: Option<WasmtimeExportedMemory>,
-    store: &mut WasmtimeStore<WasmHostState>,
-) -> Result<Vec<u8>, EngineError> {
-    let memory = memory.ok_or_else(|| {
-        EngineError::new("wasm string result needs exported memory, but none exists")
-    })?;
-    let span = wasm_string_payload_span(payload, memory.data_size(&*store))?;
-    let mut bytes = vec![0; span.len()];
-    memory.read(store, span.start, &mut bytes)?;
-    Ok(bytes)
-}
-
-fn wasm_string_payload_span(
-    payload: i64,
-    memory_byte_len: usize,
-) -> Result<core::ops::Range<usize>, EngineError> {
-    let offset = ((payload as u64) >> 32) as usize;
-    let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
-    wasm_memory_span(offset, len, memory_byte_len, "wasm string result")
-}
-
 fn wasm_memory_span(
     offset: usize,
     len: usize,
@@ -4022,137 +4207,6 @@ fn wasm_memory_span(
         .filter(|end| *end <= memory_byte_len)
         .ok_or_else(|| EngineError::new(format!("{label} points outside exported memory")))?;
     Ok(offset..end)
-}
-
-fn decode_utf8_wtf8_to_utf16(bytes: &[u8]) -> Result<Box<[u16]>, EngineError> {
-    fn continuation(byte: u8) -> bool {
-        byte & 0xc0 == 0x80
-    }
-
-    fn invalid(offset: usize) -> EngineError {
-        EngineError::new(format!(
-            "wasm string result is not valid UTF-8/WTF-8 at byte {offset}"
-        ))
-    }
-
-    let mut units = Vec::with_capacity(bytes.len());
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let first = bytes[offset];
-        let (code_point, width) = match first {
-            0x00..=0x7f => (u32::from(first), 1),
-            0xc2..=0xdf => {
-                let Some(&second) = bytes.get(offset + 1) else {
-                    return Err(invalid(offset));
-                };
-                if !continuation(second) {
-                    return Err(invalid(offset));
-                }
-                ((u32::from(first & 0x1f) << 6) | u32::from(second & 0x3f), 2)
-            }
-            0xe0..=0xef => {
-                let (Some(&second), Some(&third)) = (bytes.get(offset + 1), bytes.get(offset + 2))
-                else {
-                    return Err(invalid(offset));
-                };
-                let second_is_valid = match first {
-                    0xe0 => (0xa0..=0xbf).contains(&second),
-                    // Unlike UTF-8, WTF-8 deliberately admits encoded UTF-16
-                    // surrogate code points in ED A0..BF 80..BF.
-                    0xed => (0x80..=0xbf).contains(&second),
-                    _ => continuation(second),
-                };
-                if !second_is_valid || !continuation(third) {
-                    return Err(invalid(offset));
-                }
-                (
-                    (u32::from(first & 0x0f) << 12)
-                        | (u32::from(second & 0x3f) << 6)
-                        | u32::from(third & 0x3f),
-                    3,
-                )
-            }
-            0xf0..=0xf4 => {
-                let (Some(&second), Some(&third), Some(&fourth)) = (
-                    bytes.get(offset + 1),
-                    bytes.get(offset + 2),
-                    bytes.get(offset + 3),
-                ) else {
-                    return Err(invalid(offset));
-                };
-                let second_is_valid = match first {
-                    0xf0 => (0x90..=0xbf).contains(&second),
-                    0xf4 => (0x80..=0x8f).contains(&second),
-                    _ => continuation(second),
-                };
-                if !second_is_valid || !continuation(third) || !continuation(fourth) {
-                    return Err(invalid(offset));
-                }
-                (
-                    (u32::from(first & 0x07) << 18)
-                        | (u32::from(second & 0x3f) << 12)
-                        | (u32::from(third & 0x3f) << 6)
-                        | u32::from(fourth & 0x3f),
-                    4,
-                )
-            }
-            _ => return Err(invalid(offset)),
-        };
-
-        if code_point <= 0xffff {
-            units.push(code_point as u16);
-        } else {
-            let surrogate = code_point - 0x1_0000;
-            units.push(0xd800 | ((surrogate >> 10) as u16));
-            units.push(0xdc00 | ((surrogate & 0x03ff) as u16));
-        }
-        offset += width;
-    }
-    Ok(units.into_boxed_slice())
-}
-
-fn render_legacy_wtf8_text(bytes: Vec<u8>) -> Result<String, EngineError> {
-    match String::from_utf8(bytes) {
-        Ok(text) => Ok(text),
-        Err(error) => {
-            decode_utf8_wtf8_to_utf16(error.as_bytes())?;
-            Ok("<non-scalar UTF-16>".to_string())
-        }
-    }
-}
-
-impl WasmtimeExportedMemory {
-    fn data_size(&self, store: &WasmtimeStore<WasmHostState>) -> usize {
-        match self {
-            Self::Unshared(memory) => memory.data_size(store),
-            Self::Shared(memory) => memory.data_size(),
-        }
-    }
-
-    fn read(
-        &self,
-        store: &mut WasmtimeStore<WasmHostState>,
-        offset: usize,
-        bytes: &mut [u8],
-    ) -> Result<(), EngineError> {
-        match self {
-            Self::Unshared(memory) => memory
-                .read(store, offset, bytes)
-                .map_err(|err| EngineError::new(format!("failed to read wasm memory: {err}"))),
-            Self::Shared(memory) => read_wasmtime_shared_memory(memory, offset, bytes),
-        }
-    }
-}
-
-fn wasmtime_exported_memory(
-    instance: &wasmtime::Instance,
-    store: &mut WasmtimeStore<WasmHostState>,
-) -> Option<WasmtimeExportedMemory> {
-    match instance.get_export(store, "memory")? {
-        WasmtimeExtern::Memory(memory) => Some(WasmtimeExportedMemory::Unshared(memory)),
-        WasmtimeExtern::SharedMemory(memory) => Some(WasmtimeExportedMemory::Shared(memory)),
-        _ => None,
-    }
 }
 
 fn read_wasmtime_shared_memory(
@@ -4195,7 +4249,7 @@ impl ThrownErrorText {
 
     fn read(
         instance: &wasmtime::Instance,
-        store: &mut WasmtimeStore<WasmHostState>,
+        store: &mut impl wasmtime::AsContextMut<Data = WasmHostState>,
         result_kind: ValueKind,
     ) -> Result<Self, EngineError> {
         if !matches!(
@@ -4204,26 +4258,20 @@ impl ThrownErrorText {
         ) {
             return Ok(Self::NONE);
         }
-        let memory = wasmtime_exported_memory(instance, store);
-        let name = read_wasmtime_string_payload_global(
+        let name = wasm_gc_completion::diagnostic_string(
             instance,
             store,
-            WASM_THROW_ERROR_NAME_EXPORT,
-            memory,
+            wasm_gc_completion::DiagnosticString::ErrorName,
         )?;
-        let memory = wasmtime_exported_memory(instance, store);
-        let message = read_wasmtime_string_payload_global(
+        let message = wasm_gc_completion::diagnostic_string(
             instance,
             store,
-            WASM_THROW_ERROR_MESSAGE_EXPORT,
-            memory,
+            wasm_gc_completion::DiagnosticString::ErrorMessage,
         )?;
-        let memory = wasmtime_exported_memory(instance, store);
-        let constructor_name = read_wasmtime_string_payload_global(
+        let constructor_name = wasm_gc_completion::diagnostic_string(
             instance,
             store,
-            WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
-            memory,
+            wasm_gc_completion::DiagnosticString::ErrorConstructorName,
         )?;
         Ok(Self {
             name: name.filter(|value| !value.is_empty()),
@@ -4241,113 +4289,6 @@ impl ThrownErrorText {
 
     fn message(&self) -> Option<&str> {
         self.message.as_deref()
-    }
-}
-
-fn read_wasmtime_string_payload_global(
-    instance: &wasmtime::Instance,
-    store: &mut WasmtimeStore<WasmHostState>,
-    global_name: &str,
-    memory: Option<WasmtimeExportedMemory>,
-) -> Result<Option<String>, EngineError> {
-    let Some(global) = instance.get_global(&mut *store, global_name) else {
-        return Ok(None);
-    };
-    let WasmtimeVal::I64(payload) = global.get(&mut *store) else {
-        return Err(EngineError::new(format!(
-            "wasm {global_name} export had unexpected type"
-        )));
-    };
-    if payload == 0 {
-        return Ok(None);
-    }
-    let memory = memory.ok_or_else(|| {
-        EngineError::new(format!(
-            "wasm {global_name} string needs exported memory, but none exists"
-        ))
-    })?;
-    let bytes = read_wasmtime_string_bytes(payload, Some(memory), store)?;
-    render_legacy_wtf8_text(bytes).map(Some)
-}
-
-/// Render a completion value for a human.
-///
-/// `thrown_message` is `Some` only for an uncaught throw of a heap object, and
-/// it is the difference between a detail that names a defect and a detail that
-/// names an address. It is appended to the handle rather than replacing it: the
-/// address is worthless as an *identity* (see `ThrownErrorText`), but it is
-/// still the only thing that distinguishes two live objects while debugging, so
-/// it stays in the text and is erased only from the runner's `detail_hash`.
-fn render_wasmtime_completion(
-    tag: WasmRuntimeValueTag,
-    payload: i64,
-    memory: Option<WasmtimeExportedMemory>,
-    store: &mut WasmtimeStore<WasmHostState>,
-    thrown_message: Option<&str>,
-) -> Result<String, EngineError> {
-    let (kind, rendered) = match tag {
-        WasmRuntimeValueTag::HeapBigInt => {
-            let memory = memory.ok_or_else(|| {
-                EngineError::new("wasm heap BigInt result needs exported memory, but none exists")
-            })?;
-            let memory_byte_len = match &memory {
-                WasmtimeExportedMemory::Unshared(memory) => memory.data_size(&*store),
-                WasmtimeExportedMemory::Shared(memory) => memory.data_size(),
-            };
-            let decimal =
-                decode_heap_bigint_decimal(payload as u64, memory_byte_len, |offset, bytes| {
-                    memory.read(store, offset, bytes)
-                })
-                .map_err(|error| {
-                    EngineError::new(format!(
-                        "failed to decode wasm heap BigInt completion: {error}"
-                    ))
-                })?;
-            (ValueKind::BigInt, format!("{decimal}n"))
-        }
-        WasmRuntimeValueTag::ValueKind(kind) => {
-            let rendered = match kind {
-                ValueKind::Undefined => "undefined".to_string(),
-                ValueKind::Null => "null".to_string(),
-                ValueKind::Boolean => {
-                    if payload == 0 {
-                        "false".to_string()
-                    } else {
-                        "true".to_string()
-                    }
-                }
-                ValueKind::Number => format!("{}", f64::from_bits(payload as u64)),
-                ValueKind::String => decode_wasmtime_string(payload, memory, store)?,
-                ValueKind::Object
-                | ValueKind::Array
-                | ValueKind::Function
-                | ValueKind::Arguments => render_heap_handle(payload, thrown_message),
-                ValueKind::Symbol => format!("symbol@{}", payload as u64),
-                ValueKind::BigInt => format!("{}n", payload),
-                ValueKind::Dynamic => {
-                    return Err(EngineError::new(
-                        "wasm completion used dynamic tag; expected concrete runtime tag",
-                    ));
-                }
-            };
-            (kind, rendered)
-        }
-    };
-    Ok(format!(
-        "wasm-aot completion: {}({rendered})",
-        kind.as_str()
-    ))
-}
-
-/// `handle@5397552` on its own, or `handle@5397552: <message>` when the module
-/// told us what was thrown.
-///
-/// A normal completion whose value happens to be an object keeps the bare form:
-/// there is no message, because nothing was thrown.
-fn render_heap_handle(payload: i64, thrown_message: Option<&str>) -> String {
-    match thrown_message {
-        Some(message) => format!("handle@{}: {message}", payload as u64),
-        None => format!("handle@{}", payload as u64),
     }
 }
 
@@ -4380,13 +4321,11 @@ var $262 = {
     }
 
     #[test]
-    fn invalid_dynamic_source_host_codes_remain_abi_errors() {
-        for code in [-1, 6, i64::MAX] {
-            let error =
-                wasm_reject_dynamic_source(code).expect_err("an invalid host operation must fail");
-            assert!(error
-                .downcast_ref::<DynamicSourceRuntimeOperation>()
-                .is_none());
+    fn invalid_runtime_semantic_host_codes_remain_abi_errors() {
+        for code in [-1, 9, i64::MAX] {
+            let error = wasm_reject_runtime_semantics(code)
+                .expect_err("an invalid host operation must fail");
+            assert!(error.downcast_ref::<RuntimeSemanticRejection>().is_none());
             assert!(error.to_string().contains(&code.to_string()));
         }
     }
@@ -4412,20 +4351,241 @@ var $262 = {
     }
 
     #[test]
+    fn product_wasmtime_profiles_require_copying_with_no_weak_capability() {
+        for engine in [
+            shared_wasm_engine().expect("fast required runtime should initialize"),
+            shared_size_optimized_wasm_engine()
+                .expect("size-optimized required runtime should initialize"),
+        ] {
+            assert_eq!(engine.get_max_wasm_stack(), WASM_MAX_STACK_SIZE);
+            assert_eq!(engine.get_async_stack_size(), ENGINE_WORKER_STACK_SIZE);
+            assert!(engine.get_max_wasm_stack() < engine.get_async_stack_size());
+            assert_eq!(engine.get_collector(), Some(wasmtime::Collector::Copying));
+            assert!(engine.get_wasm_features().threads());
+            assert!(engine.get_shared_memory());
+            let memory = WasmtimeSharedMemory::new(&engine, wasmtime::MemoryType::shared(1, 1))
+                .expect("every product profile must allocate the required shared memory");
+            assert_eq!(memory.size(), 1);
+            PRODUCT_WASMTIME_POLICY
+                .verify_engine(&engine)
+                .expect("every product profile must preserve required runtime capabilities");
+        }
+        assert_eq!(
+            PRODUCT_WASMTIME_POLICY.gc_capability(),
+            WasmGcCapability::CopyingWithCycleCollection
+        );
+        assert_eq!(
+            PRODUCT_WASMTIME_POLICY.weak_reachability_capability(),
+            WasmWeakReachabilityCapability::Unavailable
+        );
+    }
+
+    #[test]
+    fn required_runtime_rejects_disabled_gc_support() {
+        let mut config = WasmtimeConfig::new();
+        PRODUCT_WASMTIME_POLICY.configure(&mut config);
+        config.gc_support(false);
+        let engine = WasmtimeEngine::new(&config)
+            .expect("upstream permits a configuration with its GC runtime disabled");
+        assert!(!engine.get_wasm_features().gc_types());
+        let failure = PRODUCT_WASMTIME_POLICY
+            .verify_engine(&engine)
+            .expect_err("Lila must reject the instantiated engine without its required GC runtime");
+        assert_eq!(failure, "required Wasm GC runtime support is unavailable");
+        let error = EngineError::from_wasmtime_setup(WasmtimeEngineSetupError::new(
+            WasmNativeCompilationMode::Fast,
+            failure,
+        ));
+        assert_eq!(
+            error.wasm_gc_capability(),
+            Some(WasmGcCapability::CopyingWithCycleCollection)
+        );
+        assert_eq!(
+            error.wasm_weak_reachability_capability(),
+            Some(WasmWeakReachabilityCapability::Unavailable)
+        );
+    }
+
+    #[test]
+    fn required_runtime_refuses_implicit_collector_selection() {
+        let mut config = WasmtimeConfig::new();
+        PRODUCT_WASMTIME_POLICY.configure(&mut config);
+        config.collector(wasmtime::Collector::Auto);
+        let engine = WasmtimeEngine::new(&config)
+            .expect("compiled copying support should permit an automatic upstream configuration");
+        assert_eq!(
+            PRODUCT_WASMTIME_POLICY.verify_engine(&engine),
+            Err("required copying collector was not explicitly selected")
+        );
+    }
+
+    #[test]
     fn wasm_agent_compile_policy_preserves_root_module_authority() {
         let root = CompileOptions {
             host_surface_policy: HostSurfacePolicy::Test262,
             promise_rejection_policy: PromiseRejectionPolicy::Ignore,
             module_loading_policy: ModuleLoadingPolicy::RejectAll,
+            intl_profile: IntlCompilationProfile::Custom(
+                CustomProfileId::parse("worker-selection").unwrap(),
+            ),
             ..CompileOptions::default()
         };
         let worker = WasmAgentCompilePolicy::from_root(&root).worker_options();
 
+        assert_eq!(worker.intl_profile, root.intl_profile);
         assert_eq!(worker.host_surface_policy, HostSurfacePolicy::Test262);
         assert_eq!(worker.module_loading_policy, ModuleLoadingPolicy::RejectAll);
         assert_eq!(
             worker.promise_rejection_policy,
             PromiseRejectionPolicy::Ignore
+        );
+    }
+
+    #[test]
+    fn embedded_authority_reaches_prepared_units_and_unlocated_agent_options() {
+        let source = "var key = 'entryOnly'; import(key);";
+        let graph = EmbeddedModuleGraph::try_new(
+            EmbeddedModuleEntryInput {
+                goal: EmbeddedModuleGoal::Script,
+                identity: "entry.js".into(),
+                source: source.into(),
+                meta_url: "lila://entry.js".into(),
+            },
+            vec![EmbeddedModuleSourceInput {
+                identity: "dep.js".into(),
+                source: "export const value = 5;".into(),
+                meta_url: "lila://dep.js".into(),
+            }],
+            vec![
+                EmbeddedModuleResolutionInput {
+                    referrer: EmbeddedModuleReferrer::Script("entry.js".into()),
+                    specifier: "entryOnly".into(),
+                    attributes: vec![],
+                    target: "dep.js".into(),
+                },
+                EmbeddedModuleResolutionInput {
+                    referrer: EmbeddedModuleReferrer::Unlocated,
+                    specifier: "agentOnly".into(),
+                    attributes: vec![],
+                    target: "dep.js".into(),
+                },
+            ],
+        )
+        .expect("finite exact graph");
+        let options = CompileOptions {
+            module_loading_policy: ModuleLoadingPolicy::Embedded(Arc::clone(&graph)),
+            ..CompileOptions::default()
+        };
+        let engine = Engine::new(RealmBuilder::new().build());
+        let prepared = engine
+            .prepare_compilation(source, ParseGoal::Script, &options)
+            .unwrap();
+        let PreparedModuleCompilation::Embedded {
+            owner: prepared_graph,
+            ..
+        } = &prepared.modules
+        else {
+            panic!("prepared authority lost");
+        };
+        assert!(Arc::ptr_eq(&graph, prepared_graph));
+        assert_eq!(
+            prepared.source.source().filename.as_deref(),
+            Some("entry.js")
+        );
+        assert_eq!(
+            prepared.modules.graph().unwrap().resolutions[0]
+                .1
+                .specifier(),
+            "entryOnly"
+        );
+        let unit = engine.compile_prepared_on_current_thread(prepared).unwrap();
+        let ModuleLoadingPolicy::Embedded(unit_graph) = &unit.module_loading_policy else {
+            panic!("unit authority lost");
+        };
+        assert!(Arc::ptr_eq(&graph, unit_graph));
+
+        let worker_options = WasmAgentCompilePolicy::from_root(&options).worker_options();
+        let ModuleLoadingPolicy::Embedded(worker_graph) = &worker_options.module_loading_policy
+        else {
+            panic!("worker authority lost");
+        };
+        assert!(Arc::ptr_eq(&graph, worker_graph));
+        let worker_source = "var key = 'agentOnly'; import(key);";
+        assert!(engine
+            .prepare_compilation(worker_source, ParseGoal::Script, &worker_options)
+            .is_err());
+        let worker = engine
+            .prepare_compilation_for_role(
+                worker_source,
+                ParseGoal::Script,
+                &worker_options,
+                module_loader::EmbeddedSourceRole::UnlocatedScript,
+            )
+            .unwrap();
+        assert_eq!(worker.source.source().filename, None);
+        let worker_sources = worker.modules.graph().unwrap();
+        assert_eq!(worker_sources.resolutions.len(), 1);
+        assert_eq!(worker_sources.resolutions[0].1.specifier(), "agentOnly");
+        let worker_key = program_cache_key_for_role(
+            worker_source,
+            ParseGoal::Script,
+            &worker_options,
+            Some(worker_sources),
+            module_loader::EmbeddedSourceRole::UnlocatedScript,
+        );
+        assert_ne!(
+            worker_key,
+            program_cache_key(
+                worker_source,
+                ParseGoal::Script,
+                &worker_options,
+                Some(worker_sources)
+            )
+        );
+        let worker_unit = engine.compile_prepared_on_current_thread(worker).unwrap();
+        let ModuleLoadingPolicy::Embedded(worker_unit_graph) = worker_unit.module_loading_policy
+        else {
+            panic!("worker unit authority lost");
+        };
+        assert!(Arc::ptr_eq(&graph, &worker_unit_graph));
+    }
+
+    #[test]
+    fn embedded_artifact_key_consumes_unused_source_and_url_authority() {
+        let graph = |source: &str, url: &str| {
+            EmbeddedModuleGraph::try_new(
+                EmbeddedModuleEntryInput {
+                    goal: EmbeddedModuleGoal::Script,
+                    identity: "entry.js".into(),
+                    source: "262;".into(),
+                    meta_url: "lila://entry.js".into(),
+                },
+                vec![EmbeddedModuleSourceInput {
+                    identity: "unused.js".into(),
+                    source: source.into(),
+                    meta_url: url.into(),
+                }],
+                vec![],
+            )
+            .unwrap()
+        };
+        let key = |graph| {
+            program_wasm_cache_key(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    module_loading_policy: ModuleLoadingPolicy::Embedded(graph),
+                    ..CompileOptions::default()
+                },
+            )
+        };
+        assert_ne!(
+            key(graph("export {};", "lila://unused.js")),
+            key(graph("export const value = 1;", "lila://unused.js"))
+        );
+        assert_ne!(
+            key(graph("export {};", "lila://unused.js")),
+            key(graph("export {};", "lila://other/unused.js"))
         );
     }
 
@@ -4487,10 +4647,15 @@ var $262 = {
         validate_wasm_intl_artifact_identity(
             &inert_wasm_with_intl_identity(true, &[identity]),
             &expected,
+            IntlArtifactIdentityRequirement::HostImports,
         )
         .expect("one matching section should satisfy the Intl import");
-        validate_wasm_intl_artifact_identity(&inert_wasm_with_intl_identity(false, &[]), &expected)
-            .expect("an Intl-free artifact needs no identity");
+        validate_wasm_intl_artifact_identity(
+            &inert_wasm_with_intl_identity(false, &[]),
+            &expected,
+            IntlArtifactIdentityRequirement::HostImports,
+        )
+        .expect("an Intl-free artifact needs no identity");
 
         for (artifact, expected_error) in [
             (
@@ -4510,8 +4675,12 @@ var $262 = {
                 IntlArtifactIdentityError::UnexpectedSection,
             ),
         ] {
-            let error = validate_wasm_intl_artifact_identity(&artifact, &expected)
-                .expect_err("invalid Intl artifact relation must be rejected");
+            let error = validate_wasm_intl_artifact_identity(
+                &artifact,
+                &expected,
+                IntlArtifactIdentityRequirement::HostImports,
+            )
+            .expect_err("invalid Intl artifact relation must be rejected");
             assert_eq!(
                 error.intl_artifact_identity_error(),
                 Some(expected_error),
@@ -4519,6 +4688,10 @@ var $262 = {
             );
         }
     }
+
+    // Agent.start compiles and readies a cold worker inside the root execution
+    // deadline. Match the existing worker-policy and structured-root fixtures.
+    const SHARED_AGENT_STARTUP_EXECUTION_TIMEOUT_MS: u64 = 120_000;
 
     #[test]
     fn wasm_agents_share_buffers_and_deliver_reports() {
@@ -4541,7 +4714,7 @@ report;
             .run_wasm_aot_script_with_agents(
                 &source,
                 test262_compile_options(),
-                Some(30_000),
+                Some(SHARED_AGENT_STARTUP_EXECUTION_TIMEOUT_MS),
                 true,
                 TEST262_AGENT_PRELUDE.to_string(),
             )
@@ -4552,6 +4725,10 @@ report;
 
     #[test]
     fn wasm_agent_worker_loading_obeys_the_root_policy() {
+        // The root execution deadline includes cold worker Wasmtime compilation
+        // and readiness; match the existing bounded worker fixture budget.
+        const WORKER_POLICY_TIMEOUT_MS: u64 = 120_000;
+
         let directory = std::env::current_dir()
             .expect("workspace directory should exist")
             .join("target")
@@ -4592,7 +4769,7 @@ report;
             .run_wasm_aot_script_with_agents(
                 &source,
                 options(ModuleLoadingPolicy::Filesystem),
-                Some(30_000),
+                Some(WORKER_POLICY_TIMEOUT_MS),
                 true,
                 TEST262_AGENT_PRELUDE.to_string(),
             )
@@ -4607,7 +4784,7 @@ report;
             .run_wasm_aot_script_with_agents(
                 &source,
                 options(ModuleLoadingPolicy::RejectAll),
-                Some(30_000),
+                Some(WORKER_POLICY_TIMEOUT_MS),
                 true,
                 TEST262_AGENT_PRELUDE.to_string(),
             )
@@ -4649,7 +4826,7 @@ notified + ":" + report;
             .run_wasm_aot_script_with_agents(
                 &source,
                 test262_compile_options(),
-                Some(30_000),
+                Some(SHARED_AGENT_STARTUP_EXECUTION_TIMEOUT_MS),
                 true,
                 TEST262_AGENT_PRELUDE.to_string(),
             )
@@ -4677,7 +4854,7 @@ report;
             .run_wasm_aot_script_with_agents(
                 &source,
                 test262_compile_options(),
-                Some(30_000),
+                Some(SHARED_AGENT_STARTUP_EXECUTION_TIMEOUT_MS),
                 true,
                 TEST262_AGENT_PRELUDE.to_string(),
             )
@@ -4693,6 +4870,12 @@ report;
             ..CompileOptions::default()
         };
         let key = program_wasm_cache_key("1 + 2", ParseGoal::Script, &base);
+        let mut conformance = base.clone();
+        conformance.intl_profile = IntlCompilationProfile::Conformance;
+        assert_ne!(
+            key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &conformance)
+        );
         assert_eq!(
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &base)
@@ -4723,11 +4906,891 @@ report;
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_rejection_policy)
         );
+        let mut first_custom = base.clone();
+        first_custom.intl_profile =
+            IntlCompilationProfile::Custom(CustomProfileId::parse("profile-a").unwrap());
+        let first_custom_key = program_wasm_cache_key("1 + 2", ParseGoal::Script, &first_custom);
+        assert_ne!(key, first_custom_key);
+        let mut second_custom = first_custom.clone();
+        second_custom.intl_profile =
+            IntlCompilationProfile::Custom(CustomProfileId::parse("profile-ab").unwrap());
+        assert_ne!(
+            first_custom_key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &second_custom)
+        );
+        first_custom.filename = Some("bc".into());
+        second_custom.filename = Some("c".into());
+        first_custom.intl_profile =
+            IntlCompilationProfile::Custom(CustomProfileId::parse("a").unwrap());
+        second_custom.intl_profile =
+            IntlCompilationProfile::Custom(CustomProfileId::parse("ab").unwrap());
+        assert_ne!(
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &first_custom),
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &second_custom)
+        );
+        let projection = |locales: &[&str]| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse("same-id").unwrap(),
+                    Some(locales),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        first_custom.filename = None;
+        second_custom.filename = None;
+        first_custom.intl_profile = projection(&["es", "he"]);
+        second_custom.intl_profile = projection(&["es", "ar"]);
+        let projected_key = program_wasm_cache_key("1 + 2", ParseGoal::Script, &first_custom);
+        assert_ne!(
+            projected_key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &second_custom)
+        );
+        second_custom.intl_profile = projection(&["he", "es"]);
+        assert_eq!(
+            projected_key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &second_custom)
+        );
+        second_custom.intl_profile =
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap());
+        assert_ne!(
+            projected_key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &second_custom)
+        );
         let mut changed_module_policy = base.clone();
         changed_module_policy.module_loading_policy = ModuleLoadingPolicy::RejectAll;
         assert_ne!(
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_module_policy)
+        );
+    }
+
+    #[test]
+    fn currency_projection_cache_key_binds_presence_codes_and_canonical_order() {
+        let options = |codes: &[&str]| CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_currency_codes(
+                    CustomProfileId::parse("currency-cache").unwrap(),
+                    codes,
+                )
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let first = options(&["JPY", "EUR"]);
+        let equivalent = options(&["eur", "jpy"]);
+        let selected = options(&["EUR"]);
+        let full = CompileOptions {
+            intl_profile: IntlCompilationProfile::Custom(
+                CustomProfileId::parse("currency-cache").unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let key = program_wasm_cache_key("262", ParseGoal::Script, &first);
+        assert_eq!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &equivalent)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &selected)
+        );
+        assert_ne!(key, program_wasm_cache_key("262", ParseGoal::Script, &full));
+        let with_locales = CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse("currency-cache").unwrap(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&["fr"]),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap()
+                .with_currency_codes(&["EUR", "JPY"])
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &with_locales)
+        );
+    }
+
+    #[test]
+    fn calendar_projection_cache_key_binds_requested_service_data_without_global_aliases() {
+        let profile = |calendars: &[&str]| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_date_time_calendars(
+                    CustomProfileId::parse("calendar-cache").unwrap(),
+                    calendars,
+                )
+                .unwrap(),
+            )
+        };
+        let first = CompileOptions {
+            intl_profile: profile(&["chinese", "gregory"]),
+            ..CompileOptions::default()
+        };
+        let ordered = CompileOptions {
+            intl_profile: profile(&["gregory", "chinese"]),
+            ..CompileOptions::default()
+        };
+        let fewer = CompileOptions {
+            intl_profile: profile(&["chinese"]),
+            ..CompileOptions::default()
+        };
+        let full = CompileOptions {
+            intl_profile: IntlCompilationProfile::Custom(
+                CustomProfileId::parse("calendar-cache").unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let key = program_wasm_cache_key("262", ParseGoal::Script, &first);
+        assert_eq!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &ordered)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &fewer)
+        );
+        assert_ne!(key, program_wasm_cache_key("262", ParseGoal::Script, &full));
+        let coupled = CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_date_time_calendars(
+                    CustomProfileId::parse("calendar-cache").unwrap(),
+                    &["chinese", "gregory"],
+                )
+                .unwrap()
+                .with_currency_codes(&["EUR"])
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &coupled)
+        );
+    }
+    #[test]
+    fn numbering_projection_cache_key_binds_requested_domains_and_composed_data() {
+        let options = |systems: &[&str]| CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_numbering_systems(
+                    CustomProfileId::parse("numbering-cache").unwrap(),
+                    systems,
+                )
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let first = options(&["deva", "latn"]);
+        let equivalent = options(&["LATN", "DEVA"]);
+        let fewer = options(&["deva"]);
+        let full = CompileOptions {
+            intl_profile: IntlCompilationProfile::Custom(
+                CustomProfileId::parse("numbering-cache").unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let key = program_wasm_cache_key("262", ParseGoal::Script, &first);
+        assert_eq!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &equivalent)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &fewer)
+        );
+        assert_ne!(key, program_wasm_cache_key("262", ParseGoal::Script, &full));
+        let composed = CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_numbering_systems(
+                    CustomProfileId::parse("numbering-cache").unwrap(),
+                    &["deva", "latn"],
+                )
+                .unwrap()
+                .with_date_time_calendars(&["chinese"])
+                .unwrap()
+                .with_currency_codes(&["EUR"])
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &composed)
+        );
+    }
+    #[test]
+    fn named_zone_projection_cache_key_binds_primary_identity_and_independent_data_fields() {
+        let options = |zones: &[&str]| CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_named_time_zones(
+                    CustomProfileId::parse("named-zone-cache").unwrap(),
+                    zones,
+                )
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let first = options(&["US/Eastern", "Europe/London"]);
+        let equivalent = options(&["europe/london", "America/New_York"]);
+        let fewer = options(&["America/New_York"]);
+        let full = CompileOptions {
+            intl_profile: IntlCompilationProfile::Custom(
+                CustomProfileId::parse("named-zone-cache").unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let key = program_wasm_cache_key("262", ParseGoal::Script, &first);
+        assert_eq!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &equivalent)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &fewer)
+        );
+        assert_ne!(key, program_wasm_cache_key("262", ParseGoal::Script, &full));
+        let composed = CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_named_time_zones(
+                    CustomProfileId::parse("named-zone-cache").unwrap(),
+                    &["Europe/London", "America/New_York"],
+                )
+                .unwrap()
+                .with_numbering_systems(&["deva"])
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &composed)
+        );
+    }
+
+    #[test]
+    fn service_cache_key_binds_requested_public_roots_and_not_only_shared_dependencies() {
+        let options = |services: &[&str]| CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::for_services(
+                    CustomProfileId::parse("service-cache").unwrap(),
+                    services,
+                )
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        let first = options(&["NumberFormat", "PluralRules"]);
+        let reordered = options(&["PluralRules", "NumberFormat"]);
+        let number_only = options(&["NumberFormat"]);
+        let plural_only = options(&["PluralRules"]);
+        let key = program_wasm_cache_key("262", ParseGoal::Script, &first);
+        assert_eq!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &reordered)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &number_only)
+        );
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &plural_only)
+        );
+        let full = CompileOptions {
+            intl_profile: IntlCompilationProfile::Custom(
+                CustomProfileId::parse("service-cache").unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        assert_ne!(key, program_wasm_cache_key("262", ParseGoal::Script, &full));
+        let filtered = CompileOptions {
+            intl_profile: IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse("service-cache").unwrap(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&["fr"]),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap()
+                .with_services(&["NumberFormat", "PluralRules"])
+                .unwrap(),
+            ),
+            ..CompileOptions::default()
+        };
+        assert_ne!(
+            key,
+            program_wasm_cache_key("262", ParseGoal::Script, &filtered)
+        );
+    }
+
+    #[test]
+    fn component_projection_cache_keys_bind_each_filter_presence_and_order_independently() {
+        let profile = |id: &str, lists: Option<&[&str]>, relatives: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    lists,
+                    relatives,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |profile| {
+            let options = CompileOptions {
+                intl_profile: profile,
+                ..CompileOptions::default()
+            };
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &options,
+                None,
+                &[19; 32],
+            )
+        };
+        let both = key(profile(
+            "same-id",
+            Some(&["fr", "pl"]),
+            Some(&["ar", "en-US"]),
+        ));
+        assert_eq!(
+            both,
+            key(profile(
+                "same-id",
+                Some(&["pl", "fr"]),
+                Some(&["en-US", "ar"])
+            ))
+        );
+        let variants = [
+            profile("same-id", Some(&["fr", "pl"]), None),
+            profile("same-id", None, Some(&["ar", "en-US"])),
+            profile("same-id", Some(&["ar", "en-US"]), Some(&["fr", "pl"])),
+            profile("same-id", Some(&["fr"]), Some(&["pl", "ar", "en-US"])),
+            profile("same-id", Some(&["fr", "pl"]), Some(&["ar"])),
+            profile("other-id", Some(&["fr", "pl"]), Some(&["ar", "en-US"])),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+            IntlCompilationProfile::Minimal,
+        ];
+        let mut keys = std::collections::BTreeSet::from([both]);
+        for variant in variants {
+            assert!(
+                keys.insert(key(variant)),
+                "distinct profile tuples must not reuse cached artifacts"
+            );
+        }
+        assert_ne!(
+            key(profile("a", Some(&["bcd"]), None)),
+            key(profile("ab", Some(&["cd"]), None)),
+        );
+        assert_ne!(
+            key(profile("same-id", Some(&["fr"]), None)),
+            key(profile("same-id", None, Some(&["fr"]))),
+        );
+        assert!(CustomIntlProfile::new(
+            CustomProfileId::parse("same-id").unwrap(),
+            Some(&[]),
+            Some(&["fr"]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn display_names_cache_filters_are_independent_of_other_components_and_input_order() {
+        let profile = |id: &str,
+                       lists: Option<&[&str]>,
+                       relatives: Option<&[&str]>,
+                       display: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    lists,
+                    relatives,
+                    display,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |intl_profile| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    intl_profile,
+                    ..CompileOptions::default()
+                },
+                None,
+                &[19; 32],
+            )
+        };
+        let all = key(profile(
+            "same-id",
+            Some(&["es", "he"]),
+            Some(&["fr", "pl"]),
+            Some(&["fr", "ja"]),
+        ));
+        assert_eq!(
+            all,
+            key(profile(
+                "same-id",
+                Some(&["he", "es"]),
+                Some(&["pl", "fr"]),
+                Some(&["ja", "fr"])
+            ))
+        );
+        let variants = [
+            profile("same-id", Some(&["es", "he"]), Some(&["fr", "pl"]), None),
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr"]),
+            ),
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["de", "ja"]),
+            ),
+            profile("same-id", None, Some(&["fr", "pl"]), Some(&["fr", "ja"])),
+            profile("same-id", Some(&["es", "he"]), None, Some(&["fr", "ja"])),
+            profile("same-id", None, None, Some(&["fr", "ja"])),
+            profile(
+                "same-id",
+                Some(&["fr", "ja"]),
+                Some(&["fr", "pl"]),
+                Some(&["es", "he"]),
+            ),
+            profile(
+                "other-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+            ),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+        ];
+        let mut keys = std::collections::BTreeSet::from([all]);
+        for variant in variants {
+            assert!(
+                keys.insert(key(variant)),
+                "different selected component inputs must not reuse an artifact"
+            );
+        }
+        assert_ne!(
+            key(profile("a", None, None, Some(&["bcd"]))),
+            key(profile("ab", None, None, Some(&["cd"])))
+        );
+        assert_ne!(
+            key(profile("same-id", None, Some(&["fr"]), None)),
+            key(profile("same-id", None, None, Some(&["fr"])))
+        );
+    }
+
+    #[test]
+    fn duration_cache_filters_bind_presence_and_rows_independently_of_other_components() {
+        let profile = |id: &str,
+                       lists: Option<&[&str]>,
+                       relatives: Option<&[&str]>,
+                       display: Option<&[&str]>,
+                       duration: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    lists,
+                    relatives,
+                    display,
+                    duration,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |intl_profile| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    intl_profile,
+                    ..CompileOptions::default()
+                },
+                None,
+                &[19; 32],
+            )
+        };
+        let all = key(profile(
+            "same-id",
+            Some(&["es", "he"]),
+            Some(&["fr", "pl"]),
+            Some(&["fr", "ja"]),
+            Some(&["fr", "sr"]),
+        ));
+        assert_eq!(
+            all,
+            key(profile(
+                "same-id",
+                Some(&["he", "es"]),
+                Some(&["pl", "fr"]),
+                Some(&["ja", "fr"]),
+                Some(&["sr", "fr"])
+            ))
+        );
+        let variants = [
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                None,
+            ),
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["fr"]),
+            ),
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["de", "sr"]),
+            ),
+            profile(
+                "same-id",
+                Some(&["fr", "sr"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["es", "he"]),
+            ),
+            profile("same-id", None, None, None, Some(&["fr", "sr"])),
+            profile(
+                "other-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["fr", "sr"]),
+            ),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+        ];
+        let mut keys = std::collections::BTreeSet::from([all]);
+        for variant in variants {
+            assert!(
+                keys.insert(key(variant)),
+                "distinct Duration selections must not share an artifact"
+            );
+        }
+        assert_ne!(
+            key(profile("same-id", None, None, Some(&["fr"]), None)),
+            key(profile("same-id", None, None, None, Some(&["fr"])))
+        );
+        assert_ne!(
+            key(profile("a", None, None, None, Some(&["bcd"]))),
+            key(profile("ab", None, None, None, Some(&["cd"])))
+        );
+    }
+
+    #[test]
+    fn number_cache_filters_bind_the_coupled_public_domain_and_component_position() {
+        let profile = |id: &str,
+                       lists: Option<&[&str]>,
+                       relatives: Option<&[&str]>,
+                       display: Option<&[&str]>,
+                       duration: Option<&[&str]>,
+                       numbers: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    lists,
+                    relatives,
+                    display,
+                    duration,
+                    numbers,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |intl_profile| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    intl_profile,
+                    ..CompileOptions::default()
+                },
+                None,
+                &[19; 32],
+            )
+        };
+        let all = key(profile(
+            "same-id",
+            Some(&["es", "he"]),
+            Some(&["fr", "pl"]),
+            Some(&["fr", "ja"]),
+            Some(&["fr", "sr"]),
+            Some(&["es", "pl"]),
+        ));
+        assert_eq!(
+            all,
+            key(profile(
+                "same-id",
+                Some(&["he", "es"]),
+                Some(&["pl", "fr"]),
+                Some(&["ja", "fr"]),
+                Some(&["sr", "fr"]),
+                Some(&["pl", "es"]),
+            ))
+        );
+        let variants = [
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["fr", "sr"]),
+                None,
+            ),
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["fr", "sr"]),
+                Some(&["es"]),
+            ),
+            profile(
+                "same-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["fr", "sr"]),
+                Some(&["fr", "sr"]),
+            ),
+            profile("same-id", None, None, None, None, Some(&["es", "pl"])),
+            profile(
+                "other-id",
+                Some(&["es", "he"]),
+                Some(&["fr", "pl"]),
+                Some(&["fr", "ja"]),
+                Some(&["fr", "sr"]),
+                Some(&["es", "pl"]),
+            ),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+        ];
+        let mut keys = std::collections::BTreeSet::from([all]);
+        for variant in variants {
+            assert!(
+                keys.insert(key(variant)),
+                "different public Number inputs must not reuse an artifact"
+            );
+        }
+        assert_ne!(
+            key(profile("same-id", None, None, None, Some(&["fr"]), None)),
+            key(profile("same-id", None, None, None, None, Some(&["fr"])))
+        );
+        assert_ne!(
+            key(profile("a", None, None, None, None, Some(&["bcd"]))),
+            key(profile("ab", None, None, None, None, Some(&["cd"])))
+        );
+    }
+
+    #[test]
+    fn datetime_cache_filters_bind_ordered_rows_and_their_distinct_component_position() {
+        let profile = |id: &str, numbers: Option<&[&str]>, dates: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    numbers,
+                    dates,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |intl_profile| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    intl_profile,
+                    ..CompileOptions::default()
+                },
+                None,
+                &[23; 32],
+            )
+        };
+        let selected = key(profile("same-id", None, Some(&["ar-EG", "zh"])));
+        assert_eq!(
+            selected,
+            key(profile("same-id", None, Some(&["zh", "ar-EG"])))
+        );
+        let variants = [
+            profile("same-id", None, Some(&["ar-EG"])),
+            profile("same-id", None, Some(&["en-US"])),
+            profile("same-id", Some(&["ar-EG", "zh"]), None),
+            profile("same-id", Some(&["es"]), Some(&["ar-EG", "zh"])),
+            profile("other-id", None, Some(&["ar-EG", "zh"])),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+        ];
+        let mut keys = std::collections::BTreeSet::from([selected]);
+        for variant in variants {
+            assert!(
+                keys.insert(key(variant)),
+                "distinct DateTime selections cannot reuse an artifact"
+            );
+        }
+        assert_ne!(
+            key(profile("same-id", Some(&["fr"]), None)),
+            key(profile("same-id", None, Some(&["fr"]))),
+        );
+        assert_ne!(
+            key(profile("a", None, Some(&["bcd"]))),
+            key(profile("ab", None, Some(&["cd"]))),
+        );
+    }
+
+    #[test]
+    fn collator_cache_filter_has_its_own_position_and_exact_length_framing() {
+        let profile = |id: &str, dates: Option<&[&str]>, collators: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    dates,
+                    collators,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |intl_profile| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    intl_profile,
+                    ..CompileOptions::default()
+                },
+                None,
+                &[31; 32],
+            )
+        };
+        let selected = key(profile("same-id", None, Some(&["de-CH", "sv"])));
+        assert_eq!(
+            selected,
+            key(profile("same-id", None, Some(&["sv", "de-CH"])))
+        );
+        for variant in [
+            profile("same-id", None, Some(&["sv"])),
+            profile("other-id", None, Some(&["de-CH", "sv"])),
+            profile("same-id", Some(&["de-CH", "sv"]), None),
+            profile("same-id", Some(&["zh"]), Some(&["de-CH", "sv"])),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+        ] {
+            assert_ne!(selected, key(variant));
+        }
+        assert_ne!(
+            key(profile("a", None, Some(&["bcd"]))),
+            key(profile("ab", None, Some(&["cd"])))
+        );
+    }
+
+    #[test]
+    fn segmenter_cache_filter_has_independent_presence_order_and_length_framing() {
+        let profile = |id: &str, collators: Option<&[&str]>, segmenters: Option<&[&str]>| {
+            IntlCompilationProfile::CustomProjection(
+                CustomIntlProfile::new(
+                    CustomProfileId::parse(id).unwrap(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    collators,
+                    segmenters,
+                )
+                .unwrap(),
+            )
+        };
+        let key = |intl_profile| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "262;",
+                ParseGoal::Script,
+                &CompileOptions {
+                    intl_profile,
+                    ..CompileOptions::default()
+                },
+                None,
+                &[37; 32],
+            )
+        };
+        let selected = key(profile("same-id", None, Some(&["sv", "el"])));
+        assert_eq!(selected, key(profile("same-id", None, Some(&["el", "sv"]))));
+        for different in [
+            profile("same-id", None, Some(&["sv"])),
+            profile("other-id", None, Some(&["sv", "el"])),
+            profile("same-id", Some(&["sv", "el"]), None),
+            profile("same-id", Some(&["de"]), Some(&["sv", "el"])),
+            IntlCompilationProfile::Custom(CustomProfileId::parse("same-id").unwrap()),
+        ] {
+            assert_ne!(selected, key(different));
+        }
+        assert_ne!(
+            key(profile("a", None, Some(&["bcd"]))),
+            key(profile("ab", None, Some(&["cd"])))
         );
     }
 
@@ -5497,43 +6560,7 @@ report;
     }
 
     #[test]
-    fn observed_wtf8_decoder_preserves_utf16_units_and_rejects_invalid_bytes() {
-        for (bytes, expected) in [
-            (&b"a\xc3\xa9"[..], &['a' as u16, 0x00e9][..]),
-            (&[0xf0, 0x9f, 0x98, 0x80][..], &[0xd83d, 0xde00][..]),
-            (
-                &[0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80][..],
-                &[0xd83d, 0xde00][..],
-            ),
-            (&[0xed, 0xa0, 0x80][..], &[0xd800][..]),
-            (&[0xed, 0xb0, 0x80][..], &[0xdc00][..]),
-        ] {
-            assert_eq!(
-                &*decode_utf8_wtf8_to_utf16(bytes)
-                    .expect("valid UTF-8/WTF-8 should decode losslessly"),
-                expected
-            );
-        }
-
-        for bytes in [
-            &[0x80][..],
-            &[0xc0, 0x80][..],
-            &[0xe0, 0x80, 0x80][..],
-            &[0xf4, 0x90, 0x80, 0x80][..],
-            &[0xf0, 0x9f, 0x98][..],
-        ] {
-            assert!(decode_utf8_wtf8_to_utf16(bytes).is_err());
-        }
-    }
-
-    #[test]
-    fn wasm_memory_spans_bound_string_diagnostics_and_prints_before_allocation() {
-        let payload = ((8_u64 << 32) | u64::from(u32::MAX)) as i64;
-        assert!(wasm_string_payload_span(payload, 64 * 1024).is_err());
-        assert!(wasm_string_payload_span(i64::from(u32::MAX), 64 * 1024).is_err());
-
-        let payload = ((8_u64 << 32) | 24) as i64;
-        assert_eq!(wasm_string_payload_span(payload, 32).unwrap(), 8..32);
+    fn wasm_memory_spans_bound_transient_print_bytes_before_allocation() {
         assert!(wasm_memory_span(8, usize::MAX, 32, "wasm print input").is_err());
         assert!(wasm_memory_span(31, 2, 32, "wasm print input").is_err());
         assert_eq!(
@@ -5763,24 +6790,208 @@ report;
         assert!(wasm_number_pow(-4.0, 0.5).is_nan());
     }
 
-    fn run_wasm_raw(
-        source: &str,
-    ) -> (
-        i64,
-        WasmRuntimeValueTag,
-        i32,
-        Option<Vec<u8>>,
-        Option<Vec<u8>>,
-        Option<Vec<u8>>,
-    ) {
+    #[test]
+    fn wasm_math_transcendentals_match_ecmascript_special_values() {
+        // NaN propagates through every unary transcendental.
+        for value in [
+            wasm_math_acos(f64::NAN),
+            wasm_math_acosh(f64::NAN),
+            wasm_math_asin(f64::NAN),
+            wasm_math_asinh(f64::NAN),
+            wasm_math_atan(f64::NAN),
+            wasm_math_atanh(f64::NAN),
+            wasm_math_cbrt(f64::NAN),
+            wasm_math_cos(f64::NAN),
+            wasm_math_cosh(f64::NAN),
+            wasm_math_exp(f64::NAN),
+            wasm_math_expm1(f64::NAN),
+            wasm_math_log(f64::NAN),
+            wasm_math_log10(f64::NAN),
+            wasm_math_log1p(f64::NAN),
+            wasm_math_log2(f64::NAN),
+            wasm_math_sin(f64::NAN),
+            wasm_math_sinh(f64::NAN),
+            wasm_math_tan(f64::NAN),
+            wasm_math_tanh(f64::NAN),
+        ] {
+            assert!(value.is_nan());
+        }
+        assert!(wasm_math_atan2(f64::NAN, 1.0).is_nan());
+        assert!(wasm_math_atan2(1.0, f64::NAN).is_nan());
+
+        // Signed-zero rows are bit-exact: the sign is observable via
+        // `Object.is` / division, so `assert_eq!` alone would miss it.
+        for pair in [
+            (wasm_math_asin(0.0), 0.0),
+            (wasm_math_asin(-0.0), -0.0),
+            (wasm_math_asinh(0.0), 0.0),
+            (wasm_math_asinh(-0.0), -0.0),
+            (wasm_math_atan(0.0), 0.0),
+            (wasm_math_atan(-0.0), -0.0),
+            (wasm_math_atanh(0.0), 0.0),
+            (wasm_math_atanh(-0.0), -0.0),
+            (wasm_math_cbrt(0.0), 0.0),
+            (wasm_math_cbrt(-0.0), -0.0),
+            (wasm_math_expm1(0.0), 0.0),
+            (wasm_math_expm1(-0.0), -0.0),
+            (wasm_math_log1p(0.0), 0.0),
+            (wasm_math_log1p(-0.0), -0.0),
+            (wasm_math_sin(0.0), 0.0),
+            (wasm_math_sin(-0.0), -0.0),
+            (wasm_math_sinh(0.0), 0.0),
+            (wasm_math_sinh(-0.0), -0.0),
+            (wasm_math_tan(0.0), 0.0),
+            (wasm_math_tan(-0.0), -0.0),
+            (wasm_math_tanh(0.0), 0.0),
+            (wasm_math_tanh(-0.0), -0.0),
+            (wasm_math_exp(f64::NEG_INFINITY), 0.0),
+            (wasm_math_log(1.0), 0.0),
+            (wasm_math_log10(1.0), 0.0),
+            (wasm_math_log2(1.0), 0.0),
+            (wasm_math_acos(1.0), 0.0),
+            (wasm_math_acosh(1.0), 0.0),
+            (wasm_math_atan2(0.0, 1.0), 0.0),
+            (wasm_math_atan2(-0.0, 1.0), -0.0),
+            (wasm_math_atan2(0.0, 0.0), 0.0),
+            (wasm_math_atan2(-0.0, 0.0), -0.0),
+            (wasm_math_atan2(1.0, f64::INFINITY), 0.0),
+            (wasm_math_atan2(-1.0, f64::INFINITY), -0.0),
+        ] {
+            let (actual, expected): (f64, f64) = pair;
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+
+        // Infinity and out-of-domain rows.
+        assert_eq!(wasm_math_acos(-1.0), std::f64::consts::PI);
+        assert!(wasm_math_acos(2.0).is_nan());
+        assert!(wasm_math_acos(f64::INFINITY).is_nan());
+        assert_eq!(wasm_math_acosh(f64::INFINITY), f64::INFINITY);
+        assert!(wasm_math_acosh(0.0).is_nan());
+        assert_eq!(wasm_math_asinh(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_asinh(f64::NEG_INFINITY), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_atanh(1.0), f64::INFINITY);
+        assert_eq!(wasm_math_atanh(-1.0), f64::NEG_INFINITY);
+        assert!(wasm_math_atanh(2.0).is_nan());
+        assert_eq!(wasm_math_cbrt(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_cbrt(f64::NEG_INFINITY), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_cos(0.0), 1.0);
+        assert_eq!(wasm_math_cos(-0.0), 1.0);
+        assert!(wasm_math_cos(f64::INFINITY).is_nan());
+        assert_eq!(wasm_math_cosh(0.0), 1.0);
+        assert_eq!(wasm_math_cosh(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_cosh(f64::NEG_INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_exp(0.0), 1.0);
+        assert_eq!(wasm_math_exp(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_expm1(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_expm1(f64::NEG_INFINITY), -1.0);
+        assert_eq!(wasm_math_log(0.0), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_log(-0.0), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_log(f64::INFINITY), f64::INFINITY);
+        assert!(wasm_math_log(-1.0).is_nan());
+        assert_eq!(wasm_math_log10(0.0), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_log10(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_log10(10.0), 1.0);
+        assert!(wasm_math_log10(-1.0).is_nan());
+        assert_eq!(wasm_math_log1p(-1.0), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_log1p(f64::INFINITY), f64::INFINITY);
+        assert!(wasm_math_log1p(f64::NEG_INFINITY).is_nan());
+        assert_eq!(wasm_math_log2(0.0), f64::NEG_INFINITY);
+        assert_eq!(wasm_math_log2(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_log2(2.0), 1.0);
+        assert!(wasm_math_log2(-1.0).is_nan());
+        assert!(wasm_math_sin(f64::INFINITY).is_nan());
+        assert_eq!(wasm_math_sinh(f64::INFINITY), f64::INFINITY);
+        assert_eq!(wasm_math_sinh(f64::NEG_INFINITY), f64::NEG_INFINITY);
+        assert!(wasm_math_tan(f64::INFINITY).is_nan());
+        assert_eq!(wasm_math_tanh(f64::INFINITY), 1.0);
+        assert_eq!(wasm_math_tanh(f64::NEG_INFINITY), -1.0);
+
+        // `atan2` quadrant rows are implementation-approximated multiples of
+        // pi, so they pin a tight tolerance rather than exact bits.
+        for (actual, expected) in [
+            (wasm_math_atan2(0.0, -0.0), std::f64::consts::PI),
+            (wasm_math_atan2(-0.0, -0.0), -std::f64::consts::PI),
+            (
+                wasm_math_atan2(f64::INFINITY, f64::INFINITY),
+                std::f64::consts::FRAC_PI_4,
+            ),
+            (
+                wasm_math_atan2(f64::INFINITY, f64::NEG_INFINITY),
+                3.0 * std::f64::consts::FRAC_PI_4,
+            ),
+            (
+                wasm_math_atan2(f64::NEG_INFINITY, f64::INFINITY),
+                -std::f64::consts::FRAC_PI_4,
+            ),
+            (
+                wasm_math_atan2(f64::NEG_INFINITY, f64::NEG_INFINITY),
+                -3.0 * std::f64::consts::FRAC_PI_4,
+            ),
+            (wasm_math_atan2(1.0, 0.0), std::f64::consts::FRAC_PI_2),
+            (wasm_math_atan2(-1.0, 0.0), -std::f64::consts::FRAC_PI_2),
+            (
+                wasm_math_atan2(f64::INFINITY, 1.0),
+                std::f64::consts::FRAC_PI_2,
+            ),
+            (
+                wasm_math_atan2(f64::NEG_INFINITY, 1.0),
+                -std::f64::consts::FRAC_PI_2,
+            ),
+            (
+                wasm_math_atan2(1.0, f64::NEG_INFINITY),
+                std::f64::consts::PI,
+            ),
+            (
+                wasm_math_atan2(-1.0, f64::NEG_INFINITY),
+                -std::f64::consts::PI,
+            ),
+        ] {
+            assert!(
+                (actual - expected).abs() < 1e-15,
+                "{actual} should approximate {expected}"
+            );
+        }
+    }
+
+    fn run_wasm_raw(source: &str) -> (i64, WasmRuntimeValueTag, i32, Option<Box<[u16]>>) {
         let engine = engine();
         let unit = engine
             .compile_script(source, CompileOptions::default())
             .expect("script compile should succeed");
         let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
-        let wasm_engine = shared_wasm_engine().expect("wasmtime engine should initialize");
-        let module = WasmtimeModule::new(&wasm_engine, &artifact.bytes)
-            .expect("module should validate for the supported Wasmtime target");
+        let program = artifact.program();
+        let mode = wasm_runtime_link::plan_native_compilation(program).mode;
+        let wasm_engine = match mode {
+            WasmNativeCompilationMode::Fast => shared_wasm_engine(),
+            WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine(),
+        }
+        .expect("wasmtime engine should initialize");
+        let modules = wasm_runtime_link::compile_modules(
+            &wasm_engine,
+            program,
+            WasmModuleMemoryCachePolicy::BypassRetention,
+            true,
+            mode,
+        )
+        .expect("modules should validate for the supported Wasmtime target");
+        let shared_memory_backing = modules
+            .host()
+            .imports()
+            .find_map(|import| {
+                (import.module() == WASM_HOST_IMPORT_NAMESPACE
+                    && import.name() == WASM_HOST_IMPORT_SHARED_MEMORY)
+                    .then(|| match import.ty() {
+                        WasmtimeExternType::Memory(memory_type) => Some(memory_type),
+                        _ => None,
+                    })
+                    .flatten()
+            })
+            .map(|memory_type| {
+                WasmSharedMemoryBacking::new(
+                    WasmtimeSharedMemory::new(&wasm_engine, memory_type)
+                        .expect("shared memory should be created"),
+                )
+            });
         let mut store = WasmtimeStore::new(
             &wasm_engine,
             WasmHostState {
@@ -5790,7 +7001,8 @@ report;
                     .expect("embedded Intl kernel should initialize"),
                 can_block: true,
                 monotonic_clock_origin: engine.realm.host_clock().monotonic_instant(),
-                shared_memory_backing: None,
+                async_waiters: WasmStoreAsyncWaiters::new(shared_memory_backing.clone()),
+                shared_memory_backing,
                 agent_group: None,
                 agent_commands: None,
                 agent_leaving: None,
@@ -5802,11 +7014,48 @@ report;
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&wasm_engine);
+        if let Some(private_memory_type) = modules.host().imports().find_map(|import| {
+            (import.module() == WASM_HOST_IMPORT_NAMESPACE
+                && import.name() == WASM_HOST_IMPORT_PRIVATE_MEMORY)
+                .then(|| match import.ty() {
+                    WasmtimeExternType::Memory(memory_type) => Some(memory_type),
+                    _ => None,
+                })
+                .flatten()
+        }) {
+            let private_memory = WasmtimeMemory::new(&mut store, private_memory_type)
+                .expect("private memory should be created");
+            linker
+                .define(
+                    &store,
+                    WASM_HOST_IMPORT_NAMESPACE,
+                    WASM_HOST_IMPORT_PRIVATE_MEMORY,
+                    private_memory,
+                )
+                .expect("private memory import should link");
+        }
+        if let Some(shared_memory) = store
+            .data()
+            .shared_memory_backing
+            .as_ref()
+            .map(|backing| backing.memory.clone())
+        {
+            linker
+                .define(
+                    &store,
+                    WASM_HOST_IMPORT_NAMESPACE,
+                    WASM_HOST_IMPORT_SHARED_MEMORY,
+                    shared_memory,
+                )
+                .expect("shared memory import should link");
+        }
+        wasm_gc_host::link(&mut linker, modules.host())
+            .expect("actual GC collector and resource imports should link");
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
-                wasm_reject_dynamic_source,
+                WASM_HOST_IMPORT_REJECT_RUNTIME_SEMANTICS,
+                wasm_reject_runtime_semantics,
             )
             .expect("dynamic source capability import should link");
         linker
@@ -5833,6 +7082,18 @@ report;
                 wasm_number_pow,
             )
             .expect("host number pow import should link");
+        for (name, func) in WASM_MATH_UNARY_IMPORTS {
+            linker
+                .func_wrap(WASM_HOST_IMPORT_NAMESPACE, name, func)
+                .unwrap_or_else(|err| panic!("host math import {name} should link: {err}"));
+        }
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_MATH_ATAN2,
+                wasm_math_atan2,
+            )
+            .expect("host math atan2 import should link");
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
@@ -5850,84 +7111,37 @@ report;
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
-                WASM_HOST_IMPORT_INTL_CALL,
-                wasm_intl_call,
-            )
-            .expect("host Intl import should link");
-        linker
-            .func_wrap(
-                WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_RANDOM_F64,
                 wasm_random_f64,
             )
             .expect("host random import should link");
-        let instance = linker
-            .instantiate(&mut store, &module)
+        let (instance, _) = wasm_runtime_link::instantiate(&mut linker, &mut store, &modules)
             .expect("instance should instantiate");
-        let pre_main_bytes = if let Some(memory) = instance.get_memory(&mut store, "memory") {
-            let mut bytes = vec![0; 32];
-            memory
-                .read(&mut store, WASM_STATIC_DATA_OFFSET, &mut bytes)
-                .expect("pre-main bytes should read");
-            Some(bytes)
-        } else {
-            None
-        };
         let main = instance
-            .get_typed_func::<(), i64>(&mut store, "main")
+            .get_typed_func::<(), GcMainCompletion>(&mut store, "main")
             .expect("main export should exist");
-        let payload = main.call(&mut store, ()).expect("main should run");
-        let WasmtimeVal::I32(result_tag) = instance
-            .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
-            .expect("result_tag export should exist")
-            .get(&mut store)
-        else {
-            panic!("result_tag export should be i32");
+        let mut roots = wasmtime::RootScope::new(&mut store);
+        let result @ (_, payload, _, completion_kind, _) =
+            main.call(&mut roots, ()).expect("main should run");
+        let (tag, _, value) = wasm_gc_completion::observe(&mut roots, result)
+            .expect("Main result follows the actual GC ABI")
+            .into_parts();
+        let bytes = match value {
+            ObservedJsValue::String(units) => Some(units),
+            ObservedJsValue::Undefined
+            | ObservedJsValue::Null
+            | ObservedJsValue::Boolean(_)
+            | ObservedJsValue::Number(_)
+            | ObservedJsValue::BigInt(_)
+            | ObservedJsValue::Symbol
+            | ObservedJsValue::Object => None,
         };
-        let WasmtimeVal::I32(completion_kind) = instance
-            .get_global(&mut store, WASM_COMPLETION_KIND_EXPORT)
-            .expect("completion_kind export should exist")
-            .get(&mut store)
-        else {
-            panic!("completion_kind export should be i32");
-        };
-        let tag = WasmRuntimeValueTag::from_tag(result_tag).expect("result tag should decode");
-        let post_main_prefix = if let Some(memory) = instance.get_memory(&mut store, "memory") {
-            let mut bytes = vec![0; 32];
-            memory
-                .read(&mut store, WASM_STATIC_DATA_OFFSET, &mut bytes)
-                .expect("post-main bytes should read");
-            Some(bytes)
-        } else {
-            None
-        };
-        let bytes = if tag.value_kind() == ValueKind::String {
-            let Some(memory) = instance.get_memory(&mut store, "memory") else {
-                panic!("string result should export memory");
-            };
-            let offset = ((payload as u64) >> 32) as usize;
-            let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
-            let mut bytes = vec![0; len];
-            memory
-                .read(&mut store, offset, &mut bytes)
-                .expect("string bytes should read");
-            Some(bytes)
-        } else {
-            None
-        };
-        (
-            payload,
-            tag,
-            completion_kind,
-            pre_main_bytes,
-            post_main_prefix,
-            bytes,
-        )
+        (payload, tag, completion_kind, bytes)
     }
 
     #[test]
     fn raw_wasm_test_linker_supports_date_now_wall_clock_import() {
-        let (payload, tag, completion_kind, _, _, _) = run_wasm_raw("Date.now();");
+        let (payload, tag, completion_kind, _) = run_wasm_raw("Date.now();");
         let milliseconds = f64::from_bits(payload as u64);
 
         assert_eq!(tag.value_kind(), ValueKind::Number);
@@ -6123,7 +7337,7 @@ locales.length === 1 && locales[0] === "he-IL";
             // the conservative runtime-free proof
             // (`lila-aot-wasm/src/emit/runtime_requirement.rs`) retains the
             // ordinary Realm bootstrap. That fixes the import surface:
-            // - `reject_dynamic_source` is mandatory in every artifact
+            // - `reject_runtime_semantics` is mandatory in every artifact
             //   (contracts/dynamic-source-capability.md);
             // - `print_line_utf8` belongs to every heap-backed module, because
             //   the job checkpoint reports unhandled rejections through it;
@@ -6138,7 +7352,8 @@ locales.length === 1 && locales[0] === "he-IL";
                     "lila_host::agent_can_suspend",
                     "lila_host::intl_call",
                     "lila_host::print_line_utf8",
-                    "lila_host::reject_dynamic_source",
+                    "lila_host::reject_runtime_semantics",
+                    "lila_host::system_time_zone",
                     "lila_host::wall_clock_millis",
                 ],
                 "{label} imports: {imports:?}"
@@ -6146,14 +7361,9 @@ locales.length === 1 && locales[0] === "he-IL";
             for export in [
                 "main",
                 "memory",
-                WASM_RESULT_TAG_EXPORT,
-                WASM_COMPLETION_KIND_EXPORT,
                 WASM_THROW_ERROR_NAME_EXPORT,
-                // If this one is missing, the emitter's export section was not
-                // updated alongside the `throw_error_message` global and every
-                // uncaught throw silently loses its message again. Asserting it
-                // here makes that a named failure instead of a quiet
-                // regression to `object(handle@N)`.
+                // Diagnostic strings are rooted GC exports; a missing export
+                // must remain a named artifact failure.
                 WASM_THROW_ERROR_MESSAGE_EXPORT,
                 WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
             ] {
@@ -6179,7 +7389,7 @@ locales.length === 1 && locales[0] === "he-IL";
                 outcome.note
             );
 
-            let (_, tag, completion_kind, _, _, _) = run_wasm_raw(source);
+            let (_, tag, completion_kind, _) = run_wasm_raw(source);
             assert_eq!(tag.value_kind(), expected_kind, "{label} result kind");
             assert_eq!(completion_kind, 0, "{label} completion kind");
         }
@@ -6199,7 +7409,7 @@ locales.length === 1 && locales[0] === "he-IL";
             imports,
             [
                 "lila_host::agent_can_suspend",
-                "lila_host::reject_dynamic_source",
+                "lila_host::reject_runtime_semantics",
             ],
             "runtime-free imports: {imports:?}"
         );
@@ -6227,13 +7437,13 @@ locales.length === 1 && locales[0] === "he-IL";
             .expect_err("uncaught throw should stay observable");
         assert!(
             err.message()
-                .contains("uncaught throw: TypeError: wasm-aot completion: object(handle@"),
+                .contains("uncaught throw: TypeError: wasm-aot completion: object"),
             "error: {err}"
         );
         // The handle alone is not a diagnosis. This assertion is the enforcement
         // half of the throw-message repair: without it the improvement is
         // something a reader observes once and a later refactor removes without
-        // any test noticing, which is exactly how `object(handle@N)` became the
+        // any test noticing, which is exactly how an address-only completion became the
         // shared signature of ~2,488 unrelated failures.
         assert!(
             err.message().contains("boom"),
@@ -6265,32 +7475,6 @@ locales.length === 1 && locales[0] === "he-IL";
                 .message()
                 .contains("Cannot read properties of null or undefined"),
             "a runtime-thrown error must report its own message: {runtime_err}"
-        );
-    }
-
-    /// The message is appended **only** when something was thrown.
-    ///
-    /// This is what keeps the sibling assertions elsewhere in this file correct
-    /// by construction rather than by having been loosened: the ones that pin
-    /// `object(handle@` and `function(handle@` — `check()` returning `this`,
-    /// `globalThis.f`, and the two `catch (e) { e; }` cases in the new.target
-    /// table — are all *normal* completions whose value happens to be a heap
-    /// object. Nothing was thrown, `ThrownErrorText` is `NONE`, and they keep
-    /// the bare form. They were re-read and deliberately left alone.
-    #[test]
-    fn render_wasmtime_completion_appends_the_thrown_message_only_when_there_is_one() {
-        assert_eq!(render_heap_handle(5_397_552, None), "handle@5397552");
-        assert_eq!(
-            render_heap_handle(5_397_552, Some("RegExp.prototype.exec unsupported pattern")),
-            "handle@5397552: RegExp.prototype.exec unsupported pattern"
-        );
-        // An empty message is normalised to `None` by `ThrownErrorText::read`,
-        // so it can never reach here as `Some("")` and produce a dangling
-        // separator. Pinned so a later caller cannot reintroduce one.
-        assert_eq!(
-            render_heap_handle(1, Some("x")),
-            "handle@1: x",
-            "the separator is `: ` and nothing else"
         );
     }
 
@@ -6338,6 +7522,42 @@ locales.length === 1 && locales[0] === "he-IL";
             can_suspend.note.contains("boolean(true)"),
             "{}",
             can_suspend.note
+        );
+    }
+
+    #[test]
+    fn wasm_atomics_wait_async_runs_settled_reactions_before_waiting_again() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            const view = new Int32Array(new SharedArrayBuffer(8));
+            const later = Atomics.waitAsync(view, 1, 0, 250);
+            const first = Atomics.waitAsync(view, 0, 0, 5);
+            first.value.then(function (status) {
+                print("first:" + status);
+                print("notified:" + Atomics.notify(view, 1, 1));
+            });
+            later.value.then(function (status) { print("later:" + status); });
+            print("sync:" + first.async + ":" + later.async);
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a settled waiter's reaction must be able to notify another waiter");
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &[
+                "sync:true:true",
+                "first:timed-out",
+                "notified:1",
+                "later:ok"
+            ]
         );
     }
 
@@ -6500,23 +7720,15 @@ locales.length === 1 && locales[0] === "he-IL";
     }
 
     #[test]
-    fn wasm_backend_keeps_raw_string_payloads_stable() {
-        let (payload, tag, completion, pre_main_bytes, post_main_prefix, bytes) =
-            run_wasm_raw("\",\";");
-        let mut expected_prefix = vec![b' '; 11];
-        expected_prefix.extend_from_slice(b"\n: ,u");
+    fn wasm_backend_returns_rooted_string_code_units_without_a_scalar_address() {
+        let (scalar, tag, completion, units) = run_wasm_raw("\",\";");
         assert_eq!(tag.value_kind(), ValueKind::String);
         assert_eq!(completion, 0);
-        assert_eq!(payload, (((4110u64) << 32) | 1) as i64);
+        assert_eq!(scalar, 0);
         assert_eq!(
-            pre_main_bytes.expect("pre-main bytes should exist")[..16].to_vec(),
-            expected_prefix
+            &*units.expect("rooted String code units"),
+            &[u16::from(b',')]
         );
-        assert_eq!(
-            post_main_prefix.expect("post-main bytes should exist")[..16].to_vec(),
-            expected_prefix
-        );
-        assert_eq!(bytes.expect("string bytes should exist"), b",".to_vec());
     }
 
     #[test]
@@ -6638,7 +7850,7 @@ Number(overflow) === Infinity;
             "parseFloat('-2e-324');",
             "Number('-2e-324');",
         ] {
-            let (payload, tag, completion, _, _, _) = run_wasm_raw(source);
+            let (payload, tag, completion, _) = run_wasm_raw(source);
             assert_eq!(tag.value_kind(), ValueKind::Number, "source: {source}");
             assert_eq!(completion, 0, "source: {source}");
             assert_eq!(payload as u64, (-0.0f64).to_bits(), "source: {source}");
@@ -6666,7 +7878,7 @@ Number(overflow) === Infinity;
         ];
 
         for (source, expected_bits) in cases {
-            let (payload, tag, completion, _, _, _) = run_wasm_raw(source);
+            let (payload, tag, completion, _) = run_wasm_raw(source);
             assert_eq!(tag.value_kind(), ValueKind::Number, "source: {source}");
             assert_eq!(completion, 0, "source: {source}");
             assert_eq!(payload as u64, expected_bits, "source: {source}");
@@ -11271,6 +12483,11 @@ var utc = Temporal.ZonedDateTime.from("1970-01-01T00:00Z[UTC]");
 if (utc.epochNanoseconds !== 0n || utc.timeZoneId !== "UTC") throw "UTC";
 var absentOffset = Temporal.ZonedDateTime.from("1970-01-01T00:00[+01:00]");
 if (absentOffset.epochNanoseconds !== -3600000000000n) throw "absent offset";
+// UTCOffset permits an ASCII sign followed by an hour without minutes.
+// https://tc39.es/proposal-temporal/#prod-UTCOffset
+var hourOnly = Temporal.ZonedDateTime.from("1970-01-01T00:00[+01]");
+if (hourOnly.epochNanoseconds !== -3600000000000n
+    || hourOnly.timeZoneId !== "+01:00") throw "hour-only annotation";
 var exactZ = Temporal.ZonedDateTime.from("1970-01-01T00:00Z[+01:00]");
 if (exactZ.epochNanoseconds !== 0n) throw "Z exact";
 var exactNumeric = Temporal.ZonedDateTime.from("1970-01-01T00:00+01:00[+01:00]");
@@ -11332,8 +12549,8 @@ if (optionReads.length !== 0) throw "invalid before options";
 var errors = 0;
 for (var invalid of [
   "1970-01-01T00:00",
-  "1970-01-01T00:00[Europe/Vienna]",
-  "1970-01-01T00:00[+01]",
+  "1970-01-01T00:00[NoSuch/Zone]",
+  "1970-01-01T00:00[+01:]",
   "1970-01-01T00:00[+24:00]",
   "-000000-01-01T00:00Z[UTC]"
 ]) {
@@ -11625,7 +12842,7 @@ for (var zone of [null, true, 1, 1n, {}]) {
 if (zoneErrors !== 5) throw "zone type errors";
 
 var rangeErrors = 0;
-for (var zone of ["", "2021-08-19T17:30", "Europe/Vienna", "-12:12:59.9"]) {
+for (var zone of ["", "2021-08-19T17:30", "NoSuch/Zone", "-12:12:59.9"]) {
   try { Temporal.Now.zonedDateTimeISO(zone); } catch (error) {
     if (error instanceof RangeError) rangeErrors += 1;
   }
@@ -11712,10 +12929,10 @@ try { new nanosecondsDescriptor.get(); } catch (error) {
 if (constructErrors !== 2) throw "constructability";
 
 var namedZoneErrors = 0;
-try { new Temporal.ZonedDateTime(0n, "Europe/Vienna"); } catch (error) {
+try { new Temporal.ZonedDateTime(0n, "NoSuch/Zone"); } catch (error) {
   if (error instanceof RangeError) namedZoneErrors += 1;
 }
-if (namedZoneErrors !== 1) throw "named zone boundary";
+if (namedZoneErrors !== 1) throw "unknown named zone";
 262;
 "#,
                 CompileOptions::default(),
@@ -11896,7 +13113,7 @@ for (var invalid of [
   "+01:30:01",
   "2021-08-19T17:30-07:00:00",
   "-000000-01-01T00:00Z",
-  "Europe/Vienna"
+  "NoSuch/Zone"
 ]) {
   var rangeError = false;
   try { reference.withTimeZone(invalid); } catch (error) {
@@ -13079,7 +14296,9 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
                 },
             )
             .expect("wasm backend should default bare-call this to global object");
-        assert!(bare_this_outcome.note.contains("object(handle@"));
+        assert!(bare_this_outcome
+            .note
+            .contains("wasm-aot completion: object"));
     }
 
     #[test]
@@ -19958,7 +21177,9 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
                 },
             )
             .expect("global function property should run");
-        assert!(global_function.note.contains("function(handle@"));
+        assert!(global_function
+            .note
+            .contains("wasm-aot completion: function"));
     }
 
     #[test]
@@ -20114,14 +21335,12 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
     }
 
     #[test]
-    fn wasm_backend_rejects_unsupported_param_and_arguments_forms() {
+    fn wasm_backend_parameter_tdz_getter_grammar_and_setter_defaults_follow_spec() {
         for source in [
             "function f(x = y, y = 1) { return x; } f();",
             "function f(x = x) { return x; } f();",
-            "({ get x(a) { return a; } }).x;",
-            "({ set x(v = 1) {} }).x = 1;",
         ] {
-            let err = engine()
+            let error = engine()
                 .run_script(
                     source,
                     CompileOptions::default(),
@@ -20130,9 +21349,47 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
                         ..RunOptions::default()
                     },
                 )
-                .expect_err("unsupported param or arguments form should stay unsupported");
-            assert!(!err.message().trim().is_empty());
+                .expect_err(&format!("parameter TDZ must throw for `{source}`"));
+            assert_eq!(
+                error.wasm_javascript_exception_constructor_name(),
+                Some("ReferenceError"),
+                "source: {source}, error: {error}"
+            );
         }
+
+        let getter_error = engine()
+            .run_script(
+                "({ get x(a) { return a; } }).x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("a getter parameter must be rejected before execution");
+        let diagnostic = getter_error
+            .parse_diagnostic()
+            .expect("the getter grammar error must retain its front-end diagnostic");
+        assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
+
+        let setter_source = r#"
+            const holder = { set x(value = 1) { this.stored = value; } };
+            holder.x = 7;
+            const supplied = holder.stored;
+            holder.x = undefined;
+            supplied === 7 && holder.stored === 1;
+        "#;
+        let setter = engine()
+            .run_script(
+                setter_source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("default setter must execute: {error}"));
+        assert!(setter.note.contains("boolean(true)"), "{}", setter.note);
     }
 
     #[test]
@@ -21649,7 +22906,7 @@ let sized = new Sub(7);
             ),
             (
                 "try { class A {} class B extends A { constructor() { this.x = 1; super(); } } new B(); } catch (e) { e; }",
-                "object(handle@",
+                "object",
             ),
             (
                 "try { class A {} class B extends A { constructor() {} } new B(); } catch (e) { e.name; }",
@@ -21657,7 +22914,7 @@ let sized = new Sub(7);
             ),
             (
                 "try { class A {} class B extends A { constructor() {} } new B(); } catch (e) { e; }",
-                "object(handle@",
+                "object",
             ),
             (
                 "try { let marker = 1; class A {} class B extends A { constructor() {} } new B(); marker; } catch (e) { e.name; }",
@@ -24384,7 +25641,10 @@ resultIsArray();
         for (source, expected) in [
             ("Function(\"return 1\")();", "number(1)"),
             ("new Function(\"return 1\")();", "number(1)"),
-            ("new Function(\"a\", \"b\", \"return a + b\")(2, 3);", "number(5)"),
+            (
+                "new Function(\"a\", \"b\", \"return a + b\")(2, 3);",
+                "number(5)",
+            ),
             (
                 "var f = Function(\"return 1\"); \
                  [typeof f, f.name, f.length, typeof f.prototype, \
@@ -24670,193 +25930,6 @@ let setReceiver = function () {};
             "note: {}",
             outcome.note
         );
-    }
-
-    #[test]
-    fn wasm_backend_weak_ref_uses_private_weak_targets_and_new_target_prototypes() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var target = {};
-var weakRef = new WeakRef(target);
-if (weakRef.deref() !== target) throw "object target";
-if (!(weakRef instanceof WeakRef)) throw "instanceof";
-if (Object.getPrototypeOf(weakRef) !== WeakRef.prototype) throw "prototype";
-var symbol = Symbol("target");
-if (new WeakRef(symbol).deref() !== symbol) throw "symbol target";
-if (new WeakRef(Symbol.hasInstance).deref() !== Symbol.hasInstance) {
-  throw "well-known symbol target";
-}
-var customPrototype = {};
-function NewTarget() {}
-NewTarget.prototype = customPrototype;
-weakRef = Reflect.construct(WeakRef, [{}], NewTarget);
-if (Object.getPrototypeOf(weakRef) !== customPrototype) throw "custom prototype";
-NewTarget.prototype = 1;
-weakRef = Reflect.construct(WeakRef, [{}], NewTarget);
-if (Object.getPrototypeOf(weakRef) !== WeakRef.prototype) throw "fallback prototype";
-var boundPrototypeGetterCalls = 0;
-var BoundNewTarget = function() {}.bind(null);
-Object.defineProperty(BoundNewTarget, "prototype", {
-  get: function() {
-    boundPrototypeGetterCalls += 1;
-    return Array.prototype;
-  }
-});
-weakRef = Reflect.construct(WeakRef, [{}], BoundNewTarget);
-if (Object.getPrototypeOf(weakRef) !== Array.prototype) {
-  throw "bound newTarget prototype accessor";
-}
-if (boundPrototypeGetterCalls !== 1) throw "bound prototype getter count";
-var descriptor = Object.getOwnPropertyDescriptor(WeakRef.prototype, "deref");
-if (descriptor.value !== WeakRef.prototype.deref) throw "deref value";
-if (!descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
-  throw "deref descriptor";
-}
-if (WeakRef.length !== 1 || WeakRef.name !== "WeakRef") throw "constructor metadata";
-if (WeakRef.prototype.deref.length !== 0 ||
-    WeakRef.prototype.deref.name !== "deref") throw "deref metadata";
-if (WeakRef.prototype[Symbol.toStringTag] !== "WeakRef") throw "toStringTag";
-var errors = 0;
-for (var invalid of [undefined, null, 1, "target", true, Symbol.for("target")]) {
-  try { new WeakRef(invalid); } catch (error) {
-    if (error instanceof TypeError) errors += 1;
-  }
-}
-for (var receiver of [undefined, null, {}, WeakRef, WeakRef.prototype]) {
-  try { WeakRef.prototype.deref.call(receiver); } catch (error) {
-    if (error instanceof TypeError) errors += 1;
-  }
-}
-try { WeakRef(target); } catch (error) {
-  if (error instanceof TypeError) errors += 1;
-}
-if (errors !== 12) throw "errors";
-262;
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("wasm backend should expose real WeakRef private targets");
-        assert!(outcome.note.contains("number(262"));
-    }
-
-    #[test]
-    fn wasm_backend_finalization_registry_tracks_and_unregisters_weak_cells() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var cleanupCalls = 0;
-var registry = new FinalizationRegistry(function() {
-  cleanupCalls += 1;
-});
-if (!(registry instanceof FinalizationRegistry)) throw "instanceof";
-if (Object.getPrototypeOf(registry) !== FinalizationRegistry.prototype) throw "prototype";
-if (!Object.isExtensible(registry)) throw "extensible";
-if (cleanupCalls !== 0) throw "cleanup called";
-var target = {};
-var token = {};
-if (registry.register(target, "holdings", token) !== undefined) throw "register result";
-if (registry.unregister(token) !== true) throw "unregister existing";
-if (registry.unregister(token) !== false) throw "unregister removed";
-registry.register({}, "first", token);
-registry.register({}, "second", token);
-if (registry.unregister(token) !== true) throw "unregister duplicate token";
-if (registry.unregister(token) !== false) throw "unregister all matching cells";
-if (registry.unregister({}) !== false) throw "unregister missing";
-registry.register(target, "target is token", target);
-registry.register({}, token, token);
-var symbolTarget = Symbol("target");
-var symbolToken = Symbol("token");
-registry.register(symbolTarget, "symbol holdings", symbolToken);
-if (registry.unregister(symbolToken) !== true) throw "symbol token";
-registry.register(Symbol.iterator, "well-known target", Symbol.hasInstance);
-if (registry.unregister(Symbol.hasInstance) !== true) throw "well-known token";
-var descriptor = Object.getOwnPropertyDescriptor(
-  FinalizationRegistry.prototype,
-  "register"
-);
-if (descriptor.value !== FinalizationRegistry.prototype.register ||
-    !descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
-  throw "register descriptor";
-}
-descriptor = Object.getOwnPropertyDescriptor(
-  FinalizationRegistry.prototype,
-  "unregister"
-);
-if (descriptor.value !== FinalizationRegistry.prototype.unregister ||
-    !descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
-  throw "unregister descriptor";
-}
-descriptor = Object.getOwnPropertyDescriptor(FinalizationRegistry, "prototype");
-if (descriptor.writable || descriptor.enumerable || descriptor.configurable) {
-  throw "constructor prototype descriptor";
-}
-if (FinalizationRegistry.length !== 1 ||
-    FinalizationRegistry.name !== "FinalizationRegistry") throw "constructor metadata";
-if (FinalizationRegistry.prototype.register.length !== 2 ||
-    FinalizationRegistry.prototype.register.name !== "register") throw "register metadata";
-if (FinalizationRegistry.prototype.unregister.length !== 1 ||
-    FinalizationRegistry.prototype.unregister.name !== "unregister") throw "unregister metadata";
-if (FinalizationRegistry.prototype[Symbol.toStringTag] !== "FinalizationRegistry") {
-  throw "toStringTag";
-}
-var prototypeGetterCalls = 0;
-var NewTarget = function() {}.bind(null);
-Object.defineProperty(NewTarget, "prototype", {
-  get: function() {
-    prototypeGetterCalls += 1;
-    return Array.prototype;
-  }
-});
-var custom = Reflect.construct(FinalizationRegistry, [function() {}], NewTarget);
-if (Object.getPrototypeOf(custom) !== Array.prototype) throw "custom prototype";
-if (prototypeGetterCalls !== 1) throw "prototype getter count";
-NewTarget = function() {};
-NewTarget.prototype = 1;
-custom = Reflect.construct(FinalizationRegistry, [function() {}], NewTarget);
-if (Object.getPrototypeOf(custom) !== FinalizationRegistry.prototype) {
-  throw "fallback prototype";
-}
-function expectTypeError(callback) {
-  try {
-    callback();
-  } catch (error) {
-    if (error instanceof TypeError) return;
-  }
-  throw "expected TypeError";
-}
-expectTypeError(function() { FinalizationRegistry(function() {}); });
-expectTypeError(function() { new FinalizationRegistry(1); });
-expectTypeError(function() { registry.register(1, "holdings"); });
-expectTypeError(function() { registry.register(Symbol.for("target"), "holdings"); });
-expectTypeError(function() { registry.register(target, target); });
-expectTypeError(function() { registry.register(symbolTarget, symbolTarget); });
-expectTypeError(function() { registry.register({}, "holdings", 1); });
-expectTypeError(function() { registry.register({}, "holdings", Symbol.for("token")); });
-expectTypeError(function() { registry.unregister(undefined); });
-expectTypeError(function() { registry.unregister(Symbol.for("token")); });
-expectTypeError(function() {
-  FinalizationRegistry.prototype.register.call({}, {}, "holdings");
-});
-expectTypeError(function() {
-  FinalizationRegistry.prototype.unregister.call(Object.create(
-    FinalizationRegistry.prototype
-  ), {});
-});
-262;
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("wasm backend should expose real FinalizationRegistry weak cells");
-        assert!(outcome.note.contains("number(262"));
     }
 
     #[test]
@@ -25505,321 +26578,6 @@ try {
             outcome
                 .note
                 .contains("string(function|true|true|true|true|true|true|true|true)"),
-            "note: {}",
-            outcome.note
-        );
-    }
-
-    #[test]
-    fn wasm_backend_weak_map_supports_weak_keys_descriptors_and_cross_brand_checks() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var objectKey = {};
-var symbolKey = Symbol("local");
-var registeredKey = Symbol.for("registered");
-var weakMap = new WeakMap([[objectKey, 1], [symbolKey, 2]]);
-var primitiveSetThrows = false;
-var registeredSetThrows = false;
-var weakMethodRejectsMap = false;
-var mapMethodRejectsWeakMap = false;
-try { weakMap.set(1, 3); } catch (error) { primitiveSetThrows = error instanceof TypeError; }
-try { weakMap.set(registeredKey, 3); } catch (error) {
-  registeredSetThrows = error instanceof TypeError;
-}
-try { WeakMap.prototype.get.call(new Map(), objectKey); } catch (error) {
-  weakMethodRejectsMap = error instanceof TypeError;
-}
-try { Map.prototype.get.call(weakMap, objectKey); } catch (error) {
-  mapMethodRejectsWeakMap = error instanceof TypeError;
-}
-var tagDescriptor = Object.getOwnPropertyDescriptor(WeakMap.prototype, Symbol.toStringTag);
-[
-  typeof WeakMap,
-  WeakMap.length,
-  WeakMap.name,
-  WeakMap.prototype.constructor === WeakMap,
-  Object.prototype.toString.call(weakMap),
-  tagDescriptor.value,
-  tagDescriptor.writable,
-  tagDescriptor.enumerable,
-  tagDescriptor.configurable,
-  weakMap.get(objectKey),
-  weakMap.get(symbolKey),
-  weakMap.has(1),
-  weakMap.get(1),
-  weakMap.delete(1),
-  primitiveSetThrows,
-  registeredSetThrows,
-  weakMethodRejectsMap,
-  mapMethodRejectsWeakMap
-].join("|");
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("WeakMap should enforce weak-key, descriptor, and brand contracts");
-        assert!(
-            outcome.note.contains(
-                "string(function|0|WeakMap|true|[object WeakMap]|WeakMap|false|false|true|1|2|false||false|true|true|true|true)"
-            ),
-            "note: {}",
-            outcome.note
-        );
-    }
-
-    #[test]
-    fn wasm_backend_weak_map_observes_setter_and_closes_iterator_on_abrupt_completion() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var events = [];
-var intrinsicSet = WeakMap.prototype.set;
-var key = {};
-class DerivedWeakMap extends WeakMap {}
-Object.defineProperty(DerivedWeakMap.prototype, "set", {
-  configurable: true,
-  get: function() {
-    events.push("get set");
-    return function(entryKey, value) {
-      events.push("set");
-      return intrinsicSet.call(this, entryKey, value);
-    };
-  }
-});
-var iterable = {
-  [Symbol.iterator]: function() {
-    events.push("iterator");
-    var done = false;
-    return {
-      next: function() {
-        if (done) return { done: true };
-        done = true;
-        return { done: false, value: [key, 7] };
-      }
-    };
-  }
-};
-var weakMap = new DerivedWeakMap(iterable);
-var closeCount = 0;
-var invalidIterable = {
-  [Symbol.iterator]: function() {
-    return {
-      next: function() { return { done: false, value: [1, 9] }; },
-      return: function() { closeCount += 1; return {}; }
-    };
-  }
-};
-var invalidKeyThrows = false;
-try { new WeakMap(invalidIterable); } catch (error) {
-  invalidKeyThrows = error instanceof TypeError;
-}
-[events.join(","), weakMap.get(key), invalidKeyThrows, closeCount].join("|");
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("WeakMap construction should observe overridden set and IteratorClose");
-        assert!(
-            outcome
-                .note
-                .contains("string(get set,iterator,set|7|true|1)"),
-            "note: {}",
-            outcome.note
-        );
-    }
-
-    #[test]
-    fn wasm_backend_weak_set_supports_weak_values_descriptors_and_brand_checks() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var objectValue = {};
-var symbolValue = Symbol("local");
-var registeredValue = Symbol.for("registered");
-var weakSet = new WeakSet([objectValue, symbolValue]);
-var primitiveAddThrows = false;
-var registeredAddThrows = false;
-var weakMethodRejectsSet = false;
-var setMethodRejectsWeakSet = false;
-function NewTarget() {}
-var customPrototype = [];
-NewTarget.prototype = customPrototype;
-var customPrototypeWeakSet = Reflect.construct(WeakSet, [], NewTarget);
-NewTarget.prototype = null;
-var fallbackPrototypeWeakSet = Reflect.construct(WeakSet, [], NewTarget);
-try { weakSet.add(1); } catch (error) { primitiveAddThrows = error instanceof TypeError; }
-try { weakSet.add(registeredValue); } catch (error) {
-  registeredAddThrows = error instanceof TypeError;
-}
-try { WeakSet.prototype.has.call(new Set(), objectValue); } catch (error) {
-  weakMethodRejectsSet = error instanceof TypeError;
-}
-try { Set.prototype.has.call(weakSet, objectValue); } catch (error) {
-  setMethodRejectsWeakSet = error instanceof TypeError;
-}
-var tagDescriptor = Object.getOwnPropertyDescriptor(WeakSet.prototype, Symbol.toStringTag);
-[
-  typeof WeakSet,
-  WeakSet.length,
-  WeakSet.name,
-  WeakSet.prototype.constructor === WeakSet,
-  Object.prototype.toString.call(weakSet),
-  tagDescriptor.value,
-  tagDescriptor.writable,
-  tagDescriptor.enumerable,
-  tagDescriptor.configurable,
-  weakSet.has(objectValue),
-  weakSet.has(symbolValue),
-  weakSet.add(objectValue) === weakSet,
-  weakSet.delete(objectValue),
-  weakSet.has(objectValue),
-  weakSet.has(1),
-  weakSet.delete(1),
-  primitiveAddThrows,
-  registeredAddThrows,
-  weakMethodRejectsSet,
-  setMethodRejectsWeakSet,
-  Object.getPrototypeOf(customPrototypeWeakSet) === customPrototype,
-  Object.getPrototypeOf(fallbackPrototypeWeakSet) === WeakSet.prototype
-].join("|");
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("WeakSet should enforce weak-value, descriptor, and brand contracts");
-        assert!(
-            outcome.note.contains(
-                "string(function|0|WeakSet|true|[object WeakSet]|WeakSet|false|false|true|true|true|true|true|false|false|false|true|true|true|true|true|true)"
-            ),
-            "note: {}",
-            outcome.note
-        );
-    }
-
-    #[test]
-    fn wasm_backend_weak_set_observes_adder_and_closes_iterator_on_abrupt_completion() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var events = [];
-var intrinsicAdd = WeakSet.prototype.add;
-var value = {};
-class DerivedWeakSet extends WeakSet {}
-Object.defineProperty(DerivedWeakSet.prototype, "add", {
-  configurable: true,
-  get: function() {
-    events.push("get add");
-    return function(entryValue) {
-      events.push("add");
-      return intrinsicAdd.call(this, entryValue);
-    };
-  }
-});
-var iterable = {
-  [Symbol.iterator]: function() {
-    events.push("iterator");
-    var done = false;
-    return {
-      next: function() {
-        if (done) return { done: true };
-        done = true;
-        return { done: false, value: value };
-      }
-    };
-  }
-};
-var weakSet = new DerivedWeakSet(iterable);
-var closeCount = 0;
-var invalidIterable = {
-  [Symbol.iterator]: function() {
-    return {
-      next: function() { return { done: false, value: 1 }; },
-      return: function() { closeCount += 1; return {}; }
-    };
-  }
-};
-var invalidValueThrows = false;
-try { new WeakSet(invalidIterable); } catch (error) {
-  invalidValueThrows = error instanceof TypeError;
-}
-[events.join(","), weakSet.has(value), invalidValueThrows, closeCount].join("|");
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("WeakSet construction should observe overridden add and IteratorClose");
-        assert!(
-            outcome
-                .note
-                .contains("string(get add,iterator,add|true|true|1)"),
-            "note: {}",
-            outcome.note
-        );
-    }
-
-    #[test]
-    fn wasm_backend_weak_map_upsert_methods_preserve_order_and_abrupt_completion() {
-        let outcome = engine()
-            .run_script(
-                r#"
-var key = {};
-var weakMap = new WeakMap();
-var callbackCount = 0;
-var inserted = weakMap.getOrInsert(key, 3);
-var existing = weakMap.getOrInsert(key, 4);
-var computedKey = {};
-var computed = weakMap.getOrInsertComputed(computedKey, function(observedKey) {
-  callbackCount += 1;
-  return observedKey === computedKey ? 5 : 0;
-});
-var callbackError = {};
-var propagated = false;
-try {
-  weakMap.getOrInsertComputed({}, function() { throw callbackError; });
-} catch (error) {
-  propagated = error === callbackError;
-}
-var invalidCallbackThrows = false;
-try {
-  weakMap.getOrInsertComputed(1, null);
-} catch (error) {
-  invalidCallbackThrows = error instanceof TypeError;
-}
-[
-  inserted,
-  existing,
-  weakMap.get(key),
-  computed,
-  weakMap.get(computedKey),
-  callbackCount,
-  propagated,
-  invalidCallbackThrows,
-  WeakMap.prototype.getOrInsert.length,
-  WeakMap.prototype.getOrInsertComputed.length
-].join("|");
-"#,
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    ..RunOptions::default()
-                },
-            )
-            .expect("WeakMap upsert methods should preserve insertion and abrupt completion");
-        assert!(
-            outcome.note.contains("string(3|3|3|5|5|1|true|true|2|2)"),
             "note: {}",
             outcome.note
         );

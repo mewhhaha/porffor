@@ -1,5 +1,505 @@
 # T15 — Generators, iterators, iterator helpers and resource management
 
+## Iterator materialization retains runtime protocol — 2026-10-07 dry source
+
+The remaining source-text iterator caches are removed. They replaced
+Array.from/Iterator.prototype.toArray calls with parsed generator yield values,
+discarding actual iterator consumption, next effects and own method selection.
+They also treated a non-iterable object with a next method as iterable and
+trusted shadowed Array/Iterator spellings. Calls now use the existing acquired
+callee and actual runtime iterator owners.
+
+The generator-call override map had only an unsupported-expression producer;
+its map, projections and no-op stubs are removed without adding a replacement
+execution path. Generator expressions continue through their checked source
+suspension plan and normal FunctionObject creation. Orphan source parsers and
+all declaration/assignment/branch cache bookkeeping are removed with the folds.
+
+Two existing IR controls now require real nested calls. Three paired Engine
+cohorts cover non-iterable fallback, consumed-state retention, next effects and
+abrupt values, own/shadowed/replaced methods and fresh generator invocation.
+Compilation and runtime verification remain deferred; this source batch claims
+no new passing Test262 cases.
+
+## Array Yield/Await, With and complete ForIn source owners — 2026-10-06
+
+Ordinary-generator array patterns retain their actual GC IteratorRecord and cached
+next/done state across yielding target/default work. Original GetIterator, Step,
+Put and IteratorClose owners remain shared, including nested patterns and whole
+injected Return/Throw. Complete With retains the original boxed object record;
+the head runs before entering that record and resume reattaches it before body
+injection. Class abrupt cleanup and invocation-entry anchoring preserve original
+parent lexical/private environments and nested finalizer ordering.
+
+Complete ordinary ForIn retains four checked invocation cells and one GC cursor
+for current object, remaining accepted keys, index and visited String keys.
+Head TDZ, original Var/lexical/pattern/Reference initialization, per-iteration
+environments and local/outward completion routing are joined. Admission requires
+an actual retained-key write or the original sloppy immutable-binding Ignore
+Reference proof. OwnKeys and descriptor observations preserve StatementList V;
+prototype traversal remains lazy and ForIn performs no IteratorClose.
+
+Plain async Array patterns now consume an opaque complete owner through lexical,
+var and used/discarded assignment paths. The actual source Await/operation tape,
+branch ranges and original cell inventory are checked once, including nested
+arrays, recursive objects, optional tails and class evaluation operands. General
+state readers continue to reject bare iterator operations. The native Generator
+and Async entries share one physical acquisition/body/close pipeline; rejected
+Await enters the reconstructed close scope and normal Await retains original
+References and iterator storage.
+
+Plain async With now checks the actual ToObject codomain, original object record,
+head publication and complete Await tape. Plain async ForIn checks the exact AST
+head identity, four original invocation cells and the shared physical retained-key
+initialization proof. Head/body ranges and continue-to-advance routing share the
+original ordinary-generator native pipeline. Rejection reconstructs original
+cleanup scopes before injection; ForIn performs no IteratorClose.
+
+Mixed async-generator classic loops, If/value regions, complete With, Switch and ForIn
+have independent source reviews. One source allocator checks all eager and
+suspended phase entries and the exact Await/Yield tape. Private certificates
+retain invocation anchoring and captured Block/Try ancestry; the original
+ForAwait iteration environment and implicit disposal boundaries remain joined.
+The native code uses the original loop, Reference, With and Switch algorithms. Ordinary,
+plain async and mixed With share one private validated ToObject/Object
+Environment proof. The old proxy-control successor corrects four expected
+HasProperty counts from the actual Object Environment algorithms.
+
+Mixed Switch checks its complete discriminant, lazy selectors, fallback and
+source-order bodies against the exact mixed tape. Its original two retained cells
+and shared CaseBlock are validated once. Discriminant work precedes CaseBlock
+TDZ/function instantiation; default selection follows every actual selector.
+The shared operand finish callback reads generated terminal values inside their
+actual temporary scope, including original and mixed loop callers.
+
+Mixed ForIn shares the original four-cell storage and retained-key initialization
+proof. Head TDZ records remain distinct from fresh per-key records, including
+closures created before enumeration. Its original cursor performs no IteratorClose.
+
+These source epochs and meaningful AST/IR/native/Engine controls remain
+uncompiled and unrun. Mixed patterns, nested or suspended iterator heads and
+suspended resource continuations remain source work before joined verification.
+
+## Switch, Throw, object-pattern and class-name source owners — 2026-10-06
+
+Ordinary Switch stages its complete discriminant before the CaseBlock environment,
+then evaluates selectors in order and retains fallthrough completion in original
+activation cells. Its private source and IR types validate state ranges, lexical
+ownership and local Break handling. Empty statement completion wraps the entire
+original item. Yielding Throw operands stage their whole selected value before
+the existing Throw operation; injected Return/Throw retain the existing finalizer
+and pending-completion transport.
+
+Object patterns now suspend in computed names, assignment targets and complete
+undefined-only defaults. Ordered raw/boxed source and normalized PropertyName
+factories feed the same native GetV, CopyDataProperties and target Put owners.
+WriteOnly Identifier References and raw member base/key cells survive suspension;
+lexical declarations and scoped classic For heads initialize original cells.
+Recursive objects and eager nested arrays keep their actual semantic owners.
+The patched frontend cover converter retains computed nested patterns and actual
+NamedEvaluation. Class labels now use parser name-scope provenance: inferred
+names preserve outer reads and TDZ, explicit names retain inner class cells.
+
+The complete source joins, retained controls and boundary guard have independent
+reviews. New IR and paired Wasm fixtures cover ordering, TDZ, GC, primitive
+receivers, retained With References, iterator closing and yielding finalizers.
+Compilation, guard execution and runtime remain unrun. Array-owned Yield/Await,
+broader ForIn/With, nested/suspended iterators, mixed async-generator and resource
+continuations remain open before the combined capped verification.
+See the [object-pattern contract](../docs/rust-rewrite/contracts/generator-object-patterns.md)
+and [class-name contract](../docs/rust-rewrite/contracts/class-name-source.md).
+
+## Earlier optional and eager assignment source joins — 2026-10-06
+
+Eager assignment patterns now stage their whole RHS before target keys, Gets,
+defaults/rest and the existing assignment emitter. Scoped classic For lexical
+heads retain the actual declaration-to-activation mapping.
+
+Optional chains own the complete base plan and guarded key/argument regions,
+including multiple/delegated Yields. First Calls retain their actual Reference
+receivers; later Gets and spreads keep their established order. Terminal property
+Delete retains raw base/key, skips its getter and returns true when shorted.
+Ordinary and suspended Delete share the existing native deletion owner. All retained
+source control names/cohorts remain, with complete-region state assertions.
+
+These owners have independent source reviews and authored GC/whole-completion
+controls; compilation and execution remain unrun. Object-owned suspensions and
+Switch now have the source owners above. Array-owned suspensions, broader ForIn/With,
+nested/suspended iterators and mixed async/resource continuations remain source work. See the [optional region contract](../docs/rust-rewrite/contracts/generator-optional-regions.md).
+
+## Checked ordinary generator loops — 2026-10-06 source
+
+The ordinary generator path has a source-owned phased For/While/DoWhile graph
+and checked conditional regions. The backend reconstructs actual loop and
+label targets on each resume, stores the whole loop completion in its owned
+activation cell, recreates captured For iteration cells at the specified
+boundaries, and uses the existing pending-finalizer completion transport.
+Multiple yielding heads/body/update phases, nested branches/loops/finalizers,
+GC collection and whole Return/Throw identities have authored Engine controls.
+
+Yielding logical selectors and suspended Identifier assignments have separate
+consumed expression owners. Runtime/global/With assignments retain one actual
+selected Reference. Compound/logical assignments retain the original whole
+GetValue result before the RHS; plain assignments use WriteOnly capture without
+GetValue. Coercion follows the complete RHS and logical skipped regions release only the
+private record. Completion cleanup preserves live records across delegated
+yields and retires them before committed Return or Throw transfer. Meaningful
+catch/finally, deletion/unscopables and GC controls are written. Broader
+iterator/resource coverage and full pinned acceptance remain open. The joined source is not yet
+compiled or executed; isolated formatting and review are source evidence only.
+
+## Complete ordinary expression regions — 2026-10-06 source
+
+Yielding selectors and complete conditional/logical arms retain source-owned
+state ranges and publish only after Normal evaluation. Eager operator operands
+and template substitution coercion use the actual ordinary semantic owners.
+Eager binding patterns stage their entire initializer while lexical names remain
+in TDZ; their existing single-Get/default/rest and binding IteratorClose owners
+run afterward. Var hoisting and whole abrupt values through yielding finally
+remain attached to existing environment/completion transport.
+
+Object literals retain one actual allocation. Each completed key is normalized
+before its value; the shared property body handles spread, prototype setters,
+data, methods, accessors and computed naming. Prepared class naming has a private
+source-property proof and cannot be inferred from generic operand caching.
+Both returned and discarded literals consume the same owner. These scopes have
+independent source peers and meaningful strict/sloppy GC/order controls, all
+unrun. Further pattern/control/iterator/async/resource source joins and the
+combined capped verification remain open.
+
+## Object bindings observe each property once — 2026-10-04 dry source
+
+Ordinary lexical/var object patterns and shared synchronous/async/generator loop
+heads now consume the existing ObjectDestructure operation. The cloned simple
+lexical default and separate var statement optimizer are retired. The same
+private initializer keeps actual source modes and renamed storage; arrays keep
+their existing binding iterator owner. The backend's GetV lookup boxes a primitive
+while preserving the original value as getter Receiver. Rest keeps its separate
+CopyDataProperties rules.
+
+Seven existing IR controls are maintained and new actual head/storage controls
+and three paired finite Engine cohorts are authored. They distinguish one Get
+on either default branch, primitive strict getter receivers, TDZ and var policy,
+fresh/interleaved async cells, original abrupt cutoffs, finally and iterator close.
+Compilation, runtime, guards and full-task acceptance remain unverified. Finish
+all remaining task source before verification under a confirmed 4096 MiB aggregate
+kernel cap, zero swap and serial defaults. No task or published count closes.
+See the [single-Get contract](../docs/rust-rewrite/contracts/object-binding-single-get.md).
+
+## Generator eager lexical-pattern heads — 2026-10-04 dry source
+
+Plain synchronous generators now admit eager Let/Const array/object binding
+patterns in synchronous for-of heads. The real source gate rejects Yield/Await
+in the initializer and retains eager iterable/current-body ownership. Analysis
+provides every source binding's fresh cell, including uncaptured cells.
+The consumed shared proof validates real mode, matching TDZ names, complete
+environment layout and semantic BindingInitialization. The generator head binds
+its exact prefix to the checked body before exposing EntryLocal storage.
+
+The incoming Dynamic/all-tag sink is private and cannot be retained, captured,
+read by nested pattern operands or used by resumed body metadata. Actual source
+mode belongs to head-environment setup independently from that sink. Eager
+initialization executes once per entered iteration, before the body's lexical
+scope; resume does not repeat property Get, computed key, default or inner
+iterator work. The semantic object-pattern owner performs one Get/default
+decision. Existing state, close, local-control and yielding-finalizer owners
+remain the consumers, with no new ABI or activation layout.
+
+Eleven production/IR-control paths, four Engine paths and eight documentation/
+guard paths form the complete source batch. Constructor/lowering controls cover
+prefix lifetime, exact state/cell ownership, empty/nested/rest/computed/default
+patterns and genuine refused shapes. Three new paired cohorts retain all
+eighteen previous cohorts and cover cached next, interleaved captures, TDZ,
+original foreign abrupt identity, inner-before-outer close, no-close step
+failures and local/injected completions through two finalizer yields.
+
+All source is authored and independently reviewed; it is uncompiled and
+unexecuted. Var/assignment pattern heads, suspended heads/iterables, async
+generators, resource heads and foreign control owners remain explicit work.
+The shared object-binding successor above now retires the ordinary/Async
+optimized default producer and corrects primitive GetV receivers. Full T15 and
+pinned acceptance remain open. See the
+[lexical-pattern contract](../docs/rust-rewrite/contracts/plain-generator-for-of-lexical-pattern-heads.md).
+
+## Generator ordinary-property assignment heads — 2026-10-04 dry source
+
+The complete successor source admits eager Simple property heads in plain
+synchronous generators. The actual producer retains the fused ordinary-property
+Reference, raw base/receiver, raw computed key and source strictness. It shares
+the consumed plain-assignment completion with expression assignment, including
+setter dependencies and effect invalidation. No property Get, raw PropertyWrite
+or canonical-key substitute is introduced.
+
+Private identifier and ordinary-property constructors validate their own prefix
+domains and share the mandatory lifetime and exact prefix/body proof. The
+Dynamic iterator-value sink remains entry-only; neither raw Reference operand
+nor resumed storage may read, write or retain it. The original property PutValue
+runs before the lexical body opens, once per entered iteration inside the live
+close/finalizer frame. Declaration binding modes, async lexical-pattern storage,
+state arithmetic and iterator close remain their existing owners.
+
+Constructor/lowering controls and three finite strict/sloppy Engine cohorts are
+authored with production and documentation. They cover raw key order, no Get,
+callable Proxy Set, inherited raw-primitive setters, shadowing/captured body
+cells, cached next mutation, native/foreign head errors, no-close step failures,
+local Continue/Break and explicit/injected Return/Throw through two yielding
+finalizers. This complete source passed the ref105 combined all-target Rust type
+check in 30 seconds of watched wall time (Cargo 17.07 seconds). Emitted-Wasm/
+runtime and full T15 acceptance remain pending. Suspended head/iterable,
+private/super, nonlexical pattern and resource heads, async generators and
+foreign control owners remain explicit work. See the
+[continuation contract](../docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+## Generator identifier assignment heads — 2026-10-04 dry source
+
+Plain synchronous generators admit bare identifier assignment heads with an
+eager iterable. A private consumed head proof distinguishes a validated source
+binding from a prepared identifier PutValue. Assignment retains the actual
+outer target and has no source declaration mode, head TDZ scope or fresh
+iteration binding. Its source-unspellable iterator-value sink uses temporary
+entry storage. Checked construction and the existing exhaustive IR visitor
+reject reads, writes and retained storage that could escape into a resume state.
+
+The lowered eager write runs before the lexical body opens, once per entered
+iteration and inside the existing close/finalizer frame. Resume does not replay
+the write. Const/TDZ/unresolved failures, the justified sloppy immutable-name
+no-op, original thrown completions, local control and yielding cleanup retain
+their existing owners. Declaration heads and async lexical-pattern behavior use
+their actual binding modes; assignment creates none.
+
+Meaningful constructor and lowering controls join three paired strict/sloppy
+Engine fixtures covering captures and interleaved instances, head failures and
+local control through yielding finalizers. Code, controls and documentation
+are authored together and passed the ref100 combined all-target Rust type check
+in 15 seconds of watched wall time (Cargo 11.08 seconds). Emitted Wasm and
+runtime checks remain pending. Var/assignment patterns and resource heads, suspended head/iterable forms
+and async generators remain explicit separate work. Full T15 stays open. See the
+[continuation contract](../docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+## Iterator.from acquisition and wrapper Call — 2026-10-04 dry source
+
+The complete Iterator.from family now has a private consumed implementation
+leaf. Acquisition observes Symbol.iterator once with the original receiver,
+uses general callable Proxy dispatch, validates the final iterator after both
+nullish fallback and method Call, then caches next without an eager callability
+check. Only this completed record can reach identity or wrapper publication.
+
+Wrapper next and return validate the existing private fields without observable
+receiver traps. Next calls the cached method; return gets its method afresh and
+creates a fresh defining-Realm done result only for a nullish method. Both
+forward arbitrary Call results, including primitives, and original thrown
+values. Native failures use the called intrinsic Realm. Existing layouts,
+prototype walk and identity behavior remain the implementation owners.
+
+Two paired strict/sloppy WasmAot cohorts extend the existing Iterator consumer
+target while preserving its five earlier controls. Code, meaningful controls,
+invariants and documentation are authored. The ref97 combined all-target Rust
+type check passed; emitted-Wasm/runtime checks remain pending. Other helpers and
+full T15 acceptance remain open. See the
+[completed-record contract](../docs/rust-rewrite/contracts/iterator-from-completed-record.md).
+
+## AggregateError shared iterator consumer — 2026-10-04 dry source
+
+AggregateError joins the capability-free SyncIteratorConsumer domain as its
+sixth consumer. One borrowed authority selects its four native protocol
+messages while the shared acquisition and IteratorStepValue owners retain
+original throws, callable Proxy dispatch, cached next and done-before-value.
+IteratorToList never reads return or closes on acquisition or step failure.
+The error projection remains separate from consumer wording and selects the
+called builtin Realm. The published errors Array also uses that intrinsic Realm.
+
+Production, finite paired Engine controls and maintained architecture guards
+are authored. The current inventory is 24 diagnostic rows, 17 typed projector
+calls, 43 error identifiers, eight consumer constructions and 22 borrows.
+The ref97 combined all-target Rust type check passed; emitted-Wasm/runtime
+verification remains pending. See the
+[AggregateError contract](../docs/rust-rewrite/contracts/aggregate-error-iterator-list.md)
+and [consumer contract](../docs/rust-rewrite/contracts/sync-iterator-consumer-capability.md).
+
+## Plain-async switch block resources — 2026-10-04 dry source
+
+Supported nested blocks inside a plain-async switch now use the existing
+AsyncFunction disposal capability. The pre-state source proof admits identifier
+`await using` with eager initializers while retaining independent nested
+function ownership and the existing loop/iterator/generator boundaries. The
+switch constructor authenticates the actual suffix and adjacent finalizer
+states; implicit nullish disposal cannot be lowered as an eager case.
+
+The existing resource owner retains acquisition order, async-first lookup and
+sync fallback, reverse disposal, pending Break/Return/Throw and SuppressedError
+precedence. The switch frame and block lexical environment stay live until
+those implicit awaits finish. Meaningful IR controls and three paired Engine
+cohorts are authored; the ref93 combined all-target Rust type check passed,
+while emitted-Wasm/runtime verification remains pending. Direct resource
+declarations in a CaseClause or DefaultClause remain front-end SyntaxError.
+Async/sync generator switches, resource heads, suspended initializers and
+for-await/enclosing-loop composition remain separate work. Full T15 remains
+open. See the
+[contract](../docs/rust-rewrite/contracts/plain-async-switch-continuations.md).
+
+## Local generator for-of control — 2026-10-04 dry source
+
+The generator-specific source admission and mandatory body constructor now
+prove ownership of unlabelled Break/Continue for the current synchronous
+for-of. Blocks, lexical blocks, eager If arms and existing GeneratorTry clauses
+retain that ownership; foreign nested loop/switch/label branches and labelled
+branches are rejected. The blanket loop-control check for other owners stays
+unchanged. Exact Yield/Try state validation remains mandatory and local branches
+allocate no new continuation state.
+
+The real shared iterator emitter publishes this loop's break target and a
+body-end continue target. Continue passes through the common iteration
+environment cleanup and state reset before stepping the cached next. It never
+reads return. Break/Return/Throw wait for the completion actually selected by a
+yielding finalizer, then close once with the existing Throw-preserving precedence
+and outer catch/finally routing. The checked body, IteratorRecord and lexical
+activation owners are consumed together; no opcode, ABI or frame representation
+is added. The async adapter's admission and behavior stay unchanged.
+
+Three finite Engine fixtures extend the existing nine-fixture target, retaining
+its exact Wasm AOT Normal262 and sole `ok` observation in strict and sloppy
+modes. They cover Continue before/after Yield, Break through repeated finalizer
+Yields, cached next after mutation, fresh captured iteration/body cells,
+interleaved owners, finalizer replacement by Break/Continue/Return/Throw,
+injected Return/foreign Throw during pending local control, all close error
+classes through outer catch/finally, and completed-generator no-repeat close.
+Existing iterator-operation no-close controls remain. Constructor and actual IR
+lowering controls preserve both accepted ownership and explicit refusals.
+
+This is plain synchronous Generator with eager var/let/const identifier heads
+and the existing body grammar. Suspended heads, async generators, resource heads,
+labelled/nonlocal branches and foreign nested resumable owners remain outside
+this batch. Its combined all-target Rust type check passed in ref77; emitted
+Wasm and runtime acceptance remain pending. Full T15 stays open. See the
+[continuation contract](../docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+## Grouped Property References — 2026-10-04 dry source
+
+A private checked grouped source now distinguishes the actual terminal Property
+Reference from a terminal Call Value. Both retain the complete finite optional
+chain and its guarded state plan. Only the final selected Property Get consumes
+the receiver destination; ordinary outer calls and tags pin the completed callee
+before their arguments, spreads and template substitutions. Nullish inner
+shorting leaves undefined callee and receiver while ordinary outer operands
+still run. Constructors retain the existing Value route.
+
+The existing three paired Engine fixtures are extended with retained Proxy,
+Symbol and primitive receivers, mutation across several suspensions, spread
+order, frozen template identity and injected Throw/Return before and after
+callee capture. Original foreign abrupt identity, native error Realm, finally
+and prior assignment are checked. Meaningful IR controls cover actual capture,
+activation cells, state joins and the surviving admission boundaries. Yielded
+bases, optional outer targets, loops/iterator regions, mixed Await/Yield,
+async generators, delegated Yield, private/super and unowned branch operands
+remain outside this owner. No new frame, ABI, opcode or backend is introduced.
+Its all-target Rust type check passed in the ref74 composition; emitted Wasm,
+runtime controls and full T15 acceptance remain pending. See the
+[grouped yield contract](../docs/rust-rewrite/contracts/grouped-optional-call-value-yield-ownership.md).
+
+## Grouped terminal Call values — 2026-10-03 predecessor
+
+A yielded optional chain ending in a Call now supplies its completed Value to
+an ordinary outer Call or tag in an ordinary generator's owned region outside
+loops. A private actual-AST terminal-Call source contains the complete existing
+finite chain. The mandatory planner appends that guarded state plan before outer
+operands, and the consumer completes the same chain before pinning the callee
+with no outer receiver. Inner Gets keep their real receiver before yielded
+arguments; grouping ends inner shorting, so ordinary outer operands still run
+when the completed inner result is undefined. Tags keep their original frozen
+cached template site before substitutions.
+
+The existing three paired Engine fixtures now cover returned functions/tags,
+mutation across yields, outer spread snapshots, primitive inner receivers,
+unconditional outer operand order and injected Throw/Return at inner/outer
+suspensions. Foreign marker identity, finally and prior assignment survive
+abrupt factory/Call/tag/spread completion. Meaningful IR controls inspect actual
+state joins, owned cells, callee pin and receiver disposition. One superseded
+Call refusal was removed in this predecessor. Its terminal-Property refusal
+is superseded by the owner above. Yielded base/optional outer target,
+loops/iterator regions, async generators, mixed Await/Yield and unowned branch
+operands retain their boundaries. Construct retains its separate route.
+No IR/frame/ABI/opcode/backend is added. Source review is complete, compilation
+and runtime acceptance remain pending, and full T15 stays open. See the
+[yield ownership contract](../docs/rust-rewrite/contracts/grouped-optional-call-value-yield-ownership.md).
+
+## 2026-10-03 dry implementation follow-up
+
+The shared suspended-switch and Await/Yield invocation owners are uncompiled and
+unexecuted. Yield-only Calls, constructors and tags now retain completed callees,
+original receivers and private argument snapshots through the same invocation
+authority and existing activation bindings. Source-plan preflight rejects
+unsupported staged shapes before continuation-state consumption; direct Yield
+targets stage their nested operands. Fourteen semantic fixture sources and
+explicit mixed/unowned-conditional/prototype-setter refusal inputs are authored.
+super() argument staging and general generator control-flow/disposal remain
+open. See the [invocation contract](../docs/rust-rewrite/contracts/suspended-call-argument-ownership.md).
+The candidate results in the next section remain scoped to the
+earlier source and do not establish general T15 acceptance.
+
+The shared plain-async branch admission also closes the async-generator
+yielded-await prefix bypass by requiring the same checked source admission.
+Mixed Await/Yield and async-generator branch values retain their checked
+boundaries. This shared admission change is source-reviewed and integrated;
+compilation and runtime verification remain pending. See
+[the conditional-await contract](../docs/rust-rewrite/contracts/conditional-await-expression-ownership.md).
+
+Bounded ordinary-generator conditional and logical values have a dedicated
+source owner outside all loops. An eager selector or left value precedes at
+most one plain Yield in each selected arm. Complete finite optional Property/Call
+chains now have their own consumed checked source and state cursor. The eager
+base and actual shorted links precede computed keys and arguments, each eager
+or containing one plain nondelegated Yield through the existing staging grammar.
+Several such operands may occur across the chain. Each selected Yield uses one
+existing scalar GeneratorIf and a fresh join; eager guarded steps between them
+contain no nested suspension. The retained live cell skips the full suffix.
+
+Each completed Get captures its actual raw receiver and callee once before
+arguments. Spread snapshots finish before later Yields; callability follows
+argument evaluation, and a completed Call resets a subsequent Call's receiver.
+Constructor values consume the completed chain without a call receiver. Private
+scopes preserve outer facts and activation-owned cells. Normal-only publication
+retains injected Throw/Return, arbitrary foreign markers and existing finally
+routing. The complete source plan checks all state arithmetic and final count
+before publishing suspension points.
+
+This chain owner leaves yielded bases, nested branch operands, multiple Yields
+inside one operand, delegated Yield, loop regions, mixed Await/Yield, async
+generators, private/super targets and private links outside its domain. Existing
+independently admitted target-only/synchronous paths retain their routes.
+Grouped yielded-chain terminal-Property outer callee/tag References now use
+the owner above. Direct delete, logical assignment and suspended identifier
+Reference writes remain explicit boundaries.
+IR controls, the three earlier paired value fixtures and three new paired chain
+fixtures are authored and unexecuted. They cover state identity, complete
+skipping, retained Proxy/primitive/Symbol References, consecutive Call results,
+spread snapshots, ordinary noncallable argument order and abrupt completion.
+See the [generator value contract](../docs/rust-rewrite/contracts/plain-generator-value-branch-ownership.md)
+and [optional chain contract](../docs/rust-rewrite/contracts/generator-optional-chain-yield-ownership.md).
+
+## Current candidate verification
+
+The same-Source async-switch controls pass their synchronous-disposal composition
+and typed refusal checks. This verifies the bounded switch owner, with no
+claim of general generator switch suspension, async-disposal acceptance or
+iterator-close closure. The earlier dated T15 proposal records remain history.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
 **Status:** In progress — iterator helpers and generator records exist; general suspension remains
 
 **Parallel group:** Feature lane  
@@ -8,11 +508,46 @@
 
 ## Current repository state
 
+The 2026-10-04 remaining invocation source retires ArrayIteratorNext's
+canonical next relookup. The acquired function, original receiver and complete
+ordinary/spread arguments retain the existing indirect owner. Its actual
+catalog row records synchronous user code from array-like length/element Gets;
+captured caller facts cannot survive those getters as though the call were pure.
+Native iterator branding, iteration and error Realm behavior retain their body.
+
+Actual lowering and paired Engine controls are authored for alias/callee capture,
+arguments, getter effects, errors and abrupt cutoffs. No compilation or runtime
+acceptance follows from this source; general generator/suspended/resource work
+and full T15 stay open until the full-task dry pass and capped verification.
+See the [contract](../docs/rust-rewrite/contracts/remaining-invocation-reference-ownership.md).
+
+The 2026-09-29 continuation adds ordinary identifier-headed synchronous
+`for-of` loops in plain generators. A validated binding, generator body and
+checked continuation span feed the shared resumable iterator emitter; yields
+restore the saved lexical chain, and yielding finalizers finish before
+IteratorClose. Nine independent engine fixtures cover 18 sloppy/strict
+executions, all passing on 2026-09-30. All-target checking and the full IR suite
+also pass, along with all 39 neighboring async-loop and generator continuation
+tests. Broad verification remains pending. The eight exact pinned yield/delegation
+files improve from a fresh baseline of 16 Runtime NotImplemented outcomes to
+16 passing Wasm-AOT executions, with every non-success bucket at zero. Pattern or
+suspending heads, nested resumable loops and loop break/continue remain open.
+See the [continuation contract](../docs/rust-rewrite/contracts/plain-generator-synchronous-for-of-continuations.md).
+
+Review repaired explicit `return yield` so it dispatches its Return through
+yielding finalizers and IteratorClose; the existing fixture now also witnesses
+`return yield*`, with both controls passing on that earlier source. The
+2026-10-03 dry shared binding constructor now requires the original source name
+and checks its canonical TDZ placeholder before physical layout validation.
+Both async and generator callers retain that name separately from renamed
+storage. Existing callers were already correctly derived from the same
+`ForOfLoop`; this closes a construction invariant. Independent source review is
+complete, while compilation and runtime verification remain pending.
+
 Generator activation/delegation records, iterator operations, several iterator
 helpers, async-iterator support and resource-management builtins now exist.
-Some generator and helper behavior is still handled through focused
-materialization, and the README records unsupported suspended/control-flow
-families. General sync/async generator state machines, iterator-close coverage
+The README records unsupported suspended/control-flow families. General
+sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
 The paired Iterator prototype `constructor` and `Symbol.toStringTag`
@@ -57,6 +592,18 @@ shared 41-path iterator/find invariant covers both Script modes and both
 prelude stores, and the representative post-delete product replay passes all
 `12/12` executions. This removes one T15 semantic shortcut and one diagnostic
 guard; it does not close the remaining Iterator-helper materializers.
+
+On 2026-09-28 the remaining T15 rewrite layer was deleted in full: every
+stale path rewrite across `every`, `some`, `find`, `reduce`, `map`, `take`,
+`drop` and `zip`, plus the `$262`-dependent realm rewrites, with their
+dispatcher arms, source guards and fingerprint tests, and then the emptied
+shared dispatcher itself. The enabling compiler fix routes the
+`every`/`some`/`find`/`reduce` close-on-noncallable sites through the shared
+GetMethod close helper. All 98 affected T15 paths pass exact `lila test262
+run` replay under suite pin
+`a124fd191443a4e2c7ae2ecad71fee7c9375973e` with every non-success bucket at
+zero, and the token-aware inventory now assigns 0 observations to T15. General
+suspension and full iterator-close coverage across all consumers remain open.
 
 The shared workspace compile and every repository policy gate pass. The
 Wasm-golden corpus remains at 648 artifacts with no additions or removals: 646
@@ -916,7 +1463,7 @@ Batch AE made the then-two-variant synchronous iterator error authority
 capability-free. Iterator acquisition and stepping owned their selection, and
 every internal protocol check, iterator-completion helper, and exhaustive
 projection borrowed that same authority instead of relying on implicit copies.
-The current four-consumer replacement is recorded in
+The current five-consumer replacement is recorded in
 [`sync-iterator-consumer-capability.md`](../docs/rust-rewrite/contracts/sync-iterator-consumer-capability.md).
 At the historical Batch AE checkpoint, `cargo xc` passed. The authority,
 neighboring `Math.sumPrecise`, and protocol-error structure targets passed
@@ -1255,10 +1802,10 @@ Test262 count is claimed. See
 
 The synchronous iterator path now uses the private, non-`Copy`
 `SyncIteratorConsumer::{ArrayDestructuring, ArrayAccumulation, ForOf,
-MathSumPrecise}` domain. The four protocol errors form one exhaustive 16-row
-diagnostic projection. The confirmed source census is 17 typed projector calls
-and 35 error identifiers: the declaration, typed projector parameter, 17
-producers, and 16 mapping rows. Each semantic owner constructs one consumer,
+MathSumPrecise, ListFormat, AggregateError}` domain. The four protocol errors form
+one exhaustive 24-row diagnostic projection. The confirmed source census is
+17 typed projector calls and 43 error identifiers: the declaration, typed
+projector parameter, 17 producers, and 24 mapping rows. Each semantic owner constructs one consumer,
 and the structure guard pins the same borrow through acquisition and stepping.
 
 Consumer selection now controls wording only. Primitive acquisition boxes
@@ -1275,6 +1822,14 @@ and `value` paths propagate without IteratorClose, matching the 2026
 [`ArrayAccumulation`](https://tc39.es/ecma262/2026/multipage/ecmascript-language-expressions.html#sec-runtime-semantics-arrayaccumulation)
 operation.
 
+ListFormat is the fifth semantic consumer. Its private StringListFromIterable
+owner borrows the shared acquisition and step checks, propagates acquisition
+and step abrupts without close, and adds one preserving-current-throw close
+only for a non-string element. The 2026-10-01 source-only structure follow-up
+pins the exact four new diagnostic pairs, same-consumer borrows, private error
+authority, and the current 73 external close routes. Focused execution of
+these corrected witnesses is pending.
+
 The destructuring and ArrayAccumulation fixtures run the syntax-owning function
 in the entry Realm. They pin diagnostics, completion identity, no-close
 behavior, and primitive String prototype lookup, but they cannot distinguish
@@ -1284,7 +1839,8 @@ cross-Realm runtime result is claimed. This checkpoint also does not claim the
 current function Realm's `%Array.prototype%` for a fresh Array literal or
 Array-rest result.
 
-The all-target compile and formatting check pass. Nine focused and affected
+At the historical four-consumer checkpoint, the all-target compile and formatting
+check passed. Nine focused and affected
 structure targets pass `42/42`; seven exact Wasm-AOT CLI witnesses pass `7/7`;
 and five pinned Array-spread plus four Array-destructuring leaves pass all
 `18/18` sloppy/strict executions with every failure and non-success bucket at
@@ -1377,3 +1933,56 @@ cargo test -p lila-cli wasm_iterator --quiet
 ```
 
 Also run language generator/`yield`, `for-of`, spread/destructuring, AsyncIterator, DisposableStack, AsyncDisposableStack and explicit-resource-management filters.
+
+
+### 2026-10-02 source-only switch/disposal composition proposal
+
+The separate plain-async switch proposal retains nested synchronous `using`
+blocks through the existing activation-backed disposal owner, including a
+switch break after an ordinary await and cleanup through finalizers. Direct
+CaseClause/DefaultClause `using` and `await using` declarations retain the front
+end's syntax rejection; wrapping them in a block changes that grammar boundary.
+Valid block-form `await using` and case `for await` remain typed Unsupported
+because this switch batch does not own their implicit suspension protocols.
+The synchronous/async-for-of/generator-for-of body validators explicitly refuse
+the new plain-async switch owner where continuation composition is absent.
+
+All new Rust/Engine controls are uncompiled and unexecuted. General generator
+switch suspension, async disposal and iterator-close acceptance remain open;
+this source proposal claims no T15 filter or runtime pass. The admitted previous
+checkpoint and every dated history above remain unchanged.
+
+### 2026-10-03 shared suspended selector protocol follow-up
+
+The plain-async switch owner now includes checked selector prefixes and a
+distinct no-match/default decision state. It reuses the existing activation
+dispatcher, retained bindings and CaseBlock environment rather than adding a
+separate iterator, disposal or generator state machine. Existing synchronous
+disposal and pending-completion routing in admitted bodies are preserved.
+Selector rejection and labelled breaks through nested awaited finally have
+new authored regression sources, but none has been compiled or executed.
+
+This is a consumed T14/T15 continuation seam, not generator-switch or
+asynchronous-resource completion. Case `await using`/`for await`, a suspended
+switch within an enclosing loop and sync/async generator switch suspension
+still need their own composed owners; the existing validators continue to
+reject them. General T15 acceptance and runtime verification remain open.
+
+## Native GC iterator helper source successor — 2026-10-05
+
+The atomic semantic-GC source draft physically replaces all thirty iterator
+helper dispatch arms and their obsolete manual helper methods with seven
+concrete helper owners. The closed operation/brand domains, cached whole
+Iterator Records, explicit whole completions, captured Realm invocation and
+consuming Concat/Zip entry publication are on the actual compiler path.
+Seventeen finite paired Engine cohorts are authored for lazy and terminal
+methods, concat, zip/zipKeyed, close/error order, reentrancy and borrowed Realms.
+The three manual-layout spelling guards retire; existing behavioral controls
+remain, and the current contracts describe the GC successor.
+
+This is source progress in the isolated atomic draft, not task acceptance or
+new conformance evidence. MAIN and the generated README status are unchanged.
+Compilation, fixture parsing, emitted Wasm validation and runtime controls are
+unexecuted. The full remaining task source pass comes before verification;
+later verification requires the confirmed aggregate 4096 MiB cgroup cap,
+zero swap and one worker. See the [native helper contract](../docs/rust-rewrite/contracts/gc-iterator-helper-execution.md).

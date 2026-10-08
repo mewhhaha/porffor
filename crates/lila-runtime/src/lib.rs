@@ -4,6 +4,18 @@ use std::sync::{
     Arc,
 };
 
+mod embedded_module_graph;
+mod oracle_exception;
+pub mod rooted_snapshot;
+pub use oracle_exception::{OracleExceptionPhase, OracleExceptionType};
+
+pub use embedded_module_graph::{
+    EmbeddedModuleEntry, EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph,
+    EmbeddedModuleGraphError, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
+    EmbeddedModuleRequest, EmbeddedModuleResolution, EmbeddedModuleResolutionInput,
+    EmbeddedModuleSource, EmbeddedModuleSourceInput,
+};
+
 static NEXT_REALM_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Which host module-loading capability one compilation/execution may use.
@@ -11,7 +23,7 @@ static NEXT_REALM_ID: AtomicU64 = AtomicU64::new(1);
 /// This is shared by the AOT host and the spec-exec oracle so a caller cannot
 /// request a closed replay from one backend while leaving the other on an
 /// ambient filesystem default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ModuleLoadingPolicy {
     /// Resolve and load modules through the backend's configured filesystem
     /// host loader.
@@ -20,6 +32,9 @@ pub enum ModuleLoadingPolicy {
     /// Reject every module resolution/load request without reading the host
     /// filesystem.
     RejectAll,
+    /// Resolve only exact rows in one validated, immutable source graph. A
+    /// missing row is denied; it never restores an ambient loader.
+    Embedded(Arc<EmbeddedModuleGraph>),
 }
 
 macro_rules! agent_host_operations {
@@ -58,17 +73,13 @@ macro_rules! agent_host_operations {
 
 agent_host_operations! {
     Start = 1;
-    Broadcast = 2;
-    ReceiveBroadcast = 3;
     Report = 4;
     ReportLength = 5;
     ReportCopy = 6;
     Sleep = 7;
     MonotonicNow = 8;
     Leaving = 9;
-    RegisterAsyncWaiter = 10;
     PollAsyncWaiter = 11;
-    NotifyAsyncWaiters = 12;
     CancelAsyncWaiter = 13;
 }
 
@@ -394,7 +405,7 @@ intrinsic_registry! {
     IntrinsicDescriptor {
         kind: IntrinsicKind::BigIntConstructor,
         spec_name: "%BigInt%",
-        shape: IntrinsicDescriptorShape::Function(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "BigInt",
             length: 1,
         }),
@@ -1189,6 +1200,7 @@ pub struct Realm {
     id: RealmId,
     agent_id: AgentId,
     host_clock: Arc<dyn HostClock>,
+    system_time_zone: Arc<lila_intl::ConfiguredSystemTimeZone>,
     host_random: Arc<dyn HostRandom>,
     host_hooks: Arc<dyn HostHooks>,
 }
@@ -1198,6 +1210,10 @@ impl core::fmt::Debug for Realm {
         f.debug_struct("Realm")
             .field("id", &self.id)
             .field("agent_id", &self.agent_id)
+            .field(
+                "system_time_zone",
+                &self.system_time_zone.primary_identifier(),
+            )
             .field("shell_name", &self.shell_name())
             .finish()
     }
@@ -1206,6 +1222,7 @@ impl core::fmt::Debug for Realm {
 pub struct RealmBuilder {
     agent_id: AgentId,
     host_clock: Box<dyn HostClock>,
+    system_time_zone: lila_intl::ConfiguredSystemTimeZone,
     host_random: Box<dyn HostRandom>,
     host_hooks: Box<dyn HostHooks>,
 }
@@ -1215,6 +1232,7 @@ impl Default for RealmBuilder {
         Self {
             agent_id: AgentId::MAIN,
             host_clock: Box::<SystemHostClock>::default(),
+            system_time_zone: lila_intl::ConfiguredSystemTimeZone::utc(),
             host_random: Box::<SystemHostRandom>::default(),
             host_hooks: Box::<NullHostHooks>::default(),
         }
@@ -1233,6 +1251,14 @@ impl RealmBuilder {
 
     pub fn with_host_clock(mut self, host_clock: Box<dyn HostClock>) -> Self {
         self.host_clock = host_clock;
+        self
+    }
+
+    pub fn with_system_time_zone(
+        mut self,
+        system_time_zone: lila_intl::ConfiguredSystemTimeZone,
+    ) -> Self {
+        self.system_time_zone = system_time_zone;
         self
     }
 
@@ -1261,6 +1287,7 @@ impl RealmBuilder {
             id,
             agent_id: self.agent_id,
             host_clock: Arc::from(self.host_clock),
+            system_time_zone: Arc::new(self.system_time_zone),
             host_random: Arc::from(self.host_random),
             host_hooks: Arc::from(self.host_hooks),
         }
@@ -1296,6 +1323,10 @@ impl Realm {
         &*self.host_clock
     }
 
+    pub fn system_time_zone(&self) -> &lila_intl::ConfiguredSystemTimeZone {
+        &self.system_time_zone
+    }
+
     pub fn host_random(&self) -> &dyn HostRandom {
         &*self.host_random
     }
@@ -1304,6 +1335,26 @@ impl Realm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realm_default_zone_is_pure_utc() {
+        let realm = RealmBuilder::new().build();
+        assert_eq!(realm.system_time_zone().primary_identifier(), "UTC");
+    }
+
+    #[test]
+    fn cloned_realms_share_the_immutable_configured_zone() {
+        let configured = lila_intl::ConfiguredSystemTimeZone::resolve("-03:30").unwrap();
+        let realm = RealmBuilder::new()
+            .with_system_time_zone(configured)
+            .build();
+        let clone = realm.clone();
+        assert_eq!(clone.system_time_zone().primary_identifier(), "-03:30");
+        assert!(Arc::ptr_eq(
+            &realm.system_time_zone,
+            &clone.system_time_zone
+        ));
+    }
 
     #[derive(Debug)]
     struct NamedHooks;
@@ -1350,24 +1401,20 @@ mod tests {
     fn agent_host_operation_wire_domain_is_stable() {
         for (operation, wire) in [
             (AgentHostOperation::Start, 1),
-            (AgentHostOperation::Broadcast, 2),
-            (AgentHostOperation::ReceiveBroadcast, 3),
             (AgentHostOperation::Report, 4),
             (AgentHostOperation::ReportLength, 5),
             (AgentHostOperation::ReportCopy, 6),
             (AgentHostOperation::Sleep, 7),
             (AgentHostOperation::MonotonicNow, 8),
             (AgentHostOperation::Leaving, 9),
-            (AgentHostOperation::RegisterAsyncWaiter, 10),
             (AgentHostOperation::PollAsyncWaiter, 11),
-            (AgentHostOperation::NotifyAsyncWaiters, 12),
             (AgentHostOperation::CancelAsyncWaiter, 13),
         ] {
             assert_eq!(operation.wire(), wire);
             assert_eq!(AgentHostOperation::from_wire(wire), Some(operation));
         }
 
-        for wire in [i64::MIN, -1, 0, 14, i64::MAX] {
+        for wire in [i64::MIN, -1, 0, 2, 3, 10, 12, 14, i64::MAX] {
             assert_eq!(AgentHostOperation::from_wire(wire), None);
         }
     }
@@ -1595,10 +1642,10 @@ mod tests {
         assert!(constructor.is_callable());
         assert!(constructor.is_constructable());
 
-        let function = IntrinsicKind::BigIntConstructor.descriptor();
-        assert_eq!(function.role(), IntrinsicRole::Function);
-        assert!(function.is_callable());
-        assert!(!function.is_constructable());
+        let bigint = IntrinsicKind::BigIntConstructor.descriptor();
+        assert_eq!(bigint.role(), IntrinsicRole::Constructor);
+        assert!(bigint.is_callable());
+        assert!(bigint.is_constructable());
 
         let callable_prototype = IntrinsicKind::FunctionPrototype.descriptor();
         assert_eq!(callable_prototype.role(), IntrinsicRole::Prototype);

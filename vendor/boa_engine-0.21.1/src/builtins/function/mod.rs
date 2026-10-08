@@ -299,8 +299,10 @@ impl OrdinaryFunction {
         &self.realm
     }
 
-    /// Checks if this function is an ordinary function.
-    pub(crate) fn is_ordinary(&self) -> bool {
+    /// Checks the retained code kind without invoking the function or reading
+    /// its public properties. Async and Generator code are not ordinary here.
+    #[must_use]
+    pub fn is_ordinary(&self) -> bool {
         self.code.is_ordinary()
     }
 }

@@ -11,55 +11,57 @@ impl FunctionBuilder<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_regexp_word_boundary_mismatch(
         &mut self,
-        input_offset: u32,
-        input_len: u32,
-        cursor_byte: u32,
-        cursor_on_low_surrogate: u32,
-        unicode: u32,
-        range_base: u32,
-        range_capacity: u32,
-        first_entry: u32,
-        packed_count_and_polarity: u32,
-        candidate_utf16: u32,
+        checkpoint: I64Local,
+        input_offset: I64Local,
+        input_len: I64Local,
+        cursor_byte: I64Local,
+        cursor_on_low_surrogate: I64Local,
+        unicode: I64Local,
+        range_base: I64Local,
+        range_capacity: I64Local,
+        first_entry: I64Local,
+        packed_count_and_polarity: I64Local,
+        candidate_utf16: I64Local,
         function: &mut Function,
     ) {
-        let range_count = self.reserve_temp_local();
-        let range_low = self.reserve_temp_local();
-        let range_high = self.reserve_temp_local();
-        let range_middle = self.reserve_temp_local();
-        let packed_count = self.reserve_temp_local();
-        let before_word = self.reserve_temp_local();
-        let after_word = self.reserve_temp_local();
-        let adjacent_byte = self.reserve_temp_local();
-        let byte = self.reserve_temp_local();
-        let codepoint = self.reserve_temp_local();
-        let byte_advance = self.reserve_temp_local();
-        let decode_temp = self.reserve_temp_local();
+        let range_count = self.runtime_schema().reserve_i64_local(function);
+        let range_low = self.runtime_schema().reserve_i64_local(function);
+        let range_high = self.runtime_schema().reserve_i64_local(function);
+        let range_middle = self.runtime_schema().reserve_i64_local(function);
+        let packed_count = self.runtime_schema().reserve_i64_local(function);
+        let before_word = self.runtime_schema().reserve_i64_local(function);
+        let after_word = self.runtime_schema().reserve_i64_local(function);
+        let adjacent_byte = self.runtime_schema().reserve_i64_local(function);
+        let byte = self.runtime_schema().reserve_i64_local(function);
+        let codepoint = self.runtime_schema().reserve_i64_local(function);
+        let byte_advance = self.runtime_schema().reserve_i64_local(function);
+        let decode_temp = self.runtime_schema().reserve_i64_local(function);
 
         // This capacity belongs to the descriptor's range section, excluding
         // all neighboring instruction, name and unrelated allocation bytes.
-        function.instruction(&Instruction::LocalGet(packed_count_and_polarity));
+        packed_count_and_polarity.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(range_count));
-        function.instruction(&Instruction::LocalGet(first_entry));
-        function.instruction(&Instruction::LocalGet(range_capacity));
+        range_count.store(function);
+        first_entry.load(function);
+        range_capacity.load(function);
         function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::LocalGet(range_count));
-        function.instruction(&Instruction::LocalGet(range_capacity));
+        range_count.load(function);
+        range_capacity.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(first_entry));
-        function.instruction(&Instruction::LocalGet(range_count));
+        first_entry.load(function);
+        range_count.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(range_capacity));
+        range_capacity.load(function);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(range_count));
+        range_count.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
+            checkpoint,
             candidate_utf16,
             candidate_utf16,
             RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
@@ -67,57 +69,58 @@ impl FunctionBuilder<'_> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(packed_count_and_polarity));
+        packed_count_and_polarity.load(function);
         function.instruction(&Instruction::I64Const(!1));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(packed_count));
+        packed_count.store(function);
 
         for (side, word) in [
             (BoundarySide::Before, before_word),
             (BoundarySide::After, after_word),
         ] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(word));
+            word.store(function);
             match side {
                 BoundarySide::Before => {
-                    function.instruction(&Instruction::LocalGet(cursor_byte));
+                    cursor_byte.load(function);
                     function.instruction(&Instruction::I64Eqz);
                     function.instruction(&Instruction::I32Eqz);
-                    function.instruction(&Instruction::LocalGet(cursor_on_low_surrogate));
+                    cursor_on_low_surrogate.load(function);
                     function.instruction(&Instruction::I64Eqz);
                     function.instruction(&Instruction::I32Eqz);
                     function.instruction(&Instruction::I32Or);
                 }
                 BoundarySide::After => {
-                    function.instruction(&Instruction::LocalGet(cursor_byte));
-                    function.instruction(&Instruction::LocalGet(input_len));
+                    cursor_byte.load(function);
+                    input_len.load(function);
                     function.instruction(&Instruction::I64LtU);
                 }
             }
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(cursor_byte));
-            function.instruction(&Instruction::LocalSet(adjacent_byte));
+            cursor_byte.load(function);
+            adjacent_byte.store(function);
             if matches!(side, BoundarySide::Before) {
-                function.instruction(&Instruction::LocalGet(cursor_on_low_surrogate));
+                cursor_on_low_surrogate.load(function);
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(adjacent_byte));
+                adjacent_byte.load(function);
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(adjacent_byte));
+                adjacent_byte.store(function);
                 function.instruction(&Instruction::Block(BlockType::Empty));
                 function.instruction(&Instruction::Loop(BlockType::Empty));
-                self.emit_load_string_byte(input_offset, adjacent_byte, byte, function);
-                function.instruction(&Instruction::LocalGet(byte));
+                self.emit_regexp_scratch_byte(input_offset, adjacent_byte, byte, function);
+                byte.load(function);
                 function.instruction(&Instruction::I64Const(0xc0));
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::I64Const(0x80));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::BrIf(1));
-                function.instruction(&Instruction::LocalGet(adjacent_byte));
+                adjacent_byte.load(function);
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_regexp_match_result(
+                    checkpoint,
                     candidate_utf16,
                     candidate_utf16,
                     RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
@@ -125,17 +128,17 @@ impl FunctionBuilder<'_> {
                 );
                 function.instruction(&Instruction::Return);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(adjacent_byte));
+                adjacent_byte.load(function);
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(adjacent_byte));
+                adjacent_byte.store(function);
                 function.instruction(&Instruction::Br(0));
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
             }
-            self.emit_load_string_byte(input_offset, adjacent_byte, byte, function);
-            self.emit_decode_utf8_scalar_at_index(
+            self.emit_regexp_scratch_byte(input_offset, adjacent_byte, byte, function);
+            self.emit_regexp_scratch_decode_scalar(
                 input_offset,
                 adjacent_byte,
                 input_len,
@@ -149,11 +152,11 @@ impl FunctionBuilder<'_> {
             // A legacy cursor can sit between the two UTF-16 units represented
             // by one UTF-8 scalar. An adjacent astral scalar is split only in
             // legacy mode; Unicode mode classifies the entire code point.
-            function.instruction(&Instruction::LocalGet(cursor_on_low_surrogate));
+            cursor_on_low_surrogate.load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(codepoint));
+            codepoint.load(function);
             function.instruction(&Instruction::I64Const(0x10000));
             function.instruction(&Instruction::I64Sub);
             match side {
@@ -169,16 +172,16 @@ impl FunctionBuilder<'_> {
                 }
             }
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(codepoint));
+            codepoint.store(function);
             function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(codepoint));
+            codepoint.load(function);
             function.instruction(&Instruction::I64Const(0x10000));
             function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::LocalGet(unicode));
+            unicode.load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32And);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(codepoint));
+            codepoint.load(function);
             function.instruction(&Instruction::I64Const(0x10000));
             function.instruction(&Instruction::I64Sub);
             match side {
@@ -194,7 +197,7 @@ impl FunctionBuilder<'_> {
                 }
             }
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(codepoint));
+            codepoint.store(function);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
 
@@ -211,28 +214,37 @@ impl FunctionBuilder<'_> {
             );
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(word));
+            word.store(function);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(before_word));
-        function.instruction(&Instruction::LocalGet(after_word));
+        before_word.load(function);
+        after_word.load(function);
         function.instruction(&Instruction::I64Xor);
-        function.instruction(&Instruction::LocalGet(packed_count_and_polarity));
+        packed_count_and_polarity.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eq);
 
-        self.release_temp_local(decode_temp);
-        self.release_temp_local(byte_advance);
-        self.release_temp_local(codepoint);
-        self.release_temp_local(byte);
-        self.release_temp_local(adjacent_byte);
-        self.release_temp_local(after_word);
-        self.release_temp_local(before_word);
-        self.release_temp_local(packed_count);
-        self.release_temp_local(range_middle);
-        self.release_temp_local(range_high);
-        self.release_temp_local(range_low);
-        self.release_temp_local(range_count);
+        self.runtime_schema()
+            .release_i64_local(decode_temp, function);
+        self.runtime_schema()
+            .release_i64_local(byte_advance, function);
+        self.runtime_schema().release_i64_local(codepoint, function);
+        self.runtime_schema().release_i64_local(byte, function);
+        self.runtime_schema()
+            .release_i64_local(adjacent_byte, function);
+        self.runtime_schema()
+            .release_i64_local(after_word, function);
+        self.runtime_schema()
+            .release_i64_local(before_word, function);
+        self.runtime_schema()
+            .release_i64_local(packed_count, function);
+        self.runtime_schema()
+            .release_i64_local(range_middle, function);
+        self.runtime_schema()
+            .release_i64_local(range_high, function);
+        self.runtime_schema().release_i64_local(range_low, function);
+        self.runtime_schema()
+            .release_i64_local(range_count, function);
     }
 }

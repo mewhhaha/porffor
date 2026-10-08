@@ -1,9 +1,7 @@
-use super::global_environment::{
-    GLOBAL_ENV_LEXICAL_COUNT_OFFSET, GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET, GLOBAL_LEXICAL_CELL_OFFSET,
-    GLOBAL_LEXICAL_ENTRY_SIZE, GLOBAL_LEXICAL_KEY_OFFSET, GLOBAL_LEXICAL_MUTABLE_OFFSET,
-};
 use super::*;
-use lila_ir::{GlobalLexicalBindingModeIr, PreparedScriptKind, PreparedScriptUnit};
+use crate::gc_types::{NamedBinding, PropertyDescriptor, PropertyDescriptorSchema};
+use crate::operations::PropertyKeyLocals;
+use lila_ir::{PreparedScriptKind, PreparedScriptUnit};
 
 #[derive(Clone, Copy)]
 enum GlobalDeclarationAdmission {
@@ -19,30 +17,73 @@ enum GlobalDeclarationFailure {
     VarNotDefinable,
 }
 
+/// Admission retains the exact Environment and global object that publication
+/// uses. Neither names nor descriptors are acquired again to choose a target.
 #[must_use]
 struct ValidatedGlobalDeclarationInstantiation<'a> {
     unit: &'a PreparedScriptUnit,
-    environment_local: u32,
-    object_local: u32,
+    environment: GcLocal<Environment>,
+    object: ValueLocals,
 }
 
 impl FunctionBuilder<'_> {
+    pub(crate) fn emit_validate_main_global_lexical_declarations(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let bindings = self
+            .script_global_bindings
+            .expect("main global binding plan");
+        // The closed initial-global descriptor plan excludes source var/function
+        // overlap, so these are pre-existing non-configurable object bindings.
+        if bindings.lexical_names().any(|name| {
+            bindings
+                .get(name)
+                .is_some_and(|binding| !binding.initializer.configurable())
+        }) {
+            self.emit_global_declaration_failure(
+                GlobalDeclarationFailure::RestrictedProperty,
+                function,
+            )?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn emit_instantiate_prepared_script_declarations(
         &mut self,
         unit: &PreparedScriptUnit,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) {
-            return if unit.strict {
+        match &unit.kind {
+            PreparedScriptKind::DirectEval(_)
+            | PreparedScriptKind::IndirectEval
+            | PreparedScriptKind::ShadowRealmEvaluate
+                if unit.strict =>
+            {
+                self.emit_initialize_strict_eval_variable_cells(unit, function)
+            }
+            PreparedScriptKind::DirectEval(_) => {
+                let schema = self.runtime_schema();
+                let variable = schema
+                    .reserve_gc_local::<Environment, Nullable>(function)
+                    .initialize(
+                        self.body_entry_locals()
+                            .expect("prepared Script entry")
+                            .variable_environment()
+                            .expect("direct eval variable Environment")
+                            .load(schema, function),
+                        function,
+                    );
+                self.emit_instantiate_direct_eval_declarations(unit, &variable, function)?;
+                variable.clear(function);
                 Ok(())
-            } else {
-                self.emit_instantiate_direct_eval_declarations(unit, 7, function)
-            };
+            }
+            PreparedScriptKind::RealmScript
+            | PreparedScriptKind::IndirectEval
+            | PreparedScriptKind::ShadowRealmEvaluate => {
+                self.emit_instantiate_global_declaration_plan(unit, function)
+            }
         }
-        if !unit.has_global_variable_environment() {
-            return Ok(());
-        }
-        self.emit_instantiate_global_declaration_plan(unit, function)
     }
 
     pub(crate) fn emit_instantiate_global_declaration_plan(
@@ -50,32 +91,24 @@ impl FunctionBuilder<'_> {
         unit: &PreparedScriptUnit,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let environment_local = self.reserve_temp_local();
-        let object_local = self.reserve_temp_local();
-        self.emit_source_global_environment_to_local(environment_local, function);
-        self.emit_execution_global_object_payload(function);
-        function.instruction(&Instruction::LocalSet(object_local));
-        let validated = self.emit_validate_global_declarations(
-            unit,
-            environment_local,
-            object_local,
-            function,
-        )?;
-        self.emit_install_global_declarations(validated, function)?;
-        self.release_temp_local(object_local);
-        self.release_temp_local(environment_local);
-        Ok(())
+        let schema = self.runtime_schema();
+        let environment = self.emit_source_global_environment_to_local(function);
+        let object = schema.reserve_value_local(function);
+        self.emit_execution_global_object_to_locals(&object, function);
+        let validated =
+            self.emit_validate_global_declarations(unit, environment, object, function)?;
+        self.emit_install_global_declarations(validated, function)
     }
 
     fn emit_validate_global_declarations<'a>(
         &mut self,
         unit: &'a PreparedScriptUnit,
-        environment_local: u32,
-        object_local: u32,
+        environment: GcLocal<Environment>,
+        object: ValueLocals,
         function: &mut Function,
     ) -> Result<ValidatedGlobalDeclarationInstantiation<'a>, EmitError> {
+        let schema = self.runtime_schema();
         let plan = &unit.declarations;
-        let kind = &unit.kind;
         for candidate in &plan.annex_b_candidates {
             self.binding_scopes
                 .last_mut()
@@ -88,48 +121,45 @@ impl FunctionBuilder<'_> {
                     },
                 );
         }
-        let object_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let admitted_local = self.reserve_temp_local();
-        let fact = self.reserve_own_descriptor_fact_locals();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        if kind == &PreparedScriptKind::RealmScript {
+        let entry = schema
+            .reserve_gc_local::<NamedBinding, Nullable>(function)
+            .initialize_null(schema, function);
+        let admitted = schema.reserve_i32_local(function);
+        let value = schema.reserve_value_local(function);
+        if unit.kind == PreparedScriptKind::RealmScript {
             for name in &plan.lexical_names_in_source_order {
-                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-                function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_global_lexical_entry_to_local(key_local, entry_local, function);
-                function.instruction(&Instruction::LocalGet(entry_local));
-                function.instruction(&Instruction::I64Eqz);
+                let key = schema
+                    .reserve_gc_local::<StringValue, NonNullable>(function)
+                    .initialize(
+                        self.emit_interned_string_reference(name, function)?,
+                        function,
+                    );
+                self.emit_reject_existing_global_lexical(&key, &entry, function)?;
+                let property_key = PropertyKeyLocals::from_string(schema, &key, function);
+                let descriptor =
+                    self.emit_direct_own_descriptor_fact(&object, &property_key, function)?;
+                descriptor.load(schema, function);
+                function.instruction(&Instruction::RefIsNull);
                 function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_global_declaration_failure(
-                    GlobalDeclarationFailure::ExistingLexical,
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_global_descriptor_flag(
+                    &descriptor,
+                    DescriptorMask::CONFIGURABLE,
                     function,
-                )?;
-                function.instruction(&Instruction::End);
-                self.emit_direct_own_descriptor_fact(
-                    object_local,
-                    object_tag_local,
-                    key_local,
-                    key_tag_local,
-                    fact,
-                    function,
-                )?;
-                fact.emit_present_i32(function);
-                fact.emit_configurable_i32(function);
+                );
                 function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_global_declaration_failure(
                     GlobalDeclarationFailure::RestrictedProperty,
                     function,
                 )?;
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                descriptor.clear(function);
+                property_key.clear(function);
+                key.clear(function);
             }
         }
         for name in plan
@@ -138,39 +168,41 @@ impl FunctionBuilder<'_> {
             .map(|declaration| &declaration.name)
             .chain(plan.var_names.iter())
         {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_global_lexical_entry_to_local(key_local, entry_local, function);
-            function.instruction(&Instruction::LocalGet(entry_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_global_declaration_failure(
-                GlobalDeclarationFailure::ExistingLexical,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+            self.emit_reject_existing_global_lexical(&key, &entry, function)?;
+            key.clear(function);
         }
         for declaration in &plan.functions_in_reverse_order {
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&declaration.name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&declaration.name, function)?,
+                    function,
+                );
+            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
             self.emit_can_declare_global(
                 GlobalDeclarationAdmission::Function,
-                object_local,
-                key_local,
-                admitted_local,
+                &object,
+                &property_key,
+                admitted,
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(admitted_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            admitted.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_global_declaration_failure(
                 GlobalDeclarationFailure::FunctionNotDefinable,
                 function,
             )?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
+            property_key.clear(function);
+            key.clear(function);
         }
         for name in &plan.var_names {
             if plan
@@ -180,135 +212,172 @@ impl FunctionBuilder<'_> {
             {
                 continue;
             }
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
             self.emit_can_declare_global(
                 GlobalDeclarationAdmission::Var,
-                object_local,
-                key_local,
-                admitted_local,
+                &object,
+                &property_key,
+                admitted,
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(admitted_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            admitted.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_global_declaration_failure(
                 GlobalDeclarationFailure::VarNotDefinable,
                 function,
             )?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
+            property_key.clear(function);
+            key.clear(function);
         }
         for candidate in &plan.annex_b_candidates {
-            if matches!(kind, PreparedScriptKind::DirectEval(_)) {
-                self.read_env_slot_to_locals(
-                    candidate.admission.slot,
-                    0,
-                    admitted_local,
-                    entry_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(admitted_local));
+            if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) {
+                let initialized =
+                    self.read_env_slot_to_locals(candidate.admission.slot, 0, &value, function);
+                schema.release_i32_local(initialized, function);
+                value.scalar().load(function);
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
+                self.open_frame(ControlFrameKind::If, function);
             }
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&candidate.name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(admitted_local));
-            self.emit_global_lexical_entry_to_local(key_local, entry_local, function);
-            function.instruction(&Instruction::LocalGet(entry_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&candidate.name, function)?,
+                    function,
+                );
+            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
+            function.instruction(&Instruction::I32Const(0));
+            admitted.store(function);
+            self.emit_global_lexical_entry_to_local(&key, &entry, function);
+            entry.load(schema, function);
+            function.instruction(&Instruction::RefIsNull);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_can_declare_global(
                 GlobalDeclarationAdmission::Var,
-                object_local,
-                key_local,
-                admitted_local,
+                &object,
+                &property_key,
+                admitted,
                 function,
             )?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(entry_local));
-            self.write_env_slot_from_locals(
-                candidate.admission.slot,
-                0,
-                admitted_local,
-                entry_local,
-                function,
-            );
-            if matches!(kind, PreparedScriptKind::DirectEval(_)) {
+            value.set_boolean(admitted, function);
+            self.write_env_slot_from_locals(candidate.admission.slot, 0, &value, function);
+            property_key.clear(function);
+            key.clear(function);
+            if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) {
+                self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
         }
-        self.release_own_descriptor_fact_locals(fact);
-        self.release_temp_local(admitted_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(object_tag_local);
+        value.clear(function);
+        schema.release_i32_local(admitted, function);
+        entry.clear(function);
         Ok(ValidatedGlobalDeclarationInstantiation {
             unit,
-            environment_local,
-            object_local,
+            environment,
+            object,
         })
+    }
+
+    fn emit_reject_existing_global_lexical(
+        &mut self,
+        key: &GcLocal<StringValue>,
+        entry: &GcLocal<NamedBinding, Nullable>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_global_lexical_entry_to_local(key, entry, function);
+        entry.load(self.runtime_schema(), function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_global_declaration_failure(GlobalDeclarationFailure::ExistingLexical, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Called only inside a non-null descriptor branch; absence is never a
+    /// zero flags sentinel, because an all-false data descriptor is present.
+    fn emit_global_descriptor_flag(
+        &self,
+        descriptor: &GcLocal<PropertyDescriptor, Nullable>,
+        mask: DescriptorMask,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        schema
+            .struct_type::<PropertyDescriptor>()
+            .field(PropertyDescriptorSchema::FLAGS)
+            .read(descriptor, schema, function);
+        function.instruction(&Instruction::I64Const(mask.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
     }
 
     fn emit_can_declare_global(
         &mut self,
         admission: GlobalDeclarationAdmission,
-        object_local: u32,
-        key_local: u32,
-        admitted_local: u32,
+        object: &ValueLocals,
+        key: &PropertyKeyLocals,
+        admitted: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_tag_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let fact = self.reserve_own_descriptor_fact_locals();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        self.emit_direct_own_descriptor_fact(
-            object_local,
-            object_tag_local,
-            key_local,
-            key_tag_local,
-            fact,
-            function,
-        )?;
-        fact.emit_present_i32(function);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        let descriptor = self.emit_direct_own_descriptor_fact(object, key, function)?;
+        descriptor.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         match admission {
             GlobalDeclarationAdmission::Var => {
-                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I32Const(1));
             }
             GlobalDeclarationAdmission::Function => {
-                fact.emit_configurable_i32(function);
-                fact.emit_accessor_i32(function);
+                self.emit_global_descriptor_flag(
+                    &descriptor,
+                    DescriptorMask::CONFIGURABLE,
+                    function,
+                );
+                self.emit_global_descriptor_flag(&descriptor, DescriptorMask::ACCESSOR, function);
                 function.instruction(&Instruction::I32Eqz);
-                fact.emit_writable_i32(function);
+                self.emit_global_descriptor_flag(&descriptor, DescriptorMask::WRITABLE, function);
                 function.instruction(&Instruction::I32And);
-                fact.emit_enumerable_i32(function);
+                self.emit_global_descriptor_flag(&descriptor, DescriptorMask::ENUMERABLE, function);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::I64ExtendI32U);
             }
         }
-        function.instruction(&Instruction::LocalSet(admitted_local));
+        admitted.store(function);
         function.instruction(&Instruction::Else);
-        self.emit_object_is_extensible_i32(
-            object_local,
-            object_tag_local,
-            admitted_local,
-            function,
-        )?;
+        schema
+            .call_helper(
+                crate::runtime_helpers::ObjectIsExtensibleArguments::new(
+                    object,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(self.completion(), function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.completion().value().scalar().load(function);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        admitted.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_own_descriptor_fact_locals(fact);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(object_tag_local);
+        descriptor.clear(function);
         Ok(())
     }
 
@@ -318,36 +387,22 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let (name, message) = match failure {
-            GlobalDeclarationFailure::ExistingLexical => (
-                SYNTAX_ERROR_NAME,
-                "global declaration conflicts with existing lexical binding",
-            ),
-            GlobalDeclarationFailure::RestrictedProperty => (
-                SYNTAX_ERROR_NAME,
-                "global lexical declaration conflicts with non-configurable property",
-            ),
-            GlobalDeclarationFailure::FunctionNotDefinable => (
-                TYPE_ERROR_NAME,
-                "global function declaration is not permitted",
-            ),
-            GlobalDeclarationFailure::VarNotDefinable => (
-                TYPE_ERROR_NAME,
-                "global variable declaration is not permitted",
-            ),
+            GlobalDeclarationFailure::ExistingLexical => (NativeErrorKind::SyntaxError,
+                RuntimeErrorMessage::GLOBAL_DECLARATION_CONFLICTS_WITH_EXISTING_LEXICAL_BINDING),
+            GlobalDeclarationFailure::RestrictedProperty => (NativeErrorKind::SyntaxError,
+                RuntimeErrorMessage::GLOBAL_LEXICAL_DECLARATION_CONFLICTS_WITH_NON_CONFIGURABLE_PROPERTY),
+            GlobalDeclarationFailure::FunctionNotDefinable => (NativeErrorKind::TypeError,
+                RuntimeErrorMessage::GLOBAL_FUNCTION_DECLARATION_IS_NOT_PERMITTED),
+            GlobalDeclarationFailure::VarNotDefinable => (NativeErrorKind::TypeError,
+                RuntimeErrorMessage::GLOBAL_VARIABLE_DECLARATION_IS_NOT_PERMITTED),
         };
-        self.emit_throw_runtime_error(
-            name,
-            message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        let error = self.runtime_schema().reserve_value_local(function);
+        self.emit_environment_native_error(name, message, &error, function)?;
         self.emit_return_current_completion(function);
+        error.clear(function);
         Ok(())
     }
-}
 
-impl FunctionBuilder<'_> {
     fn emit_install_global_declarations(
         &mut self,
         validated: ValidatedGlobalDeclarationInstantiation<'_>,
@@ -355,46 +410,56 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let ValidatedGlobalDeclarationInstantiation {
             unit,
-            environment_local,
-            object_local,
+            environment,
+            object,
         } = validated;
-        let kind = &unit.kind;
+        let schema = self.runtime_schema();
         let plan = &unit.declarations;
-        let key_local = self.reserve_temp_local();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let deletable = match kind {
+        let value = schema.reserve_value_local(function);
+        let deletable = match &unit.kind {
             PreparedScriptKind::RealmScript => false,
-            PreparedScriptKind::IndirectEval | PreparedScriptKind::DirectEval(_) => true,
+            PreparedScriptKind::IndirectEval
+            | PreparedScriptKind::DirectEval(_)
+            | PreparedScriptKind::ShadowRealmEvaluate => true,
         };
         for candidate in &plan.annex_b_candidates {
-            self.read_env_slot_to_locals(
-                candidate.admission.slot,
-                0,
-                payload_local,
-                tag_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(payload_local));
+            let initialized =
+                self.read_env_slot_to_locals(candidate.admission.slot, 0, &value, function);
+            schema.release_i32_local(initialized, function);
+            value.scalar().load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            self.open_frame(ControlFrameKind::If, function);
             if !plan
                 .functions_in_reverse_order
                 .iter()
                 .any(|declaration| declaration.name == candidate.name)
                 && !plan.var_names.contains(&candidate.name)
             {
-                function.instruction(&Instruction::I64Const(
-                    self.strings.payload(&candidate.name),
-                ));
-                function.instruction(&Instruction::LocalSet(key_local));
-                self.emit_create_global_var_binding(object_local, key_local, deletable, function)?;
+                let key = schema
+                    .reserve_gc_local::<StringValue, NonNullable>(function)
+                    .initialize(
+                        self.emit_interned_string_reference(&candidate.name, function)?,
+                        function,
+                    );
+                let property_key = PropertyKeyLocals::from_string(schema, &key, function);
+                self.emit_create_global_var_binding(&object, &property_key, deletable, function)?;
+                property_key.clear(function);
+                key.clear(function);
             }
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        if kind == &PreparedScriptKind::RealmScript {
-            self.emit_append_global_lexical_bindings(unit, environment_local, function)?;
+        if unit.kind == PreparedScriptKind::RealmScript {
+            let cells = self.resolve_env_handle_local(0, function);
+            self.emit_append_global_lexical_cells(
+                &unit.global_bindings,
+                &unit.owned_env_bindings,
+                &environment,
+                &cells,
+                function,
+            )?;
+            cells.clear(function);
         }
         for declaration in plan.functions_in_reverse_order.iter().rev() {
             let meta = self
@@ -407,22 +472,27 @@ impl FunctionBuilder<'_> {
                         declaration.name, declaration.function_id
                     ))
                 })?;
-            self.emit_function_value_payload(&meta, function)?;
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(&declaration.name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
+            let callable = schema
+                .reserve_gc_local::<FunctionObject, NonNullable>(function)
+                .initialize(self.emit_function_value_payload(&meta, function)?, function);
+            value.set_reference(&callable, schema, function);
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(&declaration.name, function)?,
+                    function,
+                );
+            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
             self.emit_create_global_function_binding(
-                object_local,
-                key_local,
-                payload_local,
-                tag_local,
+                &object,
+                &property_key,
+                &value,
                 deletable,
                 function,
             )?;
+            property_key.clear(function);
+            key.clear(function);
+            callable.clear(function);
         }
         for name in &plan.var_names {
             if plan
@@ -432,247 +502,123 @@ impl FunctionBuilder<'_> {
             {
                 continue;
             }
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_create_global_var_binding(object_local, key_local, deletable, function)?;
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
+            self.emit_create_global_var_binding(&object, &property_key, deletable, function)?;
+            property_key.clear(function);
+            key.clear(function);
         }
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        self.release_temp_local(key_local);
-        Ok(())
-    }
-
-    fn emit_append_global_lexical_bindings(
-        &mut self,
-        unit: &PreparedScriptUnit,
-        environment_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let bindings = unit.global_bindings.lexical_bindings();
-        if bindings.is_empty() {
-            return Ok(());
-        }
-        let old_entries_local = self.reserve_temp_local();
-        let old_count_local = self.reserve_temp_local();
-        let new_entries_local = self.reserve_temp_local();
-        let new_count_local = self.reserve_temp_local();
-        let cursor_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let word_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET,
-            old_entries_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_COUNT_OFFSET,
-            old_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(old_count_local));
-        function.instruction(&Instruction::I64Const(bindings.len() as i64));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(new_count_local));
-        function.instruction(&Instruction::LocalGet(new_count_local));
-        function.instruction(&Instruction::I64Const(GLOBAL_LEXICAL_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(word_local));
-        self.emit_heap_alloc_from_local(word_local, function)?;
-        function.instruction(&Instruction::LocalSet(new_entries_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalGet(old_count_local));
-        function.instruction(&Instruction::I64Const(GLOBAL_LEXICAL_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(old_entries_local));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.load_i64_to_local_from_offset(entry_local, 0, word_local, function);
-        function.instruction(&Instruction::LocalGet(new_entries_local));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.store_i64_local_at_offset(entry_local, 0, word_local, function);
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(new_entries_local));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        for (index, (name, mode)) in bindings.iter().enumerate() {
-            let slot = unit
-                .owned_env_bindings
-                .iter()
-                .find(|binding| &binding.name == name)
-                .unwrap_or_else(|| {
-                    panic!("prepared global lexical `{name}` must own its analyzed cell")
-                })
-                .slot;
-            let offset = index as u64 * GLOBAL_LEXICAL_ENTRY_SIZE;
-            self.store_i64_const_at_offset(
-                entry_local,
-                offset + GLOBAL_LEXICAL_KEY_OFFSET,
-                self.strings.payload(name) as u64,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.current_env_local));
-            function.instruction(&Instruction::I64Const(Self::env_slot_offset(slot, 0) as i64));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(word_local));
-            self.store_i64_local_at_offset(
-                entry_local,
-                offset + GLOBAL_LEXICAL_CELL_OFFSET,
-                word_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entry_local,
-                offset + GLOBAL_LEXICAL_MUTABLE_OFFSET,
-                match mode {
-                    GlobalLexicalBindingModeIr::Mutable => 1,
-                    GlobalLexicalBindingModeIr::Immutable => 0,
-                },
-                function,
-            );
-        }
-        self.store_i64_local_at_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET,
-            new_entries_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_COUNT_OFFSET,
-            new_count_local,
-            function,
-        );
-        self.release_temp_local(word_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(cursor_local);
-        self.release_temp_local(new_count_local);
-        self.release_temp_local(new_entries_local);
-        self.release_temp_local(old_count_local);
-        self.release_temp_local(old_entries_local);
+        value.clear(function);
+        object.clear(function);
+        environment.clear(function);
         Ok(())
     }
 
     fn emit_create_global_var_binding(
         &mut self,
-        object_local: u32,
-        key_local: u32,
+        object: &ValueLocals,
+        key: &PropertyKeyLocals,
         deletable: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_tag_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let fact = self.reserve_own_descriptor_fact_locals();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        self.emit_direct_own_descriptor_fact(
-            object_local,
-            object_tag_local,
-            key_local,
-            key_tag_local,
-            fact,
-            function,
-        )?;
-        fact.emit_present_i32(function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_data_with_configurable(
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            true,
-            true,
-            deletable,
-            function,
-        )?;
+        let schema = self.runtime_schema();
+        let descriptor = self.emit_direct_own_descriptor_fact(object, key, function)?;
+        descriptor.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
+        let value = schema.reserve_value_local(function);
+        value.set_undefined(function);
+        let writable = schema.reserve_i32_local(function);
+        let configurable = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(1));
+        writable.store(function);
+        function.instruction(&Instruction::I32Const(i32::from(deletable)));
+        configurable.store(function);
+        let pending = schema.reserve_completion(function);
+        schema
+            .call_helper(
+                crate::runtime_helpers::ObjectDefineDataArguments::new(
+                    object,
+                    key,
+                    &value,
+                    writable,
+                    writable,
+                    configurable,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
+        schema.release_i32_local(configurable, function);
+        schema.release_i32_local(writable, function);
+        value.clear(function);
+        descriptor.set_null(schema, function);
+        self.completion().copy_from(&pending, function);
+        pending.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_own_descriptor_fact_locals(fact);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(object_tag_local);
+        descriptor.clear(function);
         Ok(())
     }
 
     fn emit_create_global_function_binding(
         &mut self,
-        object_local: u32,
-        key_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        object: &ValueLocals,
+        key: &PropertyKeyLocals,
+        value: &ValueLocals,
         deletable: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let object_tag_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let writable_local = self.reserve_temp_local();
-        let configurable_local = self.reserve_temp_local();
-        let fact = self.reserve_own_descriptor_fact_locals();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(writable_local));
-        function.instruction(&Instruction::I64Const(i64::from(deletable)));
-        function.instruction(&Instruction::LocalSet(configurable_local));
-        self.emit_direct_own_descriptor_fact(
-            object_local,
-            object_tag_local,
-            key_local,
-            key_tag_local,
-            fact,
-            function,
-        )?;
-        fact.emit_present_i32(function);
-        fact.emit_configurable_i32(function);
+        let schema = self.runtime_schema();
+        let writable = schema.reserve_i32_local(function);
+        let configurable = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(1));
+        writable.store(function);
+        function.instruction(&Instruction::I32Const(i32::from(deletable)));
+        configurable.store(function);
+        let descriptor = self.emit_direct_own_descriptor_fact(object, key, function)?;
+        descriptor.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(configurable_local));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_global_descriptor_flag(&descriptor, DescriptorMask::CONFIGURABLE, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(0));
+        configurable.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_object_define_data_with_flag_locals(
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            writable_local,
-            writable_local,
-            configurable_local,
-            function,
-        )?;
-        self.release_own_descriptor_fact_locals(fact);
-        self.release_temp_local(configurable_local);
-        self.release_temp_local(writable_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(object_tag_local);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let pending = schema.reserve_completion(function);
+        schema
+            .call_helper(
+                crate::runtime_helpers::ObjectDefineDataArguments::new(
+                    object,
+                    key,
+                    value,
+                    writable,
+                    writable,
+                    configurable,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
+        descriptor.clear(function);
+        schema.release_i32_local(configurable, function);
+        schema.release_i32_local(writable, function);
+        self.completion().copy_from(&pending, function);
+        pending.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
         Ok(())
     }
 }

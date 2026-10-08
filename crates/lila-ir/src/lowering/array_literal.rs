@@ -5,6 +5,7 @@
 //! IR with suspension-owned array and logical-index slots, so every prefix is
 //! committed before the suspension that follows it.
 
+use super::resumable_operand::ResumableOperandProtocol;
 use super::*;
 
 impl ScriptLowerer<'_> {
@@ -176,6 +177,14 @@ impl ScriptLowerer<'_> {
         &mut self,
         array: &ArrayLiteral,
     ) -> Option<(Vec<StatementIr>, TypedExpr)> {
+        self.lower_staged_array_literal(array, ResumableOperandProtocol::current(self)?)
+    }
+
+    fn lower_staged_array_literal(
+        &mut self,
+        array: &ArrayLiteral,
+        protocol: ResumableOperandProtocol,
+    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
         let slots = self.alloc_array_accumulator_slots();
         let array_info = Self::array_accumulation_result_info();
         let mut statements = vec![
@@ -205,12 +214,7 @@ impl ScriptLowerer<'_> {
                 Expression::Spread(spread) => (spread.target(), true),
                 expression => (expression, false),
             };
-            let (nested_statements, value) =
-                if contains(expression, ContainsSymbol::YieldExpression) {
-                    self.lower_staged_generator_expression(expression)?
-                } else {
-                    (Vec::new(), self.lower_expression(expression))
-                };
+            let (nested_statements, value) = protocol.lower(self, expression)?;
 
             if !nested_statements.is_empty() {
                 Self::flush_array_accumulation_prefix(&mut statements, &slots, &mut elements);

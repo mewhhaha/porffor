@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
+const ARRAY_DESTRUCTURING_SOURCE: &str = include_str!("../src/control_flow/array_destructuring.rs");
 const CLI_ARRAY_TESTS: &str = include_str!("../../lila-cli/tests/cli/array.rs");
 const ITERATOR_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_array_destructuring_iterators.js");
@@ -59,130 +60,125 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 
 #[test]
 fn step_kind_is_the_exact_private_no_capability_domain() {
-    let declaration_marker = "enum DestructuringIteratorStepKind {";
-    assert_eq!(
-        CONTROL_FLOW_SOURCE
-            .matches(&format!("\n{declaration_marker}"))
-            .count(),
-        1,
-        "the declaration must remain private"
+    // The native record owns policy and lifetime; value observation is a
+    // borrowed output projection, so elision cannot acquire a value read.
+    let step = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn emit_sync_iterator_step_into(",
+        "    fn prepare_destructuring_target<'b>(",
     );
-    let declaration_offset = CONTROL_FLOW_SOURCE
-        .find(declaration_marker)
-        .expect("missing step-kind declaration");
-    let preceding_source = &CONTROL_FLOW_SOURCE[..declaration_offset];
-    let preceding_item_end = preceding_source
-        .rfind('}')
-        .expect("missing item before step-kind declaration");
-    assert!(
-        preceding_source[preceding_item_end + 1..].trim().is_empty(),
-        "the declaration must remain directly attribute-free"
-    );
-    assert_eq!(
-        normalized(bounded(
-            CONTROL_FLOW_SOURCE,
-            declaration_marker,
-            "#[must_use = \"a prepared destructuring target must be consumed by its write\"]",
-        )),
-        "Elision,Value,}"
-    );
-    assert!(!CONTROL_FLOW_SOURCE.contains("impl DestructuringIteratorStepKind"));
-
+    let signature = bounded(step, "&mut self,", ") -> Result<(), EmitError> {");
+    assert!(signature.contains("iterator: &OwnedSyncIterator,"));
+    assert!(signature.contains("value: Option<&ValueLocals>,"));
+    assert!(!signature.contains("read_value: bool"));
+    assert_eq!(step.matches("if let Some(output) = value {").count(), 1);
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for retired in [
+        "DestructuringIteratorStepKind",
+        "emit_destructuring_iterator_step(",
+    ] {
+        assert_eq!(count_in_rust_sources(&source_root, retired), 0);
+    }
     assert_eq!(
-        count_in_rust_sources(&source_root, "DestructuringIteratorStepKind"),
-        7,
-        "the declaration, typed consumer, two exhaustive arms and three producers own every mention"
+        count_in_rust_sources(&source_root, "fn emit_sync_iterator_step_into("),
+        1
     );
 }
 
 #[test]
 fn exactly_three_array_element_producers_select_their_step_kind() {
     let producer = bounded(
-        CONTROL_FLOW_SOURCE,
+        ARRAY_DESTRUCTURING_SOURCE,
         "    fn compile_array_destructuring_element(",
-        "    fn emit_destructuring_iterator_step(",
+        "    fn emit_array_destructuring_rest_array(",
+    );
+    let elision = bounded(
+        producer,
+        "ArrayDestructuringElementIr::Elision => {",
+        "ArrayDestructuringElementIr::Target { target, default } => {",
     );
     assert_eq!(
-        producer
-            .matches("self.emit_destructuring_iterator_step(")
-            .count(),
-        3
-    );
-    assert_eq!(
-        producer
-            .matches("DestructuringIteratorStepKind::Elision,")
+        elision
+            .matches("self.emit_sync_iterator_step_without_value(")
             .count(),
         1
     );
-    assert_eq!(
-        producer
-            .matches("DestructuringIteratorStepKind::Value,")
-            .count(),
-        2
-    );
+    assert!(!elision.contains("emit_sync_iterator_step_value("));
+    assert!(!elision.contains("prepare_destructuring_target"));
 
-    let elision_arm = bounded(
+    let target = bounded(
         producer,
-        "            ArrayDestructuringElementIr::Elision => {",
-        "            ArrayDestructuringElementIr::Target { target, default } => {",
+        "ArrayDestructuringElementIr::Target { target, default } => {",
+        "ArrayDestructuringElementIr::Rest { target } => {",
     );
-    assert_eq!(
-        elision_arm
-            .matches("DestructuringIteratorStepKind::Elision,")
-            .count(),
-        1
+    positions_in_order(
+        target,
+        &[
+            "self.prepare_destructuring_target(target, function)?;",
+            "self.emit_sync_iterator_step_value(iterator, done, value, function)?;",
+            "if let Some(default) = default {",
+            "self.compile_expr_to_value(default, value, function)?;",
+            "self.put_destructuring_target(prepared, value, function)?;",
+        ],
     );
-    assert!(!elision_arm.contains("DestructuringIteratorStepKind::Value,"));
+    assert!(!target.contains("emit_sync_iterator_step_without_value"));
 
-    let target_arm = bounded(
+    let rest = bounded(
         producer,
-        "            ArrayDestructuringElementIr::Target { target, default } => {",
-        "            ArrayDestructuringElementIr::Rest { target } => {",
-    );
-    assert_eq!(
-        target_arm
-            .matches("DestructuringIteratorStepKind::Value,")
-            .count(),
-        1
-    );
-    assert!(!target_arm.contains("DestructuringIteratorStepKind::Elision,"));
-
-    let rest_arm = bounded(
-        producer,
-        "            ArrayDestructuringElementIr::Rest { target } => {",
+        "ArrayDestructuringElementIr::Rest { target } => {",
         "\n        }\n        Ok(())",
     );
-    assert_eq!(
-        rest_arm
-            .matches("DestructuringIteratorStepKind::Value,")
-            .count(),
-        1
+    positions_in_order(
+        rest,
+        &[
+            "self.prepare_destructuring_target(target, function)?;",
+            "self.emit_array_destructuring_rest_array(iterator, done, value, function)?;",
+            "self.put_destructuring_target(prepared, value, function)?;",
+        ],
     );
-    assert!(!rest_arm.contains("DestructuringIteratorStepKind::Elision,"));
-
-    let normalized_producer = normalized(producer);
-    for (kind, expected_count) in [("Elision", 1), ("Value", 2)] {
-        let call = normalized(&format!(
-            r#"self.emit_destructuring_iterator_step(
-                    locals,
-                    DestructuringIteratorStepKind::{kind},
-                    consumer,
-                    function,
-                )?;"#
-        ));
+    let rest_body = bounded(
+        ARRAY_DESTRUCTURING_SOURCE,
+        "    fn emit_array_destructuring_rest_array(",
+        "\n    }\n}",
+    );
+    positions_in_order(
+        rest_body,
+        &[
+            "self.emit_sync_iterator_step_value(iterator, done, value, function)?;",
+            "self.emit_branch_if_to_target(exit, function);",
+            "list.append(value, schema, function);",
+            "self.emit_array_from_argument_list(&arguments, function)?;",
+        ],
+    );
+    assert!(!rest_body.contains("emit_sync_iterator_step_without_value"));
+    let retained = bounded(
+        ARRAY_DESTRUCTURING_SOURCE,
+        "match operation.use_view() {",
+        "if let Some(binding) = operation.result_binding()",
+    );
+    for mapping in [
+        "ArrayDestructuringOperationView::StepValue(_) =>",
+        "ArrayDestructuringOperationView::Elision(_) =>",
+        "ArrayDestructuringOperationView::RestArray(_) =>",
+        "self.emit_sync_iterator_step_value(&iterator, done, &value, function)?;",
+        "self.emit_sync_iterator_step_without_value(&iterator, done, function)?;",
+        "self.emit_array_destructuring_rest_array(&iterator, done, &value, function)?;",
+    ] {
         assert_eq!(
-            normalized_producer.matches(&call).count(),
-            expected_count,
-            "wrong `{kind}` producer mapping"
+            retained.matches(mapping).count(),
+            1,
+            "missing shared operation {mapping}"
         );
     }
-
+    assert!(!retained.contains("_ =>"));
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_in_rust_sources(&source_root, "emit_destructuring_iterator_step("),
-        4,
-        "the private definition and three array-element calls are the complete census"
+        count_in_rust_sources(&source_root, "fn compile_array_destructuring_element("),
+        1
+    );
+    assert_eq!(
+        count_in_rust_sources(&source_root, "fn emit_array_destructuring_rest_array("),
+        1
     );
 }
 
@@ -190,124 +186,109 @@ fn exactly_three_array_element_producers_select_their_step_kind() {
 fn step_protocol_failures_use_the_typed_authority_after_marking_done() {
     let consumer = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn emit_destructuring_iterator_step(",
-        "    pub(crate) fn emit_sync_iterator_step_value(",
+        "    fn emit_sync_iterator_step_into(",
+        "    fn prepare_destructuring_target<'b>(",
     );
-    let signature = bounded(consumer, "&mut self,", ") -> Result<(), EmitError> {");
-    assert!(signature.contains("consumer: &SyncIteratorConsumer,"));
     assert_eq!(
         consumer
             .matches("self.emit_sync_iterator_protocol_type_error(")
             .count(),
         2
     );
-    assert_eq!(
-        consumer
-            .matches("SyncIteratorProtocolError::NextNotCallable")
-            .count(),
-        1
-    );
-    assert_eq!(
-        consumer
-            .matches("SyncIteratorProtocolError::NextResultNotObject")
-            .count(),
-        1
-    );
-    assert_eq!(consumer.matches("emit_throw_runtime_error(").count(), 0);
-    assert_eq!(
-        consumer
-            .matches("emit_throw_current_function_realm_type_error(")
-            .count(),
-        0
-    );
-    assert_eq!(consumer.matches("emit_iterator_close").count(), 0);
-
+    for error in [
+        "SyncIteratorProtocolError::NextNotCallable",
+        "SyncIteratorProtocolError::NextResultNotObject",
+    ] {
+        assert_eq!(consumer.matches(error).count(), 1);
+    }
+    assert!(!consumer.contains("emit_throw_runtime_error("));
+    assert!(!consumer.contains("emit_throw_current_function_realm_type_error("));
+    assert!(!consumer.contains("emit_iterator_close"));
     positions_in_order(
         consumer,
         &[
-            "Instruction::I64Const(1)",
-            "Instruction::LocalSet(locals.done)",
-            "self.emit_is_callable_i32(locals.next_tag, locals.next_payload, function)?;",
+            "self.emit_is_callable_i32(&next, function)?;",
             "SyncIteratorProtocolError::NextNotCallable",
-            "self.emit_function_handle_call(",
-            "function.instruction(&Instruction::Else);",
-            "self.emit_function_or_proxy_call_leave_throw_completion(",
-            "self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);",
-            "Instruction::I64Const(1)",
-            "Instruction::LocalSet(locals.done)",
+            "self.emit_function_or_proxy_call_with_argv(",
             "SyncIteratorProtocolError::NextResultNotObject",
+            "self.emit_object_read(&next_result, &next_result, &done_key, &pending, function)?;",
+            "if let Some(output) = value {",
+            "self.emit_object_read(&next_result, &next_result, &value_key, &pending, function)?;",
+            "// IteratorStepValue marks the record done",
+            "pending.kind().load(function);",
+            "Instruction::I32Const(CompletionKind::Throw.code() as i32)",
+            "Instruction::I32Const(1)",
+            "done.store(function);",
+            "row.field(IteratorRecordSchema::DONE).write(",
+            "result.copy_from(&pending, function);",
+        ],
+    );
+    let publication = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn emit_sync_iterator_step(",
+        "    fn emit_sync_iterator_step_into(",
+    );
+    positions_in_order(
+        publication,
+        &[
+            "self.emit_sync_iterator_step_into(iterator, done, value, &result, function)?;",
+            "self.completion().copy_from(&result, function);",
+            "result.clear(function);",
+            "self.emit_propagate_current_throw_if_needed(function);",
         ],
     );
 }
 
 #[test]
 fn step_kind_exhaustively_owns_the_iterator_value_read() {
+    let value = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    pub(crate) fn emit_sync_iterator_step_value(",
+        "    pub(crate) fn emit_sync_iterator_step_without_value(",
+    );
+    assert!(value.contains("value.set_undefined(function);"));
+    assert!(value.contains("self.emit_sync_iterator_step(iterator, done, Some(value), function)"));
+    let elision = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    pub(crate) fn emit_sync_iterator_step_without_value(",
+        "    /// Native helpers must finalize their own state",
+    );
+    assert!(elision.contains("self.emit_sync_iterator_step(iterator, done, None, function)"));
+    assert!(!elision.contains("ValueLocals"));
     let consumer = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn emit_destructuring_iterator_step(",
-        "    pub(crate) fn emit_sync_iterator_step_value(",
+        "    fn emit_sync_iterator_step_into(",
+        "    fn prepare_destructuring_target<'b>(",
     );
-    let signature = bounded(consumer, "&mut self,", ") -> Result<(), EmitError> {");
-    assert!(signature.contains("step_kind: DestructuringIteratorStepKind,"));
-    assert!(signature.contains("consumer: &SyncIteratorConsumer,"));
-    assert!(!signature.contains("read_value: bool"));
-
     let projection = bounded(
         consumer,
-        "        match step_kind {",
-        "        self.pop_control(ControlFrameKind::If);",
+        "        if let Some(output) = value {",
+        "        self.pop_control(ControlFrameKind::Block);",
     );
     let expected_projection = r#"
-            DestructuringIteratorStepKind::Elision => {}
-            DestructuringIteratorStepKind::Value => {
-                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-                function.instruction(&Instruction::LocalSet(locals.key));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(locals.done));
-                self.emit_object_read(
-                    locals.result_payload,
-                    locals.result_tag,
-                    locals.result_payload,
-                    locals.result_tag,
-                    locals.key,
-                    locals.value_payload,
-                    locals.value_tag,
-                    function,
-                )?;
-                self.emit_propagate_current_completion_if_throw(function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(locals.done));
-            }
+        self.emit_object_read(&next_result, &next_result, &value_key, &pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.emit_branch_if_to_target(finish, function);
+        output.copy_from(pending.value(), function);
         }
-"#;
+    "#;
     assert_eq!(normalized(projection), normalized(expected_projection));
-    assert_eq!(consumer.matches("match step_kind {").count(), 1);
     assert_eq!(consumer.matches("self.emit_object_read(").count(), 2);
-    assert_eq!(
-        consumer.matches("self.strings.payload(\"value\")").count(),
-        1
+    assert_eq!(consumer.matches("&value_key, &pending").count(), 1);
+    positions_in_order(
+        consumer,
+        &[
+            "row.field(IteratorRecordSchema::DONE)",
+            "self.emit_branch_if_to_target(finish, function);",
+            "self.emit_object_read(&next_result, &next_result, &done_key, &pending, function)?;",
+            "self.compile_truthy_tagged_i32(pending.value(), function)?;",
+            "done.store(function);",
+            "self.emit_branch_if_to_target(finish, function);",
+            "if let Some(output) = value {",
+        ],
     );
-    for forbidden in [
-        "matches!(step_kind",
-        "step_kind ==",
-        "step_kind !=",
-        "_ =>",
-        "unreachable!",
-    ] {
-        assert!(!consumer.contains(forbidden), "found `{forbidden}`");
-    }
-
-    let else_offset = consumer
-        .find("function.instruction(&Instruction::Else);")
-        .expect("missing completed-iterator else arm");
-    let match_offset = consumer
-        .find("match step_kind {")
-        .expect("missing exhaustive step-kind match");
-    let close_offset = consumer
-        .rfind("self.pop_control(ControlFrameKind::If);")
-        .expect("missing completed-iterator conditional close");
-    assert!(else_offset < match_offset);
-    assert!(match_offset < close_offset);
 }
 
 #[test]

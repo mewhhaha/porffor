@@ -34,6 +34,7 @@ fn sequence(statements: &[StatementIr]) -> Result<(), SynchronousLoopBodyError> 
 
 fn validate(statement: &StatementIr) -> Result<(), SynchronousLoopBodyError> {
     match statement {
+        StatementIr::EmptyStatementCompletion(item) => validate(item.statement()),
         StatementIr::Block(block) | StatementIr::SyncDisposableScope { body: block, .. } => {
             sequence(&block.statements)
         }
@@ -87,10 +88,17 @@ fn validate(statement: &StatementIr) -> Result<(), SynchronousLoopBodyError> {
         | StatementIr::DoWhile { body, .. }
         | StatementIr::ForInArray { body, .. }
         | StatementIr::ForInString { body, .. }
-        | StatementIr::ForInObject { body, .. }
-        | StatementIr::Labelled {
-            statement: body, ..
-        } => validate(body),
+        | StatementIr::ForInObject { body, .. } => validate(body),
+        StatementIr::Labelled {
+            statement,
+            async_plan,
+            ..
+        } => {
+            if async_plan.is_some() {
+                return Err(SynchronousLoopBodyError::ContinuationOwner);
+            }
+            validate(statement)
+        }
         StatementIr::Switch {
             lexical_declarations,
             cases,
@@ -148,9 +156,29 @@ fn validate(statement: &StatementIr) -> Result<(), SynchronousLoopBodyError> {
         | StatementIr::AsyncAwait { .. }
         | StatementIr::AsyncModuleInstantiation
         | StatementIr::GeneratorLoop { .. }
+        | StatementIr::AsyncGeneratorLoop(_)
+        | StatementIr::AsyncGeneratorIf(_)
+        | StatementIr::AsyncGeneratorWith(_)
+        | StatementIr::AsyncGeneratorSwitch(_)
+        | StatementIr::AsyncGeneratorArrayDestructuring(_)
+        | StatementIr::AsyncGeneratorResourceScope(_)
+        | StatementIr::AsyncGeneratorResourceRegistration(_)
+        | StatementIr::AsyncGeneratorForOf(_)
+        | StatementIr::AsyncGeneratorForIn(_)
+        | StatementIr::OrdinaryGeneratorLoop(_)
+        | StatementIr::OrdinaryGeneratorIf(_)
+        | StatementIr::OrdinaryGeneratorSwitch(_)
+        | StatementIr::OrdinaryGeneratorArrayDestructuring(_)
+        | StatementIr::AsyncFunctionArrayDestructuring(_)
+        | StatementIr::AsyncFunctionWith(_)
+        | StatementIr::OrdinaryGeneratorWith(_)
+        | StatementIr::ArrayDestructuringOperation(_)
         | StatementIr::GeneratorIf { .. }
         | StatementIr::AsyncFunctionIf { .. }
-        | StatementIr::AsyncFunctionForOfIterator { .. } => {
+        | StatementIr::AsyncFunctionWhile(_)
+        | StatementIr::AsyncFunctionSwitch(_)
+        | StatementIr::AsyncFunctionForOfIterator { .. }
+        | StatementIr::GeneratorForOfIterator { .. } => {
             Err(SynchronousLoopBodyError::ContinuationOwner)
         }
         StatementIr::Empty

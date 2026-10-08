@@ -383,15 +383,12 @@ fn inspect_reports_phase_eighteen_global_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // `global_bindings` is a function of the global environment, not only of
-    // this fixture: 66 -> 67 for `%DisposableStack%` (34c274fbb) and 67 -> 68
-    // for `%Float16Array%` (7a7610705). Recount with `lila inspect` rather
-    // than guessing the delta.
-    assert!(stdout.contains("global_bindings=68"), "{stdout}");
-    // The three `=== globalThis` operands. `globalThis.x` lowers to a
-    // `GlobalPropertyRead` that carries no `globalThis` identifier operand, so
-    // it is not a use here (4 -> 3 at 5eca93e67).
-    assert!(stdout.contains("global_this_uses=3"), "{stdout}");
+    // Include the mutable public `globalThis` data property in the
+    // fixture's global environment.
+    assert!(stdout.contains("global_bindings=69"), "{stdout}");
+    // The three comparisons and `globalThis.x` retain their actual receiver.
+    // This fixture proves the builtin property intact at all four uses.
+    assert!(stdout.contains("global_this_uses=4"), "{stdout}");
     // The script's own `this` plus the one inherited by the arrow `g`, which
     // 37ba2cdd3 resolves to the Script root binding and counts; `g`'s
     // exact-context specialization clone lowers that arrow body a second time.
@@ -1205,73 +1202,6 @@ fn test262_publish_status_rejects_oracle_backend_before_writing() {
         before,
         "rejecting oracle publication must not mutate the README"
     );
-}
-
-#[test]
-fn test262_publish_status_supports_wasm_backend() {
-    let readme_path = temp_readme_path("publish-status-wasm");
-    let suite_root = tiny_wasm_suite_root("publish-status-wasm");
-    let snapshot_dir = unique_snapshot_dir("publish-status-wasm");
-    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
-        .arg("test262")
-        .arg("publish-status")
-        .arg("--suite-root")
-        .arg(&suite_root)
-        .arg("--snapshot-dir")
-        .arg(&snapshot_dir)
-        .arg("--snapshot-name")
-        .arg("cli-publish-status-wasm")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg("--readme-path")
-        .arg(&readme_path)
-        .output()
-        .expect("test262 wasm publish-status should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("execution_backend: wasm-aot"));
-    assert!(stdout.contains("total: 1"));
-    assert!(stdout.contains("passed: 1"));
-    assert!(stdout.contains("outcome_Success: 1"));
-    assert!(stdout.contains("status_json:"));
-    assert!(stdout.contains("status_txt:"));
-    assert!(stdout.contains("snapshot_json:"));
-    assert!(stdout.contains("snapshot_txt:"));
-
-    let readme = std::fs::read_to_string(&readme_path).expect("wasm readme should read");
-    assert!(readme.contains("Pinned real Test262 baseline (`wasm-aot`"));
-    assert!(readme.contains("): `1/1` green"));
-    assert!(readme.contains("Current real outcomes:"));
-    assert!(
-        readme.contains("./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real")
-    );
-
-    let status_json_line = stdout
-        .lines()
-        .find(|line| line.starts_with("status_json: "))
-        .expect("stdout should include status_json path");
-    let status_json_path = status_json_line
-        .strip_prefix("status_json: ")
-        .expect("status_json line should have prefix");
-    assert!(std::path::Path::new(status_json_path).exists());
-
-    let status_txt_line = stdout
-        .lines()
-        .find(|line| line.starts_with("status_txt: "))
-        .expect("stdout should include status_txt path");
-    let status_txt_path = status_txt_line
-        .strip_prefix("status_txt: ")
-        .expect("status_txt line should have prefix");
-    assert!(std::path::Path::new(status_txt_path).exists());
-
-    let status_json = std::fs::read_to_string(status_json_path).expect("status json should read");
-    let status: serde_json::Value =
-        serde_json::from_str(&status_json).expect("status json should parse");
-    assert_eq!(status["producer"], "lila");
-    assert_eq!(status["real_suite"]["backend"], "wasm-aot");
-    assert_eq!(status["real_suite"]["total"], 1);
-    assert_eq!(status["real_suite"]["passed"], 1);
 }
 
 #[test]

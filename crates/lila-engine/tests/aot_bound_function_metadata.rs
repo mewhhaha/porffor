@@ -145,3 +145,112 @@ first && inheritedCorrect && coercions === 0
 "#,
     );
 }
+
+#[test]
+fn bind_observes_proxy_prototype_before_metadata_and_keeps_an_abrupt_value() {
+    run_boolean(
+        r#"
+var trace = "";
+var prototype = {};
+var abrupt = {};
+function target(a, b) {}
+var proxy = new Proxy(target, {
+  getPrototypeOf: function () { trace += "p"; return prototype; },
+  getOwnPropertyDescriptor: function (object, key) {
+    if (key === "length") trace += "o";
+    return Reflect.getOwnPropertyDescriptor(object, key);
+  },
+  get: function (object, key, receiver) {
+    if (key === "length") trace += "l";
+    if (key === "name") trace += "n";
+    return Reflect.get(object, key, receiver);
+  }
+});
+var bound = Function.prototype.bind.call(proxy, null, 1);
+var correct = trace === "poln" && Object.getPrototypeOf(bound) === prototype
+  && bound.length === 1 && bound.name === "bound target";
+trace = "";
+var throwing = new Proxy(target, {
+  getPrototypeOf: function () { trace += "p"; throw abrupt; },
+  getOwnPropertyDescriptor: function () { trace += "o"; throw "late descriptor"; },
+  get: function () { trace += "g"; throw "late Get"; }
+});
+var observed;
+try { Function.prototype.bind.call(throwing, null); } catch (error) { observed = error; }
+correct = correct && observed === abrupt && trace === "p";
+trace = "";
+var descriptorThrowing = new Proxy(target, {
+  getPrototypeOf: function () { trace += "p"; return prototype; },
+  getOwnPropertyDescriptor: function () { trace += "o"; throw abrupt; },
+  get: function () { trace += "g"; throw "late Get"; }
+});
+observed = undefined;
+try { Function.prototype.bind.call(descriptorThrowing, null); } catch (error) { observed = error; }
+correct && observed === abrupt && trace === "po";
+"#,
+    );
+}
+
+#[test]
+fn bound_arguments_keep_reference_identity_and_exact_primitive_this() {
+    run_boolean(
+        r#"
+var symbol = Symbol("argument");
+var object = {};
+var bigint = 18446744073709551615n;
+function target(first, second, third) {
+  "use strict";
+  return this === 17 && first === symbol && second === object && third === bigint
+    && arguments.length === 3 && arguments[0] === symbol
+    && arguments[1] === object && arguments[2] === bigint;
+}
+var first = target.bind(17, symbol);
+var second = first.bind(99, object);
+second.call({}, bigint);
+"#,
+    );
+}
+
+#[test]
+fn bound_construction_replaces_only_its_own_new_target_identity() {
+    run_boolean(
+        r#"
+var symbol = Symbol("argument");
+var object = {};
+function Target(first, second) {
+  this.first = first;
+  this.second = second;
+  this.seen = new.target;
+}
+function Other() {}
+var first = Target.bind(null, symbol);
+var second = first.bind({}, object);
+var ordinary = new second();
+var explicit = Reflect.construct(second, [], Other);
+ordinary.first === symbol && ordinary.second === object && ordinary.seen === Target
+  && Object.getPrototypeOf(ordinary) === Target.prototype
+  && explicit.first === symbol && explicit.second === object && explicit.seen === Other
+  && Object.getPrototypeOf(explicit) === Other.prototype;
+"#,
+    );
+}
+
+#[test]
+fn proxy_revoker_uses_its_capture_ignores_this_and_is_idempotent() {
+    run_boolean(
+        r#"
+var pair = Proxy.revocable({ value: 7 }, {});
+var unrelated = new Proxy({ value: 9 }, {});
+var revoke = pair.revoke;
+var metadata = revoke.name === "" && revoke.length === 0
+  && Object.getPrototypeOf(revoke) === Function.prototype
+  && Object.getOwnPropertyDescriptor(revoke, "prototype") === undefined;
+var first = revoke.call(unrelated);
+var second = revoke.call(null);
+var caught;
+try { pair.proxy.value; } catch (error) { caught = error; }
+metadata && first === undefined && second === undefined
+  && caught instanceof TypeError && unrelated.value === 9;
+"#,
+    );
+}

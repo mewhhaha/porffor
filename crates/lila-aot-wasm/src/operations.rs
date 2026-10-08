@@ -1,15 +1,95 @@
 #![deny(unused_must_use)]
 
 use super::*;
-use crate::emit::{NumericErrorRealmSource, ObjectReadErrorRealmSource};
+use crate::gc_types::{
+    BigIntLimbArray, BigIntValue, BigIntValueSchema, BoundFunction, CodeUnitArray,
+    CompletionLocals, FunctionObject, FunctionObjectSchema, GcLocal, I32Local, I64Local,
+    ProxyCallCapability, ProxyObject, ProxyObjectSchema, RuntimeSchema, StringValue,
+    StringValueSchema, SymbolValue, ValueLocals,
+};
+use crate::runtime_helpers::RuntimeHelperPropertyKeyParameter;
+use lila_ir::NativeErrorKind;
 use lila_ir::StaticRegExpCompilation;
 
 mod has_instance;
 mod number_remainder;
 mod number_to_string;
 mod string_trim;
+mod to_object;
 
-pub(crate) use number_remainder::NUMBER_REMAINDER_TEMP_LOCALS;
+/// A rooted String or Symbol already accepted as an ECMAScript property key.
+/// Computed raw values must pass through ToPropertyKey before this owner exists.
+#[must_use = "a completed property key must be consumed or cleared"]
+pub(crate) struct PropertyKeyLocals {
+    value: ValueLocals,
+}
+
+impl PropertyKeyLocals {
+    pub(crate) fn value(&self) -> &ValueLocals {
+        &self.value
+    }
+
+    pub(crate) fn from_string(
+        schema: &RuntimeSchema,
+        string: &GcLocal<StringValue>,
+        function: &mut Function,
+    ) -> Self {
+        let value = schema.reserve_value_local(function);
+        value.set_reference(string, schema, function);
+        Self { value }
+    }
+
+    pub(crate) fn from_symbol(
+        schema: &RuntimeSchema,
+        symbol: &GcLocal<SymbolValue>,
+        function: &mut Function,
+    ) -> Self {
+        let value = schema.reserve_value_local(function);
+        value.set_reference(symbol, schema, function);
+        Self { value }
+    }
+
+    pub(crate) fn from_helper_parameter(parameter: RuntimeHelperPropertyKeyParameter) -> Self {
+        Self {
+            value: parameter.into_value(),
+        }
+    }
+
+    fn from_converted_value(value: ValueLocals) -> Self {
+        Self { value }
+    }
+
+    pub(crate) fn clear(self, function: &mut Function) {
+        self.value.clear(function);
+    }
+}
+
+/// Keys projected only from an admitted incremental destructuring operation.
+/// Its remaining operands stay borrowed from that same opaque operation.
+#[must_use = "prepared destructuring keys must reach their operation and be cleared"]
+pub(crate) enum ObjectDestructuringOperationKeys<'operation> {
+    GetV {
+        raw_receiver: &'operation TypedExpr,
+        boxed: &'operation TypedExpr,
+        key: PropertyKeyLocals,
+    },
+    Rest {
+        boxed: &'operation TypedExpr,
+        excluded: Vec<PropertyKeyLocals>,
+    },
+    PutTarget {
+        target: &'operation DestructuringTargetIr,
+        value: &'operation TypedExpr,
+    },
+}
+
+/// The three algorithms differ only in Number equality: NaN and signed zero
+/// decisions are mandatory at the shared comparator.
+enum NumberEquality {
+    Strict,
+    SameValue,
+    SameValueZero,
+}
 
 /// Whether a Number primitive is admitted by a value-to-BigInt conversion.
 ///
@@ -34,9 +114,6 @@ pub(crate) enum ToPrimitiveAbruptRoute {
     ActiveHandler,
     /// Return the current function's completion tuple on throw.
     ReturnCurrentFunction,
-    /// Close the named iterator while preserving the current thrown value,
-    /// then return that completion from the current function.
-    IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
 }
 
 /// Where the Symbol throw admitted by primitive `ToString` must go.
@@ -44,108 +121,13 @@ pub(crate) enum ToPrimitiveAbruptRoute {
 /// The route is required by the sole primitive-string emitter. A new consumer
 /// cannot accidentally inherit a function return when it sits beneath an
 /// in-function handler, and a new routing discipline must update the
-/// exhaustive match in `finish_primitive_to_string_throw`.
+/// exhaustive match in the whole-completion routing emitter.
 pub(crate) enum PrimitiveToStringAbruptRoute {
     /// Route the freshly-created TypeError to the active handler, or return it
     /// when no handler exists.
     ActiveHandler,
     /// Return the current function's completion tuple on throw.
     ReturnCurrentFunction,
-    /// Close the named iterator while preserving the TypeError, then return.
-    IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
-}
-
-/// Where a throw from one of the exceptional `ToLength` consumers must go.
-///
-/// The ordinary `ToLength` wrapper retains its existing policy. This route is
-/// required only at the three sites that previously called the raw
-/// `_without_throw_return` twin and then manually inspected the completion.
-/// Adding another exceptional policy must update the exhaustive match in
-/// `finish_to_length_operation`.
-pub(crate) enum ToLengthAbruptRoute {
-    /// Route the thrown value to the active in-function handler, or return it
-    /// when there is no handler.
-    ActiveHandler,
-    /// Reject Array.fromAsync's already-created capability with the thrown
-    /// value and return its promise as a normal completion.
-    RejectArrayFromAsyncAndReturnPromise {
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-    },
-}
-
-/// Where the throw created by primitive `ToNumber` is owned.
-///
-/// Product callers use named wrappers that fix one of these policies. The raw
-/// emitter remains private so a caller cannot invert an unlabelled boolean,
-/// and adding a policy must update the exhaustive emission match.
-enum PrimitiveToNumberThrowRouting {
-    /// Return the current function's completion tuple immediately.
-    ReturnCurrentFunction,
-    /// Leave the throw in the completion tuple for the surrounding composite.
-    LeaveInCompletion,
-}
-
-impl PrimitiveToNumberThrowRouting {
-    fn emit(&self, builder: &mut FunctionBuilder<'_>, function: &mut Function) {
-        match self {
-            Self::ReturnCurrentFunction => builder.emit_return_current_completion(function),
-            Self::LeaveInCompletion => {}
-        }
-    }
-}
-
-/// The ordinary heap-record families admitted by OrdinaryToPrimitive.
-///
-/// These records share the observable hook algorithm. The closed receiver
-/// domain preserves their runtime tag during property reads and calls.
-enum OrdinaryToPrimitiveReceiverKind {
-    Object,
-    Function,
-    Array,
-    Arguments,
-}
-
-impl OrdinaryToPrimitiveReceiverKind {
-    const fn value_kind(&self) -> ValueKind {
-        match self {
-            Self::Object => ValueKind::Object,
-            Self::Function => ValueKind::Function,
-            Self::Array => ValueKind::Array,
-            Self::Arguments => ValueKind::Arguments,
-        }
-    }
-}
-
-/// The realm that owns TypeErrors created inside a conversion composite.
-///
-/// This is also the closed ABI domain forwarded through parameter 2 of the
-/// outlined ToPrimitive helpers. The explicit encoding keeps the helper
-/// boundary independent of Rust enum discriminants.
-enum ConversionErrorRealm {
-    MainRealm,
-    CurrentFunctionRealm,
-}
-
-impl ConversionErrorRealm {
-    const fn abi_word(&self) -> i64 {
-        match self {
-            Self::MainRealm => 0,
-            Self::CurrentFunctionRealm => 1,
-        }
-    }
-}
-
-/// Where the conversion-error realm is obtained while emitting one body.
-///
-/// Product wrappers either fix a policy or use their current execution context.
-/// Only an outlined ToPrimitive helper decodes the validated policy from its ABI;
-/// current-context callers project a trusted Realm record before that boundary.
-enum ConversionErrorRealmSource {
-    Fixed(ConversionErrorRealm),
-    CurrentExecutionContext,
-    RuntimeHelperArgument,
 }
 
 /// A primitive whose ToPrimitive errors belong to the current function Realm.
@@ -155,172 +137,7 @@ enum ConversionErrorRealmSource {
 /// both consume the token and release its locals.
 #[must_use = "a current-function-realm primitive must be consumed by a tagged or ToString projection"]
 pub(crate) struct CurrentFunctionRealmPrimitiveLocals {
-    payload_local: u32,
-    tag_local: u32,
-}
-
-/// A tagged `ToPrimitive` result whose possible throw still needs an owner.
-///
-/// The fields are private and every exit consumes the token. The raw emission
-/// functions that construct it are private to this module; callers in other
-/// backend modules can either choose a [`ToPrimitiveAbruptRoute`] through the
-/// routed wrappers or use the one complete runtime-helper-tuple wrapper. With
-/// `unused_must_use` denied for this module, adding an internal raw call and
-/// forgetting its continuation is a build error rather than a latent ignored
-/// completion.
-#[must_use = "a pending ToPrimitive completion must be routed or consumed by its composite"]
-struct PendingToPrimitiveCompletion {
-    payload_local: u32,
-    tag_local: u32,
-}
-
-impl PendingToPrimitiveCompletion {
-    fn new(payload_local: u32, tag_local: u32) -> Self {
-        Self {
-            payload_local,
-            tag_local,
-        }
-    }
-
-    fn route(
-        self,
-        builder: &mut FunctionBuilder<'_>,
-        route: ToPrimitiveAbruptRoute,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let Self {
-            payload_local,
-            tag_local,
-        } = self;
-        builder.finish_to_primitive_operation(route, payload_local, tag_local, function)
-    }
-
-    /// Finish the object branch of the ordinary ToNumber composite. A throw
-    /// leaves the original payload on the Wasm value stack; a normal primitive
-    /// continues through primitive ToNumber.
-    fn emit_number_payload(
-        self,
-        builder: &mut FunctionBuilder<'_>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let Self {
-            payload_local,
-            tag_local,
-        } = self;
-        function.instruction(&Instruction::LocalGet(builder.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        builder.emit_primitive_to_number_payload(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    /// Finish the object branch of the non-returning ToNumber composite. The
-    /// surrounding operation owns propagation and therefore needs the thrown
-    /// value installed in the builder result locals before its placeholder NaN.
-    fn emit_number_payload_without_return(
-        self,
-        builder: &mut FunctionBuilder<'_>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let Self {
-            payload_local,
-            tag_local,
-        } = self;
-        function.instruction(&Instruction::LocalGet(builder.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(builder.result_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(builder.result_tag_local));
-        builder.emit_nan_payload(function);
-        function.instruction(&Instruction::Else);
-        builder.emit_primitive_to_number_payload_without_throw_return(
-            tag_local,
-            payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    /// Finish the Number-constructor object branch, whose primitive BigInt case
-    /// is deliberately accepted while the pending ToPrimitive throw is not.
-    fn emit_number_payload_allow_bigint(
-        self,
-        builder: &mut FunctionBuilder<'_>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let Self {
-            payload_local,
-            tag_local,
-        } = self;
-        function.instruction(&Instruction::LocalGet(builder.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        builder.emit_primitive_to_number_payload_allow_bigint(
-            tag_local,
-            payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    /// Finish the object branch of the outlined ToString composite. The throw
-    /// payload bypasses primitive stringification and remains owned by the
-    /// surrounding helper result tuple.
-    fn emit_string_payload(
-        self,
-        builder: &mut FunctionBuilder<'_>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let Self {
-            payload_local,
-            tag_local,
-        } = self;
-        function.instruction(&Instruction::LocalGet(builder.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        builder.emit_primitive_to_string_payload_with_error_realm(
-            payload_local,
-            tag_local,
-            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    /// Emit the standard four-slot helper result. This is deliberately not a
-    /// route enum case: the only caller obtains it through a wrapper that emits
-    /// the entire tuple, so no general product call site can request raw state.
-    fn emit_runtime_helper_result_tuple(
-        self,
-        builder: &FunctionBuilder<'_>,
-        function: &mut Function,
-    ) {
-        let Self {
-            payload_local,
-            tag_local,
-        } = self;
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalGet(builder.completion_local));
-        function.instruction(&Instruction::LocalGet(builder.completion_aux_local));
-    }
+    value: ValueLocals,
 }
 
 fn validate_spec_operation_operands(
@@ -350,349 +167,68 @@ enum UnaryNumericKind {
     BigInt,
 }
 
-/// The static target classes shared by object-only specification operations.
-///
-/// Each operation retains its own error and completion behavior. This domain
-/// owns only the representation decision: skip a tag check, emit a runtime tag
-/// check, or reject a statically primitive target.
-enum SpecOperationObjectTargetKind {
-    StaticallyObjectLike,
-    RuntimeDynamic,
-    StaticallyPrimitive,
-}
-
-fn spec_operation_object_target_kind(kind: ValueKind) -> SpecOperationObjectTargetKind {
-    match kind {
-        ValueKind::Object | ValueKind::Array | ValueKind::Arguments | ValueKind::Function => {
-            SpecOperationObjectTargetKind::StaticallyObjectLike
-        }
-        ValueKind::Dynamic => SpecOperationObjectTargetKind::RuntimeDynamic,
-        ValueKind::Undefined
-        | ValueKind::Null
-        | ValueKind::Boolean
-        | ValueKind::Number
-        | ValueKind::BigInt
-        | ValueKind::Symbol
-        | ValueKind::String => SpecOperationObjectTargetKind::StaticallyPrimitive,
-    }
-}
-
-/// Whether numeric conversion may interpret `current_env_local` as Realm
-/// metadata.
-///
-/// This one policy owns both helper ABI parameter 6 and direct conversion-error
-/// construction. Standard builtins and the two numeric helper bodies carry a
-/// trusted Realm record. Other bodies may carry lexical environments with a
-/// different layout and must use the main-Realm fallback. A second projection
-/// cannot silently make those two consumers disagree.
-enum NumericConversionRealmAccess {
-    TrustedCurrentEnvironment,
-    MainRealmFallback,
-}
-
-fn numeric_conversion_realm_access(
-    source: NumericErrorRealmSource,
-) -> NumericConversionRealmAccess {
-    match source {
-        NumericErrorRealmSource::GlobalFallback => NumericConversionRealmAccess::MainRealmFallback,
-        NumericErrorRealmSource::StandardBuiltinEnvironment
-        | NumericErrorRealmSource::NumericConversionHelperArgument => {
-            NumericConversionRealmAccess::TrustedCurrentEnvironment
-        }
-    }
-}
-
-fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
-    match &key.expr {
-        ExprIr::String(value) if key.kind == ValueKind::String => {
-            PropertyKeyIr::StaticString(value.clone())
-        }
-        _ => PropertyKeyIr::StringExpr(Box::new(key.clone())),
-    }
-}
-
 impl<'a> FunctionBuilder<'a> {
-    fn emit_conversion_error_realm_argument(
-        &self,
-        error_realm: &ConversionErrorRealmSource,
-        function: &mut Function,
-    ) {
-        match error_realm {
-            ConversionErrorRealmSource::Fixed(error_realm) => {
-                function.instruction(&Instruction::I64Const(error_realm.abi_word()));
-            }
-            ConversionErrorRealmSource::CurrentExecutionContext => {
-                function.instruction(&Instruction::I64Const(
-                    ConversionErrorRealm::CurrentFunctionRealm.abi_word(),
-                ));
-            }
-            ConversionErrorRealmSource::RuntimeHelperArgument => {
-                function.instruction(&Instruction::LocalGet(2));
-            }
-        }
-    }
-
-    fn emit_conversion_type_error(
+    pub(crate) fn compile_object_destructuring_operation_keys<'operation>(
         &mut self,
-        error_realm: &ConversionErrorRealmSource,
-        message: &str,
-        payload_local: u32,
-        tag_local: u32,
+        operation: &'operation lila_ir::ObjectDestructuringOperationIr,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match error_realm {
-            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm) => self
-                .emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    message,
-                    payload_local,
-                    tag_local,
-                    function,
-                ),
-            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm) => self
-                .emit_throw_current_function_realm_type_error(
-                    message,
-                    payload_local,
-                    tag_local,
-                    function,
-                ),
-            ConversionErrorRealmSource::CurrentExecutionContext => {
-                match self.object_read_error_realm_source() {
-                    ObjectReadErrorRealmSource::GlobalFallback => self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        message,
-                        payload_local,
-                        tag_local,
-                        function,
-                    ),
-                    ObjectReadErrorRealmSource::StandardBuiltinEnvironment
-                    | ObjectReadErrorRealmSource::ObjectReadHelperArgument
-                    | ObjectReadErrorRealmSource::ProxyDispatchHelperArgument => self
-                        .emit_throw_current_function_realm_type_error(
-                            message,
-                            payload_local,
-                            tag_local,
-                            function,
-                        ),
+    ) -> Result<ObjectDestructuringOperationKeys<'operation>, EmitError> {
+        use lila_ir::ObjectDestructuringOperationView;
+
+        let schema = self.runtime_schema();
+        match operation.use_view() {
+            ObjectDestructuringOperationView::GetV {
+                raw_receiver,
+                boxed,
+                key,
+            } => {
+                let retained = schema.reserve_value_local(function);
+                self.compile_expr_to_value(key, &retained, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                Ok(ObjectDestructuringOperationKeys::GetV {
+                    raw_receiver,
+                    boxed,
+                    key: PropertyKeyLocals::from_converted_value(retained),
+                })
+            }
+            ObjectDestructuringOperationView::Rest { boxed, excluded } => {
+                let mut keys = Vec::with_capacity(excluded.len());
+                for key in excluded {
+                    let retained = schema.reserve_value_local(function);
+                    self.compile_expr_to_value(key, &retained, function)?;
+                    self.emit_propagate_current_throw_if_needed(function);
+                    keys.push(PropertyKeyLocals::from_converted_value(retained));
                 }
+                Ok(ObjectDestructuringOperationKeys::Rest {
+                    boxed,
+                    excluded: keys,
+                })
             }
-            ConversionErrorRealmSource::RuntimeHelperArgument => {
-                function.instruction(&Instruction::LocalGet(2));
-                function.instruction(&Instruction::I64Const(
-                    ConversionErrorRealm::MainRealm.abi_word(),
-                ));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    message,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(2));
-                function.instruction(&Instruction::I64Const(
-                    ConversionErrorRealm::CurrentFunctionRealm.abi_word(),
-                ));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    message,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::Else);
-                // Parameter 2 is emitted only from the closed Rust enum above.
-                // Trap rather than silently choosing a Realm if an invalid
-                // helper ABI caller is ever introduced.
-                function.instruction(&Instruction::Unreachable);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                Ok(())
+            ObjectDestructuringOperationView::PutTarget { target, value } => {
+                Ok(ObjectDestructuringOperationKeys::PutTarget { target, value })
             }
-        }
-    }
-
-    /// Emit helper ABI parameter 6 for outlined `ToNumeric`/`ToNumber` calls.
-    /// Keeping both consumers behind this one projection prevents their realm
-    /// policy from drifting while their helper bodies share the same ABI.
-    fn emit_outlined_numeric_realm_argument(&mut self, function: &mut Function) {
-        match numeric_conversion_realm_access(self.numeric_error_realm_source()) {
-            NumericConversionRealmAccess::TrustedCurrentEnvironment => {
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-            }
-            NumericConversionRealmAccess::MainRealmFallback => {
-                if self.has_source_execution_environment() {
-                    self.emit_source_realm_function_context_payload(function);
-                } else {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-            }
-        }
-    }
-
-    fn emit_numeric_conversion_type_error(
-        &mut self,
-        message: &str,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match numeric_conversion_realm_access(self.numeric_error_realm_source()) {
-            NumericConversionRealmAccess::TrustedCurrentEnvironment => self
-                .emit_throw_current_function_realm_type_error(
-                    message,
-                    payload_local,
-                    tag_local,
-                    function,
-                ),
-            NumericConversionRealmAccess::MainRealmFallback => self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                message,
-                payload_local,
-                tag_local,
-                function,
-            ),
-        }
-    }
-
-    fn emit_numeric_conversion_range_error(
-        &mut self,
-        message: &str,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match numeric_conversion_realm_access(self.numeric_error_realm_source()) {
-            NumericConversionRealmAccess::TrustedCurrentEnvironment => self
-                .emit_throw_current_function_realm_range_error(
-                    message,
-                    payload_local,
-                    tag_local,
-                    function,
-                ),
-            NumericConversionRealmAccess::MainRealmFallback => self.emit_throw_runtime_error(
-                RANGE_ERROR_NAME,
-                message,
-                payload_local,
-                tag_local,
-                function,
-            ),
         }
     }
 
     fn finish_to_primitive_operation(
         &mut self,
         route: ToPrimitiveAbruptRoute,
-        payload_local: u32,
-        tag_local: u32,
+        result: &crate::gc_types::CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().copy_from(result, function);
         match route {
-            ToPrimitiveAbruptRoute::ActiveHandler => {
-                self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
-            }
+            ToPrimitiveAbruptRoute::ActiveHandler => self.emit_propagate_current_throw(function),
             ToPrimitiveAbruptRoute::ReturnCurrentFunction => {
-                self.emit_return_current_completion_if_throw(function);
-                Ok(())
-            }
-            ToPrimitiveAbruptRoute::IteratorCloseAndReturn(close) => {
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_iterator_close_preserving_current_throw(close, function)?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                Ok(())
+                self.emit_return_current_completion(function)
             }
         }
-    }
-
-    fn finish_primitive_to_string_throw(
-        &mut self,
-        route: PrimitiveToStringAbruptRoute,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match route {
-            PrimitiveToStringAbruptRoute::ActiveHandler => self
-                .emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                ),
-            PrimitiveToStringAbruptRoute::ReturnCurrentFunction => {
-                self.emit_return_current_completion(function);
-                Ok(())
-            }
-            PrimitiveToStringAbruptRoute::IteratorCloseAndReturn(close) => {
-                self.emit_iterator_close_preserving_current_throw(close, function)?;
-                self.emit_return_current_completion(function);
-                Ok(())
-            }
-        }
-    }
-
-    fn finish_to_length_operation(
-        &mut self,
-        route: ToLengthAbruptRoute,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match route {
-            ToLengthAbruptRoute::ActiveHandler => self.emit_propagate_throw_from_locals_if_needed(
-                self.result_local,
-                self.result_tag_local,
-                function,
-            ),
-            ToLengthAbruptRoute::RejectArrayFromAsyncAndReturnPromise {
-                capability_record_local,
-                promise_payload_local,
-                promise_tag_local,
-            } => self.emit_array_from_async_reject_current_throw_and_return_promise(
-                capability_record_local,
-                promise_payload_local,
-                promise_tag_local,
-                function,
-            ),
-        }
-    }
-
-    /// The first property-operation migration: emit `GetV` and consume its
-    /// may-throw capability before returning to the caller.
-    fn compile_property_get_v_to_locals(
-        &mut self,
-        operands: &[TypedExpr],
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.compile_spec_operation_to_locals(
-            SpecOperationIr::GetV,
-            operands,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
-    }
-
-    /// The first builtin-coercion migration: load argument `index`, apply
-    /// `ToNumber`, and consume its may-throw capability before any caller can
-    /// inspect the payload. The emitted instruction order is the same as the
-    /// former open-coded sequence.
-    fn emit_builtin_arg_to_number_payload(
-        &mut self,
-        index: usize,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_builtin_arg_to_locals(index, payload_local, tag_local, function);
-        self.emit_value_to_number_payload(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        self.emit_return_current_completion_if_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -701,133 +237,108 @@ impl<'a> FunctionBuilder<'a> {
         callee: &TypedExpr,
         args: &[TypedExpr],
         static_regexp_compilation: Option<&StaticRegExpCompilation>,
-        payload_local: u32,
-        tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let callee_payload_local = self.reserve_temp_local();
-        let callee_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(callee, callee_payload_local, callee_tag_local, function)?;
-        let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-        if let Some(StaticRegExpCompilation::InvalidSyntax { message }) = static_regexp_compilation
-        {
-            self.emit_throw_runtime_error(
-                SYNTAX_ERROR_NAME,
-                message,
-                payload_local,
-                tag_local,
+        let schema = self.runtime_schema();
+        let target = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        self.compile_expr_to_value(callee, &target, function)?;
+        let arguments = self.emit_call_args_vector(args, function)?;
+        // A retained compilation plan applies to the actual acquired native
+        // function only. All operands run before either validation or Call.
+        let native_regexp = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        native_regexp.store(function);
+        if static_regexp_compilation.is_some() {
+            target.reference().load(function);
+            function.instruction(&Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<FunctionObject>(crate::gc_types::GcNullability::NonNullable)
+                    .heap_type,
+            ));
+            self.open_frame(ControlFrameKind::If, function);
+            let callable = schema.reserve_gc_local(function).initialize(
+                target.cast_reference::<FunctionObject>(schema, function),
                 function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            self.release_temp_local(argv_local);
-            self.release_temp_local(argc_local);
-            self.release_temp_local(callee_tag_local);
-            self.release_temp_local(callee_payload_local);
-            return Ok(());
-        }
-        self.emit_function_or_proxy_construct_with_argv(
-            callee_payload_local,
-            callee_tag_local,
-            callee_payload_local,
-            callee_tag_local,
-            argc_local,
-            argv_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
-            function.instruction(&Instruction::LocalGet(callee_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(callee_payload_local));
-            function.instruction(&Instruction::GlobalGet(REGEXP_CONSTRUCTOR_GLOBAL_INDEX));
-            function.instruction(&Instruction::I64Eq);
+            );
+            let code = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<FunctionObject>()
+                    .field(FunctionObjectSchema::CODE)
+                    .read(&callable, schema, function)
+                    .reference(),
+                function,
+            );
+            let kind = schema.reserve_i32_local(function);
+            let builtin = schema.reserve_i32_local(function);
+            schema
+                .struct_type::<crate::gc_types::ExecutableCode>()
+                .field(crate::gc_types::ExecutableCodeSchema::KIND)
+                .read(&code, schema, function)
+                .store(kind, function);
+            schema
+                .struct_type::<crate::gc_types::ExecutableCode>()
+                .field(crate::gc_types::ExecutableCodeSchema::STANDARD_BUILTIN)
+                .read(&code, schema, function)
+                .store(builtin, function);
+            kind.load(function);
+            function.instruction(&Instruction::I32Const(
+                crate::gc_types::GcI32Constant::encode(
+                    crate::gc_types::ExecutableCodeKind::StandardBuiltin,
+                ),
+            ));
+            function.instruction(&Instruction::I32Eq);
+            builtin.load(function);
+            function.instruction(&Instruction::I32Const(
+                crate::gc_types::GcI32Constant::encode(Some(StandardBuiltinId::RegExpConstructor)),
+            ));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_regexp_program_slots(payload_local, Some(program), function);
+            native_regexp.store(function);
+            schema.release_i32_local(builtin, function);
+            schema.release_i32_local(kind, function);
+            code.clear(function);
+            callable.clear(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(callee_tag_local);
-        self.release_temp_local(callee_payload_local);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_numeric_update_to_locals(
-        &mut self,
-        op: NumericUpdateOp,
-        value_kind: NumericUpdateValueKind,
-        old_payload_local: u32,
-        old_tag_local: u32,
-        new_payload_local: u32,
-        new_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match value_kind {
-            NumericUpdateValueKind::Number => {
-                function.instruction(&Instruction::LocalGet(old_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-                match op {
-                    NumericUpdateOp::Increment => function.instruction(&Instruction::F64Add),
-                    NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
-                };
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(new_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(new_tag_local));
-                return Ok(());
-            }
-            NumericUpdateValueKind::BigInt => {
-                function.instruction(&Instruction::I32Const(1));
-            }
-            NumericUpdateValueKind::Dynamic => {
-                self.emit_is_bigint_tag_i32(old_tag_local, function);
-            }
-        }
-        let unit_payload_local = self.reserve_temp_local();
-        let unit_tag_local = self.reserve_temp_local();
-        self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(unit_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(unit_tag_local));
-        let operation = match op {
-            NumericUpdateOp::Increment => BigIntHelperOp::Add,
-            NumericUpdateOp::Decrement => BigIntHelperOp::Sub,
-        };
-        self.emit_bigint_binary_op_to_locals(
-            operation,
-            old_payload_local,
-            old_tag_local,
-            unit_payload_local,
-            unit_tag_local,
-            new_payload_local,
-            new_tag_local,
-            function,
+        // InvalidSyntax is consumed by the actual native RegExp entry/cache
+        // after its source/flags coercions, in the acquired callee's Realm.
+        self.emit_function_or_proxy_construct_with_argv(
+            &target, &target, &arguments, &result, function,
         )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-        match op {
-            NumericUpdateOp::Increment => function.instruction(&Instruction::F64Add),
-            NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
-        };
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(new_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(new_tag_local));
+        if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
+            result.kind().load(function);
+            function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+            function.instruction(&Instruction::I32Eq);
+            native_regexp.load(function);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
+            let regexp = schema.reserve_gc_local(function).initialize(
+                result
+                    .value()
+                    .cast_reference::<crate::gc_types::RegExpObject>(schema, function),
+                function,
+            );
+            self.emit_regexp_program_slots(&regexp, program, function)?;
+            regexp.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.completion().copy_from(&result, function);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        output.copy_from(result.value(), function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(unit_tag_local);
-        self.release_temp_local(unit_payload_local);
+        schema.release_i32_local(native_regexp, function);
+        arguments.clear(function);
+        result.clear(function);
+        target.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
         Ok(())
     }
 
@@ -836,1649 +347,399 @@ impl<'a> FunctionBuilder<'a> {
         expr: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let truthy_local = self.reserve_temp_local();
-        if !expr.possible_kinds.is_singleton() || expr_result_tag_is_runtime_dynamic(&expr.expr) {
-            self.compile_expr_to_locals(expr, self.scratch_local, self.result_tag_local, function)?;
-            self.compile_truthy_tagged_i32(self.result_tag_local, self.scratch_local, function)?;
-        } else {
-            self.compile_expr_payload(expr, function)?;
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.compile_truthy_local_i32(expr.kind, self.scratch_local, function)?;
-        }
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(truthy_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(truthy_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.release_temp_local(truthy_local);
+        let input = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(expr, &input, function)?;
+        self.compile_truthy_tagged_i32(&input, function)?;
+        input.clear(function);
         Ok(())
     }
 
-    pub(crate) fn compile_spec_operation_payload(
-        &mut self,
-        operation: SpecOperationIr,
-        operands: &[TypedExpr],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        validate_spec_operation_operands(operation, operands.len())?;
-        match operation {
-            SpecOperationIr::IsCallable => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_is_callable_i32(tag_local, payload_local, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::IsConstructor => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_is_constructor_i32(tag_local, payload_local, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::IsPropertyKey => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_is_property_key_i32(tag_local, function);
-                function.instruction(&Instruction::I64ExtendI32U);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToBoolean => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.emit_to_boolean_payload_from_expr(operand, function)
-            }
-            SpecOperationIr::ToPrimitive(_) => {
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_spec_operation_to_locals(
-                    operation,
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToNumeric => {
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_spec_operation_to_locals(
-                    operation,
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToNumber => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_number_payload(operand, function)
-            }
-            SpecOperationIr::ToBigInt => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_value_to_bigint_locals(
-                    tag_local,
-                    payload_local,
-                    BigIntNumberPolicy::RejectNumber,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToString => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                // `emit_value_to_string_payload` routes Object/Array/Arguments
-                // through the shared outlined ToString helper, which
-                // hard-returns the whole function on a Symbol/ToPrimitive
-                // throw instead of reaching an enclosing in-function
-                // try/catch. This is the static `String(x)`/template-literal
-                // ToString-coercion site (see `SpecOperationIr::ToString`'s
-                // lowering) and sits at tracked block depth, so dispatch
-                // Object/Array/Arguments ourselves via the tagged ToPrimitive
-                // emitter and select its active-handler route here.
-                let primitive_payload_local = self.reserve_temp_local();
-                let primitive_tag_local = self.reserve_temp_local();
-                self.emit_tagged_to_primitive_locals(
-                    ToPrimitiveHint::String,
-                    payload_local,
-                    tag_local,
-                    primitive_payload_local,
-                    primitive_tag_local,
-                    ToPrimitiveAbruptRoute::ActiveHandler,
-                    function,
-                )?;
-                self.emit_primitive_to_string_payload(
-                    primitive_payload_local,
-                    primitive_tag_local,
-                    PrimitiveToStringAbruptRoute::ActiveHandler,
-                    function,
-                )?;
-                self.release_temp_local(primitive_tag_local);
-                self.release_temp_local(primitive_payload_local);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToObject => {
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_spec_operation_to_locals(
-                    operation,
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToPropertyKey => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_value_to_property_key_locals(payload_local, tag_local, function)?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToIntegerOrInfinity => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let number_payload_local = self.reserve_temp_local();
-                let integer_payload_local = self.reserve_temp_local();
-                self.compile_expr_to_number_payload(operand, function)?;
-                function.instruction(&Instruction::LocalSet(number_payload_local));
-                self.emit_to_integer_or_infinity_number_payload_from_number_payload(
-                    number_payload_local,
-                    integer_payload_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(integer_payload_local));
-                self.release_temp_local(integer_payload_local);
-                self.release_temp_local(number_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToLength => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                let length_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_to_length_i64_from_value_locals(
-                    tag_local,
-                    payload_local,
-                    length_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(length_local));
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                self.release_temp_local(length_local);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToIndex => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                let index_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_to_index_i64_from_value_locals(
-                    tag_local,
-                    payload_local,
-                    index_local,
-                    "ToIndex out of range",
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                self.release_temp_local(index_local);
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::SameValue => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_same_value_i32(lhs, rhs, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                Ok(())
-            }
-            SpecOperationIr::SameValueZero => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_same_value_zero_i32(lhs, rhs, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                Ok(())
-            }
-            SpecOperationIr::StrictEqualityComparison => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_strict_equality_i32(lhs, rhs, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                Ok(())
-            }
-            SpecOperationIr::IsLooselyEqual => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                if !lhs.possible_kinds.contains(ValueKind::String)
-                    && !rhs.possible_kinds.contains(ValueKind::String)
-                {
-                    self.compile_loose_equality_nonstring_i32(lhs, rhs, function)?;
-                } else {
-                    self.compile_loose_equality_i32(lhs, rhs, function)?;
-                }
-                function.instruction(&Instruction::I64ExtendI32U);
-                Ok(())
-            }
-            SpecOperationIr::Get
-            | SpecOperationIr::GetV
-            | SpecOperationIr::GetMethod
-            | SpecOperationIr::Call
-            | SpecOperationIr::Construct => {
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_spec_operation_to_locals(
-                    operation,
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::Set
-            | SpecOperationIr::HasProperty
-            | SpecOperationIr::WithEnvironmentHasBinding
-            | SpecOperationIr::HasOwnProperty
-            | SpecOperationIr::DeletePropertyOrThrow => {
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_spec_operation_to_locals(
-                    operation,
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-            SpecOperationIr::CreateDataPropertyOrThrow | SpecOperationIr::CopyDataProperties => {
-                let payload_local = self.reserve_temp_local();
-                let tag_local = self.reserve_temp_local();
-                self.compile_spec_operation_to_locals(
-                    operation,
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                self.release_temp_local(tag_local);
-                self.release_temp_local(payload_local);
-                Ok(())
-            }
-        }
-    }
-
+    /// All GetValue operands are retained before any operation-specific
+    /// coercion. Every branch publishes one whole completion.
     pub(crate) fn compile_spec_operation_to_locals(
         &mut self,
         operation: SpecOperationIr,
         operands: &[TypedExpr],
-        payload_local: u32,
-        tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         validate_spec_operation_operands(operation, operands.len())?;
+        let schema = self.runtime_schema();
+        let mut inputs = Vec::with_capacity(operands.len());
+        for operand in operands {
+            let value = schema.reserve_value_local(function);
+            self.compile_expr_to_value(operand, &value, function)?;
+            inputs.push(value);
+        }
+        let pending = schema.reserve_completion(function);
+        let boolean = schema.reserve_i32_local(function);
+        let scalar = schema.reserve_i64_local(function);
+        pending.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
         match operation {
-            SpecOperationIr::IsCallable => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let operand_payload_local = self.reserve_temp_local();
-                let operand_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    operand,
-                    operand_payload_local,
-                    operand_tag_local,
-                    function,
-                )?;
-                self.emit_is_callable_i32(operand_tag_local, operand_payload_local, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(operand_tag_local);
-                self.release_temp_local(operand_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::IsConstructor => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let operand_payload_local = self.reserve_temp_local();
-                let operand_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    operand,
-                    operand_payload_local,
-                    operand_tag_local,
-                    function,
-                )?;
-                self.emit_is_constructor_i32(operand_tag_local, operand_payload_local, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(operand_tag_local);
-                self.release_temp_local(operand_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::IsPropertyKey => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let operand_payload_local = self.reserve_temp_local();
-                let operand_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    operand,
-                    operand_payload_local,
-                    operand_tag_local,
-                    function,
-                )?;
-                self.emit_is_property_key_i32(operand_tag_local, function);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(operand_tag_local);
-                self.release_temp_local(operand_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToBoolean => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.emit_to_boolean_payload_from_expr(operand, function)?;
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
+            SpecOperationIr::IsCallable
+            | SpecOperationIr::IsConstructor
+            | SpecOperationIr::IsPropertyKey
+            | SpecOperationIr::ToBoolean => {
+                match operation {
+                    SpecOperationIr::IsCallable => {
+                        self.emit_is_callable_i32(&inputs[0], function)?
+                    }
+                    SpecOperationIr::IsConstructor => {
+                        self.emit_is_constructor_i32(&inputs[0], function)
+                    }
+                    SpecOperationIr::IsPropertyKey => {
+                        self.emit_is_property_key_i32(inputs[0].tag(), function)
+                    }
+                    SpecOperationIr::ToBoolean => {
+                        self.compile_truthy_tagged_i32(&inputs[0], function)?
+                    }
+                    _ => unreachable!("closed Boolean query group"),
+                }
+                boolean.store(function);
+                pending.value().set_boolean(boolean, function);
+                pending.set_normal(pending.value(), function);
             }
             SpecOperationIr::ToPrimitive(hint) => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_primitive_locals(
-                    operand,
-                    hint,
-                    payload_local,
-                    tag_local,
-                    function,
-                )
+                self.emit_tagged_to_primitive_locals_pending(hint, &inputs[0], &pending, function)?;
             }
             SpecOperationIr::ToNumeric => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_numeric_locals(operand, payload_local, tag_local, function)
+                self.emit_value_to_numeric_locals(&inputs[0], &pending, function)?
             }
             SpecOperationIr::ToNumber => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_number_payload(operand, function)?;
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
+                self.emit_value_to_number_payload(&inputs[0], &pending, function)?
             }
-            SpecOperationIr::ToBigInt => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let operand_payload_local = self.reserve_temp_local();
-                let operand_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    operand,
-                    operand_payload_local,
-                    operand_tag_local,
-                    function,
-                )?;
-                self.emit_value_to_bigint_locals(
-                    operand_tag_local,
-                    operand_payload_local,
-                    BigIntNumberPolicy::RejectNumber,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(operand_tag_local);
-                self.release_temp_local(operand_payload_local);
-                Ok(())
-            }
+            SpecOperationIr::ToBigInt => self.emit_value_to_bigint_locals(
+                &inputs[0],
+                BigIntNumberPolicy::RejectNumber,
+                &pending,
+                function,
+            )?,
             SpecOperationIr::ToString => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                // Same reasoning as the `ToString` arm in
-                // `compile_spec_operation_payload`: dispatch
-                // Object/Array/Arguments ourselves and propagate correctly
-                // instead of relying on `emit_value_to_string_payload`'s
-                // internal hard-return-on-throw, and don't stamp a bogus
-                // String tag over an abrupt completion.
-                let primitive_payload_local = self.reserve_temp_local();
-                let primitive_tag_local = self.reserve_temp_local();
-                self.emit_tagged_to_primitive_locals(
-                    ToPrimitiveHint::String,
-                    payload_local,
-                    tag_local,
-                    primitive_payload_local,
-                    primitive_tag_local,
-                    ToPrimitiveAbruptRoute::ActiveHandler,
-                    function,
-                )?;
-                self.emit_primitive_to_string_payload(
-                    primitive_payload_local,
-                    primitive_tag_local,
-                    PrimitiveToStringAbruptRoute::ActiveHandler,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(payload_local));
-                self.release_temp_local(primitive_tag_local);
-                self.release_temp_local(primitive_payload_local);
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
+                self.emit_value_to_string_payload(&inputs[0], &pending, function)?
             }
             SpecOperationIr::ToObject => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_object_locals(operand, payload_local, tag_local, function)
+                self.emit_value_to_object_locals(&inputs[0], &pending, function)?
             }
             SpecOperationIr::ToPropertyKey => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_expr_to_locals(operand, payload_local, tag_local, function)?;
-                self.emit_value_to_property_key_locals(payload_local, tag_local, function)?;
-                Ok(())
+                self.emit_value_to_property_key_completion(&inputs[0], &pending, function)?
             }
             SpecOperationIr::ToIntegerOrInfinity => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let number_payload_local = self.reserve_temp_local();
-                self.compile_expr_to_number_payload(operand, function)?;
-                function.instruction(&Instruction::LocalSet(number_payload_local));
+                self.emit_value_to_number_payload(&inputs[0], &pending, function)?;
+                self.emit_spec_operation_abrupt_exit(&pending, exit, function);
                 self.emit_to_integer_or_infinity_number_payload_from_number_payload(
-                    number_payload_local,
-                    payload_local,
+                    pending.value().scalar(),
+                    scalar,
                     function,
                 );
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(number_payload_local);
-                Ok(())
+                pending.value().set_number(scalar, function);
+                pending.set_normal(pending.value(), function);
             }
-            SpecOperationIr::ToLength => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let operand_payload_local = self.reserve_temp_local();
-                let operand_tag_local = self.reserve_temp_local();
-                let length_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    operand,
-                    operand_payload_local,
-                    operand_tag_local,
-                    function,
-                )?;
-                self.emit_to_length_i64_from_value_locals(
-                    operand_tag_local,
-                    operand_payload_local,
-                    length_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(length_local));
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(length_local);
-                self.release_temp_local(operand_tag_local);
-                self.release_temp_local(operand_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::ToIndex => {
-                let [operand] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 1 operand, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let operand_payload_local = self.reserve_temp_local();
-                let operand_tag_local = self.reserve_temp_local();
-                let index_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    operand,
-                    operand_payload_local,
-                    operand_tag_local,
-                    function,
-                )?;
-                self.emit_to_index_i64_from_value_locals(
-                    operand_tag_local,
-                    operand_payload_local,
-                    index_local,
-                    "ToIndex out of range",
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(index_local);
-                self.release_temp_local(operand_tag_local);
-                self.release_temp_local(operand_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::SameValue => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_same_value_i32(lhs, rhs, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
-            }
-            SpecOperationIr::SameValueZero => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_same_value_zero_i32(lhs, rhs, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
-            }
-            SpecOperationIr::StrictEqualityComparison => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_strict_equality_i32(lhs, rhs, function)?;
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
-            }
-            SpecOperationIr::IsLooselyEqual => {
-                let [lhs, rhs] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                if !lhs.possible_kinds.contains(ValueKind::String)
-                    && !rhs.possible_kinds.contains(ValueKind::String)
-                {
-                    self.compile_loose_equality_nonstring_i32(lhs, rhs, function)?;
+            SpecOperationIr::ToLength | SpecOperationIr::ToIndex => {
+                if operation == SpecOperationIr::ToLength {
+                    self.emit_to_length_i64_from_value_locals(
+                        &inputs[0], scalar, &pending, function,
+                    )?;
                 } else {
-                    self.compile_loose_equality_i32(lhs, rhs, function)?;
-                }
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
-            }
-            SpecOperationIr::Get => {
-                let [target, key] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let object_payload_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let key_payload_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    target,
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(key, key_payload_local, key_tag_local, function)?;
-                self.emit_value_to_property_key_payload(
-                    key_payload_local,
-                    key_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(key_payload_local));
-                self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                let object_target_kind = spec_operation_object_target_kind(target.kind);
-                match &object_target_kind {
-                    SpecOperationObjectTargetKind::StaticallyObjectLike => {}
-                    SpecOperationObjectTargetKind::RuntimeDynamic => {
-                        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                    }
-                    SpecOperationObjectTargetKind::StaticallyPrimitive => {
-                        self.emit_throw_runtime_error(
-                            TYPE_ERROR_NAME,
-                            "Get target is not an object",
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, function);
-                        } else {
-                            self.emit_return_current_completion(function);
-                        }
-                    }
-                }
-                self.emit_dynamic_property_read_with_key_locals(
-                    object_payload_local,
-                    object_tag_local,
-                    object_payload_local,
-                    object_tag_local,
-                    key_payload_local,
-                    key_tag_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind {
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "Get target is not an object",
-                        self.result_local,
-                        self.result_tag_local,
+                    self.emit_to_index_i64_from_value_locals(
+                        &inputs[0],
+                        scalar,
+                        RuntimeErrorMessage::TOINDEX_OUT_OF_RANGE,
+                        &pending,
                         function,
                     )?;
-                    if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, function);
-                    } else {
-                        self.emit_return_current_completion(function);
+                }
+                self.emit_spec_operation_abrupt_exit(&pending, exit, function);
+                scalar.load(function);
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                scalar.store(function);
+                pending.value().set_number(scalar, function);
+                pending.set_normal(pending.value(), function);
+            }
+            SpecOperationIr::SameValue
+            | SpecOperationIr::SameValueZero
+            | SpecOperationIr::StrictEqualityComparison
+            | SpecOperationIr::IsLooselyEqual => {
+                match operation {
+                    SpecOperationIr::SameValue => {
+                        self.emit_tagged_payload_same_value_i32(&inputs[0], &inputs[1], function)?
                     }
-                    function.instruction(&Instruction::End);
+                    SpecOperationIr::SameValueZero => self
+                        .emit_tagged_payload_same_value_zero_i32(
+                            &inputs[0], &inputs[1], function,
+                        )?,
+                    SpecOperationIr::StrictEqualityComparison => {
+                        self.emit_tagged_payload_equality_i32(&inputs[0], &inputs[1], function)?
+                    }
+                    SpecOperationIr::IsLooselyEqual => {
+                        self.emit_loose_tagged_equality_i32(&inputs[0], &inputs[1], function)?
+                    }
+                    _ => unreachable!("closed comparison group"),
                 }
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_payload_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::GetV => {
-                let [target, key] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let key = spec_operation_property_key_operand(key);
-                self.compile_property_read_to_locals(
-                    target,
-                    &key,
-                    payload_local,
-                    tag_local,
-                    function,
-                )
-            }
-            SpecOperationIr::GetMethod => {
-                let [_, _] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                self.compile_property_get_v_to_locals(
-                    operands,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                function.instruction(&Instruction::Else);
-                self.emit_is_callable_i32(tag_local, payload_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "GetMethod target is not callable",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, function);
-                } else {
-                    self.emit_return_current_completion(function);
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                Ok(())
+                boolean.store(function);
+                pending.value().set_boolean(boolean, function);
+                pending.set_normal(pending.value(), function);
             }
             SpecOperationIr::Call => {
-                let Some((callee, rest)) = operands.split_first() else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: Call expects at least callee and thisArg",
-                    ));
-                };
-                let Some((this_arg, args)) = rest.split_first() else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: Call expects callee and thisArg operands",
-                    ));
-                };
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                let this_payload_local = self.reserve_temp_local();
-                let this_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    callee,
-                    callee_payload_local,
-                    callee_tag_local,
+                let arguments = self.emit_pre_evaluated_arg_vector(
+                    &inputs[2..].iter().collect::<Vec<_>>(),
                     function,
+                );
+                self.emit_function_or_proxy_call_with_argv(
+                    &inputs[0], &inputs[1], &arguments, &pending, function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    callee_payload_local,
-                    callee_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(
-                    this_arg,
-                    this_payload_local,
-                    this_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    this_payload_local,
-                    this_tag_local,
-                    function,
-                )?;
-                let mut arg_locals = Vec::with_capacity(args.len());
-                for arg in args {
-                    let arg_payload_local = self.reserve_temp_local();
-                    let arg_tag_local = self.reserve_temp_local();
-                    self.compile_expr_to_locals(arg, arg_payload_local, arg_tag_local, function)?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        arg_payload_local,
-                        arg_tag_local,
-                        function,
-                    )?;
-                    arg_locals.push((arg_payload_local, arg_tag_local));
-                }
-                self.emit_function_handle_call(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((this_payload_local, Some(this_tag_local))),
-                    &arg_locals,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                for (arg_payload_local, arg_tag_local) in arg_locals.into_iter().rev() {
-                    self.release_temp_local(arg_tag_local);
-                    self.release_temp_local(arg_payload_local);
-                }
-                self.release_temp_local(this_tag_local);
-                self.release_temp_local(this_payload_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                Ok(())
+                arguments.clear(function);
             }
             SpecOperationIr::Construct => {
-                let Some((callee, args)) = operands.split_first() else {
-                    return Err(EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: Construct expects a callee operand",
-                    ));
-                };
-                self.emit_construct(callee, args, None, payload_local, tag_local, function)
+                let arguments = self.emit_pre_evaluated_arg_vector(
+                    &inputs[1..].iter().collect::<Vec<_>>(),
+                    function,
+                );
+                self.emit_function_or_proxy_construct_with_argv(
+                    &inputs[0], &inputs[0], &arguments, &pending, function,
+                )?;
+                arguments.clear(function);
             }
             SpecOperationIr::WithEnvironmentHasBinding => {
-                let [target, name] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "WithEnvironmentHasBinding expects 2 operands, got {}",
-                        operands.len()
-                    )));
-                };
-                if name.kind != ValueKind::String {
+                if operands[1].kind != ValueKind::String {
                     return Err(EmitError::unsupported(
                         "WithEnvironmentHasBinding requires a String binding name",
                     ));
                 }
-                let object_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let name_local = self.reserve_temp_local();
-                let name_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(target, object_local, object_tag_local, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    object_local,
-                    object_tag_local,
+                let name = schema.reserve_gc_local(function).initialize(
+                    inputs[1].cast_reference::<StringValue>(schema, function),
                     function,
-                )?;
-                self.compile_expr_to_locals(name, name_local, name_tag_local, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    name_local,
-                    name_tag_local,
-                    function,
-                )?;
-                self.emit_with_environment_has_binding(
-                    object_local,
-                    object_tag_local,
-                    name_local,
-                    payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(name_tag_local);
-                self.release_temp_local(name_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_local);
-                Ok(())
+                );
+                schema
+                    .call_helper(
+                        crate::runtime_helpers::WithEnvironmentHasBindingArguments::new(
+                            &inputs[0],
+                            &name,
+                            self.current_environment(),
+                        ),
+                        self.runtime_helper_base()?,
+                        function,
+                    )
+                    .store(&pending, function);
+                name.clear(function);
             }
-            SpecOperationIr::HasProperty => {
-                let [target, key] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let object_payload_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let key_payload_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                let has_property_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(key, key_payload_local, key_tag_local, function)?;
-                self.compile_expr_to_locals(
-                    target,
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                let object_target_kind = spec_operation_object_target_kind(target.kind);
-                match &object_target_kind {
-                    SpecOperationObjectTargetKind::StaticallyObjectLike => {}
-                    SpecOperationObjectTargetKind::RuntimeDynamic => {
-                        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-                        function.instruction(&Instruction::If(BlockType::Empty));
+            SpecOperationIr::Get
+            | SpecOperationIr::GetV
+            | SpecOperationIr::GetMethod
+            | SpecOperationIr::HasProperty
+            | SpecOperationIr::HasOwnProperty
+            | SpecOperationIr::DeletePropertyOrThrow
+            | SpecOperationIr::Set
+            | SpecOperationIr::CreateDataPropertyOrThrow => {
+                let lookup = schema.reserve_value_local(function);
+                let key_value = schema.reserve_value_local(function);
+                let key_result = schema.reserve_completion(function);
+                let property_exit = self.open_frame(ControlFrameKind::Block, function);
+                match operation {
+                    SpecOperationIr::GetV | SpecOperationIr::GetMethod => {
+                        self.emit_value_to_object_locals(&inputs[0], &pending, function)?;
+                        self.emit_spec_operation_abrupt_exit(&pending, property_exit, function);
+                        lookup.copy_from(pending.value(), function);
                     }
-                    SpecOperationObjectTargetKind::StaticallyPrimitive => {
+                    SpecOperationIr::Get
+                    | SpecOperationIr::HasProperty
+                    | SpecOperationIr::HasOwnProperty
+                    | SpecOperationIr::DeletePropertyOrThrow
+                    | SpecOperationIr::Set
+                    | SpecOperationIr::CreateDataPropertyOrThrow => {
+                        let message = match operation {
+                            SpecOperationIr::Get => RuntimeErrorMessage::GET_TARGET_IS_NOT_AN_OBJECT,
+                            SpecOperationIr::HasProperty | SpecOperationIr::HasOwnProperty => RuntimeErrorMessage::RIGHT_HAND_SIDE_OF_IN_IS_NOT_AN_OBJECT,
+                            SpecOperationIr::DeletePropertyOrThrow => RuntimeErrorMessage::DELETEPROPERTYORTHROW_TARGET_IS_NOT_AN_OBJECT,
+                            SpecOperationIr::Set => RuntimeErrorMessage::SET_TARGET_IS_NOT_AN_OBJECT,
+                            SpecOperationIr::CreateDataPropertyOrThrow => RuntimeErrorMessage::CREATEDATAPROPERTYORTHROW_TARGET_IS_NOT_AN_OBJECT,
+                            _ => unreachable!("closed Object target group"),
+                        };
+                        self.emit_is_heap_object_like_tag_i32(inputs[0].tag(), function);
+                        function.instruction(&Instruction::I32Eqz);
+                        self.open_frame(ControlFrameKind::If, function);
                         self.emit_throw_runtime_error(
-                            "TypeError",
-                            "right-hand side of `in` is not an object",
-                            self.result_local,
-                            self.result_tag_local,
+                            NativeErrorKind::TypeError,
+                            message,
+                            &pending,
                             function,
                         )?;
-                        self.emit_dispatch_current_completion(function)?;
-                        self.release_temp_local(has_property_local);
-                        self.release_temp_local(key_tag_local);
-                        self.release_temp_local(key_payload_local);
-                        self.release_temp_local(object_tag_local);
-                        self.release_temp_local(object_payload_local);
-                        return Ok(());
+                        self.emit_branch_to_target(property_exit, function);
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                        lookup.copy_from(&inputs[0], function);
                     }
+                    _ => unreachable!("closed property group"),
                 }
-                self.emit_value_to_property_key_payload(
-                    key_payload_local,
-                    key_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(key_payload_local));
-                self.emit_object_has_property_i32(
-                    object_payload_local,
-                    object_tag_local,
-                    key_payload_local,
-                    has_property_local,
-                    function,
-                )?;
-                if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind {
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        "TypeError",
-                        "right-hand side of `in` is not an object",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, function);
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::LocalGet(has_property_local));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(has_property_local);
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_payload_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::HasOwnProperty => {
-                let [target, key] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let object_payload_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let key_payload_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                let descriptor_payload_local = self.reserve_temp_local();
-                let descriptor_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    target,
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(key, key_payload_local, key_tag_local, function)?;
-                self.emit_value_to_property_key_payload(
-                    key_payload_local,
-                    key_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(key_payload_local));
-                self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                let object_target_kind = spec_operation_object_target_kind(target.kind);
-                match &object_target_kind {
-                    SpecOperationObjectTargetKind::StaticallyObjectLike => {}
-                    SpecOperationObjectTargetKind::RuntimeDynamic => {
-                        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                    }
-                    SpecOperationObjectTargetKind::StaticallyPrimitive => {
-                        self.emit_throw_runtime_error(
-                            TYPE_ERROR_NAME,
-                            "HasOwnProperty target is not an object",
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, function);
-                        } else {
-                            self.emit_return_current_completion(function);
-                        }
-                    }
-                }
-                let get_own_meta = self
-                    .functions
-                    .get(&StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Reflect.getOwnPropertyDescriptor`",
-                        )
-                    })?;
-                self.emit_function_value_payload(&get_own_meta, function)?;
-                function.instruction(&Instruction::LocalSet(descriptor_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-                self.emit_function_handle_call(
-                    descriptor_payload_local,
-                    descriptor_tag_local,
-                    None,
-                    &[
-                        (object_payload_local, object_tag_local),
-                        (key_payload_local, key_tag_local),
-                    ],
-                    descriptor_payload_local,
-                    descriptor_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(descriptor_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind {
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "HasOwnProperty target is not an object",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, function);
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(descriptor_tag_local);
-                self.release_temp_local(descriptor_payload_local);
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_payload_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::DeletePropertyOrThrow => {
-                let [target, key] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let object_payload_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let key_payload_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    target,
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(key, key_payload_local, key_tag_local, function)?;
-                self.emit_value_to_property_key_payload(
-                    key_payload_local,
-                    key_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(key_payload_local));
-                // Symbol keys are carried in the property-key payload itself via
-                // `PROPERTY_KEY_SYMBOL_MARKER`, and `emit_object_delete` re-derives the
-                // key tag from that payload, so no String-only gate is needed here.
-                self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                let object_target_kind = spec_operation_object_target_kind(target.kind);
-                match &object_target_kind {
-                    SpecOperationObjectTargetKind::StaticallyObjectLike => {}
-                    SpecOperationObjectTargetKind::RuntimeDynamic => {
-                        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                    }
-                    SpecOperationObjectTargetKind::StaticallyPrimitive => {
-                        self.emit_throw_runtime_error(
-                            TYPE_ERROR_NAME,
-                            "DeletePropertyOrThrow target is not an object",
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, function);
-                        } else {
-                            self.emit_return_current_completion(function);
-                        }
-                    }
-                }
-                self.emit_object_delete(
-                    object_payload_local,
-                    object_tag_local,
-                    key_payload_local,
-                    payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Cannot delete property",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, function);
-                } else {
-                    self.emit_return_current_completion(function);
-                }
-                function.instruction(&Instruction::End);
-                if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind {
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "DeletePropertyOrThrow target is not an object",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, function);
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_payload_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::Set => {
-                let [target, key, value] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 3 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let object_payload_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let key_payload_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                let value_payload_local = self.reserve_temp_local();
-                let value_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    target,
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(key, key_payload_local, key_tag_local, function)?;
-                self.emit_value_to_property_key_payload(
-                    key_payload_local,
-                    key_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(key_payload_local));
-                // `emit_ordinary_set_result` is symbol-aware: it gates the
-                // Array `length` fast path and the typed-array canonical-index
-                // path on a String key tag, and re-derives the key tag from the
-                // payload before forwarding to a Proxy `set` trap. A Symbol key
-                // tag can therefore flow straight through.
-                self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                self.compile_expr_to_locals(value, value_payload_local, value_tag_local, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                let object_target_kind = spec_operation_object_target_kind(target.kind);
-                match &object_target_kind {
-                    SpecOperationObjectTargetKind::StaticallyObjectLike => {}
-                    SpecOperationObjectTargetKind::RuntimeDynamic => {
-                        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                    }
-                    SpecOperationObjectTargetKind::StaticallyPrimitive => {
-                        self.emit_throw_runtime_error(
-                            TYPE_ERROR_NAME,
-                            "Set target is not an object",
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, function);
-                        } else {
-                            self.emit_return_current_completion(function);
-                        }
-                    }
-                }
-                self.emit_ordinary_set_result(
-                    object_payload_local,
-                    object_tag_local,
-                    object_payload_local,
-                    object_tag_local,
-                    key_payload_local,
-                    key_tag_local,
-                    value_payload_local,
-                    value_tag_local,
-                    payload_local,
-                    function,
-                )?;
-                if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind {
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "Set target is not an object",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, function);
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(value_tag_local);
-                self.release_temp_local(value_payload_local);
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_payload_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::CreateDataPropertyOrThrow => {
-                let [target, key, value] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 3 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let object_payload_local = self.reserve_temp_local();
-                let object_tag_local = self.reserve_temp_local();
-                let key_payload_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                let value_payload_local = self.reserve_temp_local();
-                let value_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    target,
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    object_payload_local,
-                    object_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(key, key_payload_local, key_tag_local, function)?;
-                self.emit_value_to_property_key_payload(
-                    key_payload_local,
-                    key_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(key_payload_local));
-                // `emit_create_data_property_or_throw` matches own keys with
-                // `emit_property_key_payload_equality_i32` and stores the raw
-                // property-key payload (symbol marker included) into the entry
-                // slot, so symbol keys need no String-only gate here.
-                self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                self.compile_expr_to_locals(value, value_payload_local, value_tag_local, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                let object_target_kind = spec_operation_object_target_kind(target.kind);
-                match &object_target_kind {
-                    SpecOperationObjectTargetKind::StaticallyObjectLike => {}
-                    SpecOperationObjectTargetKind::RuntimeDynamic => {
-                        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                    }
-                    SpecOperationObjectTargetKind::StaticallyPrimitive => {
-                        self.emit_throw_runtime_error(
-                            TYPE_ERROR_NAME,
-                            "CreateDataPropertyOrThrow target is not an object",
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, function);
-                        } else {
-                            self.emit_return_current_completion(function);
-                        }
-                    }
-                }
-                self.emit_create_data_property_or_throw(
-                    object_payload_local,
-                    object_tag_local,
-                    key_payload_local,
-                    value_payload_local,
-                    value_tag_local,
-                    "Cannot redefine non-configurable property",
-                    "Cannot define property on non-extensible object",
-                    None,
-                    function,
-                )?;
-                if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind {
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "CreateDataPropertyOrThrow target is not an object",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, function);
-                    } else {
-                        self.emit_return_current_completion(function);
-                    }
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(value_tag_local);
-                self.release_temp_local(value_payload_local);
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_payload_local);
-                self.release_temp_local(object_tag_local);
-                self.release_temp_local(object_payload_local);
-                Ok(())
-            }
-            SpecOperationIr::CopyDataProperties => {
-                let [target, source] = operands else {
-                    return Err(EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: {} expects 2 operands, got {}",
-                        operation.name(),
-                        operands.len()
-                    )));
-                };
-                let target_payload_local = self.reserve_temp_local();
-                let target_tag_local = self.reserve_temp_local();
-                let source_payload_local = self.reserve_temp_local();
-                let source_tag_local = self.reserve_temp_local();
-                let source_object_payload_local = self.reserve_temp_local();
-                let source_object_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    target,
-                    target_payload_local,
-                    target_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    target_payload_local,
-                    target_tag_local,
-                    function,
-                )?;
-                self.compile_expr_to_locals(
-                    source,
-                    source_payload_local,
-                    source_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    source_payload_local,
-                    source_tag_local,
-                    function,
-                )?;
-                self.compile_nullish_tagged_i32(source_tag_local, function)?;
+                self.emit_value_to_property_key_completion(&inputs[1], &key_result, function)?;
+                key_result.kind().load(function);
+                function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+                function.instruction(&Instruction::I32Eq);
                 self.open_frame(ControlFrameKind::If, function);
-                function.instruction(&Instruction::Else);
-                self.emit_value_to_object_locals(
-                    source_payload_local,
-                    source_tag_local,
-                    source_object_payload_local,
-                    source_object_tag_local,
-                    function,
-                )?;
-                self.emit_copy_data_properties_into(
-                    source_object_payload_local,
-                    source_object_tag_local,
-                    &[],
-                    target_payload_local,
-                    function,
-                )?;
+                pending.copy_from(&key_result, function);
+                self.emit_branch_to_target(property_exit, function);
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.release_temp_local(source_object_tag_local);
-                self.release_temp_local(source_object_payload_local);
-                self.release_temp_local(source_tag_local);
-                self.release_temp_local(source_payload_local);
-                self.release_temp_local(target_tag_local);
-                self.release_temp_local(target_payload_local);
-                Ok(())
+                key_value.copy_from(key_result.value(), function);
+                let key = PropertyKeyLocals::from_converted_value(key_value);
+                match operation {
+                    SpecOperationIr::Get | SpecOperationIr::GetV | SpecOperationIr::GetMethod => {
+                        // GetV boxes only the lookup target. Getter this is the
+                        // original value, including a primitive receiver.
+                        self.emit_dynamic_property_read_with_key_locals(
+                            &lookup, &inputs[0], &key, &pending, function,
+                        )?;
+                        self.emit_spec_operation_abrupt_exit(&pending, property_exit, function);
+                        if operation == SpecOperationIr::GetMethod {
+                            self.compile_nullish_tagged_i32(pending.value().tag(), function)?;
+                            self.open_frame(ControlFrameKind::If, function);
+                            pending.value().set_undefined(function);
+                            pending.set_normal(pending.value(), function);
+                            function.instruction(&Instruction::Else);
+                            self.emit_is_callable_i32(pending.value(), function)?;
+                            function.instruction(&Instruction::I32Eqz);
+                            self.open_frame(ControlFrameKind::If, function);
+                            self.emit_throw_runtime_error(
+                                NativeErrorKind::TypeError,
+                                RuntimeErrorMessage::GETMETHOD_TARGET_IS_NOT_CALLABLE,
+                                &pending,
+                                function,
+                            )?;
+                            self.pop_control(ControlFrameKind::If);
+                            function.instruction(&Instruction::End);
+                            self.pop_control(ControlFrameKind::If);
+                            function.instruction(&Instruction::End);
+                        }
+                    }
+                    SpecOperationIr::HasProperty => {
+                        schema
+                            .call_helper(
+                                crate::runtime_helpers::ObjectHasPropertyArguments::new(
+                                    &lookup,
+                                    &key,
+                                    self.current_environment(),
+                                ),
+                                self.runtime_helper_base()?,
+                                function,
+                            )
+                            .store(&pending, function);
+                    }
+                    SpecOperationIr::HasOwnProperty => {
+                        let descriptor =
+                            self.emit_direct_own_descriptor_fact(&lookup, &key, function)?;
+                        descriptor.load(schema, function);
+                        function.instruction(&Instruction::RefIsNull);
+                        function.instruction(&Instruction::I32Eqz);
+                        boolean.store(function);
+                        pending.value().set_boolean(boolean, function);
+                        pending.set_normal(pending.value(), function);
+                        descriptor.clear(function);
+                    }
+                    SpecOperationIr::DeletePropertyOrThrow => {
+                        self.emit_object_delete(&lookup, &key, &pending, function)?;
+                        self.emit_spec_operation_abrupt_exit(&pending, property_exit, function);
+                        self.compile_truthy_tagged_i32(pending.value(), function)?;
+                        function.instruction(&Instruction::I32Eqz);
+                        self.open_frame(ControlFrameKind::If, function);
+                        self.emit_throw_runtime_error(
+                            NativeErrorKind::TypeError,
+                            RuntimeErrorMessage::CANNOT_DELETE_PROPERTY,
+                            &pending,
+                            function,
+                        )?;
+                        self.pop_control(ControlFrameKind::If);
+                        function.instruction(&Instruction::End);
+                    }
+                    SpecOperationIr::Set => {
+                        schema
+                            .call_helper(
+                                crate::runtime_helpers::OrdinarySetArguments::new(
+                                    &lookup,
+                                    &inputs[0],
+                                    &key,
+                                    &inputs[2],
+                                    self.current_environment(),
+                                ),
+                                self.runtime_helper_base()?,
+                                function,
+                            )
+                            .store(&pending, function);
+                    }
+                    SpecOperationIr::CreateDataPropertyOrThrow => {
+                        self.emit_create_data_property_or_throw(
+                            &lookup, &key, &inputs[2], &pending, function,
+                        )?;
+                        self.emit_spec_operation_abrupt_exit(&pending, property_exit, function);
+                        pending.value().set_undefined(function);
+                        pending.set_normal(pending.value(), function);
+                    }
+                    _ => unreachable!("closed property group"),
+                }
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+                key_result.clear(function);
+                key.clear(function);
+                lookup.clear(function);
+            }
+            SpecOperationIr::CopyDataProperties => {
+                self.emit_is_heap_object_like_tag_i32(inputs[0].tag(), function);
+                function.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_throw_runtime_error(
+                    NativeErrorKind::TypeError,
+                    RuntimeErrorMessage::CREATEDATAPROPERTYORTHROW_TARGET_IS_NOT_AN_OBJECT,
+                    &pending,
+                    function,
+                )?;
+                self.emit_branch_to_target(exit, function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                self.emit_copy_data_properties_into(
+                    &inputs[1],
+                    &[],
+                    &inputs[0],
+                    &pending,
+                    function,
+                )?;
+                self.emit_spec_operation_abrupt_exit(&pending, exit, function);
+                pending.value().set_undefined(function);
+                pending.set_normal(pending.value(), function);
             }
         }
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&pending, function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        output.copy_from(pending.value(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(scalar, function);
+        schema.release_i32_local(boolean, function);
+        pending.clear(function);
+        for input in inputs.into_iter().rev() {
+            input.clear(function);
+        }
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
+    }
+
+    fn emit_spec_operation_abrupt_exit(
+        &mut self,
+        pending: &CompletionLocals,
+        exit: crate::emit::ControlTarget,
+        function: &mut Function,
+    ) {
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_to_boolean_payload_from_expr(
@@ -2493,250 +754,139 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_to_boolean_payload_from_tagged_locals(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.compile_truthy_tagged_i32(tag_local, payload_local, function)?;
+        self.compile_truthy_tagged_i32(value, function)?;
         function.instruction(&Instruction::I64ExtendI32U);
-        Ok(())
-    }
-
-    pub(crate) fn compile_truthy_local_i32(
-        &mut self,
-        kind: ValueKind,
-        local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match kind {
-            ValueKind::Undefined | ValueKind::Null => {
-                function.instruction(&Instruction::I32Const(0));
-            }
-            ValueKind::Object | ValueKind::Array | ValueKind::Arguments | ValueKind::Symbol => {
-                function.instruction(&Instruction::I32Const(1));
-            }
-            ValueKind::Function => {
-                let tag_local = self.reserve_temp_local();
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_is_htmldda_function_i32(tag_local, local, function)?;
-                function.instruction(&Instruction::I32Eqz);
-                self.release_temp_local(tag_local);
-            }
-            ValueKind::Boolean => {
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::I32WrapI64);
-            }
-            ValueKind::String => {
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::I64Const(0xFFFF_FFFFu64 as i64));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::I32Eqz);
-            }
-            ValueKind::Number => {
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::I32Eqz);
-            }
-            ValueKind::BigInt => {
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-            }
-            ValueKind::Dynamic => {
-                return Err(EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: dynamic truthiness kind",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn emit_is_constructor_i32(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let flags_local = self.reserve_temp_local();
-        let is_htmldda_local = self.reserve_temp_local();
-        let current_payload_local = self.reserve_temp_local();
-        let current_tag_local = self.reserve_temp_local();
-        let proxy_handler_payload_local = self.reserve_temp_local();
-        let result_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(current_payload_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(current_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_function_constructable_flag(current_payload_local, flags_local, function);
-        function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(flags_local));
-        self.emit_is_htmldda_function_i32(current_tag_local, current_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(is_htmldda_local));
-        function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(is_htmldda_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            proxy_handler_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            current_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            current_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(0));
-
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I32WrapI64);
-
-        self.release_temp_local(result_local);
-        self.release_temp_local(proxy_handler_payload_local);
-        self.release_temp_local(current_tag_local);
-        self.release_temp_local(current_payload_local);
-        self.release_temp_local(is_htmldda_local);
-        self.release_temp_local(flags_local);
         Ok(())
     }
 
     pub(crate) fn emit_is_htmldda_function_i32(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        &self,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let flags_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        // Bound functions and callable proxies cannot acquire the HTMLDDA
+        // internal slot merely by being callable. Test the concrete record.
+        value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<FunctionObject>(crate::gc_types::GcNullability::NonNullable)
+                .heap_type,
+        ));
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_load_function_flags(payload_local, flags_local, function);
-        function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Const(FUNCTION_FLAG_IS_HTMLDDA as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        let callable_slot = schema.reserve_gc_local(function);
+        let callable = callable_slot.initialize(
+            value.cast_reference::<FunctionObject>(schema, function),
+            function,
+        );
+        let is_htmldda = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<FunctionObject>()
+            .field(FunctionObjectSchema::IS_HTMLDDA)
+            .read(&callable, schema, function)
+            .store(is_htmldda, function);
+        is_htmldda.load(function);
+        schema.release_i32_local(is_htmldda, function);
+        callable.clear(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(flags_local);
         Ok(())
     }
 
     pub(crate) fn compile_truthy_tagged_i32(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        &self,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Boolean as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(0xFFFF_FFFFu64 as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Eqz);
+        value.scalar().load(function);
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.compile_truthy_local_i32(ValueKind::Number, payload_local, function)?;
+        let string_slot = schema.reserve_gc_local(function);
+        let string = string_slot.initialize(
+            value.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        let units_slot = schema.reserve_gc_local(function);
+        let units = units_slot.initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(&string, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        units.clear(function);
+        string.clear(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.compile_truthy_local_i32(ValueKind::BigInt, payload_local, function)?;
+        value.scalar().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Eq);
+        value.scalar().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        value.scalar().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        let bigint_slot = schema.reserve_gc_local(function);
+        let bigint = bigint_slot.initialize(
+            value.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        let limbs_slot = schema.reserve_gc_local(function);
+        let limbs = limbs_slot.initialize(
+            schema
+                .struct_type::<BigIntValue>()
+                .field(BigIntValueSchema::LIMBS)
+                .read(&bigint, schema, function)
+                .reference(),
+            function,
+        );
+        // Canonical zero has no magnitude limbs; every nonzero value has a
+        // nonzero final limb, independently of the sign.
+        schema
+            .array_type::<BigIntLimbArray>()
+            .length(&limbs, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        limbs.clear(function);
+        bigint.clear(function);
+        function.instruction(&Instruction::Else);
+        self.compile_nullish_tagged_i32(value.tag(), function)?;
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        self.emit_is_htmldda_function_i32(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        self.emit_is_htmldda_function_i32(value, function)?;
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2747,15 +897,17 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn compile_nullish_tagged_i32(
         &self,
-        tag_local: u32,
+        tag: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        function.instruction(&Instruction::I32Eq);
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Null as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32Or);
         Ok(())
     }
@@ -2771,1490 +923,741 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         expr: &TypedExpr,
         hint: ToPrimitiveHint,
-        payload_local: u32,
-        tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if expr.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
-            self.compile_expr_to_locals(expr, payload_local, tag_local, function)?;
-            return Ok(());
-        }
-
-        let raw_payload_local = self.reserve_temp_local();
-        let raw_tag_local = self.reserve_temp_local();
-        self.compile_expr_to_locals(expr, raw_payload_local, raw_tag_local, function)?;
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        self.compile_expr_to_value(expr, &input, function)?;
         self.emit_tagged_to_primitive_locals(
             hint,
-            raw_payload_local,
-            raw_tag_local,
-            payload_local,
-            tag_local,
+            &input,
+            &result,
             ToPrimitiveAbruptRoute::ActiveHandler,
             function,
         )?;
-        self.release_temp_local(raw_tag_local);
-        self.release_temp_local(raw_payload_local);
+        output.copy_from(result.value(), function);
+        result.clear(function);
+        input.clear(function);
         Ok(())
     }
 
-    /// The tagged ToPrimitive emitter for callers that need to split
-    /// "evaluate the operand" from "coerce it". This wrapper fixes the route
-    /// to the active handler just like `compile_expr_to_primitive_locals`.
-    fn emit_to_primitive_from_raw_locals(
-        &mut self,
-        hint: ToPrimitiveHint,
-        raw_payload_local: u32,
-        raw_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_tagged_to_primitive_locals(
-            hint,
-            raw_payload_local,
-            raw_tag_local,
-            payload_local,
-            tag_local,
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            function,
-        )
-    }
-
-    /// Evaluates both operands of a binary operator first, and only then runs
-    /// ToPrimitive on each, left to right.
-    ///
-    /// Calling `compile_expr_to_primitive_locals` once per operand is wrong for
-    /// binary operators: it coerces the left operand as soon as it is
-    /// evaluated, so an object lhs runs its @@toPrimitive/valueOf/toString hook
-    /// before the rhs expression is evaluated at all. The spec evaluates both
-    /// operands (EvaluateStringOrNumericBinaryExpression steps 1-4) before
-    /// ApplyStringOrNumericBinaryOperator coerces either of them, which is
-    /// observable whenever both sides have side effects.
+    /// Both source values are obtained before the first observable conversion.
     pub(crate) fn compile_operand_pair_to_primitive_locals(
         &mut self,
         lhs: &TypedExpr,
         rhs: &TypedExpr,
         hint: ToPrimitiveHint,
-        lhs_payload_local: u32,
-        lhs_tag_local: u32,
-        rhs_payload_local: u32,
-        rhs_tag_local: u32,
+        left: &ValueLocals,
+        right: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
-            // Nothing to coerce on the left, so the naive order is already the
-            // spec order.
-            self.compile_expr_to_locals(lhs, lhs_payload_local, lhs_tag_local, function)?;
-            return self.compile_expr_to_primitive_locals(
-                rhs,
-                hint,
-                rhs_payload_local,
-                rhs_tag_local,
-                function,
-            );
-        }
-
-        let lhs_raw_payload = self.reserve_temp_local();
-        let lhs_raw_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(lhs, lhs_raw_payload, lhs_raw_tag, function)?;
-
-        if rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
-            self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
-            self.emit_to_primitive_from_raw_locals(
-                hint,
-                lhs_raw_payload,
-                lhs_raw_tag,
-                lhs_payload_local,
-                lhs_tag_local,
-                function,
-            )?;
-        } else {
-            let rhs_raw_payload = self.reserve_temp_local();
-            let rhs_raw_tag = self.reserve_temp_local();
-            self.compile_expr_to_locals(rhs, rhs_raw_payload, rhs_raw_tag, function)?;
-            self.emit_to_primitive_from_raw_locals(
-                hint,
-                lhs_raw_payload,
-                lhs_raw_tag,
-                lhs_payload_local,
-                lhs_tag_local,
-                function,
-            )?;
-            self.emit_to_primitive_from_raw_locals(
-                hint,
-                rhs_raw_payload,
-                rhs_raw_tag,
-                rhs_payload_local,
-                rhs_tag_local,
-                function,
-            )?;
-            self.release_temp_local(rhs_raw_tag);
-            self.release_temp_local(rhs_raw_payload);
-        }
-
-        self.release_temp_local(lhs_raw_tag);
-        self.release_temp_local(lhs_raw_payload);
+        let schema = self.runtime_schema();
+        let left_input = schema.reserve_value_local(function);
+        let right_input = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        self.compile_expr_to_value(lhs, &left_input, function)?;
+        self.compile_expr_to_value(rhs, &right_input, function)?;
+        self.emit_tagged_to_primitive_locals(
+            hint,
+            &left_input,
+            &result,
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            function,
+        )?;
+        left.copy_from(result.value(), function);
+        self.emit_tagged_to_primitive_locals(
+            hint,
+            &right_input,
+            &result,
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            function,
+        )?;
+        right.copy_from(result.value(), function);
+        result.clear(function);
+        right_input.clear(function);
+        left_input.clear(function);
         Ok(())
-    }
-
-    /// The four tags whose `ToPrimitive` is more than a copy: everything else
-    /// is already a primitive and the composite's final `else` arm just moves
-    /// it. Leaves an i32 boolean on the stack.
-    fn emit_is_to_primitive_object_tag_i32(&self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        for kind in [ValueKind::Array, ValueKind::Arguments, ValueKind::Function] {
-            function.instruction(&Instruction::LocalGet(tag_local));
-            function.instruction(&Instruction::I64Const(kind.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32Or);
-        }
-    }
-
-    /// Outline only the object tags; primitives retain the inline copy path.
-    /// The pending token owns abrupt routing after either branch. Parameter 2
-    /// carries the closed conversion-error policy, and parameter 6 carries the
-    /// trusted execution-Realm projection used by hook property reads and calls.
-    fn emit_value_to_primitive_via_helper_if_outlined(
-        &mut self,
-        hint: ToPrimitiveHint,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        error_realm: &ConversionErrorRealmSource,
-        function: &mut Function,
-    ) -> bool {
-        if !self.outline_value_to_primitive {
-            return false;
-        }
-        let Some(helper) = self.value_to_primitive_helper_function_index(hint) else {
-            return false;
-        };
-        self.emit_is_to_primitive_object_tag_i32(input_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        self.emit_conversion_error_realm_argument(error_realm, function);
-        for _ in 0..3 {
-            function.instruction(&Instruction::I64Const(0));
-        }
-        self.emit_outlined_object_read_realm_argument(function);
-        function.instruction(&Instruction::Call(helper));
-        self.store_call_results(payload_local, tag_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-        true
     }
 
     pub(crate) fn emit_tagged_to_primitive_locals(
         &mut self,
         hint: ToPrimitiveHint,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        input: &ValueLocals,
+        result: &crate::gc_types::CompletionLocals,
         route: ToPrimitiveAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_tagged_to_primitive_locals_pending(
-            hint,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            &ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
+        self.emit_tagged_to_primitive_locals_pending(hint, input, result, function)?;
+        self.finish_to_primitive_operation(route, result, function)
+    }
+
+    /// Every caller consumes the registered hint-specific conversion body and
+    /// its complete result. The helper receives the original caller Environment.
+    pub(crate) fn emit_tagged_to_primitive_locals_pending(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input: &ValueLocals,
+        result: &crate::gc_types::CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let base = self.runtime_helper_base()?;
+        match hint {
+            ToPrimitiveHint::Default => schema
+                .call_helper(
+                    crate::runtime_helpers::ValueToPrimitiveDefaultArguments::new(
+                        input,
+                        self.current_environment(),
+                    ),
+                    base,
+                    function,
+                )
+                .store(result, function),
+            ToPrimitiveHint::Number => schema
+                .call_helper(
+                    crate::runtime_helpers::ValueToPrimitiveNumberArguments::new(
+                        input,
+                        self.current_environment(),
+                    ),
+                    base,
+                    function,
+                )
+                .store(result, function),
+            ToPrimitiveHint::String => schema
+                .call_helper(
+                    crate::runtime_helpers::ValueToPrimitiveStringArguments::new(
+                        input,
+                        self.current_environment(),
+                    ),
+                    base,
+                    function,
+                )
+                .store(result, function),
+        }
+        Ok(())
+    }
+
+    /// Sole physical GetMethod/OrdinaryToPrimitive body, emitted only by the
+    /// registered hint-specific helper compilers.
+    pub(crate) fn emit_tagged_to_primitive_locals_pending_inner(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input: &ValueLocals,
+        result: &crate::gc_types::CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let method = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        method.set_undefined(function);
+        pending.initialize(function);
+        result.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_is_primitive_tag_i32(input.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(input, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let symbol_slot = schema.reserve_gc_local(function);
+        let symbol = symbol_slot.initialize(
+            self.emit_well_known_symbol_reference(lila_ir::WellKnownSymbol::ToPrimitive, function)?,
             function,
-        )?
-        .route(self, route, function)
+        );
+        let key = PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        symbol.clear(function);
+        self.emit_object_read_with_throw_routing(
+            input,
+            input,
+            &key,
+            &pending,
+            AccessorThrowRouting::LeaveInCompletion,
+            function,
+        )?;
+        key.clear(function);
+        self.emit_conversion_abrupt_exit(&pending, result, exit, function);
+        method.copy_from(pending.value(), function);
+        self.compile_nullish_tagged_i32(method.tag(), function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_is_callable_i32(&method, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_OBJECT_TO_PRIMITIVE_VALUE,
+            result,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let hint_slot = schema.reserve_gc_local(function);
+        let hint_text = hint_slot.initialize(
+            self.emit_interned_string_reference(
+                match hint {
+                    ToPrimitiveHint::Default => "default",
+                    ToPrimitiveHint::Number => "number",
+                    ToPrimitiveHint::String => "string",
+                },
+                function,
+            )?,
+            function,
+        );
+        let hint_value = schema.reserve_value_local(function);
+        hint_value.set_reference(&hint_text, schema, function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[&hint_value], function);
+        self.emit_function_handle_call_with_argv_inner(
+            &method,
+            Some(input),
+            &arguments,
+            &pending,
+            PropagateCallThrow::LeaveInCompletion,
+            function,
+        )?;
+        arguments.clear(function);
+        hint_value.clear(function);
+        hint_text.clear(function);
+        self.emit_conversion_abrupt_exit(&pending, result, exit, function);
+        self.emit_is_primitive_tag_i32(pending.value().tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(&pending, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_OBJECT_TO_PRIMITIVE_VALUE,
+            result,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.emit_ordinary_to_primitive_pending(hint, input, result, function)?;
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        pending.clear(function);
+        method.clear(function);
+        Ok(())
+    }
+
+    /// OrdinaryToPrimitive deliberately skips the @@toPrimitive lookup. Its
+    /// Date and generic ToPrimitive consumers share the same Get/Call order
+    /// and retain the complete abrupt result.
+    pub(crate) fn emit_ordinary_to_primitive_pending(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let method = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        method.set_undefined(function);
+        pending.initialize(function);
+        result.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        let names = match hint {
+            ToPrimitiveHint::String => ["toString", "valueOf"],
+            ToPrimitiveHint::Default | ToPrimitiveHint::Number => ["valueOf", "toString"],
+        };
+        for name in names {
+            let name_slot = schema.reserve_gc_local(function);
+            let name = name_slot.initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
+            let key = PropertyKeyLocals::from_string(schema, &name, function);
+            name.clear(function);
+            self.emit_object_read_with_throw_routing(
+                input,
+                input,
+                &key,
+                &pending,
+                AccessorThrowRouting::LeaveInCompletion,
+                function,
+            )?;
+            key.clear(function);
+            self.emit_conversion_abrupt_exit(&pending, result, exit, function);
+            method.copy_from(pending.value(), function);
+            self.emit_is_callable_i32(&method, function)?;
+            self.open_frame(ControlFrameKind::If, function);
+            let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+            self.emit_function_handle_call_with_argv_inner(
+                &method,
+                Some(input),
+                &arguments,
+                &pending,
+                PropagateCallThrow::LeaveInCompletion,
+                function,
+            )?;
+            arguments.clear(function);
+            self.emit_conversion_abrupt_exit(&pending, result, exit, function);
+            self.emit_is_primitive_tag_i32(pending.value().tag(), function);
+            self.open_frame(ControlFrameKind::If, function);
+            result.copy_from(&pending, function);
+            self.emit_branch_to_target(exit, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_OBJECT_TO_PRIMITIVE_VALUE,
+            result,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        pending.clear(function);
+        method.clear(function);
+        Ok(())
+    }
+
+    fn emit_conversion_abrupt_exit(
+        &mut self,
+        pending: &crate::gc_types::CompletionLocals,
+        result: &crate::gc_types::CompletionLocals,
+        exit: crate::emit::ControlTarget,
+        function: &mut Function,
+    ) {
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(pending, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_tagged_to_primitive_locals_in_current_function_realm(
         &mut self,
         hint: ToPrimitiveHint,
-        input_payload_local: u32,
-        input_tag_local: u32,
+        input: &ValueLocals,
         function: &mut Function,
     ) -> Result<CurrentFunctionRealmPrimitiveLocals, EmitError> {
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-
-        self.emit_tagged_to_primitive_locals_pending(
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        self.emit_tagged_to_primitive_locals(
             hint,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            &ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm),
-            function,
-        )?
-        .route(
-            self,
+            input,
+            &result,
             ToPrimitiveAbruptRoute::ReturnCurrentFunction,
             function,
         )?;
-
-        Ok(CurrentFunctionRealmPrimitiveLocals {
-            payload_local,
-            tag_local,
-        })
-    }
-
-    pub(crate) fn emit_current_function_realm_primitive_to_string_local(
-        &mut self,
-        primitive: CurrentFunctionRealmPrimitiveLocals,
-        string_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let CurrentFunctionRealmPrimitiveLocals {
-            payload_local,
-            tag_local,
-        } = primitive;
-
-        self.emit_primitive_to_string_payload_with_error_realm(
-            payload_local,
-            tag_local,
-            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
-            &ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(string_payload_local));
-
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        Ok(())
+        let value = schema.reserve_value_local(function);
+        value.copy_from(result.value(), function);
+        result.clear(function);
+        Ok(CurrentFunctionRealmPrimitiveLocals { value })
     }
 
     pub(crate) fn emit_current_function_realm_primitive_to_tagged_locals(
         &mut self,
         primitive: CurrentFunctionRealmPrimitiveLocals,
-        output_payload_local: u32,
-        output_tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) {
-        let CurrentFunctionRealmPrimitiveLocals {
-            payload_local,
-            tag_local,
-        } = primitive;
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
+        output.copy_from(&primitive.value, function);
+        primitive.value.clear(function);
     }
 
-    fn emit_tagged_to_primitive_locals_pending(
+    pub(crate) fn emit_current_function_realm_primitive_to_string_local(
         &mut self,
-        hint: ToPrimitiveHint,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        error_realm: &ConversionErrorRealmSource,
-        function: &mut Function,
-    ) -> Result<PendingToPrimitiveCompletion, EmitError> {
-        if self.emit_value_to_primitive_via_helper_if_outlined(
-            hint,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            error_realm,
-            function,
-        ) {
-            return Ok(PendingToPrimitiveCompletion::new(payload_local, tag_local));
-        }
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_to_primitive_locals_inner(
-            hint,
-            input_payload_local,
-            OrdinaryToPrimitiveReceiverKind::Object,
-            payload_local,
-            tag_local,
-            error_realm,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_to_primitive_locals_inner(
-            hint,
-            input_payload_local,
-            OrdinaryToPrimitiveReceiverKind::Array,
-            payload_local,
-            tag_local,
-            error_realm,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_to_primitive_locals_inner(
-            hint,
-            input_payload_local,
-            OrdinaryToPrimitiveReceiverKind::Arguments,
-            payload_local,
-            tag_local,
-            error_realm,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // A Function is an ordinary object for ToPrimitive purposes, so it
-        // runs the same @@toPrimitive/valueOf/toString hook chain as a plain
-        // object instead of passing through as if it were already primitive.
-        self.emit_object_to_primitive_locals_inner(
-            hint,
-            input_payload_local,
-            OrdinaryToPrimitiveReceiverKind::Function,
-            payload_local,
-            tag_local,
-            error_realm,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(PendingToPrimitiveCompletion::new(payload_local, tag_local))
-    }
-
-    /// Emit a complete ToPrimitive runtime-helper result tuple.
-    ///
-    /// This is the only cross-module raw-completion surface. It does not expose
-    /// the pending token or its locals: the wrapper emits all four ABI slots
-    /// before returning, so a product caller cannot request an unowned raw
-    /// `ToPrimitive` result.
-    pub(crate) fn emit_to_primitive_runtime_helper_result_tuple(
-        &mut self,
-        hint: ToPrimitiveHint,
-        input_payload_local: u32,
-        input_tag_local: u32,
+        primitive: CurrentFunctionRealmPrimitiveLocals,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let pending = self.emit_tagged_to_primitive_locals_pending(
-            hint,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            &ConversionErrorRealmSource::RuntimeHelperArgument,
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        self.emit_value_to_string_payload(&primitive.value, &result, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ReturnCurrentFunction,
+            &result,
             function,
         )?;
-        pending.emit_runtime_helper_result_tuple(self, function);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
+        output.copy_from(result.value(), function);
+        result.clear(function);
+        primitive.value.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_object_to_primitive_locals(
-        &mut self,
-        hint: ToPrimitiveHint,
-        object_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        route: ToPrimitiveAbruptRoute,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_object_to_primitive_locals_pending(
-            hint,
-            object_local,
-            payload_local,
-            tag_local,
-            &ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
-            function,
-        )?
-        .route(self, route, function)
-    }
-
-    fn emit_object_to_primitive_locals_pending(
-        &mut self,
-        hint: ToPrimitiveHint,
-        object_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        error_realm: &ConversionErrorRealmSource,
-        function: &mut Function,
-    ) -> Result<PendingToPrimitiveCompletion, EmitError> {
-        self.emit_object_to_primitive_locals_inner(
-            hint,
-            object_local,
-            OrdinaryToPrimitiveReceiverKind::Object,
-            payload_local,
-            tag_local,
-            error_realm,
-            function,
-        )?;
-        Ok(PendingToPrimitiveCompletion::new(payload_local, tag_local))
-    }
-
-    fn emit_object_to_primitive_locals_inner(
-        &mut self,
-        hint: ToPrimitiveHint,
-        object_local: u32,
-        receiver_kind: OrdinaryToPrimitiveReceiverKind,
-        payload_local: u32,
-        tag_local: u32,
-        error_realm: &ConversionErrorRealmSource,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let hook_names: &[&str] = match hint {
-            ToPrimitiveHint::String => &["Symbol.toPrimitive", "toString", "valueOf"],
-            ToPrimitiveHint::Default | ToPrimitiveHint::Number => {
-                &["Symbol.toPrimitive", "valueOf", "toString"]
-            }
-        };
-
-        let hook_value_payload = self.reserve_temp_local();
-        let hook_value_tag = self.reserve_temp_local();
-        let call_result_payload = self.reserve_temp_local();
-        let call_result_tag = self.reserve_temp_local();
-        let primitive_result_local = self.reserve_temp_local();
-        let call_attempted_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(primitive_result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(call_attempted_local));
-        function.instruction(&Instruction::I64Const(
-            receiver_kind.value_kind().tag() as i64
+    pub(crate) fn emit_is_primitive_tag_i32(&self, tag: I32Local, function: &mut Function) {
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
         ));
-        function.instruction(&Instruction::LocalSet(object_tag_local));
-
-        for hook_name in hook_names {
-            let key_local = self.reserve_temp_local();
-            function.instruction(&Instruction::LocalGet(primitive_result_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            // `Symbol.toPrimitive` is a symbol-valued PropertyKey, so its
-            // lookup payload must carry `PROPERTY_KEY_SYMBOL_MARKER` — a plain
-            // string payload with the same bytes is a *different* key and never
-            // matches a stored `[Symbol.toPrimitive]` entry (see
-            // `emit_property_key_payload_equality_i32`). `toString` and
-            // `valueOf` stay plain string keys;
-            // `static_builtin_property_key_payload` picks the right encoding
-            // per name, exactly as the property-definition side does.
-            function.instruction(&Instruction::I64Const(
-                self.strings.static_builtin_property_key_payload(hook_name),
-            ));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_read_without_throw_propagation(
-                object_local,
-                object_tag_local,
-                object_local,
-                object_tag_local,
-                key_local,
-                hook_value_payload,
-                hook_value_tag,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(hook_value_payload));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::LocalGet(hook_value_tag));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(primitive_result_local));
-            function.instruction(&Instruction::Else);
-            if *hook_name == "Symbol.toPrimitive" {
-                function.instruction(&Instruction::LocalGet(hook_value_tag));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(call_attempted_local));
-                // @@toPrimitive receives the requested hint as its sole
-                // argument. Keep the ordinary valueOf/toString calls below
-                // argument-free, as required by OrdinaryToPrimitive.
-                let hint_payload_local = self.reserve_temp_local();
-                let hint_tag_local = self.reserve_temp_local();
-                let hint = match hint {
-                    ToPrimitiveHint::String => "string",
-                    ToPrimitiveHint::Number => "number",
-                    ToPrimitiveHint::Default => "default",
-                };
-                function.instruction(&Instruction::I64Const(self.strings.payload(hint)));
-                function.instruction(&Instruction::LocalSet(hint_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(hint_tag_local));
-                self.emit_function_handle_call_without_throw_propagation(
-                    hook_value_payload,
-                    hook_value_tag,
-                    Some((object_local, Some(object_tag_local))),
-                    &[(hint_payload_local, hint_tag_local)],
-                    call_result_payload,
-                    call_result_tag,
-                    function,
-                )?;
-                self.release_temp_local(hint_tag_local);
-                self.release_temp_local(hint_payload_local);
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(call_result_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(call_result_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_throw_from_locals(call_result_payload, call_result_tag, function)?;
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(primitive_result_local));
-                function.instruction(&Instruction::Else);
-                self.emit_is_primitive_tag_i32(call_result_tag, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(call_result_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(call_result_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(primitive_result_local));
-                function.instruction(&Instruction::Else);
-                self.emit_conversion_type_error(
-                    error_realm,
-                    "Cannot convert object to primitive value",
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(primitive_result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(hook_value_tag));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(hook_value_tag));
-                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_conversion_type_error(
-                    error_realm,
-                    "Cannot convert object to primitive value",
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(primitive_result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-            } else {
-                function.instruction(&Instruction::LocalGet(hook_value_tag));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(call_attempted_local));
-                self.emit_function_handle_call_without_throw_propagation(
-                    hook_value_payload,
-                    hook_value_tag,
-                    Some((object_local, Some(object_tag_local))),
-                    &[],
-                    call_result_payload,
-                    call_result_tag,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(call_result_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(call_result_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.emit_throw_from_locals(call_result_payload, call_result_tag, function)?;
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(primitive_result_local));
-                function.instruction(&Instruction::Else);
-                self.emit_is_primitive_tag_i32(call_result_tag, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(call_result_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(call_result_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(primitive_result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                if *hook_name == "toString"
-                    && matches!(
-                        receiver_kind,
-                        OrdinaryToPrimitiveReceiverKind::Object
-                            | OrdinaryToPrimitiveReceiverKind::Function
-                    )
-                {
-                    // Array and Arguments records must resolve their actual
-                    // prototype methods without reading object-only offsets.
-                    // OrdinaryToPrimitive: Get(O, "toString") for an ordinary object with
-                    // no own (or otherwise resolvable) `toString` still resolves to the
-                    // inherited Object.prototype.toString, whose call yields
-                    // "[object Object]". Reconstruct that default when the property read
-                    // surfaced no callable (undefined) and the receiver is an ordinary
-                    // object that inherits Object.prototype, so plain objects coerce to a
-                    // primitive instead of throwing.
-                    //
-                    // This must NOT apply when the object (or its chain) has a real
-                    // `toString` property whose value happens to be `undefined` (e.g. an
-                    // own `toString: undefined` shadowing the inherited default) — that
-                    // case legitimately yields "no callable here", falls through to the
-                    // next hook without a default, and can end in a TypeError. Use
-                    // HasProperty to distinguish "genuinely absent" (apply the default)
-                    // from "present but non-callable" (do not).
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(hook_value_tag));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    self.emit_ordinary_object_default_to_string_applies_i32(
-                        object_local,
-                        object_tag_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::I32And);
-                    let has_tostring_local = self.reserve_temp_local();
-                    self.emit_object_has_property_i32(
-                        object_local,
-                        object_tag_local,
-                        key_local,
-                        has_tostring_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(has_tostring_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::I32And);
-                    self.release_temp_local(has_tostring_local);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(
-                        self.strings.payload("[object Object]"),
-                    ));
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(primitive_result_local));
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::End);
-            }
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            self.release_temp_local(key_local);
+        function.instruction(&Instruction::I32Eq);
+        for kind in [
+            WasmRuntimeValueTag::Null,
+            WasmRuntimeValueTag::Boolean,
+            WasmRuntimeValueTag::Number,
+            WasmRuntimeValueTag::BigInt,
+            WasmRuntimeValueTag::Symbol,
+            WasmRuntimeValueTag::String,
+        ] {
+            tag.load(function);
+            function.instruction(&Instruction::I32Const(kind as i32));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::I32Or);
         }
+    }
 
-        function.instruction(&Instruction::LocalGet(primitive_result_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_conversion_type_error(
-            error_realm,
-            "Cannot convert object to primitive value",
-            payload_local,
-            tag_local,
+    pub(crate) fn emit_is_bigint_tag_i32(&self, tag: I32Local, function: &mut Function) {
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Eq);
+    }
+
+    pub(crate) fn emit_is_heap_object_like_tag_i32(&self, tag: I32Local, function: &mut Function) {
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Object as i32));
+        function.instruction(&Instruction::I32Eq);
+        for kind in [
+            WasmRuntimeValueTag::Array,
+            WasmRuntimeValueTag::Function,
+            WasmRuntimeValueTag::Arguments,
+        ] {
+            tag.load(function);
+            function.instruction(&Instruction::I32Const(kind as i32));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+    }
+
+    fn emit_numeric_bigint_operation(
+        &mut self,
+        operation: BigIntHelperOp,
+        left: &ValueLocals,
+        right: &ValueLocals,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let selector = schema.reserve_i32_local(function);
+        let result = schema.reserve_completion(function);
+        function.instruction(&Instruction::I32Const(operation.runtime_code() as i32));
+        selector.store(function);
+        schema
+            .call_helper(
+                crate::runtime_helpers::BigIntArithmeticArguments::new(left, right, selector),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&result, function);
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &result,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(primitive_result_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(call_attempted_local);
-        self.release_temp_local(primitive_result_local);
-        self.release_temp_local(call_result_tag);
-        self.release_temp_local(call_result_payload);
-        self.release_temp_local(hook_value_tag);
-        self.release_temp_local(hook_value_payload);
-        // A throw here (an abrupt hook read/call, a non-primitive hook return,
-        // or no primitive result) remains in the completion and output locals.
-        // ToPrimitive can run inside raw Wasm blocks not reflected in
-        // `self.control_stack`, so callers must propagate only after those
-        // blocks have closed.
+        output.copy_from(result.value(), function);
+        result.clear(function);
+        schema.release_i32_local(selector, function);
         Ok(())
     }
 
-    /// Pushes an i32 (1/0) indicating whether `object_local` is an ordinary object
-    /// (no exotic internal brand) whose prototype chain reaches `Object.prototype`.
-    /// When true, `OrdinaryToPrimitive`'s inherited `Object.prototype.toString`
-    /// default ("[object Object]") applies; when false (e.g. a null-prototype object
-    /// or an exotic such as an Error) the caller must fall back to throwing.
-    pub(crate) fn emit_ordinary_object_default_to_string_applies_i32(
+    fn emit_numeric_pair_agreement(
         &mut self,
-        object_local: u32,
-        object_tag_local: u32,
+        left: &ValueLocals,
+        right: &ValueLocals,
         function: &mut Function,
-    ) {
-        let search_local = self.reserve_temp_local();
-        let search_tag_local = self.reserve_temp_local();
-        let next_proto_local = self.reserve_temp_local();
-        let next_proto_tag_local = self.reserve_temp_local();
-        let inherits_local = self.reserve_temp_local();
-        let brand_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(inherits_local));
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(search_local));
-        function.instruction(&Instruction::LocalGet(object_tag_local));
-        function.instruction(&Instruction::LocalSet(search_tag_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        // Reached the end of the prototype chain (null) without Object.prototype.
-        function.instruction(&Instruction::LocalGet(search_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        // Found Object.prototype in the chain.
-        function.instruction(&Instruction::LocalGet(search_local));
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(inherits_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        self.emit_ordinary_get_prototype_of(
-            search_local,
-            search_tag_local,
-            next_proto_local,
-            next_proto_tag_local,
+    ) -> Result<(), EmitError> {
+        self.emit_is_bigint_tag_i32(left.tag(), function);
+        self.emit_is_bigint_tag_i32(right.tag(), function);
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        let error = self.runtime_schema().reserve_completion(function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_MIX_BIGINT_AND_OTHER_TYPES,
+            &error,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(next_proto_local));
-        function.instruction(&Instruction::LocalSet(search_local));
-        function.instruction(&Instruction::LocalGet(next_proto_tag_local));
-        function.instruction(&Instruction::LocalSet(search_tag_local));
-        function.instruction(&Instruction::Br(0));
+        )?;
+        self.completion().copy_from(&error, function);
+        error.clear(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        // Only ordinary objects (internal brand 0) use the plain "[object Object]"
-        // default; exotics such as Error carry their own toString semantics.
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(inherits_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-
-        self.release_temp_local(brand_local);
-        self.release_temp_local(inherits_local);
-        self.release_temp_local(next_proto_tag_local);
-        self.release_temp_local(next_proto_local);
-        self.release_temp_local(search_tag_local);
-        self.release_temp_local(search_local);
-    }
-
-    pub(crate) fn emit_is_primitive_tag_i32(&self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        for kind in [
-            ValueKind::Null,
-            ValueKind::Boolean,
-            ValueKind::Number,
-            ValueKind::BigInt,
-            ValueKind::Symbol,
-            ValueKind::String,
-        ] {
-            function.instruction(&Instruction::LocalGet(tag_local));
-            function.instruction(&Instruction::I64Const(kind.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32Or);
-        }
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-    }
-
-    pub(crate) fn emit_is_bigint_tag_i32(&self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-    }
-
-    pub(crate) fn emit_is_heap_object_like_tag_i32(&self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        for kind in [ValueKind::Array, ValueKind::Function, ValueKind::Arguments] {
-            function.instruction(&Instruction::LocalGet(tag_local));
-            function.instruction(&Instruction::I64Const(kind.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32Or);
-        }
+        Ok(())
     }
 
     pub(crate) fn compile_coercive_add_to_locals(
         &mut self,
         lhs: &TypedExpr,
         rhs: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        let lhs_string_local = self.reserve_temp_local();
-        let rhs_string_local = self.reserve_temp_local();
-
+        if lhs.kind == ValueKind::Number && rhs.kind == ValueKind::Number {
+            return self.compile_binary_number_to_value(
+                ArithmeticBinaryOp::Add,
+                lhs,
+                rhs,
+                output,
+                function,
+            );
+        }
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
         self.compile_operand_pair_to_primitive_locals(
             lhs,
             rhs,
             ToPrimitiveHint::Default,
-            lhs_payload,
-            lhs_tag,
-            rhs_payload,
-            rhs_tag,
+            &left,
+            &right,
             function,
         )?;
-
-        function.instruction(&Instruction::LocalGet(lhs_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(rhs_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        left.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
+        right.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(lhs_payload, lhs_tag, function)?;
-        function.instruction(&Instruction::LocalSet(lhs_string_local));
-        self.emit_value_to_string_payload(rhs_payload, rhs_tag, function)?;
-        function.instruction(&Instruction::LocalSet(rhs_string_local));
-        self.emit_concat_string_payloads_local(lhs_string_local, rhs_string_local, function)?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_primitive_to_string_completion(&left, &pending, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &pending,
+            function,
+        )?;
+        let left_string = schema.reserve_gc_local(function).initialize(
+            pending
+                .value()
+                .cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        self.emit_primitive_to_string_completion(&right, &pending, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &pending,
+            function,
+        )?;
+        let right_string = schema.reserve_gc_local(function).initialize(
+            pending
+                .value()
+                .cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_concat_gc_strings(&left_string, &right_string, function),
+            function,
+        );
+        output.set_reference(&string, schema, function);
+        string.clear(function);
+        right_string.clear(function);
+        left_string.clear(function);
         function.instruction(&Instruction::Else);
-        // ToPrimitive already ran left-to-right above. Only the numeric
-        // conversion remains, and both BigInt representations stay numeric.
-        for (operand_payload, operand_tag) in [(lhs_payload, lhs_tag), (rhs_payload, rhs_tag)] {
-            self.emit_primitive_to_numeric_locals(
-                operand_payload,
-                operand_tag,
-                operand_payload,
-                operand_tag,
+        for value in [&left, &right] {
+            value.tag().load(function);
+            function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+            function.instruction(&Instruction::I32Ne);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_primitive_to_number_completion(value, &pending, false, function)?;
+            self.finish_to_primitive_operation(
+                ToPrimitiveAbruptRoute::ActiveHandler,
+                &pending,
                 function,
             )?;
+            value.copy_from(pending.value(), function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
-        self.emit_is_bigint_tag_i32(lhs_tag, function);
-        self.emit_is_bigint_tag_i32(rhs_tag, function);
-        function.instruction(&Instruction::I32Ne);
+        self.emit_numeric_pair_agreement(&left, &right, function)?;
+        self.emit_is_bigint_tag_i32(left.tag(), function);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Cannot mix BigInt and other types",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.emit_is_bigint_tag_i32(lhs_tag, function);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_bigint_binary_op_to_locals(
-            BigIntHelperOp::Add,
-            lhs_payload,
-            lhs_tag,
-            rhs_payload,
-            rhs_tag,
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_numeric_bigint_operation(BigIntHelperOp::Add, &left, &right, output, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_payload));
+        left.scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload));
+        right.scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
+        output.scalar().store(function);
+        output.set_number(output.scalar(), function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(rhs_string_local);
-        self.release_temp_local(lhs_string_local);
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
+        pending.clear(function);
+        right.clear(function);
+        left.clear(function);
         Ok(())
     }
 
-    pub(crate) fn compile_expr_to_object_locals(
+    fn compile_numeric_operand_pair(
         &mut self,
-        expr: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        lhs: &TypedExpr,
+        rhs: &TypedExpr,
+        left: &ValueLocals,
+        right: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let input_payload_local = self.reserve_temp_local();
-        let input_tag_local = self.reserve_temp_local();
-        self.compile_expr_to_locals(expr, input_payload_local, input_tag_local, function)?;
-        self.emit_value_to_object_locals(
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.release_temp_local(input_tag_local);
-        self.release_temp_local(input_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_value_to_object_locals(
-        &mut self,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let realm_local = self.reserve_temp_local();
-        if self.has_source_execution_environment() {
-            self.emit_source_execution_realm_to_local(realm_local, function);
-        } else {
-            function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(realm_local));
-        }
-        self.emit_value_to_object_in_realm_locals(
-            realm_local,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.release_temp_local(realm_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_value_to_current_function_realm_object_locals(
-        &mut self,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let realm_local = self.reserve_temp_local();
-        if self.has_source_execution_environment() {
-            self.emit_source_execution_realm_to_local(realm_local, function);
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(realm_local));
-            function.instruction(&Instruction::LocalGet(self.current_env_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            self.load_i64_to_local_from_offset(
-                self.current_env_local,
-                HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-                realm_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
-        self.emit_value_to_object_in_realm_locals(
-            realm_local,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.release_temp_local(realm_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_value_to_function_realm_object_locals(
-        &mut self,
-        callee_payload_local: u32,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            callee_payload_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        self.emit_value_to_object_in_realm_locals(
-            realm_local,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.release_temp_local(realm_local);
-        Ok(())
-    }
-
-    fn emit_value_to_object_in_realm_locals(
-        &mut self,
-        realm_local: u32,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let prototype_local = self.reserve_temp_local();
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        for kind in [
-            ValueKind::Object,
-            ValueKind::Array,
-            ValueKind::Function,
-            ValueKind::Arguments,
-        ] {
-            function.instruction(&Instruction::LocalGet(input_tag_local));
-            function.instruction(&Instruction::I64Const(kind.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::LocalGet(input_tag_local));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::Br(1));
-            function.instruction(&Instruction::End);
-        }
-        for (kind, intrinsic_offset, prototype_global_index, boxed_kind) in [
-            (
-                ValueKind::Number,
-                HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
-                NUMBER_PROTOTYPE_GLOBAL_INDEX,
-                BOXED_PRIMITIVE_KIND_NUMBER,
-            ),
-            (
-                ValueKind::String,
-                HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
-                STRING_PROTOTYPE_GLOBAL_INDEX,
-                BOXED_PRIMITIVE_KIND_STRING,
-            ),
-            (
-                ValueKind::Boolean,
-                HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
-                BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
-                BOXED_PRIMITIVE_KIND_BOOLEAN,
-            ),
-            (
-                ValueKind::Symbol,
-                HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
-                SYMBOL_PROTOTYPE_GLOBAL_INDEX,
-                BOXED_PRIMITIVE_KIND_SYMBOL,
-            ),
-        ] {
-            function.instruction(&Instruction::LocalGet(input_tag_local));
-            function.instruction(&Instruction::I64Const(kind.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_load_realm_intrinsic_prototype_or_global(
-                realm_local,
-                intrinsic_offset,
-                prototype_global_index,
-                prototype_local,
-                function,
-            );
-            self.emit_alloc_boxed_wrapper_with_prototype_from_locals(
-                prototype_local,
-                boxed_kind,
-                input_payload_local,
-                input_tag_local,
-                payload_local,
+        let pending = self.runtime_schema().reserve_completion(function);
+        self.compile_expr_to_value(lhs, left, function)?;
+        self.compile_expr_to_value(rhs, right, function)?;
+        for value in [left, right] {
+            self.emit_value_to_numeric_locals(value, &pending, function)?;
+            self.finish_to_primitive_operation(
+                ToPrimitiveAbruptRoute::ActiveHandler,
+                &pending,
                 function,
             )?;
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::Br(1));
-            function.instruction(&Instruction::End);
+            value.copy_from(pending.value(), function);
         }
+        pending.clear(function);
+        self.emit_numeric_pair_agreement(left, right, function)
+    }
 
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let bigint_constructor_local = self.reserve_temp_local();
-        let bigint_fallback_prototype_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(BIGINT_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(bigint_constructor_local));
-        self.load_i64_to_local_from_offset(
-            bigint_constructor_local,
-            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-            bigint_fallback_prototype_local,
-            function,
-        );
-        self.emit_load_realm_intrinsic_prototype_or_local(
-            realm_local,
-            HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
-            bigint_fallback_prototype_local,
-            prototype_local,
-            function,
-        );
-        self.emit_alloc_boxed_wrapper_with_prototype_from_locals(
-            prototype_local,
-            BOXED_PRIMITIVE_KIND_BIGINT,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
+    pub(crate) fn compile_coercive_binary_number_to_locals(
+        &mut self,
+        op: ArithmeticBinaryOp,
+        lhs: &TypedExpr,
+        rhs: &TypedExpr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if lhs.kind == ValueKind::Number && rhs.kind == ValueKind::Number {
+            return self.compile_binary_number_to_value(op, lhs, rhs, output, function);
+        }
+        if matches!(op, ArithmeticBinaryOp::Add) {
+            return self.compile_coercive_add_to_locals(lhs, rhs, output, function);
+        }
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        self.compile_numeric_operand_pair(lhs, rhs, &left, &right, function)?;
+        self.emit_is_bigint_tag_i32(left.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_numeric_bigint_operation(
+            BigIntHelperOp::from_arithmetic(op),
+            &left,
+            &right,
+            output,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(bigint_fallback_prototype_local);
-        self.release_temp_local(bigint_constructor_local);
-        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::Else);
+        self.emit_number_arithmetic(op, left.scalar(), right.scalar(), output.scalar(), function)?;
+        output.set_number(output.scalar(), function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_load_realm_intrinsic_prototype_or_global(
-            realm_local,
-            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
-            TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            prototype_local,
-            function,
-        );
-        self.emit_throw_runtime_error_with_prototype_local(
-            TYPE_ERROR_NAME,
-            "Cannot convert undefined or null to object",
-            prototype_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(prototype_local);
+        right.clear(function);
+        left.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_to_integer_or_infinity_number_payload_from_number_payload(
-        &self,
-        number_payload_local: u32,
-        out_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(out_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(out_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::LocalSet(out_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(out_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-    }
-
-    pub(crate) fn compile_expr_to_numeric_locals(
+    pub(crate) fn compile_binary_number_to_value(
         &mut self,
-        expr: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        op: ArithmeticBinaryOp,
+        lhs: &TypedExpr,
+        rhs: &TypedExpr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_primitive_locals(
-            expr,
-            ToPrimitiveHint::Number,
-            primitive_payload_local,
-            primitive_tag_local,
-            function,
-        )?;
-        self.emit_primitive_to_numeric_locals(
-            primitive_payload_local,
-            primitive_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        self.compile_expr_to_value(lhs, &left, function)?;
+        self.compile_expr_to_value(rhs, &right, function)?;
+        self.emit_number_arithmetic(op, left.scalar(), right.scalar(), output.scalar(), function)?;
+        output.set_number(output.scalar(), function);
+        right.clear(function);
+        left.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_value_to_numeric_locals(
+    fn emit_number_arithmetic(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
+        op: ArithmeticBinaryOp,
+        left: crate::gc_types::I64Local,
+        right: crate::gc_types::I64Local,
+        output: crate::gc_types::I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.outline_value_to_numeric {
-            if let Some(helper) = self.value_to_numeric_helper_function_index() {
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::LocalGet(tag_local));
-                for _ in 0..4 {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-                self.emit_outlined_numeric_realm_argument(function);
-                function.instruction(&Instruction::Call(helper));
-                self.store_call_results(payload_local, tag_local, function);
-                self.emit_propagate_throw_from_locals_if_needed(
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                return Ok(());
+        match op {
+            ArithmeticBinaryOp::Mod => {
+                self.emit_number_remainder_payload(left, right, output, function)
+            }
+            ArithmeticBinaryOp::Exp => {
+                self.emit_number_pow_payload(left, right, output, function)?
+            }
+            ArithmeticBinaryOp::Add
+            | ArithmeticBinaryOp::Sub
+            | ArithmeticBinaryOp::Mul
+            | ArithmeticBinaryOp::Div => {
+                left.load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                right.load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                match op {
+                    ArithmeticBinaryOp::Add => function.instruction(&Instruction::F64Add),
+                    ArithmeticBinaryOp::Sub => function.instruction(&Instruction::F64Sub),
+                    ArithmeticBinaryOp::Mul => function.instruction(&Instruction::F64Mul),
+                    ArithmeticBinaryOp::Div => function.instruction(&Instruction::F64Div),
+                    ArithmeticBinaryOp::Mod | ArithmeticBinaryOp::Exp => {
+                        unreachable!("handled by exact numeric owner")
+                    }
+                };
+                function.instruction(&Instruction::I64ReinterpretF64);
+                output.store(function);
             }
         }
-
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-
-        self.emit_tagged_to_primitive_locals(
-            ToPrimitiveHint::Number,
-            payload_local,
-            tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            function,
-        )?;
-        self.emit_primitive_to_numeric_locals(
-            primitive_payload_local,
-            primitive_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
         Ok(())
     }
 
-    pub(crate) fn compile_expr_to_number_payload(
-        &mut self,
-        expr: &TypedExpr,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if expr_has_static_number_payload(expr) {
-            self.compile_expr_payload(expr, function)?;
-            return Ok(());
-        }
-
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        self.compile_expr_to_primitive_locals(
-            expr,
-            ToPrimitiveHint::Number,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_value_to_number_payload(tag_local, payload_local, function)?;
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn compile_expr_to_number_payload_nonstring(
-        &mut self,
-        expr: &TypedExpr,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if expr_has_static_number_payload(expr) {
-            self.compile_expr_payload(expr, function)?;
-            return Ok(());
-        }
-
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        self.compile_expr_to_primitive_locals(
-            expr,
-            ToPrimitiveHint::Number,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_nonstring_value_to_number_payload(tag_local, payload_local, function)?;
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        Ok(())
-    }
-
-    /// Evaluates a bitwise expression with the ECMA-262 numeric dispatch.
-    ///
-    /// Both expressions are evaluated before either ToNumeric conversion.
-    /// Conversion is then left-to-right, and the Number/BigInt agreement test
-    /// happens only after both conversions complete. Keeping those phases in
-    /// one emitter prevents the BigInt path from acquiring a different
-    /// observable order than the Number path.
     pub(crate) fn compile_bitwise_numeric_to_locals(
         &mut self,
         op: BitwiseBinaryOp,
         lhs: &TypedExpr,
         rhs: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_payload_local = self.reserve_temp_local();
-        let lhs_tag_local = self.reserve_temp_local();
-        let rhs_payload_local = self.reserve_temp_local();
-        let rhs_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(lhs, lhs_payload_local, lhs_tag_local, function)?;
-        self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
-
-        let number_operands =
-            expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs);
-        if !number_operands {
-            self.emit_value_to_numeric_locals(lhs_payload_local, lhs_tag_local, function)?;
-            self.emit_value_to_numeric_locals(rhs_payload_local, rhs_tag_local, function)?;
-
-            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-            self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-            function.instruction(&Instruction::I32Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Cannot mix BigInt and other types",
-                payload_local,
-                tag_local,
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        self.compile_numeric_operand_pair(lhs, rhs, &left, &right, function)?;
+        self.emit_is_bigint_tag_i32(left.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        if let Some(bigint_op) = op.bigint_op() {
+            self.emit_numeric_bigint_operation(
+                BigIntHelperOp::from_bitwise(bigint_op),
+                &left,
+                &right,
+                output,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            function.instruction(&Instruction::End);
-
-            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-            self.open_frame(ControlFrameKind::If, function);
-            match op.bigint_op() {
-                Some(bigint_op) => self.emit_bigint_binary_op_to_locals(
-                    BigIntHelperOp::from_bitwise(bigint_op),
-                    lhs_payload_local,
-                    lhs_tag_local,
-                    rhs_payload_local,
-                    rhs_tag_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?,
-                None => {
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "BigInts do not support unsigned right shift",
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                }
-            }
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::Else);
+        } else {
+            let error = schema.reserve_completion(function);
+            self.emit_throw_runtime_error(
+                NativeErrorKind::TypeError,
+                RuntimeErrorMessage::BIGINTS_DO_NOT_SUPPORT_UNSIGNED_RIGHT_SHIFT,
+                &error,
+                function,
+            )?;
+            self.completion().copy_from(&error, function);
+            error.clear(function);
+            self.emit_propagate_current_throw(function);
         }
-
-        self.emit_to_uint32_i64_from_number_payload(lhs_payload_local, lhs_payload_local, function);
-        self.emit_to_uint32_i64_from_number_payload(rhs_payload_local, rhs_payload_local, function);
-
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
+        function.instruction(&Instruction::Else);
+        let left_bits = schema.reserve_i64_local(function);
+        let right_bits = schema.reserve_i64_local(function);
+        self.emit_to_uint32_i64_from_number_payload(left.scalar(), left_bits, function);
+        self.emit_to_uint32_i64_from_number_payload(right.scalar(), right_bits, function);
+        left_bits.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
+        right_bits.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        if matches!(
-            op,
-            BitwiseBinaryOp::Shl | BitwiseBinaryOp::Shr | BitwiseBinaryOp::UShr
-        ) {
-            function.instruction(&Instruction::I32Const(0x1f));
-            function.instruction(&Instruction::I32And);
-        }
         match op {
             BitwiseBinaryOp::And => function.instruction(&Instruction::I32And),
             BitwiseBinaryOp::Or => function.instruction(&Instruction::I32Or),
@@ -4263,190 +1666,379 @@ impl<'a> FunctionBuilder<'a> {
             BitwiseBinaryOp::Shr => function.instruction(&Instruction::I32ShrS),
             BitwiseBinaryOp::UShr => function.instruction(&Instruction::I32ShrU),
         };
-        if matches!(op, BitwiseBinaryOp::UShr) {
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&if matches!(op, BitwiseBinaryOp::UShr) {
+            Instruction::F64ConvertI32U
         } else {
-            function.instruction(&Instruction::I64ExtendI32S);
-            function.instruction(&Instruction::F64ConvertI64S);
-        }
+            Instruction::F64ConvertI32S
+        });
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        if !number_operands {
-            function.instruction(&Instruction::End);
-        }
-
-        self.release_temp_local(rhs_tag_local);
-        self.release_temp_local(rhs_payload_local);
-        self.release_temp_local(lhs_tag_local);
-        self.release_temp_local(lhs_payload_local);
+        output.scalar().store(function);
+        output.set_number(output.scalar(), function);
+        schema.release_i64_local(right_bits, function);
+        schema.release_i64_local(left_bits, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        right.clear(function);
+        left.clear(function);
         Ok(())
     }
 
-    /// Evaluates unary minus through `ToNumeric`, then preserves the selected
-    /// Number or BigInt result representation.
-    pub(crate) fn compile_unary_minus_numeric_to_locals(
+    pub(crate) fn compile_expr_to_object_locals(
         &mut self,
-        operand: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        expr: &TypedExpr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let operand_payload_local = self.reserve_temp_local();
-        let operand_tag_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let input = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        self.compile_expr_to_value(expr, &input, function)?;
+        self.emit_value_to_object_locals(&input, &pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        output.copy_from(pending.value(), function);
+        function.instruction(&Instruction::Else);
+        self.completion().copy_from(&pending, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        pending.clear(function);
+        input.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        Ok(())
+    }
 
-        self.compile_expr_to_locals(operand, operand_payload_local, operand_tag_local, function)?;
-        let number_operand = expr_has_static_number_payload(operand);
-        if !number_operand {
-            self.emit_value_to_numeric_locals(operand_payload_local, operand_tag_local, function)?;
-            self.emit_is_bigint_tag_i32(operand_tag_local, function);
-            self.open_frame(ControlFrameKind::If, function);
-            self.emit_bigint_binary_op_to_locals(
-                BigIntHelperOp::Negate,
-                operand_payload_local,
-                operand_tag_local,
-                operand_payload_local,
-                operand_tag_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::Else);
+    pub(crate) fn emit_to_integer_or_infinity_number_payload_from_number_payload(
+        &self,
+        number_payload_local: crate::gc_types::I64Local,
+        out_payload_local: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        out_payload_local.store(function);
+        function.instruction(&Instruction::Else);
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        out_payload_local.store(function);
+        function.instruction(&Instruction::Else);
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::F64Eq);
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        number_payload_local.load(function);
+        out_payload_local.store(function);
+        function.instruction(&Instruction::Else);
+        number_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        out_payload_local.store(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_value_to_numeric_locals(
+        &mut self,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        if self.outline_value_to_numeric {
+            schema
+                .call_helper(
+                    crate::runtime_helpers::ValueToNumericArguments::new(
+                        input,
+                        self.current_environment(),
+                    ),
+                    self.runtime_helper_base()?,
+                    function,
+                )
+                .store(result, function);
+            return Ok(());
         }
-        function.instruction(&Instruction::LocalGet(operand_payload_local));
+        let primitive = schema.reserve_completion(function);
+        self.emit_tagged_to_primitive_locals_pending(
+            ToPrimitiveHint::Number,
+            input,
+            &primitive,
+            function,
+        )?;
+        result.copy_from(&primitive, function);
+        primitive.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        primitive.value().tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_primitive_to_number_completion(primitive.value(), result, false, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        primitive.clear(function);
+        Ok(())
+    }
+
+    fn emit_bigint_unit_value(
+        &self,
+        negative: bool,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let sign = schema.reserve_i32_local(function);
+        let limb = schema.reserve_i64_local(function);
+        function.instruction(&Instruction::I32Const(1));
+        length.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::I32Const(i32::from(negative)));
+        sign.store(function);
+        function.instruction(&Instruction::I64Const(1));
+        limb.store(function);
+        let construction = crate::gc_types::BigIntConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            length,
+            function,
+        );
+        construction.write(index, limb, schema, function);
+        let bigint = schema
+            .reserve_gc_local(function)
+            .initialize(construction.publish(sign, schema, function), function);
+        output.set_reference(&bigint, schema, function);
+        bigint.clear(function);
+        schema.release_i64_local(limb, function);
+        schema.release_i32_local(sign, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
+    }
+
+    pub(crate) fn emit_numeric_update_to_locals(
+        &mut self,
+        op: NumericUpdateOp,
+        _value_kind: NumericUpdateValueKind,
+        old: &ValueLocals,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        self.emit_is_bigint_tag_i32(old.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        let unit = schema.reserve_value_local(function);
+        self.emit_bigint_unit_value(false, &unit, function);
+        self.emit_numeric_bigint_operation(
+            match op {
+                NumericUpdateOp::Increment => BigIntHelperOp::Add,
+                NumericUpdateOp::Decrement => BigIntHelperOp::Sub,
+            },
+            old,
+            &unit,
+            output,
+            function,
+        )?;
+        unit.clear(function);
+        function.instruction(&Instruction::Else);
+        old.scalar().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+        match op {
+            NumericUpdateOp::Increment => function.instruction(&Instruction::F64Add),
+            NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
+        };
+        function.instruction(&Instruction::I64ReinterpretF64);
+        output.scalar().store(function);
+        output.set_number(output.scalar(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    pub(crate) fn compile_unary_minus_numeric_to_locals(
+        &mut self,
+        expr: &TypedExpr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        self.compile_expr_to_value(expr, &value, function)?;
+        if expr.kind == ValueKind::Number {
+            value.scalar().load(function);
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Neg);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            output.scalar().store(function);
+            output.set_number(output.scalar(), function);
+            value.clear(function);
+            return Ok(());
+        }
+        let pending = schema.reserve_completion(function);
+        self.emit_value_to_numeric_locals(&value, &pending, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &pending,
+            function,
+        )?;
+        value.copy_from(pending.value(), function);
+        self.emit_is_bigint_tag_i32(value.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_numeric_bigint_operation(
+            BigIntHelperOp::Negate,
+            &value,
+            &value,
+            output,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        value.scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Neg);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        if !number_operand {
-            function.instruction(&Instruction::End);
-        }
-
-        self.release_temp_local(operand_tag_local);
-        self.release_temp_local(operand_payload_local);
+        output.scalar().store(function);
+        output.set_number(output.scalar(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        pending.clear(function);
+        value.clear(function);
         Ok(())
     }
 
-    /// Evaluates one unary-bitwise operand, applies `ToNumeric` exactly once,
-    /// then dispatches on the closed Number-or-BigInt result domain.
     pub(crate) fn compile_unary_bitwise_numeric_to_locals(
         &mut self,
         op: UnaryBitwiseOp,
-        operand: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
+        expr: &TypedExpr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let operand_payload_local = self.reserve_temp_local();
-        let operand_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(operand, operand_payload_local, operand_tag_local, function)?;
-        let number_operand = expr_has_static_number_payload(operand);
-        if !number_operand {
-            self.emit_value_to_numeric_locals(operand_payload_local, operand_tag_local, function)?;
-            self.emit_is_bigint_tag_i32(operand_tag_local, function);
-            self.open_frame(ControlFrameKind::If, function);
-            self.emit_unary_numeric_kind_to_locals(
-                UnaryNumericKind::BigInt,
-                op,
-                operand_payload_local,
-                operand_tag_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::Else);
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        self.compile_expr_to_value(expr, &value, function)?;
+        if expr.kind == ValueKind::Number {
+            match op {
+                UnaryBitwiseOp::Complement => {
+                    self.emit_number_bitwise_complement(value.scalar(), output, function);
+                }
+            }
+            value.clear(function);
+            return Ok(());
         }
-        self.emit_unary_numeric_kind_to_locals(
-            UnaryNumericKind::Number,
-            op,
-            operand_payload_local,
-            operand_tag_local,
-            payload_local,
-            tag_local,
+        let pending = schema.reserve_completion(function);
+        self.emit_value_to_numeric_locals(&value, &pending, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &pending,
             function,
         )?;
-        if !number_operand {
-            function.instruction(&Instruction::End);
+        value.copy_from(pending.value(), function);
+        match op {
+            UnaryBitwiseOp::Complement => {
+                self.emit_is_bigint_tag_i32(value.tag(), function);
+                self.open_frame(ControlFrameKind::If, function);
+                let negative_one = schema.reserve_value_local(function);
+                self.emit_bigint_unit_value(true, &negative_one, function);
+                self.emit_numeric_bigint_operation(
+                    BigIntHelperOp::BitXor,
+                    &value,
+                    &negative_one,
+                    output,
+                    function,
+                )?;
+                negative_one.clear(function);
+                function.instruction(&Instruction::Else);
+                self.emit_number_bitwise_complement(value.scalar(), output, function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
         }
-
-        self.release_temp_local(operand_tag_local);
-        self.release_temp_local(operand_payload_local);
+        pending.clear(function);
+        value.clear(function);
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn emit_unary_numeric_kind_to_locals(
+    fn emit_number_bitwise_complement(
         &mut self,
-        kind: UnaryNumericKind,
-        op: UnaryBitwiseOp,
-        operand_payload_local: u32,
-        operand_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match (kind, op) {
-            (UnaryNumericKind::BigInt, UnaryBitwiseOp::Complement) => self
-                .emit_bigint_complement_to_locals(
-                    operand_payload_local,
-                    operand_tag_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                ),
-            (UnaryNumericKind::Number, UnaryBitwiseOp::Complement) => {
-                self.emit_to_uint32_i64_from_number_payload(
-                    operand_payload_local,
-                    operand_payload_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(operand_payload_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::I32Const(-1));
-                function.instruction(&Instruction::I32Xor);
-                function.instruction(&Instruction::I64ExtendI32S);
-                function.instruction(&Instruction::F64ConvertI64S);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                Ok(())
-            }
-        }
-    }
-
-    /// Emits ECMA-262 ToUint32 steps 2-5 for a Number payload.
-    ///
-    /// This is the sole backend authority for Number-to-32-bit integer
-    /// residues. Consumers interpret the low bits as signed only after this
-    /// conversion. The destination may alias the payload. Keeping the modulo
-    /// in binary64 is essential: converting to `i64` first saturates every
-    /// magnitude at or above 2^63 and loses its low 32 bits. Division by the
-    /// power-of-two modulus is exact; once binary64 spacing reaches 2^32 the
-    /// input is already a multiple of the modulus. NaN and infinities reach a
-    /// NaN subtraction, which `i64.trunc_sat_f64_u` maps to zero as required.
-    pub(crate) fn emit_to_uint32_i64_from_number_payload(
-        &mut self,
-        number_payload_local: u32,
-        out_local: u32,
+        value: crate::gc_types::I64Local,
+        output: &ValueLocals,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        let schema = self.runtime_schema();
+        let bits = schema.reserve_i64_local(function);
+        self.emit_to_uint32_i64_from_number_payload(value, bits, function);
+        bits.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::I32Xor);
+        function.instruction(&Instruction::F64ConvertI32S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        output.scalar().store(function);
+        output.set_number(output.scalar(), function);
+        schema.release_i64_local(bits, function);
+    }
+
+    pub(crate) fn compile_expr_to_number_payload(
+        &mut self,
+        expr: &TypedExpr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        self.compile_expr_to_value(expr, &value, function)?;
+        self.emit_value_to_number_payload(&value, &pending, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &pending,
+            function,
+        )?;
+        pending.value().scalar().load(function);
+        pending.clear(function);
+        value.clear(function);
+        Ok(())
+    }
+
+    pub(crate) fn emit_to_uint32_i64_from_number_payload(
+        &mut self,
+        number_payload_local: crate::gc_types::I64Local,
+        out_local: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        number_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(out_local));
+        out_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(out_local));
+        out_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(4_294_967_296.0)));
         function.instruction(&Instruction::F64Div);
@@ -4455,7 +2047,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64TruncSatF64U);
-        function.instruction(&Instruction::LocalSet(out_local));
+        out_local.store(function);
     }
 
     /// Emits ECMA-262 ToUint16 steps 2-5 for a Number payload.
@@ -4466,178 +2058,15 @@ impl<'a> FunctionBuilder<'a> {
     /// bits that String.fromCharCode and the integer conversion require.
     pub(crate) fn emit_to_uint16_i64_from_number_payload(
         &mut self,
-        number_payload_local: u32,
-        out_local: u32,
+        number_payload_local: crate::gc_types::I64Local,
+        out_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) {
         self.emit_to_uint32_i64_from_number_payload(number_payload_local, out_local, function);
-        function.instruction(&Instruction::LocalGet(out_local));
+        out_local.load(function);
         function.instruction(&Instruction::I64Const(0xffff));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(out_local));
-    }
-
-    pub(crate) fn compile_coercive_binary_number_to_locals(
-        &mut self,
-        op: ArithmeticBinaryOp,
-        lhs: &TypedExpr,
-        rhs: &TypedExpr,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let number_operands =
-            expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs);
-        if !number_operands && matches!(op, ArithmeticBinaryOp::Add) {
-            return self.compile_coercive_add_to_locals(
-                lhs,
-                rhs,
-                payload_local,
-                tag_local,
-                function,
-            );
-        }
-
-        let lhs_payload_local = self.reserve_temp_local();
-        let lhs_tag_local = self.reserve_temp_local();
-        let rhs_payload_local = self.reserve_temp_local();
-        let rhs_tag_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(lhs, lhs_payload_local, lhs_tag_local, function)?;
-        self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
-
-        if !number_operands {
-            self.emit_value_to_numeric_locals(lhs_payload_local, lhs_tag_local, function)?;
-            self.emit_value_to_numeric_locals(rhs_payload_local, rhs_tag_local, function)?;
-
-            // Both representations of a BigInt count as "BigInt" for the mixing
-            // check, so an inline operand and a heap-backed one are not treated as
-            // different types.
-            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-            self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-            function.instruction(&Instruction::I32Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Cannot mix BigInt and other types",
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            function.instruction(&Instruction::End);
-
-            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-            self.open_frame(ControlFrameKind::If, function);
-            self.emit_bigint_binary_op_to_locals(
-                BigIntHelperOp::from_arithmetic(op),
-                lhs_payload_local,
-                lhs_tag_local,
-                rhs_payload_local,
-                rhs_tag_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::Else);
-        }
-
-        match op {
-            ArithmeticBinaryOp::Add => {
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Add);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-            }
-            ArithmeticBinaryOp::Sub => {
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Sub);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-            }
-            ArithmeticBinaryOp::Mul => {
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Mul);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-            }
-            ArithmeticBinaryOp::Div => {
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Div);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
-            }
-            ArithmeticBinaryOp::Mod => {
-                self.emit_number_remainder_payload(
-                    lhs_payload_local,
-                    rhs_payload_local,
-                    payload_local,
-                    function,
-                );
-            }
-            ArithmeticBinaryOp::Exp => {
-                self.emit_number_pow_payload(
-                    lhs_payload_local,
-                    rhs_payload_local,
-                    payload_local,
-                    function,
-                )?;
-            }
-        }
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        if !number_operands {
-            function.instruction(&Instruction::End);
-        }
-
-        self.release_temp_local(rhs_tag_local);
-        self.release_temp_local(rhs_payload_local);
-        self.release_temp_local(lhs_tag_local);
-        self.release_temp_local(lhs_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_primitive_to_numeric_locals(
-        &mut self,
-        primitive_payload_local: u32,
-        primitive_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_is_bigint_tag_i32(primitive_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_number_payload_without_throw_return(
-            primitive_tag_local,
-            primitive_payload_local,
-            function,
-        )?;
-        // A destination may alias the pending thrown value or its tag.
-        // Route the throw before publishing a normal Number result.
-        self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-        Ok(())
+        out_local.store(function);
     }
 
     pub(crate) fn emit_nan_payload(&self, function: &mut Function) {
@@ -4646,89 +2075,71 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_number_pow_payload(
         &mut self,
-        base_payload_local: u32,
-        exponent_payload_local: u32,
-        output_local: u32,
+        base: crate::gc_types::I64Local,
+        exponent: crate::gc_types::I64Local,
+        output: crate::gc_types::I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if let Some(function_index) = self.functions.number_pow_import_function_index() {
-            function.instruction(&Instruction::LocalGet(base_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::LocalGet(exponent_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::Call(function_index));
-            function.instruction(&Instruction::I64ReinterpretF64);
-        } else {
-            function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
-            function.instruction(&Instruction::I64ReinterpretF64);
-        }
-        function.instruction(&Instruction::LocalSet(output_local));
+        let function_index = self
+            .functions
+            .number_pow_import_function_index()
+            .ok_or_else(|| EmitError::unsupported("missing planned binary64 pow import"))?;
+        base.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        exponent.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::Call(function_index));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        output.store(function);
         Ok(())
     }
 
     /// Apply `ToLength` with the ordinary callers' existing completion policy.
-    ///
-    /// The exceptional RegExp and Array.fromAsync consumers use the routed
-    /// wrapper below. Keeping this wrapper separate avoids pretending that the
-    /// still-open 56-caller ordinary/full-ToNumber surface has been migrated.
+    /// The numeric output exists only on Normal; the native consumer owns any
+    /// rejection, IteratorClose or active-handler continuation of the Throw.
     pub(crate) fn emit_to_length_i64_from_value_locals(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        dest_local: u32,
+        input: &ValueLocals,
+        output: I64Local,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_value_to_number_payload(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        self.emit_return_current_completion_if_throw(function);
-
-        self.emit_to_length_i64_from_number_payload_local(payload_local, dest_local, function);
+        self.emit_value_to_number_payload(input, result, function)?;
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_to_length_i64_from_number_payload_local(
+            result.value().scalar(),
+            output,
+            function,
+        );
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
-    /// Apply `ToLength` for a consumer whose abrupt continuation is not the
-    /// ordinary wrapper's policy.
-    ///
-    /// The raw ToNumber result must be removed from the Wasm stack first. Its
-    /// placeholder NaN is stored in `payload_local`, then the required route
-    /// consumes any throw before the infallible numeric normalization runs.
-    pub(crate) fn emit_to_length_i64_from_value_locals_with_abrupt_route(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        dest_local: u32,
-        abrupt_route: ToLengthAbruptRoute,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_value_to_number_payload_without_throw_return(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        self.finish_to_length_operation(abrupt_route, function)?;
-
-        self.emit_to_length_i64_from_number_payload_local(payload_local, dest_local, function);
-        Ok(())
-    }
-
-    fn emit_to_length_i64_from_number_payload_local(
-        &mut self,
-        payload_local: u32,
-        dest_local: u32,
+    pub(crate) fn emit_to_length_i64_from_number_payload_local(
+        &self,
+        number: I64Local,
+        output: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(payload_local));
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Le);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dest_local));
+        output.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(
             MAX_SAFE_INTEGER as f64,
@@ -4736,1391 +2147,991 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(MAX_SAFE_INTEGER as i64));
-        function.instruction(&Instruction::LocalSet(dest_local));
+        output.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(dest_local));
+        output.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_to_index_i64_from_value_locals(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        index_local: u32,
-        error_message: &'static str,
+        input: &ValueLocals,
+        output: I64Local,
+        error_message: RuntimeErrorMessage,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_value_to_number_payload(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_to_index_from_number_payload(payload_local, index_local, error_message, function)
+        self.emit_value_to_number_payload(input, result, function)?;
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_to_index_from_number_payload(
+            result.value().scalar(),
+            output,
+            error_message,
+            result,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
     }
 
     pub(crate) fn emit_to_index_from_number_payload(
         &mut self,
-        number_payload_local: u32,
-        index_local: u32,
-        error_message: &'static str,
+        number: I64Local,
+        output: I64Local,
+        error_message: RuntimeErrorMessage,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        let schema = self.runtime_schema();
+        let integer = schema.reserve_i64_local(function);
+        self.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            number, integer, function,
+        );
+        integer.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Lt);
+        integer.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(
-            9_007_199_254_740_991.0,
+            MAX_SAFE_INTEGER as f64,
         )));
         function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(
-            -9_007_199_254_740_991.0,
-        )));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_numeric_conversion_range_error(
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::RangeError,
             error_message,
-            self.result_local,
-            self.result_tag_local,
+            result,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::Else);
+        integer.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_numeric_conversion_range_error(
-            error_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::I64TruncF64U);
+        output.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        schema.release_i64_local(integer, function);
         Ok(())
     }
 
     pub(crate) fn emit_value_to_number_payload(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        input: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // ToNumber appears at ~130 builtin sites and the full per-kind composite
-        // (ToPrimitive on objects, array→string, BigInt/Symbol throws, string
-        // parse) is several KB inline; call the shared helper instead (except
-        // while compiling the helper itself). The already-Number fast path stays
-        // inline so the common case never pays the call. A BigInt/Symbol/
-        // ToPrimitive throw inside the helper is surfaced through the completion
-        // slots and re-raised here with a completion return — the same discipline
-        // the inline composite's own throw sites use (`emit_return_current_
-        // completion`), which is valid at any block depth. Parameter 6 carries
-        // a standard builtin's self-backed Realm environment so helper-created
-        // BigInt/Symbol TypeErrors have the same realm policy as inline
-        // conversion; non-standard callers pass zero because their lexical
-        // environment has a different layout.
+        let schema = self.runtime_schema();
         if self.outline_value_to_number {
-            if let Some(helper) = self.value_to_number_helper_function_index() {
-                let result_payload_local = self.reserve_temp_local();
-                let result_tag_local = self.reserve_temp_local();
-                function.instruction(&Instruction::LocalGet(tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::LocalSet(result_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(result_tag_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::LocalGet(tag_local));
-                for _ in 0..4 {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-                self.emit_outlined_numeric_realm_argument(function);
-                function.instruction(&Instruction::Call(helper));
-                self.store_call_results(result_payload_local, result_tag_local, function);
-                function.instruction(&Instruction::End);
-                self.emit_propagate_throw_from_locals_if_needed(
-                    result_payload_local,
-                    result_tag_local,
+            schema
+                .call_helper(
+                    crate::runtime_helpers::ValueToNumberArguments::new(
+                        input,
+                        self.current_environment(),
+                    ),
+                    self.runtime_helper_base()?,
                     function,
-                )?;
-                function.instruction(&Instruction::LocalGet(result_payload_local));
-                self.release_temp_local(result_tag_local);
-                self.release_temp_local(result_payload_local);
-                return Ok(());
-            }
+                )
+                .store(result, function);
+            return Ok(());
         }
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        let pending = self.emit_tagged_to_primitive_locals_pending(
-            ToPrimitiveHint::Number,
-            payload_local,
-            tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
-            function,
-        )?;
-        pending.emit_number_payload(self, function)?;
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
-        Ok(())
+        self.emit_value_to_number_composite(input, result, false, function)
     }
 
-    pub(crate) fn emit_value_to_number_payload_without_throw_return(
+    pub(crate) fn emit_value_to_number_payload_allow_bigint(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        input: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        let pending = self.emit_tagged_to_primitive_locals_pending(
+        self.emit_value_to_number_composite(input, result, true, function)
+    }
+
+    fn emit_value_to_number_composite(
+        &mut self,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        allow_bigint: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let primitive = schema.reserve_completion(function);
+        self.emit_tagged_to_primitive_locals_pending(
             ToPrimitiveHint::Number,
-            payload_local,
-            tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
+            input,
+            &primitive,
             function,
         )?;
-        pending.emit_number_payload_without_return(self, function)?;
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
+        result.copy_from(&primitive, function);
+        primitive.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_primitive_to_number_completion(
+            primitive.value(),
+            result,
+            allow_bigint,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        primitive.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_primitive_to_number_payload(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        input: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_primitive_to_number_payload_inner(
-            tag_local,
-            payload_local,
-            PrimitiveToNumberThrowRouting::ReturnCurrentFunction,
-            function,
-        )
+        self.emit_primitive_to_number_completion(input, result, false, function)
     }
 
-    pub(crate) fn emit_primitive_to_number_payload_without_throw_return(
+    fn emit_primitive_to_number_completion(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        allow_bigint: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_primitive_to_number_payload_inner(
-            tag_local,
-            payload_local,
-            PrimitiveToNumberThrowRouting::LeaveInCompletion,
-            function,
-        )
-    }
-
-    fn emit_primitive_to_number_payload_inner(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        throw_routing: PrimitiveToNumberThrowRouting,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        let bits = schema.reserve_i64_local(function);
+        value.copy_from(input, function);
+        result.initialize(function);
         self.emit_nan_payload(function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_numeric_conversion_type_error(
-            "Cannot convert BigInt to number",
-            self.result_local,
-            self.result_tag_local,
+        bits.store(function);
+        for tag in [
+            WasmRuntimeValueTag::Number,
+            WasmRuntimeValueTag::Null,
+            WasmRuntimeValueTag::Boolean,
+            WasmRuntimeValueTag::String,
+        ] {
+            value.tag().load(function);
+            function.instruction(&Instruction::I32Const(tag as i32));
+            function.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            match tag {
+                WasmRuntimeValueTag::Number => {
+                    value.scalar().load(function);
+                    bits.store(function);
+                }
+                WasmRuntimeValueTag::Null => {
+                    function.instruction(&Instruction::I64Const(0));
+                    bits.store(function);
+                }
+                WasmRuntimeValueTag::Boolean => {
+                    value.scalar().load(function);
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    bits.store(function);
+                }
+                WasmRuntimeValueTag::String => {
+                    let string = schema.reserve_gc_local(function).initialize(
+                        value.cast_reference::<StringValue>(schema, function),
+                        function,
+                    );
+                    self.emit_string_to_number_payload(&string, bits, function)?;
+                    string.clear(function);
+                }
+                _ => unreachable!("the primitive numeric conversion loop is closed"),
+            }
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        if allow_bigint {
+            let bigint = schema.reserve_gc_local(function).initialize(
+                value.cast_reference::<BigIntValue>(schema, function),
+                function,
+            );
+            let string = schema.reserve_gc_local(function).initialize(
+                self.emit_bigint_value_to_string_payload(&bigint, function)?,
+                function,
+            );
+            self.emit_string_to_number_payload(&string, bits, function)?;
+            string.clear(function);
+            bigint.clear(function);
+        } else {
+            self.emit_throw_runtime_error(
+                NativeErrorKind::TypeError,
+                RuntimeErrorMessage::CANNOT_CONVERT_BIGINT_TO_NUMBER,
+                result,
+                function,
+            )?;
+        }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Symbol as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_SYMBOL_TO_NUMBER,
+            result,
             function,
         )?;
-        throw_routing.emit(self, function);
-        self.emit_nan_payload(function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_numeric_conversion_type_error(
-            "Cannot convert Symbol to number",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        throw_routing.emit(self, function);
-        self.emit_nan_payload(function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_string_to_number_payload(payload_local, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_nan_payload(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.value().set_number(bits, function);
+        result.set_normal(result.value(), function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        schema.release_i64_local(bits, function);
+        value.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_value_to_number_payload_allow_bigint(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        let pending = self.emit_tagged_to_primitive_locals_pending(
-            ToPrimitiveHint::Number,
-            payload_local,
-            tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
-            function,
-        )?;
-        pending.emit_number_payload_allow_bigint(self, function)?;
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_primitive_to_number_payload_allow_bigint(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        let decimal_payload_local = self.reserve_temp_local();
-        // The heap BigInt formatter is exact, and StringToNumber performs the
-        // single binary64 rounding. Primitive dispatch cannot invoke user hooks.
-        self.emit_value_to_string_payload(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(decimal_payload_local));
-        self.emit_string_to_number_payload(decimal_payload_local, function)?;
-        self.release_temp_local(decimal_payload_local);
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_number_payload(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(crate) fn emit_value_to_property_key_payload(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let property_key_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        function.instruction(&Instruction::Else);
-        self.emit_value_to_string_payload(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(property_key_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(property_key_local));
-
-        self.release_temp_local(property_key_local);
-        Ok(())
-    }
-
-    /// Converts a tagged value held in `payload_local`/`tag_local` to a
-    /// PropertyKey in place. Unlike `emit_value_to_property_key_payload`, this
-    /// path keeps abrupt ToPrimitive completions in locals long enough to route
-    /// them through the active in-function throw handler rather than returning
-    /// from the whole Wasm function.
+    /// Sole semantic PropertyKey mint. Captured already-converted String or
+    /// Symbol values take the same checked fast path without invoking hooks.
     pub(crate) fn emit_value_to_property_key_locals(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
+        input: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<PropertyKeyLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let result = schema.reserve_completion(function);
+        self.emit_value_to_property_key_completion(input, &result, function)?;
+        self.finish_to_primitive_operation(
+            ToPrimitiveAbruptRoute::ActiveHandler,
+            &result,
+            function,
+        )?;
+        let key = schema.reserve_value_local(function);
+        key.copy_from(result.value(), function);
+        result.clear(function);
+        Ok(PropertyKeyLocals::from_converted_value(key))
+    }
+
+    pub(crate) fn emit_value_to_property_key_completion(
+        &mut self,
+        input: &ValueLocals,
+        result: &crate::gc_types::CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // The ToPropertyKey seam. 72,528 bytes per inline site, measured; every
-        // computed member access whose key is not statically a String or a
-        // Symbol reaches it.
-        //
-        // The property-key fast path stays inline, mirroring
-        // `emit_value_to_string_payload`. A String key is already a PropertyKey
-        // and needs nothing; a Symbol key needs only its marker bit, which is
-        // the same `i64.or` the inline body's Symbol arm emits. Everything else
-        // pays one call.
-        //
-        // The propagation is emitted *after* the `end` of the seam's `if`, so
-        // it stands at the same label depth the inline body would have — the
-        // same shape `emit_value_to_number_payload`'s seam uses.
-        //
-        // Param 6 forwards `current_env_local` for the reason spelled out on
-        // `emit_value_to_primitive_via_helper_if_outlined`: inline, this body ran
-        // with the caller's environment, so an outlined copy that leaves it at
-        // zero is a behaviour change rather than a relocation. The ToPropertyKey
-        // helper body reaches the ToPrimitive helper by call, and that inner call
-        // forwards the same local again, so the environment survives both hops.
-        if self.outline_value_to_property_key {
-            if let Some(helper) = self.value_to_property_key_helper_function_index() {
-                self.emit_is_property_key_i32(tag_local, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
-                function.instruction(&Instruction::I64Or);
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::LocalGet(tag_local));
-                for _ in 0..4 {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::Call(helper));
-                self.store_call_results(payload_local, tag_local, function);
-                function.instruction(&Instruction::End);
-                self.emit_propagate_throw_from_locals_if_needed(
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                return Ok(());
-            }
-        }
-
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-
-        self.emit_tagged_to_primitive_locals(
-            ToPrimitiveHint::String,
-            payload_local,
-            tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_string_payload(
-            primitive_payload_local,
-            primitive_tag_local,
-            PrimitiveToStringAbruptRoute::ActiveHandler,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
+        self.runtime_schema()
+            .call_helper(
+                crate::runtime_helpers::ValueToPropertyKeyArguments::new(
+                    input,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(result, function);
         Ok(())
     }
 
-    pub(crate) fn emit_is_property_key_i32(&self, tag_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+    /// The registered PropertyKey body alone owns the original fast path and
+    /// conversion sequence. Its ToPrimitive phase uses the shared String hint.
+    pub(crate) fn emit_value_to_property_key_completion_inner(
+        &mut self,
+        input: &ValueLocals,
+        result: &crate::gc_types::CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        self.emit_is_property_key_i32(input.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(input, function);
+        function.instruction(&Instruction::Else);
+        self.emit_tagged_to_primitive_locals_pending(
+            ToPrimitiveHint::String,
+            input,
+            result,
+            function,
+        )?;
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.value().tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Symbol as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        let primitive = schema.reserve_value_local(function);
+        primitive.copy_from(result.value(), function);
+        let base = self
+            .runtime_helper_base
+            .ok_or_else(|| EmitError::unsupported("missing registered ValueToString helper"))?;
+        schema
+            .call_helper(
+                crate::runtime_helpers::ValueToStringArguments::new(
+                    &primitive,
+                    self.current_environment(),
+                ),
+                base,
+                function,
+            )
+            .store(result, function);
+        primitive.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    pub(crate) fn emit_is_property_key_i32(&self, tag: I32Local, function: &mut Function) {
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
+        tag.load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Symbol as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32Or);
     }
 
     pub(crate) fn emit_value_to_bigint_locals(
         &mut self,
-        input_tag_local: u32,
-        input_payload_local: u32,
+        input: &ValueLocals,
         number_policy: BigIntNumberPolicy,
-        output_payload_local: u32,
-        output_tag_local: u32,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-
-        self.emit_tagged_to_primitive_locals(
+        let schema = self.runtime_schema();
+        let primitive = schema.reserve_completion(function);
+        self.emit_tagged_to_primitive_locals_pending(
             ToPrimitiveHint::Number,
-            input_payload_local,
-            input_tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            ToPrimitiveAbruptRoute::ReturnCurrentFunction,
+            input,
+            &primitive,
             function,
         )?;
-        self.emit_primitive_to_bigint_locals(
-            primitive_tag_local,
-            primitive_payload_local,
-            number_policy,
-            output_payload_local,
-            output_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
+        result.copy_from(&primitive, function);
+        primitive.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_primitive_to_bigint_locals(primitive.value(), number_policy, result, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        primitive.clear(function);
         Ok(())
     }
 
     fn emit_primitive_to_bigint_locals(
         &mut self,
-        input_tag_local: u32,
-        input_payload_local: u32,
+        input: &ValueLocals,
         number_policy: BigIntNumberPolicy,
-        output_payload_local: u32,
-        output_tag_local: u32,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_is_bigint_tag_i32(input_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
+        let schema = self.runtime_schema();
+        result.initialize(function);
+        input.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(input, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
+        input.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Boolean as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let negative = schema.reserve_i32_local(function);
+        let limb = schema.reserve_i64_local(function);
+        function.instruction(&Instruction::I32Const(1));
+        length.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        negative.store(function);
+        input.scalar().load(function);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        limb.store(function);
+        let buffer = crate::gc_types::BigIntConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            length,
+            function,
+        );
+        buffer.write(index, limb, schema, function);
+        let value = schema
+            .reserve_gc_local(function)
+            .initialize(buffer.publish(negative, schema, function), function);
+        result.value().set_reference(&value, schema, function);
+        result.set_normal(result.value(), function);
+        value.clear(function);
+        schema.release_i64_local(limb, function);
+        schema.release_i32_local(negative, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        input.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
         match number_policy {
             BigIntNumberPolicy::NumberToBigInt => {
-                self.emit_number_to_bigint_locals(
-                    input_payload_local,
-                    output_payload_local,
-                    output_tag_local,
-                    function,
-                )?;
+                self.emit_number_to_bigint_locals(input.scalar(), result, function)?
             }
-            BigIntNumberPolicy::RejectNumber => {
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "cannot convert Number to BigInt",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-            }
+            BigIntNumberPolicy::RejectNumber => self.emit_throw_runtime_error(
+                NativeErrorKind::TypeError,
+                RuntimeErrorMessage::CANNOT_CONVERT_NUMBER_TO_BIGINT,
+                result,
+                function,
+            )?,
         }
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_to_bigint_locals(
-            input_payload_local,
-            output_payload_local,
-            output_tag_local,
+        input.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let string = schema.reserve_gc_local(function).initialize(
+            input.cast_reference::<StringValue>(schema, function),
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(output_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            SYNTAX_ERROR_NAME,
-            "cannot convert value to BigInt",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        );
+        let parsed = schema.reserve_value_local(function);
+        let valid = schema.reserve_i32_local(function);
+        self.emit_string_to_bigint_locals(&string, &parsed, valid, function)?;
+        valid.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(&parsed, function);
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "cannot convert value to BigInt",
-            self.result_local,
-            self.result_tag_local,
+            NativeErrorKind::SyntaxError,
+            RuntimeErrorMessage::CANNOT_CONVERT_VALUE_TO_BIGINT,
+            result,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(valid, function);
+        parsed.clear(function);
+        string.clear(function);
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_VALUE_TO_BIGINT,
+            result,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
 
+    /// StringToBigInt has a nonthrowing failure result, consumed by ToBigInt,
+    /// equality and relational comparison with their distinct continuations.
     pub(crate) fn emit_string_to_bigint_locals(
         &mut self,
-        string_payload_local: u32,
-        output_payload_local: u32,
-        output_tag_local: u32,
+        string: &GcLocal<StringValue>,
+        output: &ValueLocals,
+        valid: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let offset_local = self.reserve_temp_local();
-        let len_local = self.reserve_temp_local();
-        let start_local = self.reserve_temp_local();
-        let end_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let radix_local = self.reserve_temp_local();
-        let prefix_seen_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let saw_digit_local = self.reserve_temp_local();
-        let invalid_local = self.reserve_temp_local();
-        let magnitude_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        let limb_capacity_local = self.reserve_temp_local();
-        let limb_index_local = self.reserve_temp_local();
-        let limb_local = self.reserve_temp_local();
-        let carry_local = self.reserve_temp_local();
-        let low_product_local = self.reserve_temp_local();
-        let high_product_local = self.reserve_temp_local();
-        let record_local = self.reserve_temp_local();
-        let trimmed_string_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-
-        self.emit_ecmascript_trim_both_payload_from_locals(string_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(trimmed_string_payload_local));
-        self.emit_unpack_string_payload(
-            trimmed_string_payload_local,
-            offset_local,
-            len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(offset_local));
-        function.instruction(&Instruction::LocalSet(start_local));
-        function.instruction(&Instruction::LocalGet(offset_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(end_local));
-
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(prefix_seen_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'0' as i64));
+        let schema = self.runtime_schema();
+        output.set_undefined(function);
+        let start = schema.reserve_i64_local(function);
+        let end = schema.reserve_i64_local(function);
+        let cursor = schema.reserve_i64_local(function);
+        let unit = schema.reserve_i64_local(function);
+        let radix = schema.reserve_i64_local(function);
+        let digit = schema.reserve_i64_local(function);
+        let carry = schema.reserve_i64_local(function);
+        let limb = schema.reserve_i64_local(function);
+        let low = schema.reserve_i64_local(function);
+        let high = schema.reserve_i64_local(function);
+        let capacity = schema.reserve_i32_local(function);
+        let count = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let negative = schema.reserve_i32_local(function);
+        let signed = schema.reserve_i32_local(function);
+        let empty = schema.reserve_i32_local(function);
+        self.emit_gc_string_trim_range(string, start, end, function);
+        function.instruction(&Instruction::I32Const(1));
+        valid.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        negative.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        signed.store(function);
+        start.load(function);
+        end.load(function);
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
+        empty.store(function);
+        function.instruction(&Instruction::I64Const(10));
+        radix.store(function);
+        start.load(function);
+        end.load(function);
+        function.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_gc_string_code_unit_i32(string, start, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        unit.store(function);
+        unit.load(function);
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        unit.load(function);
+        function.instruction(&Instruction::I64Const(b'+' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(1));
+        signed.store(function);
+        unit.load(function);
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        negative.store(function);
+        start.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        start.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        start.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        end.load(function);
+        function.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_gc_string_code_unit_i32(string, start, function);
+        function.instruction(&Instruction::I32Const(b'0' as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        start.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        cursor.store(function);
+        self.emit_gc_string_code_unit_i32(string, cursor, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        for (lower, upper, radix) in [
-            (b'x', b'X', 16_i64),
-            (b'o', b'O', 8_i64),
-            (b'b', b'B', 2_i64),
-        ] {
-            function.instruction(&Instruction::LocalGet(byte_local));
+        unit.store(function);
+        for (lower, upper, base) in [(b'x', b'X', 16), (b'o', b'O', 8), (b'b', b'B', 2)] {
+            unit.load(function);
             function.instruction(&Instruction::I64Const(lower as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(byte_local));
+            unit.load(function);
             function.instruction(&Instruction::I64Const(upper as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(radix));
-            function.instruction(&Instruction::LocalSet(radix_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(prefix_seen_local));
-            function.instruction(&Instruction::LocalGet(start_local));
+            self.open_frame(ControlFrameKind::If, function);
+            signed.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            valid.store(function);
+            function.instruction(&Instruction::I64Const(base));
+            radix.store(function);
+            start.load(function);
             function.instruction(&Instruction::I64Const(2));
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(start_local));
+            start.store(function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // Empty whitespace is zero; a sign or radix prefix must have a digit.
+        start.load(function);
+        end.load(function);
+        function.instruction(&Instruction::I64Eq);
+        empty.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(0));
+        valid.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        end.load(function);
+        start.load(function);
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(16));
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(prefix_seen_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'+' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(prefix_seen_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(magnitude_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(limbs_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(limb_count_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(limb_capacity_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(saw_digit_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        capacity.store(function);
+        let buffer = crate::gc_types::BigIntConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            capacity,
+            function,
+        );
+        function.instruction(&Instruction::I32Const(1));
+        count.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        valid.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        start.load(function);
+        end.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        self.emit_gc_string_code_unit_i32(string, start, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'0' as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'9' as i64));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'0' as i64));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(digit_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'a' as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'z' as i64));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'a' as i64 - 10));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(digit_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'A' as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'Z' as i64));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b'A' as i64 - 10));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(digit_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(invalid_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(digit_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        unit.store(function);
+        self.emit_numeric_ascii_digit_i64(unit, digit, function);
+        digit.load(function);
+        radix.load(function);
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(digit_local));
-        function.instruction(&Instruction::LocalSet(carry_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(limb_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(limb_index_local));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64GeU);
+        valid.store(function);
+        valid.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::LocalSet(limb_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::LocalGet(limb_index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalSet(limb_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(limb_local));
+        digit.load(function);
+        carry.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        buffer.read(index, limb, schema, function);
+        limb.load(function);
         function.instruction(&Instruction::I64Const(0xffff_ffff));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix.load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(carry_local));
+        carry.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(low_product_local));
-        function.instruction(&Instruction::LocalGet(limb_local));
+        low.store(function);
+        limb.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix.load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(low_product_local));
+        low.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high_product_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
+        high.store(function);
+        low.load(function);
         function.instruction(&Instruction::I64Const(0xffff_ffff));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalGet(high_product_local));
+        high.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64Shl);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(limb_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
+        limb.store(function);
+        buffer.write(index, limb, schema, function);
+        high.load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(carry_local));
-
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(limb_local));
-        function.instruction(&Instruction::LocalSet(magnitude_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::LocalGet(limb_index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(limb_local));
-        function.instruction(&Instruction::I64Store(Self::memarg64(0)));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(limb_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(limb_index_local));
+        carry.store(function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(carry_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(limbs_local));
+        carry.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Const(15));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(16));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(limb_capacity_local));
-        function.instruction(&Instruction::LocalGet(limb_capacity_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::LocalSet(limb_capacity_local));
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        buffer.write(count, carry, schema, function);
+        count.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        count.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(limb_capacity_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(limb_local));
-        self.emit_heap_alloc_from_local(limb_local, function)?;
-        function.instruction(&Instruction::LocalSet(limbs_local));
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Store(Self::memarg64(0)));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(carry_local));
-        function.instruction(&Instruction::I64Store(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
+        start.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(limb_count_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(saw_digit_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
+        start.store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(invalid_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(saw_digit_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // StringToBigInt reports invalid grammar as undefined. ToBigInt's
-        // consumer decides whether that normal parse result is a SyntaxError.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::Else);
-
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
+        let parsed = schema
+            .reserve_gc_local(function)
+            .initialize(buffer.publish(negative, schema, function), function);
+        valid.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        output.set_reference(&parsed, schema, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(carry_local));
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            carry_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_CAP_OFFSET,
-            limb_capacity_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Const(i64::MIN));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_alloc_one_limb_bigint(-1, magnitude_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_alloc_one_limb_bigint(1, magnitude_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(output_tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(trimmed_string_payload_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(high_product_local);
-        self.release_temp_local(low_product_local);
-        self.release_temp_local(carry_local);
-        self.release_temp_local(limb_local);
-        self.release_temp_local(limb_index_local);
-        self.release_temp_local(limb_capacity_local);
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(magnitude_local);
-        self.release_temp_local(invalid_local);
-        self.release_temp_local(saw_digit_local);
-        self.release_temp_local(negative_local);
-        self.release_temp_local(prefix_seen_local);
-        self.release_temp_local(radix_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(end_local);
-        self.release_temp_local(start_local);
-        self.release_temp_local(len_local);
-        self.release_temp_local(offset_local);
-
+        parsed.clear(function);
+        for local in [empty, signed, negative, index, count, capacity] {
+            schema.release_i32_local(local, function);
+        }
+        for local in [
+            high, low, limb, carry, digit, radix, unit, cursor, end, start,
+        ] {
+            schema.release_i64_local(local, function);
+        }
         Ok(())
     }
 
-    pub(crate) fn emit_nonstring_value_to_number_payload(
-        &self,
-        tag_local: u32,
-        payload_local: u32,
+    pub(crate) fn emit_gc_string_trim_range(
+        &mut self,
+        string: &GcLocal<StringValue>,
+        start: I64Local,
+        end: I64Local,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_nan_payload(function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
+    ) {
+        let schema = self.runtime_schema();
+        let cursor = schema.reserve_i64_local(function);
+        let unit = schema.reserve_i64_local(function);
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(string, schema, function)
+                .reference(),
+            function,
+        );
+        function.instruction(&Instruction::I64Const(0));
+        start.store(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        end.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        start.load(function);
+        end.load(function);
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_gc_string_code_unit_i32(string, start, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        unit.store(function);
+        self.emit_ecmascript_whitespace_i32(unit, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        start.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        start.store(function);
+        function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        start.load(function);
+        end.load(function);
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        end.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        cursor.store(function);
+        self.emit_gc_string_code_unit_i32(string, cursor, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        unit.store(function);
+        self.emit_ecmascript_whitespace_i32(unit, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        cursor.load(function);
+        end.store(function);
+        function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
-        Ok(())
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        units.clear(function);
+        schema.release_i64_local(unit, function);
+        schema.release_i64_local(cursor, function);
     }
 
     pub(crate) fn emit_canonical_numeric_index_string(
         &mut self,
-        string_payload_local: u32,
-        number_payload_local: u32,
-        is_canonical_local: u32,
+        string: &GcLocal<StringValue>,
+        number: I64Local,
+        canonical: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let canonical_string_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(is_canonical_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-0")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_payload_equality_i32(string_payload_local, self.scratch_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(-0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(number_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(is_canonical_local));
-        function.instruction(&Instruction::Else);
-        self.emit_string_to_number_payload(string_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(number_payload_local));
-        self.emit_number_to_string_payload(number_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(canonical_string_payload_local));
-        self.emit_string_payload_equality_i32(
-            string_payload_local,
-            canonical_string_payload_local,
+        let schema = self.runtime_schema();
+        let minus_zero = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("-0", function)?,
             function,
         );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(is_canonical_local));
+        self.emit_string_payload_equality_i32(string, &minus_zero, function);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const((-0.0_f64).to_bits() as i64));
+        number.store(function);
+        function.instruction(&Instruction::I32Const(1));
+        canonical.store(function);
+        function.instruction(&Instruction::Else);
+        self.emit_string_to_number_payload(string, number, function)?;
+        let converted = schema.reserve_gc_local(function).initialize(
+            self.emit_number_to_string_payload(number, function)?,
+            function,
+        );
+        self.emit_string_payload_equality_i32(string, &converted, function);
+        canonical.store(function);
+        converted.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(canonical_string_payload_local);
+        minus_zero.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_string_to_number_payload(
         &mut self,
-        string_payload_local: u32,
+        string: &GcLocal<StringValue>,
+        output_local: crate::gc_types::I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // ToNumber of a string operand appears throughout the builtins and its
-        // inline parse state machine is several KB; call the shared helper
-        // instead (except while compiling the helper itself). The helper returns
-        // the standard four-i64 tuple with the f64-bits payload first.
+        let schema = self.runtime_schema();
         if self.outline_string_to_number {
-            if let Some(helper) = self.string_to_number_helper_function_index() {
-                function.instruction(&Instruction::LocalGet(string_payload_local));
-                for _ in 0..6 {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-                function.instruction(&Instruction::Call(helper));
-                function.instruction(&Instruction::Drop);
-                function.instruction(&Instruction::Drop);
-                function.instruction(&Instruction::Drop);
-                return Ok(());
-            }
+            schema
+                .call_helper(
+                    crate::runtime_helpers::StringToNumberArguments::new(string),
+                    self.runtime_helper_base()?,
+                    function,
+                )
+                .store(output_local, function);
+            return Ok(());
         }
-        let offset_local = self.reserve_temp_local();
-        let len_local = self.reserve_temp_local();
-        let start_local = self.reserve_temp_local();
-        let end_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let significand_local = self.reserve_temp_local();
-        let saw_digit_local = self.reserve_temp_local();
-        let dot_seen_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let invalid_local = self.reserve_temp_local();
-        let exponent_saw_digit_local = self.reserve_temp_local();
-        let infinity_match_local = self.reserve_temp_local();
-        let decimal_start_local = self.reserve_temp_local();
-        let decimal_len_local = self.reserve_temp_local();
-        let decimal_payload_local = self.reserve_temp_local();
-        let radix_local = self.reserve_temp_local();
-        let radix_scale_local = self.reserve_temp_local();
-        let discarded_nonzero_local = self.reserve_temp_local();
-        let output_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(string_payload_local, offset_local, len_local, function);
-        function.instruction(&Instruction::LocalGet(offset_local));
-        function.instruction(&Instruction::LocalSet(start_local));
-        function.instruction(&Instruction::LocalGet(offset_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(end_local));
-
+        let start_local = schema.reserve_i64_local(function);
+        let end_local = schema.reserve_i64_local(function);
+        let index_local = schema.reserve_i64_local(function);
+        let byte_local = schema.reserve_i64_local(function);
+        let digit_local = schema.reserve_i64_local(function);
+        let significand_local = schema.reserve_i64_local(function);
+        let saw_digit_local = schema.reserve_i64_local(function);
+        let dot_seen_local = schema.reserve_i64_local(function);
+        let negative_local = schema.reserve_i64_local(function);
+        let invalid_local = schema.reserve_i64_local(function);
+        let exponent_saw_digit_local = schema.reserve_i64_local(function);
+        let infinity_match_local = schema.reserve_i64_local(function);
+        let decimal_start_local = schema.reserve_i64_local(function);
+        let radix_local = schema.reserve_i64_local(function);
+        let radix_scale_local = schema.reserve_i64_local(function);
+        let discarded_nonzero_local = schema.reserve_i64_local(function);
+        let read_index = schema.reserve_i64_local(function);
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(string, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        end_local.store(function);
+        units.clear(function);
+        function.instruction(&Instruction::I64Const(0));
+        start_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        start_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        self.emit_gc_string_code_unit_i32(string, start_local, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        for bytes in [
-            &[0xC2, 0xA0][..],       // U+00A0
-            &[0xE1, 0x9A, 0x80][..], // U+1680
-            &[0xE2, 0x80, 0x80][..], // U+2000
-            &[0xE2, 0x80, 0x81][..], // U+2001
-            &[0xE2, 0x80, 0x82][..], // U+2002
-            &[0xE2, 0x80, 0x83][..], // U+2003
-            &[0xE2, 0x80, 0x84][..], // U+2004
-            &[0xE2, 0x80, 0x85][..], // U+2005
-            &[0xE2, 0x80, 0x86][..], // U+2006
-            &[0xE2, 0x80, 0x87][..], // U+2007
-            &[0xE2, 0x80, 0x88][..], // U+2008
-            &[0xE2, 0x80, 0x89][..], // U+2009
-            &[0xE2, 0x80, 0x8A][..], // U+200A
-            &[0xE2, 0x80, 0xA8][..], // U+2028
-            &[0xE2, 0x80, 0xA9][..], // U+2029
-            &[0xE2, 0x80, 0xAF][..], // U+202F
-            &[0xE2, 0x81, 0x9F][..], // U+205F
-            &[0xE3, 0x80, 0x80][..], // U+3000
-            &[0xEF, 0xBB, 0xBF][..], // U+FEFF
-        ] {
-            Self::emit_skip_utf8_whitespace_forward(
-                function,
-                end_local,
-                start_local,
-                byte_local,
-                bytes,
-            );
-        }
-        self.emit_is_ascii_whitespace_i32(byte_local, function);
+        byte_local.store(function);
+        self.emit_ecmascript_whitespace_i32(byte_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(start_local));
+        start_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
+        start_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        start_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(end_local));
+        end_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        index_local.store(function);
+        self.emit_gc_string_code_unit_i32(string, index_local, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        for bytes in [
-            &[0xC2, 0xA0][..],       // U+00A0
-            &[0xE1, 0x9A, 0x80][..], // U+1680
-            &[0xE2, 0x80, 0x80][..], // U+2000
-            &[0xE2, 0x80, 0x81][..], // U+2001
-            &[0xE2, 0x80, 0x82][..], // U+2002
-            &[0xE2, 0x80, 0x83][..], // U+2003
-            &[0xE2, 0x80, 0x84][..], // U+2004
-            &[0xE2, 0x80, 0x85][..], // U+2005
-            &[0xE2, 0x80, 0x86][..], // U+2006
-            &[0xE2, 0x80, 0x87][..], // U+2007
-            &[0xE2, 0x80, 0x88][..], // U+2008
-            &[0xE2, 0x80, 0x89][..], // U+2009
-            &[0xE2, 0x80, 0x8A][..], // U+200A
-            &[0xE2, 0x80, 0xA8][..], // U+2028
-            &[0xE2, 0x80, 0xA9][..], // U+2029
-            &[0xE2, 0x80, 0xAF][..], // U+202F
-            &[0xE2, 0x81, 0x9F][..], // U+205F
-            &[0xE3, 0x80, 0x80][..], // U+3000
-            &[0xEF, 0xBB, 0xBF][..], // U+FEFF
-        ] {
-            Self::emit_skip_utf8_whitespace_backward(
-                function,
-                start_local,
-                end_local,
-                byte_local,
-                bytes,
-            );
-        }
-        self.emit_is_ascii_whitespace_i32(byte_local, function);
+        byte_local.store(function);
+        self.emit_ecmascript_whitespace_i32(byte_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalSet(end_local));
+        index_local.load(function);
+        end_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        start_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalGet(start_local));
+        radix_local.store(function);
+        end_local.load(function);
+        start_local.load(function);
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        start_local.load(function);
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I32Const(b'0' as i32));
         function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::LocalGet(start_local));
+        start_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
+        byte_local.store(function);
         for (lower, upper, radix) in [(b'b', b'B', 2), (b'o', b'O', 8), (b'x', b'X', 16)] {
-            function.instruction(&Instruction::LocalGet(byte_local));
+            byte_local.load(function);
             function.instruction(&Instruction::I64Const(lower as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(byte_local));
+            byte_local.load(function);
             function.instruction(&Instruction::I64Const(upper as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::I32Or);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(radix));
-            function.instruction(&Instruction::LocalSet(radix_local));
+            radix_local.store(function);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
@@ -6128,170 +3139,170 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(start_local));
+        start_local.load(function);
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
+        start_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(significand_local));
+        significand_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(discarded_nonzero_local));
+        discarded_nonzero_local.store(function);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(radix_scale_local));
+        radix_scale_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(saw_digit_local));
+        saw_digit_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        invalid_local.store(function);
+        start_local.load(function);
+        index_local.store(function);
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        index_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        index_local.load(function);
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        self.emit_hex_value_or_minus_one(byte_local, digit_local, function);
-        function.instruction(&Instruction::LocalGet(digit_local));
+        byte_local.store(function);
+        self.emit_numeric_ascii_digit_i64(byte_local, digit_local, function);
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::LocalGet(digit_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        digit_local.load(function);
+        radix_local.load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(saw_digit_local));
+        saw_digit_local.store(function);
         // Appending at most four bits below this threshold cannot overflow u64.
         // Once retained, the integer has guard bits below binary64 precision;
         // discarded nonzero digits distinguish an exact tie from rounding up.
-        function.instruction(&Instruction::LocalGet(significand_local));
+        significand_local.load(function);
         function.instruction(&Instruction::I64Const(1_i64 << 57));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        significand_local.load(function);
+        radix_local.load(function);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(significand_local));
+        significand_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(discarded_nonzero_local));
-        function.instruction(&Instruction::LocalGet(digit_local));
+        discarded_nonzero_local.load(function);
+        digit_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(discarded_nonzero_local));
-        function.instruction(&Instruction::LocalGet(radix_scale_local));
+        discarded_nonzero_local.store(function);
+        radix_scale_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix_local.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(radix_scale_local));
+        radix_scale_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        invalid_local.store(function);
+        end_local.load(function);
+        index_local.store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(invalid_local));
+        invalid_local.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(saw_digit_local));
+        saw_digit_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand_local));
-        function.instruction(&Instruction::LocalGet(discarded_nonzero_local));
+        significand_local.load(function);
+        discarded_nonzero_local.load(function);
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::LocalGet(radix_scale_local));
+        radix_scale_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
         function.instruction(&Instruction::Else);
         self.emit_nan_payload(function);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalSet(decimal_start_local));
+        start_local.load(function);
+        decimal_start_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        negative_local.store(function);
+        start_local.load(function);
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.store(function);
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(start_local));
+        negative_local.store(function);
+        start_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
+        start_local.store(function);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(infinity_match_local));
-        function.instruction(&Instruction::LocalGet(start_local));
+        infinity_match_local.store(function);
+        start_local.load(function);
         function.instruction(&Instruction::I64Const(8));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(end_local));
+        end_local.load(function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(infinity_match_local));
+        infinity_match_local.store(function);
         for (offset, byte) in b"Infinity".iter().copied().enumerate() {
-            function.instruction(&Instruction::LocalGet(start_local));
+            start_local.load(function);
             function.instruction(&Instruction::I64Const(offset as i64));
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+            read_index.store(function);
+            self.emit_gc_string_code_unit_i32(string, read_index, function);
             function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(byte_local));
-            function.instruction(&Instruction::LocalGet(infinity_match_local));
-            function.instruction(&Instruction::LocalGet(byte_local));
+            byte_local.store(function);
+            infinity_match_local.load(function);
+            byte_local.load(function);
             function.instruction(&Instruction::I64Const(byte as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::I64ExtendI32U);
             function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::LocalSet(infinity_match_local));
+            infinity_match_local.store(function);
         }
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(infinity_match_local));
+        infinity_match_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(negative_local));
+        negative_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
@@ -6299,299 +3310,330 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(saw_digit_local));
+        saw_digit_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dot_seen_local));
+        dot_seen_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(invalid_local));
+        invalid_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(exponent_saw_digit_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        exponent_saw_digit_local.store(function);
+        start_local.load(function);
+        index_local.store(function);
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        index_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
 
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        index_local.load(function);
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
+        byte_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'9' as i64));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(saw_digit_local));
+        saw_digit_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'.' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(dot_seen_local));
+        dot_seen_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(dot_seen_local));
+        dot_seen_local.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'e' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'E' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(saw_digit_local));
+        saw_digit_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        index_local.store(function);
+        index_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        index_local.load(function);
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.store(function);
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'+' as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'-' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(end_local));
+        index_local.load(function);
+        end_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        index_local.load(function);
+        read_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, read_index, function);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.store(function);
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(byte_local));
+        byte_local.load(function);
         function.instruction(&Instruction::I64Const(b'9' as i64));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(exponent_saw_digit_local));
+        exponent_saw_digit_local.store(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        invalid_local.store(function);
+        end_local.load(function);
+        index_local.store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(exponent_saw_digit_local));
+        exponent_saw_digit_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
+        invalid_local.store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        end_local.load(function);
+        index_local.store(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invalid_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        invalid_local.store(function);
+        end_local.load(function);
+        index_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(index_local));
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(invalid_local));
+        invalid_local.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(saw_digit_local));
+        saw_digit_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalGet(decimal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(decimal_len_local));
-        self.emit_pack_string_payload(decimal_start_local, decimal_len_local, function);
-        function.instruction(&Instruction::LocalSet(decimal_payload_local));
-        self.emit_decimal_to_binary64_payload(decimal_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_local));
+        let decimal = schema.reserve_gc_local(function).initialize(
+            self.emit_gc_string_slice(string, decimal_start_local, end_local, function),
+            function,
+        );
+        schema
+            .call_helper(
+                crate::runtime_helpers::DecimalToBinary64Arguments::new(&decimal),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(output_local, function);
+        decimal.clear(function);
         function.instruction(&Instruction::Else);
         self.emit_nan_payload(function);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(output_local));
-
-        self.release_temp_local(output_local);
-        self.release_temp_local(discarded_nonzero_local);
-        self.release_temp_local(radix_scale_local);
-        self.release_temp_local(radix_local);
-        self.release_temp_local(decimal_payload_local);
-        self.release_temp_local(decimal_len_local);
-        self.release_temp_local(decimal_start_local);
-        self.release_temp_local(infinity_match_local);
-        self.release_temp_local(exponent_saw_digit_local);
-        self.release_temp_local(invalid_local);
-        self.release_temp_local(negative_local);
-        self.release_temp_local(dot_seen_local);
-        self.release_temp_local(saw_digit_local);
-        self.release_temp_local(significand_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(end_local);
-        self.release_temp_local(start_local);
-        self.release_temp_local(len_local);
-        self.release_temp_local(offset_local);
+        schema.release_i64_local(read_index, function);
+        schema.release_i64_local(discarded_nonzero_local, function);
+        schema.release_i64_local(radix_scale_local, function);
+        schema.release_i64_local(radix_local, function);
+        schema.release_i64_local(decimal_start_local, function);
+        schema.release_i64_local(infinity_match_local, function);
+        schema.release_i64_local(exponent_saw_digit_local, function);
+        schema.release_i64_local(invalid_local, function);
+        schema.release_i64_local(negative_local, function);
+        schema.release_i64_local(dot_seen_local, function);
+        schema.release_i64_local(saw_digit_local, function);
+        schema.release_i64_local(significand_local, function);
+        schema.release_i64_local(digit_local, function);
+        schema.release_i64_local(byte_local, function);
+        schema.release_i64_local(index_local, function);
+        schema.release_i64_local(end_local, function);
+        schema.release_i64_local(start_local, function);
         Ok(())
     }
 
-    pub(crate) fn emit_is_ascii_whitespace_i32(&self, byte_local: u32, function: &mut Function) {
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(b' ' as i64));
-        function.instruction(&Instruction::I64Eq);
-        for byte in [b'\t', b'\n', 0x0B, 0x0C, b'\r'] {
-            function.instruction(&Instruction::LocalGet(byte_local));
-            function.instruction(&Instruction::I64Const(byte as i64));
+    pub(crate) fn emit_gc_string_code_unit_i32(
+        &self,
+        string: &GcLocal<StringValue>,
+        index: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(string, schema, function)
+                .reference(),
+            function,
+        );
+        let ordinal = schema.reserve_i32_local(function);
+        index.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        ordinal.store(function);
+        let unit = schema.reserve_i32_local(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&units, ordinal, schema, function)
+            .store(unit, function);
+        unit.load(function);
+        schema.release_i32_local(unit, function);
+        schema.release_i32_local(ordinal, function);
+        units.clear(function);
+    }
+
+    pub(crate) fn emit_ecmascript_whitespace_i32(
+        &self,
+        unit: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I32Const(0));
+        for code in [
+            0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020, 0x00a0, 0x1680, 0x2000, 0x2001, 0x2002,
+            0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f,
+            0x205f, 0x3000, 0xfeff,
+        ] {
+            unit.load(function);
+            function.instruction(&Instruction::I64Const(code));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::I32Or);
         }
     }
 
-    pub(crate) fn emit_skip_utf8_whitespace_forward(
+    fn emit_numeric_ascii_digit_i64(
+        &self,
+        unit: crate::gc_types::I64Local,
+        digit: crate::gc_types::I64Local,
         function: &mut Function,
-        end_local: u32,
-        index_local: u32,
-        byte_local: u32,
-        bytes: &[u8],
     ) {
-        debug_assert!(bytes.len() >= 2);
-
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(bytes[0] as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const((bytes.len() - 1) as i64));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        for (offset, byte) in bytes.iter().copied().enumerate().skip(1) {
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(offset as i64));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-            function.instruction(&Instruction::I32Const(byte as i32));
-            function.instruction(&Instruction::I32Eq);
-            if offset > 1 {
-                function.instruction(&Instruction::I32And);
-            }
+        function.instruction(&Instruction::I64Const(-1));
+        digit.store(function);
+        for (first, last, adjustment) in [
+            (b'0', b'9', i64::from(b'0')),
+            (b'a', b'f', i64::from(b'a') - 10),
+            (b'A', b'F', i64::from(b'A') - 10),
+        ] {
+            unit.load(function);
+            function.instruction(&Instruction::I64Const(i64::from(first)));
+            function.instruction(&Instruction::I64GeU);
+            unit.load(function);
+            function.instruction(&Instruction::I64Const(i64::from(last)));
+            function.instruction(&Instruction::I64LeU);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            unit.load(function);
+            function.instruction(&Instruction::I64Const(adjustment));
+            function.instruction(&Instruction::I64Sub);
+            digit.store(function);
+            function.instruction(&Instruction::End);
         }
-
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(bytes.len() as i64));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
     }
 
-    pub(crate) fn emit_skip_utf8_whitespace_backward(
+    /// Materializes exactly the selected UTF-16 interval. Numeric parsers use
+    /// this after grammar validation, retaining the original String throughout.
+    pub(crate) fn emit_gc_string_slice(
+        &self,
+        string: &GcLocal<StringValue>,
+        start: crate::gc_types::I64Local,
+        end: crate::gc_types::I64Local,
         function: &mut Function,
-        start_local: u32,
-        end_local: u32,
-        byte_local: u32,
-        bytes: &[u8],
-    ) {
-        debug_assert!(bytes.len() >= 2);
-
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I64Const(bytes[bytes.len() - 1] as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalGet(start_local));
+    ) -> crate::gc_types::GcStackReference<StringValue> {
+        let schema = self.runtime_schema();
+        let length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let source_index = schema.reserve_i64_local(function);
+        let unit = schema.reserve_i32_local(function);
+        end.load(function);
+        start.load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(bytes.len() as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        for (offset, byte) in bytes.iter().copied().enumerate() {
-            function.instruction(&Instruction::LocalGet(end_local));
-            function.instruction(&Instruction::I64Const(bytes.len() as i64));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::I64Const(offset as i64));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-            function.instruction(&Instruction::I32Const(byte as i32));
-            function.instruction(&Instruction::I32Eq);
-            if offset > 0 {
-                function.instruction(&Instruction::I32And);
-            }
-        }
-
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64Const(bytes.len() as i64));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(end_local));
-        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::I32WrapI64);
+        length.store(function);
+        let construction = crate::gc_types::StringConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            length,
+            function,
+        );
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        length.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        start.load(function);
+        index.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Add);
+        source_index.store(function);
+        self.emit_gc_string_code_unit_i32(string, source_index, function);
+        unit.store(function);
+        construction.write(index, unit, schema, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        let result = construction.publish(schema, function);
+        schema.release_i32_local(unit, function);
+        schema.release_i64_local(source_index, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(length, function);
+        result
     }
 
     pub(crate) fn compile_loose_equality_i32(
@@ -6600,948 +3642,415 @@ impl<'a> FunctionBuilder<'a> {
         rhs: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-            && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-        {
-            let lhs_payload = self.reserve_temp_local();
-            let lhs_tag = self.reserve_temp_local();
-            let rhs_payload = self.reserve_temp_local();
-            let rhs_tag = self.reserve_temp_local();
-            self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-            self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-            self.emit_loose_tagged_equality_i32(
-                lhs_tag,
-                lhs_payload,
-                rhs_tag,
-                rhs_payload,
-                function,
-            )?;
-            self.release_temp_local(rhs_tag);
-            self.release_temp_local(rhs_payload);
-            self.release_temp_local(lhs_tag);
-            self.release_temp_local(lhs_payload);
-            return Ok(());
-        }
-
-        let lhs_raw_payload = self.reserve_temp_local();
-        let lhs_raw_tag = self.reserve_temp_local();
-        let rhs_raw_payload = self.reserve_temp_local();
-        let rhs_raw_tag = self.reserve_temp_local();
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        let equality_result_local = self.reserve_temp_local();
-        let completed_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(lhs, lhs_raw_payload, lhs_raw_tag, function)?;
-        self.compile_expr_to_locals(rhs, rhs_raw_payload, rhs_raw_tag, function)?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(equality_result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(completed_local));
-        self.compile_nullish_tagged_i32(lhs_raw_tag, function)?;
-        self.compile_nullish_tagged_i32(rhs_raw_tag, function)?;
-        function.instruction(&Instruction::I32And);
-        self.compile_nullish_tagged_i32(lhs_raw_tag, function)?;
-        self.emit_is_htmldda_function_i32(rhs_raw_tag, rhs_raw_payload, function)?;
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        self.compile_nullish_tagged_i32(rhs_raw_tag, function)?;
-        self.emit_is_htmldda_function_i32(lhs_raw_tag, lhs_raw_payload, function)?;
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(equality_result_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(completed_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(completed_local));
-        function.instruction(&Instruction::I64Eqz);
-        self.compile_nullish_tagged_i32(lhs_raw_tag, function)?;
-        self.compile_nullish_tagged_i32(rhs_raw_tag, function)?;
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(completed_local));
-        function.instruction(&Instruction::End);
-
-        self.emit_is_heap_object_like_tag_i32(lhs_raw_tag, function);
-        self.emit_is_heap_object_like_tag_i32(rhs_raw_tag, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lhs_raw_payload));
-        function.instruction(&Instruction::LocalGet(rhs_raw_payload));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(equality_result_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(completed_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(completed_local));
-        function.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_tagged_to_primitive_locals(
-            ToPrimitiveHint::Default,
-            lhs_raw_payload,
-            lhs_raw_tag,
-            lhs_payload,
-            lhs_tag,
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            function,
-        )?;
-        self.emit_tagged_to_primitive_locals(
-            ToPrimitiveHint::Default,
-            rhs_raw_payload,
-            rhs_raw_tag,
-            rhs_payload,
-            rhs_tag,
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            function,
-        )?;
-        self.emit_loose_tagged_equality_i32(lhs_tag, lhs_payload, rhs_tag, rhs_payload, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(equality_result_local));
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(equality_result_local));
-        function.instruction(&Instruction::I32WrapI64);
-
-        self.release_temp_local(completed_local);
-        self.release_temp_local(equality_result_local);
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
-        self.release_temp_local(rhs_raw_tag);
-        self.release_temp_local(rhs_raw_payload);
-        self.release_temp_local(lhs_raw_tag);
-        self.release_temp_local(lhs_raw_payload);
-        return Ok(());
-    }
-
-    pub(crate) fn compile_loose_equality_nonstring_i32(
-        &mut self,
-        lhs: &TypedExpr,
-        rhs: &TypedExpr,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if !lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-            || !rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-        {
-            return self.compile_loose_equality_i32(lhs, rhs, function);
-        }
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        let temp_number_local = self.reserve_temp_local();
-        self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-        self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-        function.instruction(&Instruction::LocalGet(lhs_tag));
-        function.instruction(&Instruction::LocalGet(rhs_tag));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_nonstring_tagged_payload_equality_i32(
-            lhs_tag,
-            lhs_payload,
-            rhs_tag,
-            rhs_payload,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.compile_nullish_tagged_i32(lhs_tag, function)?;
-        self.compile_nullish_tagged_i32(rhs_tag, function)?;
-        function.instruction(&Instruction::I32And);
-        self.compile_nullish_tagged_i32(lhs_tag, function)?;
-        self.emit_is_htmldda_function_i32(rhs_tag, rhs_payload, function)?;
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        self.compile_nullish_tagged_i32(rhs_tag, function)?;
-        self.emit_is_htmldda_function_i32(lhs_tag, lhs_payload, function)?;
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_nonstring_value_to_number_payload(lhs_tag, lhs_payload, function)?;
-        function.instruction(&Instruction::LocalSet(temp_number_local));
-        self.emit_number_payload_loose_equal_i32(
-            temp_number_local,
-            rhs_tag,
-            rhs_payload,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(rhs_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_nonstring_value_to_number_payload(rhs_tag, rhs_payload, function)?;
-        function.instruction(&Instruction::LocalSet(temp_number_local));
-        self.emit_number_payload_loose_equal_i32(
-            temp_number_local,
-            lhs_tag,
-            lhs_payload,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag, function);
-        self.emit_is_bigint_tag_i32(rhs_tag, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_mixed_bigint_equality_i32(lhs_tag, lhs_payload, rhs_payload, function);
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag, function);
-        function.instruction(&Instruction::LocalGet(rhs_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_number_equality_i32(lhs_tag, lhs_payload, rhs_payload, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.emit_is_bigint_tag_i32(rhs_tag, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_number_equality_i32(rhs_tag, rhs_payload, lhs_payload, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(temp_number_local);
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        self.compile_expr_to_value(lhs, &left, function)?;
+        self.compile_expr_to_value(rhs, &right, function)?;
+        self.emit_loose_tagged_equality_i32(&left, &right, function)?;
+        right.clear(function);
+        left.clear(function);
         Ok(())
-    }
-
-    pub(crate) fn emit_nonstring_tagged_payload_equality_i32(
-        &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        _rhs_tag_local: u32,
-        rhs_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_heap_bigint_equality_i32(lhs_payload_local, rhs_payload_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_loose_tagged_equality_i32(
         &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_tag_local: u32,
-        rhs_payload_local: u32,
+        lhs: &ValueLocals,
+        rhs: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let temp_number_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_tagged_payload_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_tag_local,
-            rhs_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.compile_nullish_tagged_i32(lhs_tag_local, function)?;
-        self.compile_nullish_tagged_i32(rhs_tag_local, function)?;
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        let result = schema.reserve_i32_local(function);
+        let comparison = schema.reserve_i32_local(function);
+        let unordered = schema.reserve_i32_local(function);
+        left.copy_from(lhs, function);
+        right.copy_from(rhs, function);
+        function.instruction(&Instruction::I32Const(0));
+        result.store(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        left.tag().load(function);
+        right.tag().load(function);
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_tagged_payload_equality_i32(&left, &right, function)?;
+        result.store(function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.compile_nullish_tagged_i32(left.tag(), function)?;
+        self.compile_nullish_tagged_i32(right.tag(), function)?;
         function.instruction(&Instruction::I32And);
-        self.compile_nullish_tagged_i32(lhs_tag_local, function)?;
-        self.emit_is_htmldda_function_i32(rhs_tag_local, rhs_payload_local, function)?;
+        self.compile_nullish_tagged_i32(left.tag(), function)?;
+        self.emit_is_htmldda_function_i32(&right, function)?;
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I32Or);
-        self.compile_nullish_tagged_i32(rhs_tag_local, function)?;
-        self.emit_is_htmldda_function_i32(lhs_tag_local, lhs_payload_local, function)?;
+        self.compile_nullish_tagged_i32(right.tag(), function)?;
+        self.emit_is_htmldda_function_i32(&left, function)?;
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_number_local));
-        self.emit_number_payload_loose_equal_i32(
-            temp_number_local,
-            rhs_tag_local,
-            rhs_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_number_local));
-        self.emit_number_payload_loose_equal_i32(
-            temp_number_local,
-            lhs_tag_local,
-            lhs_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_number_payload_loose_equal_i32(
-            lhs_payload_local,
-            rhs_tag_local,
-            rhs_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_number_payload_loose_equal_i32(
-            rhs_payload_local,
-            lhs_tag_local,
-            lhs_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_mixed_bigint_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_number_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_number_equality_i32(
-            rhs_tag_local,
-            rhs_payload_local,
-            lhs_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        let bigint_payload_local = self.reserve_temp_local();
-        let bigint_tag_local = self.reserve_temp_local();
-        let string_payload_local = self.reserve_temp_local();
-        for (left, right, output) in [
-            (lhs_payload_local, rhs_payload_local, bigint_payload_local),
-            (lhs_tag_local, rhs_tag_local, bigint_tag_local),
-            (rhs_payload_local, lhs_payload_local, string_payload_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(left));
-            function.instruction(&Instruction::LocalGet(right));
-            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-            function.instruction(&Instruction::Select);
-            function.instruction(&Instruction::LocalSet(output));
+        result.store(function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        for value in [&left, &right] {
+            self.emit_value_tag_is_i32(value, WasmRuntimeValueTag::Boolean, function);
+            self.open_frame(ControlFrameKind::If, function);
+            value.scalar().load(function);
+            function.instruction(&Instruction::F64ConvertI64U);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            value.scalar().store(function);
+            value.set_number(value.scalar(), function);
+            // The loop label remains outside the emitted If.
+            function.instruction(&Instruction::Br(1));
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
-        self.emit_bigint_string_equality_i32(
-            bigint_tag_local,
-            bigint_payload_local,
-            string_payload_local,
-            function,
-        )?;
-        self.release_temp_local(string_payload_local);
-        self.release_temp_local(bigint_tag_local);
-        self.release_temp_local(bigint_payload_local);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
+        for (string_side, other) in [(&left, &right), (&right, &left)] {
+            self.emit_value_tag_is_i32(string_side, WasmRuntimeValueTag::String, function);
+            self.emit_value_tag_is_i32(other, WasmRuntimeValueTag::Number, function);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
+            let string = schema.reserve_gc_local(function).initialize(
+                string_side.cast_reference::<StringValue>(schema, function),
+                function,
+            );
+            let number = schema.reserve_i64_local(function);
+            self.emit_string_to_number_payload(&string, number, function)?;
+            string_side.set_number(number, function);
+            schema.release_i64_local(number, function);
+            string.clear(function);
+            function.instruction(&Instruction::Br(1));
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            self.emit_value_tag_is_i32(string_side, WasmRuntimeValueTag::String, function);
+            self.emit_value_tag_is_i32(other, WasmRuntimeValueTag::BigInt, function);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
+            let string = schema.reserve_gc_local(function).initialize(
+                string_side.cast_reference::<StringValue>(schema, function),
+                function,
+            );
+            let parsed = schema.reserve_value_local(function);
+            let valid = schema.reserve_i32_local(function);
+            self.emit_string_to_bigint_locals(&string, &parsed, valid, function)?;
+            string_side.copy_from(&parsed, function);
+            valid.load(function);
+            schema.release_i32_local(valid, function);
+            parsed.clear(function);
+            string.clear(function);
+            self.open_frame(ControlFrameKind::If, function);
+            function.instruction(&Instruction::Br(2));
+            function.instruction(&Instruction::Else);
+            self.emit_branch_to_target(exit, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        for (bigint_side, number_side) in [(&left, &right), (&right, &left)] {
+            self.emit_value_tag_is_i32(bigint_side, WasmRuntimeValueTag::BigInt, function);
+            self.emit_value_tag_is_i32(number_side, WasmRuntimeValueTag::Number, function);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
+            let bigint = schema.reserve_gc_local(function).initialize(
+                bigint_side.cast_reference::<BigIntValue>(schema, function),
+                function,
+            );
+            self.emit_bigint_number_compare(
+                &bigint,
+                number_side.scalar(),
+                comparison,
+                unordered,
+                function,
+            )?;
+            comparison.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            unordered.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::I32And);
+            result.store(function);
+            bigint.clear(function);
+            self.emit_branch_to_target(exit, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        for (object, primitive) in [(&left, &right), (&right, &left)] {
+            self.emit_is_heap_object_like_tag_i32(object.tag(), function);
+            self.emit_is_primitive_tag_i32(primitive.tag(), function);
+            self.compile_nullish_tagged_i32(primitive.tag(), function)?;
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_tagged_to_primitive_locals_pending(
+                ToPrimitiveHint::Default,
+                object,
+                &pending,
+                function,
+            )?;
+            self.finish_to_primitive_operation(
+                ToPrimitiveAbruptRoute::ActiveHandler,
+                &pending,
+                function,
+            )?;
+            object.copy_from(pending.value(), function);
+            function.instruction(&Instruction::Br(1));
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(temp_number_local);
+        result.load(function);
+        schema.release_i32_local(unordered, function);
+        schema.release_i32_local(comparison, function);
+        schema.release_i32_local(result, function);
+        pending.clear(function);
+        right.clear(function);
+        left.clear(function);
         Ok(())
     }
 
-    fn emit_bigint_string_equality_i32(
+    fn emit_value_tag_is_i32(
+        &self,
+        value: &ValueLocals,
+        tag: WasmRuntimeValueTag,
+        function: &mut Function,
+    ) {
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(tag as i32));
+        function.instruction(&Instruction::I32Eq);
+    }
+
+    pub(crate) fn emit_bigint_compare(
         &mut self,
-        bigint_tag_local: u32,
-        bigint_payload_local: u32,
-        string_payload_local: u32,
+        left: &GcLocal<BigIntValue>,
+        right: &GcLocal<BigIntValue>,
+        result: I32Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let left_sign = schema.reserve_i32_local(function);
+        let right_sign = schema.reserve_i32_local(function);
+        let left_len = schema.reserve_i32_local(function);
+        let right_len = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let left_limb = schema.reserve_i64_local(function);
+        let right_limb = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<BigIntValue>()
+            .field(BigIntValueSchema::NEGATIVE)
+            .read(left, schema, function)
+            .store(left_sign, function);
+        schema
+            .struct_type::<BigIntValue>()
+            .field(BigIntValueSchema::NEGATIVE)
+            .read(right, schema, function)
+            .store(right_sign, function);
+        let left_limbs = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BigIntValue>()
+                .field(BigIntValueSchema::LIMBS)
+                .read(left, schema, function)
+                .reference(),
+            function,
+        );
+        let right_limbs = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BigIntValue>()
+                .field(BigIntValueSchema::LIMBS)
+                .read(right, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .array_type::<BigIntLimbArray>()
+            .length(&left_limbs, schema, function);
+        left_len.store(function);
+        schema
+            .array_type::<BigIntLimbArray>()
+            .length(&right_limbs, schema, function);
+        right_len.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        result.store(function);
+        left_sign.load(function);
+        right_sign.load(function);
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        left_sign.load(function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::End);
+        result.store(function);
+        function.instruction(&Instruction::Else);
+        left_len.load(function);
+        right_len.load(function);
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        left_len.load(function);
+        right_len.load(function);
+        function.instruction(&Instruction::I32LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::End);
+        result.store(function);
+        function.instruction(&Instruction::Else);
+        left_len.load(function);
+        index.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        index.store(function);
+        schema
+            .array_type::<BigIntLimbArray>()
+            .read(&left_limbs, index, schema, function)
+            .store_i64(left_limb, function);
+        schema
+            .array_type::<BigIntLimbArray>()
+            .read(&right_limbs, index, schema, function)
+            .store_i64(right_limb, function);
+        left_limb.load(function);
+        right_limb.load(function);
+        function.instruction(&Instruction::I64Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        left_limb.load(function);
+        right_limb.load(function);
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::End);
+        result.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.load(function);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        left_sign.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(0));
+        result.load(function);
+        function.instruction(&Instruction::I32Sub);
+        result.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        right_limbs.clear(function);
+        left_limbs.clear(function);
+        schema.release_i64_local(right_limb, function);
+        schema.release_i64_local(left_limb, function);
+        for local in [index, right_len, left_len, right_sign, left_sign] {
+            schema.release_i32_local(local, function);
+        }
+    }
+
+    /// Compare an exact integer against binary64 without rounding the integer.
+    /// Only the finite Number's integral part is converted to canonical limbs.
+    fn emit_bigint_number_compare(
+        &mut self,
+        bigint: &GcLocal<BigIntValue>,
+        number: I64Local,
+        result: I32Local,
+        unordered: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let parsed_payload_local = self.reserve_temp_local();
-        let parsed_tag_local = self.reserve_temp_local();
-        self.emit_string_to_bigint_locals(
-            string_payload_local,
-            parsed_payload_local,
-            parsed_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(parsed_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        let schema = self.runtime_schema();
+        let truncated = schema.reserve_i64_local(function);
+        let pending = schema.reserve_completion(function);
         function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(bigint_tag_local));
-        function.instruction(&Instruction::LocalGet(parsed_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_tagged_payload_equality_i32(
-            bigint_tag_local,
-            bigint_payload_local,
-            parsed_tag_local,
-            parsed_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_mixed_bigint_equality_i32(
-            bigint_tag_local,
-            bigint_payload_local,
-            parsed_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(parsed_tag_local);
-        self.release_temp_local(parsed_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_mixed_bigint_equality_i32(
-        &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_heap_bigint_inline_equality_i32(lhs_payload_local, rhs_payload_local, function);
-        function.instruction(&Instruction::Else);
-        self.emit_heap_bigint_inline_equality_i32(rhs_payload_local, lhs_payload_local, function);
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_bigint_number_equality_i32(
-        &mut self,
-        bigint_tag_local: u32,
-        bigint_payload_local: u32,
-        number_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(bigint_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_heap_bigint_number_equality_i32(
-            bigint_payload_local,
-            number_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_inline_bigint_number_equality_i32(
-            bigint_payload_local,
-            number_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_inline_bigint_number_equality_i32(
-        &mut self,
-        bigint_payload_local: u32,
-        number_payload_local: u32,
-        function: &mut Function,
-    ) {
-        let integer_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(i64::MIN as f64)));
-        function.instruction(&Instruction::F64Ge);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(
-            9_223_372_036_854_775_808.0,
-        )));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(integer_local));
-        function.instruction(&Instruction::LocalGet(bigint_payload_local));
-        function.instruction(&Instruction::LocalGet(integer_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::Else);
+        unordered.store(function);
         function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(integer_local);
-    }
-
-    fn emit_heap_bigint_inline_equality_i32(
-        &mut self,
-        heap_payload_local: u32,
-        inline_payload_local: u32,
-        function: &mut Function,
-    ) {
-        let heap_sign_local = self.reserve_temp_local();
-        let heap_limbs_local = self.reserve_temp_local();
-        let heap_limb_count_local = self.reserve_temp_local();
-        let inline_sign_local = self.reserve_temp_local();
-        let inline_magnitude_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            heap_payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            heap_sign_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            heap_payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            heap_limbs_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            heap_payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            heap_limb_count_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(inline_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(inline_sign_local));
-
-        function.instruction(&Instruction::LocalGet(inline_sign_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(inline_payload_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(inline_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(inline_magnitude_local));
-
-        function.instruction(&Instruction::LocalGet(inline_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(heap_sign_local));
-        function.instruction(&Instruction::LocalGet(inline_sign_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(heap_limb_count_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(heap_limbs_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalGet(inline_magnitude_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(inline_magnitude_local);
-        self.release_temp_local(inline_sign_local);
-        self.release_temp_local(heap_limb_count_local);
-        self.release_temp_local(heap_limbs_local);
-        self.release_temp_local(heap_sign_local);
-    }
-
-    fn emit_heap_bigint_number_equality_i32(
-        &mut self,
-        heap_payload_local: u32,
-        number_payload_local: u32,
-        function: &mut Function,
-    ) {
-        // Reconstruct the integer from its IEEE-754 significand and exponent so
-        // comparison against arbitrary-precision limbs cannot round unequal values.
-        let number_bits_local = self.reserve_temp_local();
-        let exponent_local = self.reserve_temp_local();
-        let significand_local = self.reserve_temp_local();
-        let shift_local = self.reserve_temp_local();
-        let first_limb_local = self.reserve_temp_local();
-        let bit_offset_local = self.reserve_temp_local();
-        let expected_limb_count_local = self.reserve_temp_local();
-        let expected_sign_local = self.reserve_temp_local();
-        let expected_limb_local = self.reserve_temp_local();
-        let heap_sign_local = self.reserve_temp_local();
-        let heap_limbs_local = self.reserve_temp_local();
-        let heap_limb_count_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let equal_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        result.store(function);
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Gt);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        number.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I32Const(1));
+        unordered.store(function);
+        function.instruction(&Instruction::Else);
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Abs);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        number.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::End);
+        result.store(function);
+        function.instruction(&Instruction::Else);
+        number.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(number_bits_local));
-
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(expected_sign_local));
-
-        function.instruction(&Instruction::LocalGet(number_bits_local));
-        function.instruction(&Instruction::I64Const(52));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0x7ff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(1023));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(exponent_local));
-
-        function.instruction(&Instruction::LocalGet(number_bits_local));
-        function.instruction(&Instruction::I64Const((1_i64 << 52) - 1));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(1_i64 << 52));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(significand_local));
-
-        function.instruction(&Instruction::LocalGet(exponent_local));
-        function.instruction(&Instruction::I64Const(52));
-        function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(exponent_local));
-        function.instruction(&Instruction::I64Const(52));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(shift_local));
-        function.instruction(&Instruction::LocalGet(shift_local));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(first_limb_local));
-        function.instruction(&Instruction::LocalGet(shift_local));
-        function.instruction(&Instruction::I64Const(63));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(bit_offset_local));
-        function.instruction(&Instruction::LocalGet(shift_local));
-        function.instruction(&Instruction::I64Const(52));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(expected_limb_count_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(52));
-        function.instruction(&Instruction::LocalGet(exponent_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(shift_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(first_limb_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(bit_offset_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(expected_limb_count_local));
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            heap_payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            heap_sign_local,
+        function.instruction(&Instruction::I64ReinterpretF64);
+        truncated.store(function);
+        self.emit_number_to_bigint_locals(truncated, &pending, function)?;
+        let integer = schema.reserve_gc_local(function).initialize(
+            pending
+                .value()
+                .cast_reference::<BigIntValue>(schema, function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            heap_payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            heap_limbs_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            heap_payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            heap_limb_count_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(heap_sign_local));
-        function.instruction(&Instruction::LocalGet(expected_sign_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(heap_limb_count_local));
-        function.instruction(&Instruction::LocalGet(expected_limb_count_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(equal_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(heap_limb_count_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(expected_limb_local));
-        function.instruction(&Instruction::LocalGet(exponent_local));
-        function.instruction(&Instruction::I64Const(52));
-        function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(first_limb_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand_local));
-        function.instruction(&Instruction::LocalGet(bit_offset_local));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalSet(expected_limb_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(bit_offset_local));
-        function.instruction(&Instruction::I64Const(0));
+        self.emit_bigint_compare(bigint, &integer, result, function);
+        integer.clear(function);
+        result.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        number.load(function);
+        truncated.load(function);
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(first_limb_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand_local));
-        function.instruction(&Instruction::I64Const(64));
-        function.instruction(&Instruction::LocalGet(bit_offset_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(expected_limb_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand_local));
-        function.instruction(&Instruction::LocalGet(shift_local));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(expected_limb_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(heap_limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalGet(expected_limb_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(equal_local));
-        function.instruction(&Instruction::LocalGet(equal_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(equal_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(equal_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(heap_limb_count_local);
-        self.release_temp_local(heap_limbs_local);
-        self.release_temp_local(heap_sign_local);
-        self.release_temp_local(expected_limb_local);
-        self.release_temp_local(expected_sign_local);
-        self.release_temp_local(expected_limb_count_local);
-        self.release_temp_local(bit_offset_local);
-        self.release_temp_local(first_limb_local);
-        self.release_temp_local(shift_local);
-        self.release_temp_local(significand_local);
-        self.release_temp_local(exponent_local);
-        self.release_temp_local(number_bits_local);
-    }
-
-    pub(crate) fn emit_number_payload_loose_equal_i32(
-        &mut self,
-        number_payload_local: u32,
-        other_tag_local: u32,
-        other_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let other_number_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(other_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        number.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(other_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::I32Const(-1));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(other_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_string_to_number_payload(other_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(other_number_local));
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(other_number_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(other_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_number_equality_i32(
-            other_tag_local,
-            other_payload_local,
-            number_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::End);
+        result.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(other_number_local);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        pending.clear(function);
+        schema.release_i64_local(truncated, function);
         Ok(())
     }
 
@@ -7552,199 +4061,209 @@ impl<'a> FunctionBuilder<'a> {
         rhs: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-            && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-        {
-            let lhs_payload = self.reserve_temp_local();
-            let lhs_tag = self.reserve_temp_local();
-            let rhs_payload = self.reserve_temp_local();
-            let rhs_tag = self.reserve_temp_local();
-            self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-            self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-            self.emit_compare_tagged_i32(op, lhs_tag, lhs_payload, rhs_tag, rhs_payload, function)?;
-            self.release_temp_local(rhs_tag);
-            self.release_temp_local(rhs_payload);
-            self.release_temp_local(lhs_tag);
-            self.release_temp_local(lhs_payload);
-            return Ok(());
-        }
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
         self.compile_operand_pair_to_primitive_locals(
             lhs,
             rhs,
             ToPrimitiveHint::Number,
-            lhs_payload,
-            lhs_tag,
-            rhs_payload,
-            rhs_tag,
+            &left,
+            &right,
             function,
         )?;
-        self.emit_compare_tagged_i32(op, lhs_tag, lhs_payload, rhs_tag, rhs_payload, function)?;
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
+        self.emit_compare_tagged_i32(op, &left, &right, function)?;
+        right.clear(function);
+        left.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_compare_tagged_i32(
         &mut self,
         op: RelationalBinaryOp,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_tag_local: u32,
-        rhs_payload_local: u32,
+        lhs: &ValueLocals,
+        rhs: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_number_local = self.reserve_temp_local();
-        let rhs_number_local = self.reserve_temp_local();
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_relational_i32(
-            op,
-            lhs_payload_local,
-            lhs_tag_local,
-            rhs_payload_local,
-            rhs_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        let string_payload_local = self.reserve_temp_local();
-        let parsed_payload_local = self.reserve_temp_local();
-        let parsed_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::Select);
-        function.instruction(&Instruction::LocalSet(string_payload_local));
-        self.emit_string_to_bigint_locals(
-            string_payload_local,
-            parsed_payload_local,
-            parsed_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(parsed_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        // IsLessThan's undefined result makes every relational operator false,
-        // including <= and >=; it must not be negated as an ordinary false.
+        let schema = self.runtime_schema();
+        let left = schema.reserve_value_local(function);
+        let right = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        let comparison = schema.reserve_i32_local(function);
+        let unordered = schema.reserve_i32_local(function);
+        left.copy_from(lhs, function);
+        right.copy_from(rhs, function);
         function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_bigint_relational_i32(
-            op,
-            lhs_payload_local,
-            lhs_tag_local,
-            parsed_payload_local,
-            parsed_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_bigint_relational_i32(
-            op,
-            parsed_payload_local,
-            parsed_tag_local,
-            rhs_payload_local,
-            rhs_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(parsed_tag_local);
-        self.release_temp_local(parsed_payload_local);
-        self.release_temp_local(string_payload_local);
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_value_to_number_payload(rhs_tag_local, rhs_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(rhs_number_local));
-        self.emit_bigint_number_relational_i32(
-            op,
-            lhs_payload_local,
-            lhs_tag_local,
-            rhs_number_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_value_to_number_payload(lhs_tag_local, lhs_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(lhs_number_local));
-        let reversed_op = match op {
-            RelationalBinaryOp::LessThan => RelationalBinaryOp::GreaterThan,
-            RelationalBinaryOp::LessThanOrEqual => RelationalBinaryOp::GreaterThanOrEqual,
-            RelationalBinaryOp::GreaterThan => RelationalBinaryOp::LessThan,
-            RelationalBinaryOp::GreaterThanOrEqual => RelationalBinaryOp::LessThanOrEqual,
-        };
-        self.emit_bigint_number_relational_i32(
-            reversed_op,
-            rhs_payload_local,
-            rhs_tag_local,
-            lhs_number_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        unordered.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        comparison.store(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_value_tag_is_i32(&left, WasmRuntimeValueTag::String, function);
+        self.emit_value_tag_is_i32(&right, WasmRuntimeValueTag::String, function);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_string_payload_compare_i32(op, lhs_payload_local, rhs_payload_local, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let l = schema.reserve_gc_local(function).initialize(
+            left.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        let r = schema.reserve_gc_local(function).initialize(
+            right.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        self.emit_string_payload_utf16_compare_i32(&l, &r, function);
+        comparison.store(function);
+        r.clear(function);
+        l.clear(function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        for (string_side, other) in [(&left, &right), (&right, &left)] {
+            self.emit_value_tag_is_i32(string_side, WasmRuntimeValueTag::String, function);
+            self.emit_value_tag_is_i32(other, WasmRuntimeValueTag::BigInt, function);
+            function.instruction(&Instruction::I32And);
+            self.open_frame(ControlFrameKind::If, function);
+            let text = schema.reserve_gc_local(function).initialize(
+                string_side.cast_reference::<StringValue>(schema, function),
+                function,
+            );
+            let parsed = schema.reserve_value_local(function);
+            let valid = schema.reserve_i32_local(function);
+            self.emit_string_to_bigint_locals(&text, &parsed, valid, function)?;
+            string_side.copy_from(&parsed, function);
+            valid.load(function);
+            function.instruction(&Instruction::I32Eqz);
+            unordered.store(function);
+            schema.release_i32_local(valid, function);
+            parsed.clear(function);
+            text.clear(function);
+            unordered.load(function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_branch_to_target(exit, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        for value in [&left, &right] {
+            self.emit_primitive_to_number_or_bigint(value, &pending, function)?;
+            self.finish_to_primitive_operation(
+                ToPrimitiveAbruptRoute::ActiveHandler,
+                &pending,
+                function,
+            )?;
+            value.copy_from(pending.value(), function);
+        }
+        self.emit_value_tag_is_i32(&left, WasmRuntimeValueTag::BigInt, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let l = schema.reserve_gc_local(function).initialize(
+            left.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        self.emit_value_tag_is_i32(&right, WasmRuntimeValueTag::BigInt, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let r = schema.reserve_gc_local(function).initialize(
+            right.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        self.emit_bigint_compare(&l, &r, comparison, function);
+        r.clear(function);
         function.instruction(&Instruction::Else);
-        self.emit_value_to_number_payload(lhs_tag_local, lhs_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(lhs_number_local));
-        self.emit_value_to_number_payload(rhs_tag_local, rhs_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(rhs_number_local));
-        function.instruction(&Instruction::LocalGet(lhs_number_local));
+        self.emit_bigint_number_compare(&l, right.scalar(), comparison, unordered, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        l.clear(function);
+        function.instruction(&Instruction::Else);
+        self.emit_value_tag_is_i32(&right, WasmRuntimeValueTag::BigInt, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let r = schema.reserve_gc_local(function).initialize(
+            right.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        self.emit_bigint_number_compare(&r, left.scalar(), comparison, unordered, function)?;
+        r.clear(function);
+        function.instruction(&Instruction::I32Const(0));
+        comparison.load(function);
+        function.instruction(&Instruction::I32Sub);
+        comparison.store(function);
+        function.instruction(&Instruction::Else);
+        for value in [&left, &right] {
+            value.scalar().load(function);
+            function.instruction(&Instruction::F64ReinterpretI64);
+            value.scalar().load(function);
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Ne);
+        }
+        function.instruction(&Instruction::I32Or);
+        unordered.store(function);
+        left.scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_number_local));
+        right.scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::Else);
+        left.scalar().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        right.scalar().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        comparison.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        comparison.load(function);
+        function.instruction(&Instruction::I32Const(0));
         match op {
-            RelationalBinaryOp::LessThan => function.instruction(&Instruction::F64Lt),
-            RelationalBinaryOp::LessThanOrEqual => function.instruction(&Instruction::F64Le),
-            RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::F64Gt),
-            RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::F64Ge),
+            RelationalBinaryOp::LessThan => function.instruction(&Instruction::I32LtS),
+            RelationalBinaryOp::LessThanOrEqual => function.instruction(&Instruction::I32LeS),
+            RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::I32GtS),
+            RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::I32GeS),
         };
+        unordered.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        schema.release_i32_local(unordered, function);
+        schema.release_i32_local(comparison, function);
+        pending.clear(function);
+        right.clear(function);
+        left.clear(function);
+        Ok(())
+    }
+
+    fn emit_primitive_to_number_or_bigint(
+        &mut self,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_value_tag_is_i32(input, WasmRuntimeValueTag::BigInt, function);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(input, function);
+        function.instruction(&Instruction::Else);
+        self.emit_primitive_to_number_completion(input, result, false, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(rhs_number_local);
-        self.release_temp_local(lhs_number_local);
         Ok(())
     }
 
     pub(crate) fn emit_string_payload_compare_i32(
         &mut self,
         op: RelationalBinaryOp,
-        lhs_payload_local: u32,
-        rhs_payload_local: u32,
+        lhs: &GcLocal<StringValue>,
+        rhs: &GcLocal<StringValue>,
         function: &mut Function,
     ) {
-        self.emit_string_payload_utf16_compare_i32(lhs_payload_local, rhs_payload_local, function);
+        self.emit_string_payload_utf16_compare_i32(lhs, rhs, function);
         function.instruction(&Instruction::I32Const(0));
         match op {
             RelationalBinaryOp::LessThan => function.instruction(&Instruction::I32LtS),
@@ -7754,1183 +4273,1167 @@ impl<'a> FunctionBuilder<'a> {
         };
     }
 
-    /// Compare string payloads in ECMAScript's UTF-16 code-unit order.
-    ///
-    /// The payload stores UTF-8, with WTF-8 encodings for lone surrogates.
-    /// Astral scalars therefore yield their high surrogate first and retain the
-    /// low surrogate for the next iteration without decoding the scalar again.
-    /// The emitted value is -1, 0, or 1 as an i32.
     pub(crate) fn emit_string_payload_utf16_compare_i32(
         &mut self,
-        lhs_payload_local: u32,
-        rhs_payload_local: u32,
+        left: &GcLocal<StringValue>,
+        right: &GcLocal<StringValue>,
         function: &mut Function,
     ) {
-        let lhs_offset = self.reserve_temp_local();
-        let lhs_len = self.reserve_temp_local();
-        let rhs_offset = self.reserve_temp_local();
-        let rhs_len = self.reserve_temp_local();
-        let lhs_index_local = self.reserve_temp_local();
-        let rhs_index_local = self.reserve_temp_local();
-        let lhs_pending_low_surrogate_local = self.reserve_temp_local();
-        let rhs_pending_low_surrogate_local = self.reserve_temp_local();
-        let lhs_byte_local = self.reserve_temp_local();
-        let rhs_byte_local = self.reserve_temp_local();
-        let lhs_codepoint_local = self.reserve_temp_local();
-        let rhs_codepoint_local = self.reserve_temp_local();
-        let lhs_advance_local = self.reserve_temp_local();
-        let rhs_advance_local = self.reserve_temp_local();
-        let decode_temp_local = self.reserve_temp_local();
-        let lhs_code_unit_local = self.reserve_temp_local();
-        let rhs_code_unit_local = self.reserve_temp_local();
-        let lhs_exhausted_local = self.reserve_temp_local();
-        let rhs_exhausted_local = self.reserve_temp_local();
-        let result_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(lhs_payload_local, lhs_offset, lhs_len, function);
-        self.emit_unpack_string_payload(rhs_payload_local, rhs_offset, rhs_len, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(lhs_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(rhs_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(lhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(rhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-
-        function.instruction(&Instruction::LocalGet(lhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(lhs_index_local));
-        function.instruction(&Instruction::LocalGet(lhs_len));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(lhs_exhausted_local));
-        function.instruction(&Instruction::LocalGet(rhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(rhs_index_local));
-        function.instruction(&Instruction::LocalGet(rhs_len));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(rhs_exhausted_local));
-        function.instruction(&Instruction::LocalGet(lhs_exhausted_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(rhs_exhausted_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
+        let schema = self.runtime_schema();
+        let index = schema.reserve_i32_local(function);
+        let left_len = schema.reserve_i32_local(function);
+        let right_len = schema.reserve_i32_local(function);
+        let lhs = schema.reserve_i32_local(function);
+        let rhs = schema.reserve_i32_local(function);
+        let result = schema.reserve_i32_local(function);
+        let l = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(left, schema, function)
+                .reference(),
+            function,
+        );
+        let r = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(right, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&l, schema, function);
+        left_len.store(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&r, schema, function);
+        right_len.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::I32Const(0));
+        result.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        index.load(function);
+        left_len.load(function);
+        function.instruction(&Instruction::I32GeU);
+        index.load(function);
+        right_len.load(function);
+        function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lhs_exhausted_local));
-        function.instruction(&Instruction::LocalGet(rhs_exhausted_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::BrIf(1));
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&l, index, schema, function)
+            .store(lhs, function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .read(&r, index, schema, function)
+            .store(rhs, function);
+        lhs.load(function);
+        rhs.load(function);
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        lhs.load(function);
+        rhs.load(function);
+        function.instruction(&Instruction::I32LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_exhausted_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::End);
+        result.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(lhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(lhs_offset, lhs_index_local, lhs_byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            lhs_offset,
-            lhs_index_local,
-            lhs_len,
-            lhs_byte_local,
-            lhs_codepoint_local,
-            lhs_advance_local,
-            decode_temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(lhs_index_local));
-        function.instruction(&Instruction::LocalGet(lhs_advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(lhs_index_local));
-        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0xD800));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(lhs_code_unit_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(lhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
-        function.instruction(&Instruction::LocalSet(lhs_code_unit_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_codepoint_local));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(0x3FF));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0xDC00));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(lhs_code_unit_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(lhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(rhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(rhs_offset, rhs_index_local, rhs_byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            rhs_offset,
-            rhs_index_local,
-            rhs_len,
-            rhs_byte_local,
-            rhs_codepoint_local,
-            rhs_advance_local,
-            decode_temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(rhs_index_local));
-        function.instruction(&Instruction::LocalGet(rhs_advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(rhs_index_local));
-        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0xD800));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(rhs_code_unit_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(rhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
-        function.instruction(&Instruction::LocalSet(rhs_code_unit_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(rhs_codepoint_local));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(0x3FF));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0xDC00));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(rhs_code_unit_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(rhs_pending_low_surrogate_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(lhs_code_unit_local));
-        function.instruction(&Instruction::LocalGet(rhs_code_unit_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_code_unit_local));
-        function.instruction(&Instruction::LocalGet(rhs_code_unit_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
+        result.load(function);
+        function.instruction(&Instruction::BrIf(1));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        result.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        left_len.load(function);
+        right_len.load(function);
+        function.instruction(&Instruction::I32LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(-1));
+        function.instruction(&Instruction::Else);
+        left_len.load(function);
+        right_len.load(function);
+        function.instruction(&Instruction::I32GtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I32WrapI64);
-
-        self.release_temp_local(result_local);
-        self.release_temp_local(rhs_exhausted_local);
-        self.release_temp_local(lhs_exhausted_local);
-        self.release_temp_local(rhs_code_unit_local);
-        self.release_temp_local(lhs_code_unit_local);
-        self.release_temp_local(decode_temp_local);
-        self.release_temp_local(rhs_advance_local);
-        self.release_temp_local(lhs_advance_local);
-        self.release_temp_local(rhs_codepoint_local);
-        self.release_temp_local(lhs_codepoint_local);
-        self.release_temp_local(rhs_byte_local);
-        self.release_temp_local(lhs_byte_local);
-        self.release_temp_local(rhs_pending_low_surrogate_local);
-        self.release_temp_local(lhs_pending_low_surrogate_local);
-        self.release_temp_local(rhs_index_local);
-        self.release_temp_local(lhs_index_local);
-        self.release_temp_local(rhs_len);
-        self.release_temp_local(rhs_offset);
-        self.release_temp_local(lhs_len);
-        self.release_temp_local(lhs_offset);
+        result.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.load(function);
+        r.clear(function);
+        l.clear(function);
+        for local in [result, rhs, lhs, right_len, left_len, index] {
+            schema.release_i32_local(local, function);
+        }
     }
 
     pub(crate) fn compile_typeof_payload(
         &mut self,
         expr: &TypedExpr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // Calls and runtime-backed storage must re-read the emitted tag even
-        // when static inference reports one kind. `ExprIr::Arguments` is not
-        // part of the shared planning predicate, so it remains explicit here.
-        let is_runtime_storage_read = matches!(&expr.expr, ExprIr::Arguments)
-            || expr_result_tag_is_runtime_dynamic(&expr.expr);
-        if expr.possible_kinds.is_singleton() && !is_runtime_storage_read {
-            let static_typeof_result = match expr.kind {
-                ValueKind::Undefined => Some("undefined"),
-                ValueKind::Null | ValueKind::Array | ValueKind::Arguments => Some("object"),
-                ValueKind::Boolean => Some("boolean"),
-                ValueKind::Number => Some("number"),
-                ValueKind::BigInt => Some("bigint"),
-                ValueKind::Symbol => Some("symbol"),
-                ValueKind::String => Some("string"),
-                ValueKind::Function => {
-                    self.compile_expr_payload(expr, function)?;
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    let tag_local = self.reserve_temp_local();
-                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    self.emit_is_htmldda_function_i32(tag_local, self.scratch_local, function)?;
-                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                    function.instruction(&Instruction::I64Const(self.strings.payload("undefined")));
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::I64Const(self.strings.payload("function")));
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(tag_local);
-                    return Ok(());
-                }
-                ValueKind::Object | ValueKind::Dynamic => None,
-            };
-            if let Some(static_typeof_result) = static_typeof_result {
-                self.compile_expr_payload(expr, function)?;
-                function.instruction(&Instruction::Drop);
-                function.instruction(&Instruction::I64Const(
-                    self.strings.payload(static_typeof_result),
-                ));
-                return Ok(());
-            }
-        }
-        self.compile_expr_to_locals(expr, self.scratch_local, self.result_tag_local, function)?;
-        self.emit_typeof_payload_from_tag_payload_local(
-            self.result_tag_local,
-            self.scratch_local,
-            function,
-        )?;
+        let input = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(expr, &input, function)?;
+        self.emit_typeof_value(&input, output, function)?;
+        input.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_typeof_payload_from_tag_payload_local(
+    pub(crate) fn emit_typeof_value(
         &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        input: &ValueLocals,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let typeof_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("object")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("undefined")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
+        let schema = self.runtime_schema();
+        let object = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("object", function)?,
+            function,
+        );
+        output.set_reference(&object, schema, function);
+        object.clear(function);
+        for (tag, spelling) in [
+            (WasmRuntimeValueTag::Undefined, "undefined"),
+            (WasmRuntimeValueTag::Boolean, "boolean"),
+            (WasmRuntimeValueTag::Number, "number"),
+            (WasmRuntimeValueTag::BigInt, "bigint"),
+            (WasmRuntimeValueTag::Symbol, "symbol"),
+            (WasmRuntimeValueTag::String, "string"),
+        ] {
+            input.tag().load(function);
+            function.instruction(&Instruction::I32Const(tag as i32));
+            function.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            let string = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(spelling, function)?,
+                function,
+            );
+            output.set_reference(&string, schema, function);
+            string.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_is_callable_i32(input, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("function", function)?,
+            function,
+        );
+        output.set_reference(&string, schema, function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("boolean")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
+        self.emit_is_htmldda_function_i32(input, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("undefined", function)?,
+            function,
+        );
+        output.set_reference(&string, schema, function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("number")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("bigint")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("symbol")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("string")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_is_htmldda_function_i32(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("undefined")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("function")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_proxy_target_is_callable_for_typeof_i32(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("function")));
-        function.instruction(&Instruction::LocalSet(typeof_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(typeof_payload_local));
-        self.release_temp_local(typeof_payload_local);
         Ok(())
     }
 
     pub(crate) fn emit_proxy_target_is_callable_for_typeof_i32(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        &self,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let current_payload_local = self.reserve_temp_local();
-        let current_tag_local = self.reserve_temp_local();
-        let proxy_handler_payload_local = self.reserve_temp_local();
-        let result_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(current_payload_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(current_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            proxy_handler_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            current_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            current_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            current_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(0));
-
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I32WrapI64);
-
-        self.release_temp_local(result_local);
-        self.release_temp_local(proxy_handler_payload_local);
-        self.release_temp_local(current_tag_local);
-        self.release_temp_local(current_payload_local);
-        Ok(())
+        self.emit_is_callable_i32(value, function)
     }
 
     pub(crate) fn emit_is_callable_i32(
-        &mut self,
-        tag_local: u32,
-        payload_local: u32,
+        &self,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_proxy_target_is_callable_for_typeof_i32(tag_local, payload_local, function)
+        let schema = self.runtime_schema();
+        value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<FunctionObject>(crate::gc_types::GcNullability::NonNullable)
+                .heap_type,
+        ));
+        value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<BoundFunction>(crate::gc_types::GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::Else);
+        value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<ProxyObject>(crate::gc_types::GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        let proxy_slot = schema.reserve_gc_local(function);
+        let proxy = proxy_slot.initialize(
+            value.cast_reference::<ProxyObject>(schema, function),
+            function,
+        );
+        let capability = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<ProxyObject>()
+            .field(ProxyObjectSchema::CALL_CAPABILITY)
+            .read(&proxy, schema, function)
+            .store(capability, function);
+        capability.load(function);
+        function.instruction(&Instruction::I32Const(
+            crate::gc_types::GcI32Constant::encode(ProxyCallCapability::ObjectOnly),
+        ));
+        function.instruction(&Instruction::I32Ne);
+        schema.release_i32_local(capability, function);
+        proxy.clear(function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        Ok(())
     }
 
     pub(crate) fn compile_string_concat_payload(
         &mut self,
         lhs: &TypedExpr,
         rhs: &TypedExpr,
+        output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        let lhs_string = self.reserve_temp_local();
-        let rhs_string = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-        self.emit_value_to_string_payload(lhs_payload, lhs_tag, function)?;
-        function.instruction(&Instruction::LocalSet(lhs_string));
-        self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-        self.emit_value_to_string_payload(rhs_payload, rhs_tag, function)?;
-        function.instruction(&Instruction::LocalSet(rhs_string));
-
-        // The one concatenation primitive: it keeps the payload canonical
-        // when an unpaired high surrogate meets an unpaired low surrogate.
-        self.emit_concat_string_payloads_local(lhs_string, rhs_string, function)?;
-
-        self.release_temp_local(rhs_string);
-        self.release_temp_local(lhs_string);
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
-        Ok(())
+        self.compile_coercive_add_to_locals(lhs, rhs, output, function)
     }
 
     pub(crate) fn emit_value_to_string_payload(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
+        input: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // Dynamic string concatenation and ToString sites hit this constantly
-        // and the full per-kind composite is tens of KB inline; call the shared
-        // helper instead (except while compiling the helper itself). The string
-        // fast path stays inline so the common case never pays the call. A
-        // ToPrimitive/Symbol throw inside the helper is surfaced through the
-        // completion slots and re-raised here through the active catch target.
+        let schema = self.runtime_schema();
         if self.outline_value_to_string {
-            if let Some(helper) = self.value_to_string_helper_function_index() {
-                let result_payload_local = self.reserve_temp_local();
-                let result_tag_local = self.reserve_temp_local();
-                function.instruction(&Instruction::LocalGet(tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                self.open_frame(ControlFrameKind::If, function);
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::LocalSet(result_payload_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(payload_local));
-                function.instruction(&Instruction::LocalGet(tag_local));
-                for _ in 0..4 {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-                self.emit_outlined_object_read_realm_argument(function);
-                function.instruction(&Instruction::Call(helper));
-                self.store_call_results(result_payload_local, result_tag_local, function);
-                self.emit_propagate_throw_from_locals_if_needed(
-                    result_payload_local,
-                    result_tag_local,
+            schema
+                .call_helper(
+                    crate::runtime_helpers::ValueToStringArguments::new(
+                        input,
+                        self.current_environment(),
+                    ),
+                    self.runtime_helper_base()?,
                     function,
-                )?;
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(result_payload_local));
-                self.release_temp_local(result_tag_local);
-                self.release_temp_local(result_payload_local);
-                return Ok(());
-            }
+                )
+                .store(result, function);
+            return Ok(());
         }
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        let pending = self.emit_tagged_to_primitive_locals_pending(
+        let primitive = schema.reserve_completion(function);
+        self.emit_tagged_to_primitive_locals_pending(
             ToPrimitiveHint::String,
-            payload_local,
-            tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
+            input,
+            &primitive,
             function,
         )?;
-        pending.emit_string_payload(self, function)?;
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
+        result.copy_from(&primitive, function);
+        primitive.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_primitive_to_string_completion(primitive.value(), result, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        primitive.clear(function);
+        Ok(())
+    }
+
+    fn emit_primitive_to_string_completion(
+        &mut self,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let value = schema.reserve_value_local(function);
+        value.copy_from(input, function);
+        result.initialize(function);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(&value, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        for (tag, spelling) in [
+            (WasmRuntimeValueTag::Undefined, "undefined"),
+            (WasmRuntimeValueTag::Null, "null"),
+        ] {
+            value.tag().load(function);
+            function.instruction(&Instruction::I32Const(tag as i32));
+            function.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            let string = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(spelling, function)?,
+                function,
+            );
+            result.value().set_reference(&string, schema, function);
+            result.set_normal(result.value(), function);
+            string.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Boolean as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        value.scalar().load(function);
+        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let false_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("false", function)?,
+            function,
+        );
+        result
+            .value()
+            .set_reference(&false_string, schema, function);
+        false_string.clear(function);
+        function.instruction(&Instruction::Else);
+        let true_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("true", function)?,
+            function,
+        );
+        result.value().set_reference(&true_string, schema, function);
+        true_string.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        result.set_normal(result.value(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_to_string_payload(value.scalar(), function)?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let bigint = schema.reserve_gc_local(function).initialize(
+            value.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_bigint_value_to_string_payload(&bigint, function)?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        bigint.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Symbol as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::CANNOT_CONVERT_A_SYMBOL_VALUE_TO_A_STRING,
+            result,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_primitive_to_string_payload(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        abrupt_route: PrimitiveToStringAbruptRoute,
+        input: &ValueLocals,
+        result: &CompletionLocals,
+        route: PrimitiveToStringAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_primitive_to_string_payload_with_error_realm(
-            payload_local,
-            tag_local,
-            abrupt_route,
-            &ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
-            function,
-        )
-    }
-
-    fn emit_primitive_to_string_payload_with_error_realm(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        abrupt_route: PrimitiveToStringAbruptRoute,
-        error_realm: &ConversionErrorRealmSource,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("undefined")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("null")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("false")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("true")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_bigint_value_to_string_payload(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_conversion_type_error(
-            error_realm,
-            "Cannot convert a Symbol value to a string",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.finish_primitive_to_string_throw(abrupt_route, function)?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(crate) fn emit_bigint_value_to_string_payload(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let radix_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_heap_bigint_to_radix_string_payload(payload_local, radix_local, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_bigint_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(radix_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_bigint_to_string_payload(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let sign_local = self.reserve_temp_local();
-        let abs_local = self.reserve_temp_local();
-        let digits_local = self.reserve_temp_local();
-        let total_len_local = self.reserve_temp_local();
-        let dst_offset_local = self.reserve_temp_local();
-        let digit_start_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(abs_local));
-        self.emit_count_decimal_digits_u64(abs_local, digits_local, function);
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_len_local));
-        self.emit_heap_alloc_from_local(total_len_local, function)?;
-        function.instruction(&Instruction::LocalSet(dst_offset_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::LocalSet(digit_start_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.store_ascii_byte_i64(dst_offset_local, b'-', function);
-        self.emit_increment_local(digit_start_local, 1, function);
-        function.instruction(&Instruction::End);
-        self.emit_write_decimal_u64(abs_local, digit_start_local, digits_local, function);
-        self.emit_pack_string_payload(dst_offset_local, total_len_local, function);
-
-        self.release_temp_local(digit_start_local);
-        self.release_temp_local(dst_offset_local);
-        self.release_temp_local(total_len_local);
-        self.release_temp_local(digits_local);
-        self.release_temp_local(abs_local);
-        self.release_temp_local(sign_local);
-        Ok(())
+        self.emit_primitive_to_string_completion(input, result, function)?;
+        match route {
+            PrimitiveToStringAbruptRoute::ActiveHandler => self.finish_to_primitive_operation(
+                ToPrimitiveAbruptRoute::ActiveHandler,
+                result,
+                function,
+            ),
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction => self
+                .finish_to_primitive_operation(
+                    ToPrimitiveAbruptRoute::ReturnCurrentFunction,
+                    result,
+                    function,
+                ),
+        }
     }
 
     pub(crate) fn emit_bigint_to_radix_string_payload(
         &mut self,
-        payload_local: u32,
-        radix_local: u32,
+        input: &ValueLocals,
+        radix: crate::gc_types::I64Local,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let sign_local = self.reserve_temp_local();
-        let abs_local = self.reserve_temp_local();
-        let digits_local = self.reserve_temp_local();
-        let total_len_local = self.reserve_temp_local();
-        let dst_offset_local = self.reserve_temp_local();
-        let digit_start_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(abs_local));
-        self.emit_count_radix_digits_u64(abs_local, radix_local, digits_local, function);
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_len_local));
-        self.emit_heap_alloc_from_local(total_len_local, function)?;
-        function.instruction(&Instruction::LocalSet(dst_offset_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::LocalSet(digit_start_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.store_ascii_byte_i64(dst_offset_local, b'-', function);
-        self.emit_increment_local(digit_start_local, 1, function);
-        function.instruction(&Instruction::End);
-        self.emit_write_radix_u64(
-            abs_local,
-            radix_local,
-            digit_start_local,
-            digits_local,
+        let schema = self.runtime_schema();
+        let bigint = schema.reserve_gc_local(function).initialize(
+            input.cast_reference::<BigIntValue>(schema, function),
             function,
         );
-        self.emit_pack_string_payload(dst_offset_local, total_len_local, function);
-
-        self.release_temp_local(digit_start_local);
-        self.release_temp_local(dst_offset_local);
-        self.release_temp_local(total_len_local);
-        self.release_temp_local(digits_local);
-        self.release_temp_local(abs_local);
-        self.release_temp_local(sign_local);
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_gc_bigint_radix_string(&bigint, radix, function)?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        bigint.clear(function);
         Ok(())
     }
-
-    pub(crate) fn emit_heap_bigint_to_radix_string_payload(
+    pub(crate) fn emit_bigint_value_to_string_payload(
         &mut self,
-        payload_local: u32,
-        radix_local: u32,
+        bigint: &GcLocal<BigIntValue>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let sign_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        let working_limbs_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let limb_local = self.reserve_temp_local();
-        let current_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let quotient_high_local = self.reserve_temp_local();
-        let quotient_low_local = self.reserve_temp_local();
-        let quotient_local = self.reserve_temp_local();
-        let any_quotient_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let capacity_local = self.reserve_temp_local();
-        let output_start_local = self.reserve_temp_local();
-        let output_end_local = self.reserve_temp_local();
-        let write_local = self.reserve_temp_local();
-        let output_len_local = self.reserve_temp_local();
+    ) -> Result<crate::gc_types::GcStackReference<StringValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let radix = schema.reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(10));
+        radix.store(function);
+        let result = self.emit_gc_bigint_radix_string(bigint, radix, function)?;
+        schema.release_i64_local(radix, function);
+        Ok(result)
+    }
 
-        self.load_i64_to_local_from_offset(
-            payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            sign_local,
+    /// Repeated division works on a private construction buffer. Published
+    /// BigInt limbs stay immutable, unsigned, and canonical throughout.
+    fn emit_gc_bigint_radix_string(
+        &mut self,
+        bigint: &GcLocal<BigIntValue>,
+        radix: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) -> Result<crate::gc_types::GcStackReference<StringValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let output = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("0", function)?,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
+        let limbs = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BigIntValue>()
+                .field(BigIntValueSchema::LIMBS)
+                .read(bigint, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
+        let size = schema.reserve_i32_local(function);
+        let active = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let length = schema.reserve_i32_local(function);
+        let negative = schema.reserve_i32_local(function);
+        let digits = schema.reserve_i64_local(function);
+        let limb = schema.reserve_i64_local(function);
+        let remainder = schema.reserve_i64_local(function);
+        let unit = schema.reserve_i32_local(function);
+        schema
+            .array_type::<BigIntLimbArray>()
+            .length(&limbs, schema, function);
+        size.store(function);
+        schema
+            .struct_type::<BigIntValue>()
+            .field(BigIntValueSchema::NEGATIVE)
+            .read(bigint, schema, function)
+            .store(negative, function);
+        size.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        radix.load(function);
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64LtU);
+        radix.load(function);
+        function.instruction(&Instruction::I64Const(36));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        let work = crate::gc_types::BigIntConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            size,
             function,
         );
-
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(capacity_local));
-        self.emit_heap_alloc_from_local(capacity_local, function)?;
-        function.instruction(&Instruction::LocalSet(working_limbs_local));
+        self.emit_copy_bigint_formatting_limbs(&limbs, &work, size, index, limb, function);
+        size.load(function);
+        active.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        digits.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64GeU);
+        active.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
+        self.emit_bigint_formatting_division(&work, radix, active, remainder, function);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalSet(limb_local));
-        function.instruction(&Instruction::LocalGet(working_limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(limb_local));
-        function.instruction(&Instruction::I64Store(Self::memarg64(0)));
-        self.emit_increment_local(index_local, 1, function);
+        digits.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::I64Const(64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Const(1));
+        digits.load(function);
+        negative.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capacity_local));
-        self.emit_heap_alloc_from_local(capacity_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_start_local));
-        function.instruction(&Instruction::LocalGet(output_start_local));
-        function.instruction(&Instruction::LocalGet(capacity_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(output_end_local));
-        function.instruction(&Instruction::LocalGet(output_end_local));
-        function.instruction(&Instruction::LocalSet(write_local));
-
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(any_quotient_local));
-        function.instruction(&Instruction::LocalGet(limb_count_local));
-        function.instruction(&Instruction::LocalSet(index_local));
+        digits.store(function);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(i64::from(u32::MAX)));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        digits.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        length.store(function);
+        let string = crate::gc_types::StringConstruction::allocate(
+            schema,
+            schema.reserve_gc_local(function),
+            length,
+            function,
+        );
+        self.emit_copy_bigint_formatting_limbs(&limbs, &work, size, index, limb, function);
+        size.load(function);
+        active.store(function);
+        length.load(function);
+        index.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Eqz);
+        active.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::LocalGet(working_limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalSet(limb_local));
-
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(limb_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(current_local));
-        function.instruction(&Instruction::LocalGet(current_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(quotient_high_local));
-        function.instruction(&Instruction::LocalGet(current_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(limb_local));
-        function.instruction(&Instruction::I64Const(0xffff_ffff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(current_local));
-        function.instruction(&Instruction::LocalGet(current_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(quotient_low_local));
-        function.instruction(&Instruction::LocalGet(current_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-
-        function.instruction(&Instruction::LocalGet(quotient_high_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(quotient_low_local));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::LocalGet(working_limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::I64Store(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalGet(any_quotient_local));
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(any_quotient_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(remainder_local));
+        self.emit_bigint_formatting_division(&work, radix, active, remainder, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        index.store(function);
+        remainder.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(b'0' as i64));
-        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        remainder.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Const(i32::from(b'0')));
+        function.instruction(&Instruction::I32Add);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const((b'a' - 10) as i64));
-        function.instruction(&Instruction::I64Add);
+        remainder.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Const(i32::from(b'a') - 10));
+        function.instruction(&Instruction::I32Add);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(digit_local));
-        function.instruction(&Instruction::LocalGet(write_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalTee(write_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(digit_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalGet(any_quotient_local));
+        unit.store(function);
+        string.write(index, unit, schema, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        negative.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::I32Const(i32::from(b'-')));
+        unit.store(function);
+        string.write(index, unit, schema, function);
+        function.instruction(&Instruction::End);
+        output.replace(string.publish(schema, function), function);
+        work.clear(function);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(unit, function);
+        schema.release_i64_local(remainder, function);
+        schema.release_i64_local(limb, function);
+        schema.release_i64_local(digits, function);
+        schema.release_i32_local(negative, function);
+        schema.release_i32_local(length, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(active, function);
+        schema.release_i32_local(size, function);
+        limbs.clear(function);
+        let result = output.load(schema, function);
+        output.clear(function);
+        Ok(result)
+    }
+
+    fn emit_copy_bigint_formatting_limbs(
+        &self,
+        source: &GcLocal<BigIntLimbArray>,
+        target: &crate::gc_types::BigIntConstruction,
+        size: I32Local,
+        index: I32Local,
+        limb: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        size.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        schema
+            .array_type::<BigIntLimbArray>()
+            .read(source, index, schema, function)
+            .store_i64(limb, function);
+        target.write(index, limb, schema, function);
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_bigint_formatting_division(
+        &self,
+        work: &crate::gc_types::BigIntConstruction,
+        radix: crate::gc_types::I64Local,
+        active: I32Local,
+        remainder: crate::gc_types::I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let index = schema.reserve_i32_local(function);
+        let limb = schema.reserve_i64_local(function);
+        let quotient = schema.reserve_i64_local(function);
+        let combined = schema.reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        remainder.store(function);
+        active.load(function);
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        index.store(function);
+        work.read(index, limb, schema, function);
+        remainder.load(function);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Shl);
+        limb.load(function);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Or);
+        combined.store(function);
+        combined.load(function);
+        radix.load(function);
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Shl);
+        quotient.store(function);
+        combined.load(function);
+        radix.load(function);
+        function.instruction(&Instruction::I64RemU);
+        remainder.store(function);
+        remainder.load(function);
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Shl);
+        limb.load(function);
+        function.instruction(&Instruction::I64Const(0xffff_ffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Or);
+        combined.store(function);
+        quotient.load(function);
+        combined.load(function);
+        radix.load(function);
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::I64Or);
+        quotient.store(function);
+        combined.load(function);
+        radix.load(function);
+        function.instruction(&Instruction::I64RemU);
+        remainder.store(function);
+        work.write(index, quotient, schema, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        active.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        active.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Sub);
+        index.store(function);
+        work.read(index, limb, schema, function);
+        limb.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(0));
+        function.instruction(&Instruction::BrIf(1));
+        index.load(function);
+        active.store(function);
+        function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(write_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalTee(write_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Const(b'-' as i32));
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(output_end_local));
-        function.instruction(&Instruction::LocalGet(write_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(output_len_local));
-        self.emit_pack_string_payload(write_local, output_len_local, function);
-
-        self.release_temp_local(output_len_local);
-        self.release_temp_local(write_local);
-        self.release_temp_local(output_end_local);
-        self.release_temp_local(output_start_local);
-        self.release_temp_local(capacity_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(any_quotient_local);
-        self.release_temp_local(quotient_local);
-        self.release_temp_local(quotient_low_local);
-        self.release_temp_local(quotient_high_local);
-        self.release_temp_local(remainder_local);
-        self.release_temp_local(current_local);
-        self.release_temp_local(limb_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(working_limbs_local);
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(sign_local);
-        Ok(())
+        schema.release_i64_local(combined, function);
+        schema.release_i64_local(quotient, function);
+        schema.release_i64_local(limb, function);
+        schema.release_i32_local(index, function);
     }
 
     pub(crate) fn emit_number_to_string_with_radix_result(
         &mut self,
-        payload_local: u32,
+        number: I64Local,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let radix_payload_local = self.reserve_temp_local();
-        let radix_tag_local = self.reserve_temp_local();
-        let radix_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, radix_payload_local, radix_tag_local, function);
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let radix = schema.reserve_i64_local(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
         function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::LocalGet(radix_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_number_payload(radix_tag_local, radix_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(radix_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(radix_local));
+        radix.store(function);
+        result.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        argument.tag().load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_integer_argument(&argument, radix, result, function)?;
+        self.emit_spec_operation_abrupt_exit(result, exit, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(36));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "Number.prototype.toString radix out of range",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_number_format_range_or_throw(
+            radix,
+            2,
+            36,
+            RuntimeErrorMessage::NUMBER_PROTOTYPE_TOSTRING_RADIX_OUT_OF_RANGE,
+            result,
+            exit,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_default_string(number, result, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_number_to_radix_string_payload(payload_local, radix_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_to_radix_string_payload(number, radix, function)?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(radix, function);
+        argument.clear(function);
+        Ok(())
+    }
 
-        self.release_temp_local(radix_local);
-        self.release_temp_local(radix_tag_local);
-        self.release_temp_local(radix_payload_local);
+    pub(crate) fn emit_number_to_fixed_payload(
+        &mut self,
+        number: I64Local,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let digits = schema.reserve_i64_local(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_number_format_integer_argument(&argument, digits, result, function)?;
+        self.emit_spec_operation_abrupt_exit(result, exit, function);
+        self.emit_number_format_range_or_throw(
+            digits,
+            0,
+            100,
+            RuntimeErrorMessage::NUMBER_PROTOTYPE_TOFIXED_FRACTION_DIGITS_OUT_OF_RANGE,
+            result,
+            exit,
+            function,
+        )?;
+        number.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        number.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        number.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1e21)));
+        function.instruction(&Instruction::F64Ge);
+        function.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_default_string(number, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_decimal_format_payload(
+                number,
+                number_to_string::NumberDecimalFormat::Fixed {
+                    fraction_digits_local: digits,
+                },
+                function,
+            )?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(digits, function);
+        argument.clear(function);
+        Ok(())
+    }
+
+    pub(crate) fn emit_number_to_exponential_payload(
+        &mut self,
+        number: I64Local,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let digits = schema.reserve_i64_local(function);
+        let present = schema.reserve_i32_local(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        argument.tag().load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        function.instruction(&Instruction::I32Ne);
+        present.store(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_number_format_integer_argument(&argument, digits, result, function)?;
+        self.emit_spec_operation_abrupt_exit(result, exit, function);
+        self.emit_number_format_non_finite_i32(number, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_default_string(number, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        present.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_range_or_throw(
+            digits,
+            0,
+            100,
+            RuntimeErrorMessage::NUMBER_PROTOTYPE_TOEXPONENTIAL_FRACTION_DIGITS_OUT_OF_RANGE,
+            result,
+            exit,
+            function,
+        )?;
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_decimal_format_payload(
+                number,
+                number_to_string::NumberDecimalFormat::Exponential(
+                    number_to_string::NumberExponentialFormat::FractionDigits {
+                        fraction_digits_local: digits,
+                    },
+                ),
+                function,
+            )?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        function.instruction(&Instruction::Else);
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_decimal_format_payload(
+                number,
+                number_to_string::NumberDecimalFormat::Exponential(
+                    number_to_string::NumberExponentialFormat::Shortest,
+                ),
+                function,
+            )?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(present, function);
+        schema.release_i64_local(digits, function);
+        argument.clear(function);
+        Ok(())
+    }
+
+    pub(crate) fn emit_number_to_precision_payload(
+        &mut self,
+        number: I64Local,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let argument = schema.reserve_value_local(function);
+        let digits = schema.reserve_i64_local(function);
+        self.emit_builtin_arg_to_value(0, &argument, function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        argument.tag().load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_default_string(number, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_number_format_integer_argument(&argument, digits, result, function)?;
+        self.emit_spec_operation_abrupt_exit(result, exit, function);
+        self.emit_number_format_non_finite_i32(number, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_number_format_default_string(number, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_number_format_range_or_throw(
+            digits,
+            1,
+            100,
+            RuntimeErrorMessage::NUMBER_PROTOTYPE_TOPRECISION_PRECISION_OUT_OF_RANGE,
+            result,
+            exit,
+            function,
+        )?;
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_decimal_format_payload(
+                number,
+                number_to_string::NumberDecimalFormat::Precision {
+                    significant_digits_local: digits,
+                },
+                function,
+            )?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(digits, function);
+        argument.clear(function);
+        Ok(())
+    }
+
+    fn emit_number_format_integer_argument(
+        &mut self,
+        input: &ValueLocals,
+        integer: I64Local,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_value_to_number_payload(input, result, function)?;
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            result.value().scalar(),
+            integer,
+            function,
+        );
+        integer.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncSatF64S);
+        integer.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+    fn emit_number_format_non_finite_i32(&self, number: I64Local, function: &mut Function) {
+        number.load(function);
+        function.instruction(&Instruction::I64Const(i64::MAX));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
+        function.instruction(&Instruction::I64GeU);
+    }
+    fn emit_number_format_default_string(
+        &mut self,
+        number: I64Local,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_number_to_string_payload(number, function)?,
+            function,
+        );
+        result.value().set_reference(&string, schema, function);
+        result.set_normal(result.value(), function);
+        string.clear(function);
+        Ok(())
+    }
+    fn emit_number_format_range_or_throw(
+        &mut self,
+        digits: I64Local,
+        minimum: i64,
+        maximum: i64,
+        message: RuntimeErrorMessage,
+        result: &CompletionLocals,
+        exit: crate::emit::ControlTarget,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(minimum));
+        function.instruction(&Instruction::I64LtS);
+        digits.load(function);
+        function.instruction(&Instruction::I64Const(maximum));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(NativeErrorKind::RangeError, message, result, function)?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
     pub(crate) fn emit_number_to_radix_string_payload(
         &mut self,
-        payload_local: u32,
-        radix_local: u32,
+        payload_local: I64Local,
+        radix_local: I64Local,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let output_local = self.reserve_temp_local();
-        let sign_local = self.reserve_temp_local();
-        let abs_local = self.reserve_temp_local();
-        let int_f_local = self.reserve_temp_local();
-        let frac_f_local = self.reserve_temp_local();
-        let int_u_local = self.reserve_temp_local();
-        let fits_u64_local = self.reserve_temp_local();
-        let int_digits_local = self.reserve_temp_local();
-        let frac_digits_local = self.reserve_temp_local();
-        let total_len_local = self.reserve_temp_local();
-        let dst_offset_local = self.reserve_temp_local();
-        let digit_start_local = self.reserve_temp_local();
-        let frac_start_local = self.reserve_temp_local();
+    ) -> Result<crate::gc_types::GcStackReference<StringValue>, EmitError> {
+        let schema = self.runtime_schema();
+        let output_local = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("0", function)?,
+            function,
+        );
+        let sign_local = schema.reserve_i64_local(function);
+        let abs_local = schema.reserve_i64_local(function);
+        let int_f_local = schema.reserve_i64_local(function);
+        let frac_f_local = schema.reserve_i64_local(function);
+        let int_u_local = schema.reserve_i64_local(function);
+        let fits_u64_local = schema.reserve_i64_local(function);
+        let int_digits_local = schema.reserve_i64_local(function);
+        let frac_digits_local = schema.reserve_i64_local(function);
+        let total_len_local = schema.reserve_i64_local(function);
+        let dst_offset_local = number_to_string::FormattingBuffer::empty(schema, function);
+        let digit_start_local = schema.reserve_i64_local(function);
+        let frac_start_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(payload_local));
+        payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("NaN")));
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.replace(
+            self.emit_interned_string_reference("NaN", function)?,
+            function,
+        );
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Abs);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(abs_local));
-        function.instruction(&Instruction::LocalGet(abs_local));
+        abs_local.store(function);
+        abs_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(payload_local));
+        payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-Infinity")));
+        function.instruction(&Instruction::If(BlockType::Empty));
+        output_local.replace(
+            self.emit_interned_string_reference("-Infinity", function)?,
+            function,
+        );
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("Infinity")));
+        output_local.replace(
+            self.emit_interned_string_reference("Infinity", function)?,
+            function,
+        );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(payload_local));
+        payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Lt);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(sign_local));
+        sign_local.store(function);
 
         // int_f = trunc(abs); frac_f = abs - int_f (in [0, 1)).
-        function.instruction(&Instruction::LocalGet(abs_local));
+        abs_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(int_f_local));
-        function.instruction(&Instruction::LocalGet(abs_local));
+        int_f_local.store(function);
+        abs_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(int_f_local));
+        int_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(frac_f_local));
+        frac_f_local.store(function);
 
         // `i64.trunc_f64_u` traps outside [0, 2^64); values at or beyond that
         // (e.g. 1e21) must not reach it, so branch to a bounded
         // floating-point digit walk instead of trapping.
-        function.instruction(&Instruction::LocalGet(int_f_local));
+        int_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(18446744073709551616.0)));
         function.instruction(&Instruction::F64Lt);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(fits_u64_local));
+        fits_u64_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(fits_u64_local));
+        fits_u64_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(int_f_local));
+        int_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(int_u_local));
+        int_u_local.store(function);
         self.emit_count_radix_digits_u64(int_u_local, radix_local, int_digits_local, function);
         function.instruction(&Instruction::Else);
         self.emit_count_radix_digits_f64_bounded(
@@ -8948,35 +5451,34 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(int_digits_local));
+        sign_local.load(function);
+        int_digits_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(frac_digits_local));
+        frac_digits_local.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(frac_digits_local));
+        frac_digits_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_len_local));
-        self.emit_heap_alloc_from_local(total_len_local, function)?;
-        function.instruction(&Instruction::LocalSet(dst_offset_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::LocalSet(digit_start_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
+        total_len_local.store(function);
+        dst_offset_local.resize(total_len_local, schema, function);
+        function.instruction(&Instruction::I64Const(0));
+        digit_start_local.store(function);
+        sign_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_ascii_byte_i64(dst_offset_local, b'-', function);
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
+        self.store_ascii_byte_i64(&dst_offset_local, digit_start_local, b'-', function);
+        function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(digit_start_local));
+        digit_start_local.store(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(fits_u64_local));
+        fits_u64_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_write_radix_u64(
@@ -8984,6 +5486,7 @@ impl<'a> FunctionBuilder<'a> {
             radix_local,
             digit_start_local,
             int_digits_local,
+            &dst_offset_local,
             function,
         );
         function.instruction(&Instruction::Else);
@@ -8992,578 +5495,254 @@ impl<'a> FunctionBuilder<'a> {
             radix_local,
             digit_start_local,
             int_digits_local,
+            &dst_offset_local,
             function,
         );
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(digit_start_local));
-        function.instruction(&Instruction::LocalGet(int_digits_local));
+        digit_start_local.load(function);
+        int_digits_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(frac_start_local));
-        function.instruction(&Instruction::LocalGet(frac_digits_local));
+        frac_start_local.store(function);
+        frac_digits_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_ascii_byte_i64(frac_start_local, b'.', function);
-        function.instruction(&Instruction::LocalGet(frac_start_local));
+        self.store_ascii_byte_i64(&dst_offset_local, frac_start_local, b'.', function);
+        frac_start_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(frac_start_local));
+        frac_start_local.store(function);
         self.emit_write_radix_fraction_digits(
             frac_f_local,
             radix_local,
             frac_start_local,
             frac_digits_local,
+            &dst_offset_local,
             function,
         );
         function.instruction(&Instruction::End);
 
-        self.emit_pack_string_payload(dst_offset_local, total_len_local, function);
-        function.instruction(&Instruction::LocalSet(output_local));
+        output_local.replace(dst_offset_local.publish_string(schema, function), function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(output_local));
+        let output = output_local.load(schema, function);
 
-        self.release_temp_local(frac_start_local);
-        self.release_temp_local(digit_start_local);
-        self.release_temp_local(dst_offset_local);
-        self.release_temp_local(total_len_local);
-        self.release_temp_local(frac_digits_local);
-        self.release_temp_local(int_digits_local);
-        self.release_temp_local(fits_u64_local);
-        self.release_temp_local(int_u_local);
-        self.release_temp_local(frac_f_local);
-        self.release_temp_local(int_f_local);
-        self.release_temp_local(abs_local);
-        self.release_temp_local(sign_local);
-        self.release_temp_local(output_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_number_to_fixed_payload(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let arg_payload_local = self.reserve_temp_local();
-        let arg_tag_local = self.reserve_temp_local();
-        let digits_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_number_payload(0, arg_payload_local, arg_tag_local, function)?;
-        for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-            function.instruction(&Instruction::LocalGet(arg_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-            function.instruction(&Instruction::F64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                RANGE_ERROR_NAME,
-                "Number.prototype.toFixed fraction digits out of range",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(digits_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(digits_local));
-        function.instruction(&Instruction::I64Const(100));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "Number.prototype.toFixed fraction digits out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1e21)));
-        function.instruction(&Instruction::F64Ge);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_number_decimal_format_payload(
-            payload_local,
-            number_to_string::NumberDecimalFormat::Fixed {
-                fraction_digits_local: digits_local,
-            },
-            function,
-        )?;
-
-        self.release_temp_local(digits_local);
-        self.release_temp_local(arg_tag_local);
-        self.release_temp_local(arg_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_number_to_exponential_payload(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let arg_payload_local = self.reserve_temp_local();
-        let arg_tag_local = self.reserve_temp_local();
-        let has_fraction_digits_local = self.reserve_temp_local();
-        let fraction_digits_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-        function.instruction(&Instruction::LocalGet(arg_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(has_fraction_digits_local));
-        function.instruction(&Instruction::LocalGet(has_fraction_digits_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(arg_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(has_fraction_digits_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(arg_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Cannot convert a Symbol value to a number",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(has_fraction_digits_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(fraction_digits_local));
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Abs);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(fraction_digits_local));
-        function.instruction(&Instruction::I64Const(100));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "Number.prototype.toExponential fraction digits out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_number_decimal_format_payload(
-            payload_local,
-            number_to_string::NumberDecimalFormat::Exponential(
-                number_to_string::NumberExponentialFormat::FractionDigits {
-                    fraction_digits_local,
-                },
-            ),
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_number_decimal_format_payload(
-            payload_local,
-            number_to_string::NumberDecimalFormat::Exponential(
-                number_to_string::NumberExponentialFormat::Shortest,
-            ),
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(fraction_digits_local);
-        self.release_temp_local(has_fraction_digits_local);
-        self.release_temp_local(arg_tag_local);
-        self.release_temp_local(arg_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_number_to_precision_payload(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let arg_payload_local = self.reserve_temp_local();
-        let arg_tag_local = self.reserve_temp_local();
-        let precision_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-        function.instruction(&Instruction::LocalGet(arg_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(arg_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0x7ff0_0000_0000_0000));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "Number.prototype.toPrecision precision out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-            function.instruction(&Instruction::LocalGet(arg_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-            function.instruction(&Instruction::F64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                RANGE_ERROR_NAME,
-                "Number.prototype.toPrecision precision out of range",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(precision_local));
-        function.instruction(&Instruction::LocalGet(precision_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(precision_local));
-        function.instruction(&Instruction::I64Const(100));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "Number.prototype.toPrecision precision out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_number_decimal_format_payload(
-            payload_local,
-            number_to_string::NumberDecimalFormat::Precision {
-                significant_digits_local: precision_local,
-            },
-            function,
-        )?;
-
-        self.release_temp_local(precision_local);
-        self.release_temp_local(arg_tag_local);
-        self.release_temp_local(arg_payload_local);
-        Ok(())
+        schema.release_i64_local(frac_start_local, function);
+        schema.release_i64_local(digit_start_local, function);
+        dst_offset_local.clear(function);
+        schema.release_i64_local(total_len_local, function);
+        schema.release_i64_local(frac_digits_local, function);
+        schema.release_i64_local(int_digits_local, function);
+        schema.release_i64_local(fits_u64_local, function);
+        schema.release_i64_local(int_u_local, function);
+        schema.release_i64_local(frac_f_local, function);
+        schema.release_i64_local(int_f_local, function);
+        schema.release_i64_local(abs_local, function);
+        schema.release_i64_local(sign_local, function);
+        output_local.clear(function);
+        Ok(output)
     }
 
     pub(crate) fn emit_count_decimal_digits_u64(
         &mut self,
-        value_local: u32,
-        digits_local: u32,
+        value_local: I64Local,
+        digits_local: I64Local,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        value_local.load(function);
+        temp_local.store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        temp_local.store(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(temp_local, function);
     }
 
     pub(crate) fn emit_count_radix_digits_u64(
         &mut self,
-        value_local: u32,
-        radix_local: u32,
-        digits_local: u32,
+        value_local: I64Local,
+        radix_local: I64Local,
+        digits_local: I64Local,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        value_local.load(function);
+        temp_local.store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(temp_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        temp_local.load(function);
+        radix_local.load(function);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(temp_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        temp_local.load(function);
+        radix_local.load(function);
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        temp_local.store(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(temp_local, function);
     }
 
     pub(crate) fn emit_write_decimal_u64(
         &mut self,
-        value_local: u32,
-        start_offset_local: u32,
-        digits_local: u32,
+        value_local: I64Local,
+        start_offset_local: I64Local,
+        digits_local: I64Local,
+        output_buffer: &number_to_string::FormattingBuffer,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let pos_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        let index_local = schema.reserve_i64_local(function);
+        let pos_local = schema.reserve_i64_local(function);
+        let digit_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(start_offset_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        value_local.load(function);
+        temp_local.store(function);
+        start_offset_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(pos_local));
+        pos_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        index_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(pos_local));
+        pos_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(pos_local));
-        function.instruction(&Instruction::LocalGet(temp_local));
+        pos_local.store(function);
+        temp_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(digit_local));
-        function.instruction(&Instruction::LocalGet(pos_local));
+        digit_local.store(function);
+        pos_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalGet(temp_local));
+        output_buffer.write_from_stack(schema, function);
+        temp_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(index_local));
+        temp_local.store(function);
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(digit_local);
-        self.release_temp_local(pos_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(digit_local, function);
+        schema.release_i64_local(pos_local, function);
+        schema.release_i64_local(index_local, function);
+        schema.release_i64_local(temp_local, function);
     }
 
     pub(crate) fn emit_write_radix_u64(
         &mut self,
-        value_local: u32,
-        radix_local: u32,
-        start_offset_local: u32,
-        digits_local: u32,
+        value_local: I64Local,
+        radix_local: I64Local,
+        start_offset_local: I64Local,
+        digits_local: I64Local,
+        output_buffer: &number_to_string::FormattingBuffer,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let pos_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let char_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        let index_local = schema.reserve_i64_local(function);
+        let pos_local = schema.reserve_i64_local(function);
+        let digit_local = schema.reserve_i64_local(function);
+        let char_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(start_offset_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        value_local.load(function);
+        temp_local.store(function);
+        start_offset_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(pos_local));
+        pos_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        index_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(pos_local));
+        pos_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(pos_local));
-        function.instruction(&Instruction::LocalGet(temp_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        pos_local.store(function);
+        temp_local.load(function);
+        radix_local.load(function);
         function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(digit_local));
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.store(function);
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const((b'a' - 10) as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(char_local));
-        function.instruction(&Instruction::LocalGet(pos_local));
+        char_local.store(function);
+        pos_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(char_local));
+        char_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalGet(temp_local));
-        function.instruction(&Instruction::LocalGet(radix_local));
+        output_buffer.write_from_stack(schema, function);
+        temp_local.load(function);
+        radix_local.load(function);
         function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(index_local));
+        temp_local.store(function);
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(char_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(pos_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(char_local, function);
+        schema.release_i64_local(digit_local, function);
+        schema.release_i64_local(pos_local, function);
+        schema.release_i64_local(index_local, function);
+        schema.release_i64_local(temp_local, function);
     }
 
     // Bounded, floating-point-based counterparts of `emit_count_radix_digits_u64`
@@ -9583,44 +5762,45 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_count_radix_digits_f64_bounded(
         &mut self,
-        value_local: u32,
-        radix_local: u32,
-        digits_local: u32,
+        value_local: I64Local,
+        radix_local: I64Local,
+        digits_local: I64Local,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        let radix_f_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        let radix_f_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix_local.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(radix_f_local));
+        radix_f_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
+        value_local.load(function);
+        temp_local.store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Lt);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        temp_local.store(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(digits_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        digits_local.store(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Const(Self::MAX_RADIX_BIG_INTEGER_DIGITS));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::BrIf(1));
@@ -9628,64 +5808,66 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(radix_f_local);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(radix_f_local, function);
+        schema.release_i64_local(temp_local, function);
     }
 
     pub(crate) fn emit_write_radix_f64_bounded(
         &mut self,
-        value_local: u32,
-        radix_local: u32,
-        start_offset_local: u32,
-        digits_local: u32,
+        value_local: I64Local,
+        radix_local: I64Local,
+        start_offset_local: I64Local,
+        digits_local: I64Local,
+        output_buffer: &number_to_string::FormattingBuffer,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        let radix_f_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let pos_local = self.reserve_temp_local();
-        let quotient_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let char_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        let radix_f_local = schema.reserve_i64_local(function);
+        let index_local = schema.reserve_i64_local(function);
+        let pos_local = schema.reserve_i64_local(function);
+        let quotient_local = schema.reserve_i64_local(function);
+        let digit_local = schema.reserve_i64_local(function);
+        let char_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix_local.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(radix_f_local));
+        radix_f_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(value_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(start_offset_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        value_local.load(function);
+        temp_local.store(function);
+        start_offset_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(pos_local));
+        pos_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        index_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(pos_local));
+        pos_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(pos_local));
+        pos_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(quotient_local));
+        quotient_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(quotient_local));
+        quotient_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::F64Sub);
@@ -9702,50 +5884,50 @@ impl<'a> FunctionBuilder<'a> {
         // it stays a valid digit character instead of trapping).
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Max);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::F64Min);
         function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(digit_local));
+        digit_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const((b'a' - 10) as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(char_local));
-        function.instruction(&Instruction::LocalGet(pos_local));
+        char_local.store(function);
+        pos_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(char_local));
+        char_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+        output_buffer.write_from_stack(schema, function);
 
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(index_local));
+        quotient_local.load(function);
+        temp_local.store(function);
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(char_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(quotient_local);
-        self.release_temp_local(pos_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(radix_f_local);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(char_local, function);
+        schema.release_i64_local(digit_local, function);
+        schema.release_i64_local(quotient_local, function);
+        schema.release_i64_local(pos_local, function);
+        schema.release_i64_local(index_local, function);
+        schema.release_i64_local(radix_f_local, function);
+        schema.release_i64_local(temp_local, function);
     }
 
     // Counts/writes the fractional digits of the Number::toString(radix)
@@ -9757,61 +5939,62 @@ impl<'a> FunctionBuilder<'a> {
     // still produces a finite string instead of looping forever.
     pub(crate) fn emit_count_radix_fraction_digits(
         &mut self,
-        frac_local: u32,
-        radix_local: u32,
-        digits_local: u32,
+        frac_local: I64Local,
+        radix_local: I64Local,
+        digits_local: I64Local,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        let radix_f_local = self.reserve_temp_local();
-        let digit_f_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        let radix_f_local = schema.reserve_i64_local(function);
+        let digit_f_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix_local.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(radix_f_local));
+        radix_f_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(frac_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
+        frac_local.load(function);
+        temp_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Le);
         function.instruction(&Instruction::BrIf(1));
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_local));
+        temp_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(digit_f_local));
+        digit_f_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(digit_f_local));
+        digit_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_local));
+        temp_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(digits_local));
+        digits_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(digits_local));
+        digits_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(digits_local));
+        digits_local.load(function);
         function.instruction(&Instruction::I64Const(Self::MAX_RADIX_FRACTION_DIGITS));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::BrIf(1));
@@ -9820,939 +6003,431 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(digit_f_local);
-        self.release_temp_local(radix_f_local);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(digit_f_local, function);
+        schema.release_i64_local(radix_f_local, function);
+        schema.release_i64_local(temp_local, function);
     }
 
     pub(crate) fn emit_write_radix_fraction_digits(
         &mut self,
-        frac_local: u32,
-        radix_local: u32,
-        start_offset_local: u32,
-        digits_local: u32,
+        frac_local: I64Local,
+        radix_local: I64Local,
+        start_offset_local: I64Local,
+        digits_local: I64Local,
+        output_buffer: &number_to_string::FormattingBuffer,
         function: &mut Function,
     ) {
-        let temp_local = self.reserve_temp_local();
-        let radix_f_local = self.reserve_temp_local();
-        let digit_f_local = self.reserve_temp_local();
-        let digit_local = self.reserve_temp_local();
-        let char_local = self.reserve_temp_local();
-        let pos_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let temp_local = schema.reserve_i64_local(function);
+        let radix_f_local = schema.reserve_i64_local(function);
+        let digit_f_local = schema.reserve_i64_local(function);
+        let digit_local = schema.reserve_i64_local(function);
+        let char_local = schema.reserve_i64_local(function);
+        let pos_local = schema.reserve_i64_local(function);
+        let index_local = schema.reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(radix_local));
+        radix_local.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(radix_f_local));
+        radix_f_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(frac_local));
-        function.instruction(&Instruction::LocalSet(temp_local));
-        function.instruction(&Instruction::LocalGet(start_offset_local));
-        function.instruction(&Instruction::LocalSet(pos_local));
+        frac_local.load(function);
+        temp_local.store(function);
+        start_offset_local.load(function);
+        pos_local.store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(digits_local));
+        index_local.load(function);
+        digits_local.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_f_local));
+        radix_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_local));
+        temp_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(digit_f_local));
+        digit_f_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(digit_f_local));
+        digit_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(digit_local));
+        digit_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const(b'0' as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(digit_local));
+        digit_local.load(function);
         function.instruction(&Instruction::I64Const((b'a' - 10) as i64));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(char_local));
+        char_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(pos_local));
+        pos_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(char_local));
+        char_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+        output_buffer.write_from_stack(schema, function);
 
-        function.instruction(&Instruction::LocalGet(temp_local));
+        temp_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(digit_f_local));
+        digit_f_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(temp_local));
+        temp_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(pos_local));
+        pos_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(pos_local));
+        pos_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(index_local));
+        index_local.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index_local.store(function);
 
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(index_local);
-        self.release_temp_local(pos_local);
-        self.release_temp_local(char_local);
-        self.release_temp_local(digit_local);
-        self.release_temp_local(digit_f_local);
-        self.release_temp_local(radix_f_local);
-        self.release_temp_local(temp_local);
+        schema.release_i64_local(index_local, function);
+        schema.release_i64_local(pos_local, function);
+        schema.release_i64_local(char_local, function);
+        schema.release_i64_local(digit_local, function);
+        schema.release_i64_local(digit_f_local, function);
+        schema.release_i64_local(radix_f_local, function);
+        schema.release_i64_local(temp_local, function);
     }
 
     pub(crate) fn store_ascii_byte_i64(
         &self,
-        offset_local: u32,
+        output_buffer: &number_to_string::FormattingBuffer,
+        offset_local: I64Local,
         byte: u8,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(offset_local));
+        let schema = self.runtime_schema();
+        offset_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Const(i32::from(byte)));
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
+        output_buffer.write_from_stack(schema, function);
+    }
+
+    fn emit_decimal_sign(
+        &self,
+        sign: I64Local,
+        buffer: &number_to_string::FormattingBuffer,
+        number_start: I64Local,
+        function: &mut Function,
+    ) {
+        sign.load(function);
+        number_start.store(function);
+        sign.load(function);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        let zero = self.runtime_schema().reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        zero.store(function);
+        self.store_ascii_byte_i64(buffer, zero, b'-', function);
+        self.runtime_schema().release_i64_local(zero, function);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_repeated_ascii(
+        &self,
+        buffer: &number_to_string::FormattingBuffer,
+        start: I64Local,
+        count: I64Local,
+        byte: u8,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let index = schema.reserve_i64_local(function);
+        let offset = schema.reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        index.store(function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        count.load(function);
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        start.load(function);
+        index.load(function);
+        function.instruction(&Instruction::I64Add);
+        offset.store(function);
+        self.store_ascii_byte_i64(buffer, offset, byte, function);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        index.store(function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(offset, function);
+        schema.release_i64_local(index, function);
     }
 
     pub(crate) fn emit_string_search_argument_is_regexp_to_local(
         &mut self,
-        search_payload_local: u32,
-        search_tag_local: u32,
-        search_is_regexp_local: u32,
+        input: &ValueLocals,
+        output: I32Local,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let search_match_payload_local = self.reserve_temp_local();
-        let search_match_tag_local = self.reserve_temp_local();
-        let search_match_key_local = self.reserve_temp_local();
-        let search_brand_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(search_is_regexp_local));
-        self.emit_is_heap_object_like_tag_i32(search_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.match"),
+        let schema = self.runtime_schema();
+        function.instruction(&Instruction::I32Const(0));
+        output.store(function);
+        result.initialize(function);
+        self.emit_is_heap_object_like_tag_i32(input.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        let symbol = schema.reserve_gc_local(function).initialize(
+            self.emit_well_known_symbol_reference(lila_ir::WellKnownSymbol::Match, function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        symbol.clear(function);
+        let pending = schema.reserve_completion(function);
+        schema
+            .call_helper(
+                crate::runtime_helpers::ObjectReadArguments::new(
+                    input,
+                    input,
+                    &key,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
+        key.clear(function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.copy_from(&pending, function);
+        function.instruction(&Instruction::Else);
+        pending.value().tag().load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
         ));
-        function.instruction(&Instruction::LocalSet(search_match_key_local));
-        self.emit_object_read(
-            search_payload_local,
-            search_tag_local,
-            search_payload_local,
-            search_tag_local,
-            search_match_key_local,
-            search_match_payload_local,
-            search_match_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(search_match_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.compile_truthy_tagged_i32(
-            search_match_tag_local,
-            search_match_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(search_is_regexp_local));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.compile_truthy_tagged_i32(pending.value(), function)?;
+        output.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(search_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            search_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            search_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(search_brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_REGEXP as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(search_is_regexp_local));
+        input.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<crate::gc_types::RegExpObject>(
+                    crate::gc_types::GcNullability::NonNullable,
+                )
+                .heap_type,
+        ));
+        output.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        pending.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(search_brand_local);
-        self.release_temp_local(search_match_key_local);
-        self.release_temp_local(search_match_tag_local);
-        self.release_temp_local(search_match_payload_local);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.value().set_boolean(output, function);
+        result.set_normal(result.value(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
-    }
-
-    pub(crate) fn emit_unpack_string_payload(
-        &self,
-        payload_local: u32,
-        offset_local: u32,
-        len_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(offset_local));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(0xFFFF_FFFFu64 as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(len_local));
-    }
-
-    pub(crate) fn emit_pack_string_payload(
-        &self,
-        offset_local: u32,
-        len_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(offset_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Or);
-    }
-
-    pub(crate) fn emit_string_slice_payload_from_locals(
-        &mut self,
-        string_payload_local: u32,
-        start_local: u32,
-        len_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let src_offset_local = self.reserve_temp_local();
-        let src_len_local = self.reserve_temp_local();
-        let src_start_offset_local = self.reserve_temp_local();
-        let alloc_len_local = self.reserve_temp_local();
-        let dst_offset_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            src_offset_local,
-            src_len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(src_offset_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(src_start_offset_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(!7_i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(alloc_len_local));
-        self.emit_heap_alloc_from_local(alloc_len_local, function)?;
-        function.instruction(&Instruction::LocalSet(dst_offset_local));
-        self.emit_copy_bytes(
-            src_start_offset_local,
-            dst_offset_local,
-            len_local,
-            function,
-        );
-        self.emit_pack_string_payload(dst_offset_local, len_local, function);
-
-        self.release_temp_local(dst_offset_local);
-        self.release_temp_local(alloc_len_local);
-        self.release_temp_local(src_start_offset_local);
-        self.release_temp_local(src_len_local);
-        self.release_temp_local(src_offset_local);
-        Ok(())
-    }
-
-    /// Materialize a UTF-16 code-unit range from our UTF-8/WTF-8 string payload.
-    ///
-    /// An astral scalar occupies two ECMAScript code units.  Keeping both units
-    /// preserves its canonical four-byte UTF-8 representation; selecting either
-    /// half instead emits that surrogate as three-byte WTF-8.
-    pub(crate) fn emit_utf16_code_unit_range_payload_from_locals(
-        &mut self,
-        string_payload_local: u32,
-        start_local: u32,
-        len_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let src_offset_local = self.reserve_temp_local();
-        let src_len_local = self.reserve_temp_local();
-        let end_local = self.reserve_temp_local();
-        let byte_index_local = self.reserve_temp_local();
-        let unit_index_local = self.reserve_temp_local();
-        let dst_offset_local = self.reserve_temp_local();
-        let dst_pos_local = self.reserve_temp_local();
-        let actual_len_local = self.reserve_temp_local();
-        let alloc_len_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let codepoint_local = self.reserve_temp_local();
-        let advance_local = self.reserve_temp_local();
-        let unit_advance_local = self.reserve_temp_local();
-        let temp_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::Else);
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            src_offset_local,
-            src_len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(end_local));
-
-        // A selected UTF-16 unit materializes to at most a three-byte WTF-8
-        // sequence.  The allocator receives an aligned upper bound; the packed
-        // payload below records the exact number of bytes emitted.
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(!7_i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(alloc_len_local));
-        self.emit_heap_alloc_from_local(alloc_len_local, function)?;
-        function.instruction(&Instruction::LocalSet(dst_offset_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::LocalSet(dst_pos_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(byte_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(unit_index_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-
-        self.emit_load_string_byte(src_offset_local, byte_index_local, byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            src_offset_local,
-            byte_index_local,
-            src_len_local,
-            byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(unit_advance_local));
-
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // Astral scalar: independently select its high and low code units.
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0xD800));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(codepoint_local));
-        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(0x3FF));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0xDC00));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(codepoint_local));
-        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(unit_advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(unit_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(dst_pos_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(actual_len_local));
-        self.emit_pack_string_payload(dst_offset_local, actual_len_local, function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(temp_local);
-        self.release_temp_local(unit_advance_local);
-        self.release_temp_local(advance_local);
-        self.release_temp_local(codepoint_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(alloc_len_local);
-        self.release_temp_local(actual_len_local);
-        self.release_temp_local(dst_pos_local);
-        self.release_temp_local(dst_offset_local);
-        self.release_temp_local(unit_index_local);
-        self.release_temp_local(byte_index_local);
-        self.release_temp_local(end_local);
-        self.release_temp_local(src_len_local);
-        self.release_temp_local(src_offset_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_utf16_code_unit_len_from_utf8_locals(
-        &mut self,
-        src_offset_local: u32,
-        src_len_local: u32,
-        dst_len_local: u32,
-        function: &mut Function,
-    ) {
-        let index_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let codepoint_local = self.reserve_temp_local();
-        let advance_local = self.reserve_temp_local();
-        let temp_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dst_len_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_load_string_byte(src_offset_local, index_local, byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            src_offset_local,
-            index_local,
-            src_len_local,
-            byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(dst_len_local));
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(dst_len_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(temp_local);
-        self.release_temp_local(advance_local);
-        self.release_temp_local(codepoint_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(index_local);
-    }
-
-    pub(crate) fn emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(
-        &mut self,
-        string_payload_local: u32,
-        target_index_local: u32,
-        dst_byte_offset_local: u32,
-        function: &mut Function,
-    ) {
-        let src_offset_local = self.reserve_temp_local();
-        let src_len_local = self.reserve_temp_local();
-        let byte_index_local = self.reserve_temp_local();
-        let unit_index_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let codepoint_local = self.reserve_temp_local();
-        let advance_local = self.reserve_temp_local();
-        let unit_advance_local = self.reserve_temp_local();
-        let temp_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            src_offset_local,
-            src_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(byte_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(unit_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dst_byte_offset_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::LocalSet(dst_byte_offset_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_index_local));
-        function.instruction(&Instruction::LocalSet(dst_byte_offset_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        self.emit_load_string_byte(src_offset_local, byte_index_local, byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            src_offset_local,
-            byte_index_local,
-            src_len_local,
-            byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(unit_advance_local));
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(unit_advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(dst_byte_offset_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(byte_index_local));
-        function.instruction(&Instruction::LocalGet(unit_index_local));
-        function.instruction(&Instruction::LocalGet(unit_advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(unit_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(temp_local);
-        self.release_temp_local(unit_advance_local);
-        self.release_temp_local(advance_local);
-        self.release_temp_local(codepoint_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(unit_index_local);
-        self.release_temp_local(byte_index_local);
-        self.release_temp_local(src_len_local);
-        self.release_temp_local(src_offset_local);
-    }
-
-    pub(crate) fn emit_copy_bytes(
-        &mut self,
-        src_offset_local: u32,
-        dst_offset_local: u32,
-        len_local: u32,
-        function: &mut Function,
-    ) {
-        let index_local = self.reserve_temp_local();
-        let src_addr_local = self.reserve_temp_local();
-        let dst_addr_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(src_offset_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(src_addr_local));
-        function.instruction(&Instruction::LocalGet(src_addr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(dst_addr_local));
-        function.instruction(&Instruction::LocalGet(dst_addr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(byte_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(byte_local);
-        self.release_temp_local(dst_addr_local);
-        self.release_temp_local(src_addr_local);
-        self.release_temp_local(index_local);
     }
 
     pub(crate) fn emit_string_payload_equality_i32(
-        &mut self,
-        lhs_payload_local: u32,
-        rhs_payload_local: u32,
+        &self,
+        left: &GcLocal<StringValue>,
+        right: &GcLocal<StringValue>,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            lhs_payload_local,
-            rhs_payload_local,
-            None,
-            function,
-        );
-        function.instruction(&Instruction::End);
+        self.emit_string_payload_equality_i32_with_ascii_case_folding(left, right, None, function);
     }
 
     pub(crate) fn emit_string_payload_equality_i32_with_ascii_case_folding(
-        &mut self,
-        lhs_payload_local: u32,
-        rhs_payload_local: u32,
-        ascii_case_folding_local: Option<u32>,
+        &self,
+        left: &GcLocal<StringValue>,
+        right: &GcLocal<StringValue>,
+        ascii_case_folding: Option<I32Local>,
         function: &mut Function,
     ) {
-        // Property-name matching and key switches hit this at thousands of
-        // sites per builtin body; call the shared helper instead of inlining
-        // the ~65-instruction byte-compare loop (except inside the helper
-        // itself). The helper returns the standard four-i64 tuple with the
-        // 0/1 result in the first slot.
-        if self.outline_string_equality {
-            if let Some(helper) = self.string_equality_helper_function_index() {
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                if let Some(ascii_case_folding_local) = ascii_case_folding_local {
-                    function.instruction(&Instruction::LocalGet(ascii_case_folding_local));
-                } else {
-                    function.instruction(&Instruction::I64Const(0));
-                }
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::Call(helper));
-                function.instruction(&Instruction::Drop);
-                function.instruction(&Instruction::Drop);
-                function.instruction(&Instruction::Drop);
-                function.instruction(&Instruction::I32WrapI64);
-                return;
-            }
+        let schema = self.runtime_schema();
+        let default_fold = ascii_case_folding
+            .is_none()
+            .then(|| schema.reserve_i32_local(function));
+        let fold = ascii_case_folding
+            .or(default_fold)
+            .expect("folding operand is initialized");
+        if default_fold.is_some() {
+            function.instruction(&Instruction::I32Const(0));
+            fold.store(function);
         }
-        let lhs_offset = self.reserve_temp_local();
-        let lhs_len = self.reserve_temp_local();
-        let rhs_offset = self.reserve_temp_local();
-        let rhs_len = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let lhs_addr_local = self.reserve_temp_local();
-        let rhs_addr_local = self.reserve_temp_local();
-        let lhs_byte_local = self.reserve_temp_local();
-        let rhs_byte_local = self.reserve_temp_local();
-        let lhs_lower_local = ascii_case_folding_local.map(|_| self.reserve_temp_local());
-        let rhs_lower_local = ascii_case_folding_local.map(|_| self.reserve_temp_local());
-        let result_local = self.reserve_temp_local();
+        let result = schema.reserve_i32_local(function);
+        if self.outline_string_equality {
+            if let Some(base) = self.runtime_helper_base {
+                schema
+                    .call_helper(
+                        crate::runtime_helpers::StringEqualityArguments::new(left, right, fold),
+                        base,
+                        function,
+                    )
+                    .store(result, function);
+            } else {
+                self.emit_gc_string_equality(left, right, fold, result, function);
+            }
+        } else {
+            self.emit_gc_string_equality(left, right, fold, result, function);
+        }
+        result.load(function);
+        schema.release_i32_local(result, function);
+        if let Some(default_fold) = default_fold {
+            schema.release_i32_local(default_fold, function);
+        }
+    }
 
-        self.emit_unpack_string_payload(lhs_payload_local, lhs_offset, lhs_len, function);
-        self.emit_unpack_string_payload(rhs_payload_local, rhs_offset, rhs_len, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::LocalGet(lhs_len));
-        function.instruction(&Instruction::LocalGet(rhs_len));
-        function.instruction(&Instruction::I64Ne);
+    pub(crate) fn emit_gc_string_equality(
+        &self,
+        left: &GcLocal<StringValue>,
+        right: &GcLocal<StringValue>,
+        ascii_case_folding: I32Local,
+        result: I32Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let left_units_slot = schema.reserve_gc_local(function);
+        let left_units = left_units_slot.initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(left, schema, function)
+                .reference(),
+            function,
+        );
+        let right_units_slot = schema.reserve_gc_local(function);
+        let right_units = right_units_slot.initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(right, schema, function)
+                .reference(),
+            function,
+        );
+        let left_length = schema.reserve_i32_local(function);
+        let right_length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let left_unit = schema.reserve_i32_local(function);
+        let right_unit = schema.reserve_i32_local(function);
+        let units = schema.array_type::<CodeUnitArray>();
+        units.length(&left_units, schema, function);
+        left_length.store(function);
+        units.length(&right_units, schema, function);
+        right_length.store(function);
+
+        function.instruction(&Instruction::I32Const(1));
+        result.store(function);
+        left_length.load(function);
+        right_length.load(function);
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::I32Const(0));
+        result.store(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::I32Const(0));
+        index.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(lhs_len));
-        function.instruction(&Instruction::I64GeU);
+        index.load(function);
+        left_length.load(function);
+        function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(lhs_offset));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(lhs_addr_local));
-        function.instruction(&Instruction::LocalGet(rhs_offset));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(rhs_addr_local));
-        function.instruction(&Instruction::LocalGet(lhs_addr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(lhs_byte_local));
-        function.instruction(&Instruction::LocalGet(rhs_addr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(rhs_byte_local));
-        if let Some(ascii_case_folding_local) = ascii_case_folding_local {
-            let lhs_lower_local = lhs_lower_local.expect("ASCII folding reserves lhs local");
-            let rhs_lower_local = rhs_lower_local.expect("ASCII folding reserves rhs local");
-            function.instruction(&Instruction::LocalGet(lhs_byte_local));
-            function.instruction(&Instruction::LocalGet(rhs_byte_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(ascii_case_folding_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            self.emit_ascii_lowercase_byte_to_local(lhs_byte_local, lhs_lower_local, function);
-            self.emit_ascii_lowercase_byte_to_local(rhs_byte_local, rhs_lower_local, function);
-            function.instruction(&Instruction::LocalGet(lhs_lower_local));
-            function.instruction(&Instruction::LocalGet(rhs_lower_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(ascii_case_folding_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::I32Eqz);
-        } else {
-            function.instruction(&Instruction::LocalGet(lhs_byte_local));
-            function.instruction(&Instruction::LocalGet(rhs_byte_local));
-            function.instruction(&Instruction::I64Ne);
-        }
+        units
+            .read(&left_units, index, schema, function)
+            .store(left_unit, function);
+        units
+            .read(&right_units, index, schema, function)
+            .store(right_unit, function);
+        ascii_case_folding.load(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
+        for unit in [left_unit, right_unit] {
+            unit.load(function);
+            function.instruction(&Instruction::I32Const(i32::from(b'A')));
+            function.instruction(&Instruction::I32GeU);
+            unit.load(function);
+            function.instruction(&Instruction::I32Const(i32::from(b'Z')));
+            function.instruction(&Instruction::I32LeU);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            unit.load(function);
+            function.instruction(&Instruction::I32Const(i32::from(b'a' - b'A')));
+            function.instruction(&Instruction::I32Add);
+            unit.store(function);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
+        left_unit.load(function);
+        right_unit.load(function);
+        function.instruction(&Instruction::I32Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32Const(0));
+        result.store(function);
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I32WrapI64);
 
-        self.release_temp_local(result_local);
-        if let Some(rhs_lower_local) = rhs_lower_local {
-            self.release_temp_local(rhs_lower_local);
-        }
-        if let Some(lhs_lower_local) = lhs_lower_local {
-            self.release_temp_local(lhs_lower_local);
-        }
-        self.release_temp_local(rhs_byte_local);
-        self.release_temp_local(lhs_byte_local);
-        self.release_temp_local(rhs_addr_local);
-        self.release_temp_local(lhs_addr_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(rhs_len);
-        self.release_temp_local(rhs_offset);
-        self.release_temp_local(lhs_len);
-        self.release_temp_local(lhs_offset);
+        schema.release_i32_local(right_unit, function);
+        schema.release_i32_local(left_unit, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(right_length, function);
+        schema.release_i32_local(left_length, function);
+        right_units.clear(function);
+        left_units.clear(function);
     }
 
     pub(crate) fn compile_strict_equality_i32(
         &mut self,
-        lhs: &TypedExpr,
-        rhs: &TypedExpr,
+        left: &TypedExpr,
+        right: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_tag_dynamic = expr_result_tag_is_runtime_dynamic(&lhs.expr);
-        let rhs_tag_dynamic = expr_result_tag_is_runtime_dynamic(&rhs.expr);
-        if !lhs_tag_dynamic
-            && !rhs_tag_dynamic
-            && lhs.possible_kinds.is_singleton()
-            && rhs.possible_kinds.is_singleton()
-            && lhs.kind == rhs.kind
-        {
-            match lhs.kind {
-                ValueKind::Number => {
-                    self.compile_expr_payload(lhs, function)?;
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    self.compile_expr_payload(rhs, function)?;
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Eq);
-                }
-                ValueKind::String => {
-                    // Keep the left payload on the Wasm stack across the right
-                    // operand's emission, exactly like the `Number` arm above.
-                    // Spilling it to `scratch_local` first is unsound: right
-                    // operands that themselves lower through `scratch_local`
-                    // (`typeof x`, property reads, ...) overwrite the spill, so
-                    // `"object" === typeof x` used to compare a value against
-                    // itself-shifted garbage and report `false`.
-                    self.compile_expr_payload(lhs, function)?;
-                    self.compile_expr_payload(rhs, function)?;
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    self.emit_string_payload_equality_i32(
-                        self.scratch_local,
-                        self.result_local,
-                        function,
-                    );
-                }
-                ValueKind::Function | ValueKind::BigInt | ValueKind::Dynamic => {
-                    let lhs_payload = self.reserve_temp_local();
-                    let lhs_tag = self.reserve_temp_local();
-                    let rhs_payload = self.reserve_temp_local();
-                    let rhs_tag = self.reserve_temp_local();
-                    self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-                    self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-                    self.emit_tagged_payload_equality_i32(
-                        lhs_tag,
-                        lhs_payload,
-                        rhs_tag,
-                        rhs_payload,
-                        function,
-                    )?;
-                    self.release_temp_local(rhs_tag);
-                    self.release_temp_local(rhs_payload);
-                    self.release_temp_local(lhs_tag);
-                    self.release_temp_local(lhs_payload);
-                }
-                ValueKind::Undefined
-                | ValueKind::Null
-                | ValueKind::Boolean
-                | ValueKind::Symbol
-                | ValueKind::Object
-                | ValueKind::Array
-                | ValueKind::Arguments => {
-                    self.compile_expr_payload(lhs, function)?;
-                    self.compile_expr_payload(rhs, function)?;
-                    function.instruction(&Instruction::I64Eq);
-                }
-            }
-            self.set_completion_kind(CompletionKind::Normal, function);
-            return Ok(());
-        }
-
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-        self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-        self.emit_tagged_payload_equality_i32(
-            lhs_tag,
-            lhs_payload,
-            rhs_tag,
-            rhs_payload,
-            function,
-        )?;
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
+        let left_value = self.runtime_schema().reserve_value_local(function);
+        let right_value = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(left, &left_value, function)?;
+        self.compile_expr_to_value(right, &right_value, function)?;
+        self.emit_tagged_payload_equality_i32(&left_value, &right_value, function)?;
+        right_value.clear(function);
+        left_value.clear(function);
         self.set_completion_kind(CompletionKind::Normal, function);
         Ok(())
     }
@@ -10761,428 +6436,290 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         actual: &TypedExpr,
         expected: &TypedExpr,
-        message: &str,
+        message: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.compile_same_value_i32(actual, expected, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        self.open_frame(ControlFrameKind::If, function);
+        let error = self.runtime_schema().reserve_completion(function);
+        self.emit_throw_runtime_error(NativeErrorKind::Error, message, &error, function)?;
+        self.completion().copy_from(&error, function);
+        error.clear(function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
 
     pub(crate) fn compile_same_value_i32(
         &mut self,
-        lhs: &TypedExpr,
-        rhs: &TypedExpr,
+        left: &TypedExpr,
+        right: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-        self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-        self.emit_tagged_payload_same_value_i32(
-            lhs_tag,
-            lhs_payload,
-            rhs_tag,
-            rhs_payload,
-            function,
-        )?;
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
+        let left_value = self.runtime_schema().reserve_value_local(function);
+        let right_value = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(left, &left_value, function)?;
+        self.compile_expr_to_value(right, &right_value, function)?;
+        self.emit_tagged_payload_same_value_i32(&left_value, &right_value, function)?;
+        right_value.clear(function);
+        left_value.clear(function);
         Ok(())
     }
 
     pub(crate) fn compile_same_value_zero_i32(
         &mut self,
-        lhs: &TypedExpr,
-        rhs: &TypedExpr,
+        left: &TypedExpr,
+        right: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_payload = self.reserve_temp_local();
-        let lhs_tag = self.reserve_temp_local();
-        let rhs_payload = self.reserve_temp_local();
-        let rhs_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
-        self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
-        self.emit_tagged_payload_same_value_zero_i32(
-            lhs_tag,
-            lhs_payload,
-            rhs_tag,
-            rhs_payload,
-            function,
-        )?;
-        self.release_temp_local(rhs_tag);
-        self.release_temp_local(rhs_payload);
-        self.release_temp_local(lhs_tag);
-        self.release_temp_local(lhs_payload);
+        let left_value = self.runtime_schema().reserve_value_local(function);
+        let right_value = self.runtime_schema().reserve_value_local(function);
+        self.compile_expr_to_value(left, &left_value, function)?;
+        self.compile_expr_to_value(right, &right_value, function)?;
+        self.emit_tagged_payload_same_value_zero_i32(&left_value, &right_value, function)?;
+        right_value.clear(function);
+        left_value.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_tagged_payload_same_value_i32(
-        &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_tag_local: u32,
-        rhs_payload_local: u32,
+        &self,
+        left: &ValueLocals,
+        right: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_heap_bigint_equality_i32(lhs_payload_local, rhs_payload_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_string_payload_equality_i32(lhs_payload_local, rhs_payload_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_differently_tagged_bigint_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_tag_local,
-            rhs_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        Ok(())
+        self.emit_value_equality_i32(left, right, NumberEquality::SameValue, function)
     }
 
     pub(crate) fn emit_tagged_payload_same_value_zero_i32(
-        &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_tag_local: u32,
-        rhs_payload_local: u32,
+        &self,
+        left: &ValueLocals,
+        right: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_heap_bigint_equality_i32(lhs_payload_local, rhs_payload_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_string_payload_equality_i32(lhs_payload_local, rhs_payload_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_differently_tagged_bigint_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_tag_local,
-            rhs_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        Ok(())
+        self.emit_value_equality_i32(left, right, NumberEquality::SameValueZero, function)
     }
 
     pub(crate) fn emit_tagged_payload_equality_i32(
-        &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_tag_local: u32,
-        rhs_payload_local: u32,
+        &self,
+        left: &ValueLocals,
+        right: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_value_equality_i32(left, right, NumberEquality::Strict, function)
+    }
+
+    fn emit_value_equality_i32(
+        &self,
+        left: &ValueLocals,
+        right: &ValueLocals,
+        numbers: NumberEquality,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        left.tag().load(function);
+        right.tag().load(function);
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
+        left.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_heap_bigint_equality_i32(lhs_payload_local, rhs_payload_local, function);
+        match numbers {
+            NumberEquality::SameValue => {
+                left.scalar().load(function);
+                right.scalar().load(function);
+                function.instruction(&Instruction::I64Eq);
+            }
+            NumberEquality::Strict | NumberEquality::SameValueZero => {
+                left.scalar().load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                right.scalar().load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Eq);
+            }
+        }
+        match numbers {
+            NumberEquality::Strict => {}
+            NumberEquality::SameValue | NumberEquality::SameValueZero => {
+                for value in [left, right] {
+                    value.scalar().load(function);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    value.scalar().load(function);
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Ne);
+                }
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::I32Or);
+            }
+        }
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        left.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        // Pooled/interned strings are usually the same reference.
+        left.reference().load(function);
+        right.reference().load(function);
+        function.instruction(&Instruction::RefEq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_string_payload_equality_i32(lhs_payload_local, rhs_payload_local, function);
+        function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_payload_local));
-        function.instruction(&Instruction::LocalGet(rhs_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_differently_tagged_bigint_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_tag_local,
-            rhs_payload_local,
+        let left_string_slot = schema.reserve_gc_local(function);
+        let left_string = left_string_slot.initialize(
+            left.cast_reference::<StringValue>(schema, function),
             function,
         );
+        let right_string_slot = schema.reserve_gc_local(function);
+        let right_string = right_string_slot.initialize(
+            right.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        self.emit_string_payload_equality_i32(&left_string, &right_string, function);
+        right_string.clear(function);
+        left_string.clear(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        left.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        let left_bigint_slot = schema.reserve_gc_local(function);
+        let left_bigint = left_bigint_slot.initialize(
+            left.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        let right_bigint_slot = schema.reserve_gc_local(function);
+        let right_bigint = right_bigint_slot.initialize(
+            right.cast_reference::<BigIntValue>(schema, function),
+            function,
+        );
+        self.emit_bigint_equality_i32(&left_bigint, &right_bigint, function);
+        right_bigint.clear(function);
+        left_bigint.clear(function);
+        function.instruction(&Instruction::Else);
+        self.compile_nullish_tagged_i32(left.tag(), function)?;
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::Else);
+        left.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Boolean as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        left.scalar().load(function);
+        right.scalar().load(function);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::Else);
+        left.reference().load(function);
+        right.reference().load(function);
+        function.instruction(&Instruction::RefEq);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::End);
         Ok(())
     }
 
-    fn emit_differently_tagged_bigint_equality_i32(
-        &mut self,
-        lhs_tag_local: u32,
-        lhs_payload_local: u32,
-        rhs_tag_local: u32,
-        rhs_payload_local: u32,
+    fn emit_bigint_equality_i32(
+        &self,
+        left: &GcLocal<BigIntValue>,
+        right: &GcLocal<BigIntValue>,
         function: &mut Function,
     ) {
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_mixed_bigint_equality_i32(
-            lhs_tag_local,
-            lhs_payload_local,
-            rhs_payload_local,
+        let schema = self.runtime_schema();
+        let left_sign = schema.reserve_i32_local(function);
+        let right_sign = schema.reserve_i32_local(function);
+        let bigint = schema.struct_type::<BigIntValue>();
+        bigint
+            .field(BigIntValueSchema::NEGATIVE)
+            .read(left, schema, function)
+            .store(left_sign, function);
+        bigint
+            .field(BigIntValueSchema::NEGATIVE)
+            .read(right, schema, function)
+            .store(right_sign, function);
+        let left_limbs_slot = schema.reserve_gc_local(function);
+        let left_limbs = left_limbs_slot.initialize(
+            bigint
+                .field(BigIntValueSchema::LIMBS)
+                .read(left, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::Else);
+        let right_limbs_slot = schema.reserve_gc_local(function);
+        let right_limbs = right_limbs_slot.initialize(
+            bigint
+                .field(BigIntValueSchema::LIMBS)
+                .read(right, schema, function)
+                .reference(),
+            function,
+        );
+        let left_length = schema.reserve_i32_local(function);
+        let right_length = schema.reserve_i32_local(function);
+        let index = schema.reserve_i32_local(function);
+        let equal = schema.reserve_i32_local(function);
+        let left_limb = schema.reserve_i64_local(function);
+        let right_limb = schema.reserve_i64_local(function);
+        let limbs = schema.array_type::<BigIntLimbArray>();
+        limbs.length(&left_limbs, schema, function);
+        left_length.store(function);
+        limbs.length(&right_limbs, schema, function);
+        right_length.store(function);
+        left_sign.load(function);
+        right_sign.load(function);
+        function.instruction(&Instruction::I32Eq);
+        left_length.load(function);
+        right_length.load(function);
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::I32And);
+        equal.store(function);
+        equal.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-    }
-
-    fn emit_heap_bigint_equality_i32(
-        &mut self,
-        lhs_payload_local: u32,
-        rhs_payload_local: u32,
-        function: &mut Function,
-    ) {
-        let lhs_sign_local = self.reserve_temp_local();
-        let rhs_sign_local = self.reserve_temp_local();
-        let lhs_limbs_local = self.reserve_temp_local();
-        let rhs_limbs_local = self.reserve_temp_local();
-        let lhs_len_local = self.reserve_temp_local();
-        let rhs_len_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let equal_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            lhs_payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            lhs_sign_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            rhs_payload_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            rhs_sign_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            lhs_payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            lhs_limbs_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            rhs_payload_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            rhs_limbs_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            lhs_payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            lhs_len_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            rhs_payload_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            rhs_len_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(lhs_sign_local));
-        function.instruction(&Instruction::LocalGet(rhs_sign_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(lhs_len_local));
-        function.instruction(&Instruction::LocalGet(rhs_len_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(equal_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        index.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(lhs_len_local));
-        function.instruction(&Instruction::I64GeU);
+        index.load(function);
+        left_length.load(function);
+        function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(lhs_limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
-        function.instruction(&Instruction::LocalGet(rhs_limbs_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
+        limbs
+            .read(&left_limbs, index, schema, function)
+            .store_i64(left_limb, function);
+        limbs
+            .read(&right_limbs, index, schema, function)
+            .store_i64(right_limb, function);
+        left_limb.load(function);
+        right_limb.load(function);
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(equal_local));
-        function.instruction(&Instruction::LocalGet(equal_local));
-        function.instruction(&Instruction::I64Eqz);
+        equal.store(function);
+        equal.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
+        index.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        index.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(equal_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(equal_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(rhs_len_local);
-        self.release_temp_local(lhs_len_local);
-        self.release_temp_local(rhs_limbs_local);
-        self.release_temp_local(lhs_limbs_local);
-        self.release_temp_local(rhs_sign_local);
-        self.release_temp_local(lhs_sign_local);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn numeric_realm_projections_keep_ordinary_lexical_environments_out() {
-        let trusted_helpers = RuntimeHelperId::ALL
-            .iter()
-            .copied()
-            .filter(|helper| {
-                NumericErrorRealmSource::for_runtime_helper(*helper)
-                    == NumericErrorRealmSource::NumericConversionHelperArgument
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            trusted_helpers,
-            vec![
-                RuntimeHelperId::ValueToNumber,
-                RuntimeHelperId::ValueToNumeric
-            ]
-        );
-
-        for source in [
-            NumericErrorRealmSource::StandardBuiltinEnvironment,
-            NumericErrorRealmSource::NumericConversionHelperArgument,
-        ] {
-            match numeric_conversion_realm_access(source) {
-                NumericConversionRealmAccess::TrustedCurrentEnvironment => {}
-                NumericConversionRealmAccess::MainRealmFallback => {
-                    panic!("trusted numeric source lost its Realm access")
-                }
-            }
-        }
-
-        match numeric_conversion_realm_access(NumericErrorRealmSource::GlobalFallback) {
-            NumericConversionRealmAccess::MainRealmFallback => {}
-            NumericConversionRealmAccess::TrustedCurrentEnvironment => {
-                panic!("global fallback exposed a lexical environment as numeric Realm state")
-            }
-        }
+        equal.load(function);
+        schema.release_i64_local(right_limb, function);
+        schema.release_i64_local(left_limb, function);
+        schema.release_i32_local(equal, function);
+        schema.release_i32_local(index, function);
+        schema.release_i32_local(right_length, function);
+        schema.release_i32_local(left_length, function);
+        right_limbs.clear(function);
+        left_limbs.clear(function);
+        schema.release_i32_local(right_sign, function);
+        schema.release_i32_local(left_sign, function);
     }
 }

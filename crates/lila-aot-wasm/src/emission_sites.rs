@@ -26,7 +26,9 @@ fn emission_sites_are_backed(site: EmissionSite) {
             let _ = FunctionBuilder::compile_for_of_iterator;
         }
         EmissionSite::ResumableSyncForOfIterator => {
+            let _ = FunctionBuilder::compile_resumable_sync_for_of_iterator;
             let _ = FunctionBuilder::compile_async_function_for_of_iterator;
+            let _ = FunctionBuilder::compile_generator_for_of_iterator;
         }
         EmissionSite::AsyncForOfIterator => {
             let _ = FunctionBuilder::compile_async_for_of_iterator;

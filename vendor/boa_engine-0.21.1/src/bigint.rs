@@ -75,6 +75,18 @@ impl JsBigInt {
         self.inner.to_str_radix(radix)
     }
 
+    /// Allocation-free lower/upper decimal bounds for raw host inspection.
+    /// The enclosing rationals bracket log10(2); bounded admitted conversions
+    /// differ by at most one scratch digit and exact fits are not pre-rejected.
+    #[must_use]
+    pub fn decimal_byte_bounds(&self) -> Option<(usize, usize)> {
+        let bits = u128::from(self.inner.bits());
+        let sign = u128::from(self.inner.sign() == num_bigint::Sign::Minus);
+        let minimum = bits.saturating_sub(1).checked_mul(301029995)?.checked_div(1_000_000_000)?.checked_add(1 + sign)?;
+        let maximum = bits.checked_mul(301029996)?.checked_div(1_000_000_000)?.checked_add(1 + sign)?;
+        Some((usize::try_from(minimum).ok()?, usize::try_from(maximum).ok()?))
+    }
+
     /// Converts the `BigInt` to a f64 type.
     ///
     /// Returns `f64::INFINITY` if the `BigInt` is too big.

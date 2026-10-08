@@ -8,10 +8,11 @@ ordinary result happen before locale-list canonicalization, options coercion,
 or any option read. The allocated object remains unreachable until its current
 DateTimeFormat record and brand are installed.
 
-This slice deliberately preserves the existing `CurrentGlobal`
-default-prototype fallback. Created realms do not yet install `Intl`, so the
-complete cross-Realm fallback and active-function identity rules remain
-outside this contract.
+The initial construction-order checkpoint retained `CurrentGlobal` and did
+not publish created-Realm Intl. That receipt is historical: subsequent shared
+Realm work publishes Intl and selects the required resolved-Realm prototype.
+The unused global/snapshot fallback variants and payload-only wrapper are now
+retired; this contract continues to own the construction lifecycle order.
 
 ## Required order
 
@@ -120,8 +121,9 @@ snapshot and broad batch ladder were not rerun; no result is claimed for them.
 
 ## Nonclaims
 
-This contract does not add created-realm `Intl` bootstrap, the complete
-cross-Realm intrinsic fallback, or the legacy `ChainDateTimeFormat` behavior.
-It does not add locale, CLDR or time-zone data, another Intl service, or a
-green DateTimeFormat/Intl subtree. It also does not change the current
-`CurrentGlobal` fallback used when `NewTarget.prototype` is primitive.
+The original lifecycle checkpoint did not add created-Realm Intl publication,
+the required cross-Realm fallback, or legacy `ChainDateTimeFormat` behavior.
+The first two were subsequently supplied by the shared Realm authority. This
+lifecycle contract does not add locale, CLDR or time-zone data, another Intl
+service, or a green DateTimeFormat/Intl subtree; its dated verification receipts
+remain limited to the checks actually recorded.

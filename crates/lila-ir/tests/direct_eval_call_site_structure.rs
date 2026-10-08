@@ -4,7 +4,7 @@ use lila_ir::{
     StatementIr,
 };
 const IR_SOURCE: &str = include_str!("../src/ir.rs");
-const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const CONDITIONAL_FLOW_SOURCE: &str = include_str!("../src/lowering/conditional_flow.rs");
 const CALL_CANDIDATE_SOURCE: &str = include_str!("../src/lowering/call_candidate_analysis.rs");
 const INVOCATION_PROVENANCE_SOURCE: &str = include_str!("../src/lowering/define_property_call.rs");
 const DISPATCH: &str = include_str!("../../lila-aot-wasm/src/functions/direct_eval.rs");
@@ -84,11 +84,13 @@ fn dispatch_checks_the_original_realm_intrinsic_after_argument_evaluation() {
         "pub(crate) fn emit_direct_eval_or_call_with_argv(",
     );
     assert!(
-        capture.find("compile_expr_to_locals(callee").unwrap()
-            < capture.find("emit_call_args_vector(args").unwrap()
+        capture
+            .find("compile_expr_to_value(callee_expression")
+            .unwrap()
+            < capture.find("emit_call_args_vector(arguments").unwrap()
     );
     assert!(
-        capture.find("emit_call_args_vector(args").unwrap()
+        capture.find("emit_call_args_vector(arguments").unwrap()
             < capture.find("emit_direct_eval_or_call_with_argv(").unwrap()
     );
     let dispatch = bounded(
@@ -97,9 +99,11 @@ fn dispatch_checks_the_original_realm_intrinsic_after_argument_evaluation() {
         "    fn emit_direct_eval_argument(",
     );
     assert!(dispatch.contains("emit_load_realm_eval_intrinsic_to_local"));
-    assert!(dispatch.contains("Instruction::LocalGet(callee_payload)"));
-    assert!(dispatch.contains("Instruction::LocalGet(intrinsic)"));
-    assert!(dispatch.contains("emit_function_or_proxy_call_with_argv_leave_throw_completion"));
+    assert!(dispatch.contains("callee.reference().load(function)"));
+    assert!(dispatch.contains("intrinsic.reference().load(function)"));
+    assert!(dispatch.contains("Instruction::RefEq"));
+    assert!(dispatch.contains("emit_function_or_proxy_call_with_argv("));
+    assert!(dispatch.contains("self.completion().copy_from(&pending, function)"));
 }
 
 #[test]
@@ -123,9 +127,9 @@ fn exact_function_target_authority_is_independent_from_heap_shape() {
     }
 
     let merge = normalized(bounded(
-        LOWERING_SOURCE,
-        "    fn merge_value_infos(",
-        "    fn record_return_expression(",
+        CONDITIONAL_FLOW_SOURCE,
+        "    pub(super) fn merge_value_infos(",
+        "\n}\n",
     ));
     let target_join = merge
         .find("left.function_targets.join(right.function_targets)")
@@ -168,8 +172,12 @@ fn construct_candidates_use_only_the_evaluated_callees_common_prototype() {
         "    fn merge_call_candidate_result(",
     ));
     let prototype_read = construct_analysis
-        .find("callee.heap_shape.as_deref().and_then(|shape|read_heap_shape_property(shape,\"prototype\"))")
-        .expect("construct candidates must read the evaluated callee prototype");
+        .find("callee.heap_shape.as_deref().and_then(|shape|self.read_current_heap_shape_property(shape,\"prototype\"))")
+        .expect("construct candidates must validate the evaluated callee's live prototype");
+    assert!(
+        !construct_analysis.contains("read_heap_shape_property("),
+        "a stale prototype snapshot cannot replace the live property owner"
+    );
     let prototype_install = construct_analysis
         .find("Self::with_instance_prototype(self.function_construct_instance_info(&signature),common_instance_prototype.clone(),)")
         .expect("construct candidates must replace definition-time prototype facts");

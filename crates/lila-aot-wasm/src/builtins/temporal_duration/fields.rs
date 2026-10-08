@@ -1,22 +1,23 @@
 //! Integral Number fields and exact projections at the Duration arithmetic boundary.
 
 use super::*;
+use crate::gc_types::I64Local;
 
 /// Wasm i64 locals containing canonical integral Number bits, never i64 field
 /// values. There is deliberately no Index/Deref implementation: a caller must
 /// name the representation before inspecting or writing a field.
-pub(crate) struct TemporalDurationFields([u32; 10]);
+pub(crate) struct TemporalDurationFields([I64Local; 10]);
 
 impl TemporalDurationFields {
-    pub(super) fn new(number_bits: [u32; 10]) -> Self {
+    pub(super) fn new(number_bits: [I64Local; 10]) -> Self {
         Self(number_bits)
     }
 
-    pub(crate) fn number_bits(&self, unit: TemporalUnit) -> u32 {
+    pub(crate) fn number_bits(&self, unit: TemporalUnit) -> I64Local {
         self.0[unit.duration_field_index()]
     }
 
-    pub(crate) fn number_bits_locals(&self) -> &[u32; 10] {
+    pub(crate) fn number_bits_locals(&self) -> &[I64Local; 10] {
         &self.0
     }
 }
@@ -92,16 +93,16 @@ const _: () = {
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_temporal_duration_canonicalize_zero(
         &mut self,
-        number_bits: u32,
+        number_bits: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(number_bits));
+        (number_bits).load(function);
         function.instruction(&Instruction::I64Const(i64::MAX));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(number_bits));
+        (number_bits).store(function);
         function.instruction(&Instruction::End);
     }
 
@@ -111,14 +112,14 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         for local in fields.number_bits_locals() {
-            function.instruction(&Instruction::LocalGet(*local));
+            (*local).load(function);
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(*local));
+            (*local).load(function);
             function.instruction(&Instruction::I64Const(i64::MIN));
             function.instruction(&Instruction::I64Xor);
-            function.instruction(&Instruction::LocalSet(*local));
+            (*local).store(function);
             function.instruction(&Instruction::End);
         }
     }
@@ -129,15 +130,13 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         fields: &TemporalDurationFields,
         function: &mut Function,
-    ) -> [u32; 4] {
+    ) -> [I64Local; 4] {
         std::array::from_fn(|index| {
-            let local = self.reserve_temp_local();
-            function.instruction(&Instruction::LocalGet(
-                fields.number_bits(TemporalUnit::ALL[index]),
-            ));
+            let local = self.runtime_schema().reserve_i64_local(function);
+            (fields.number_bits(TemporalUnit::ALL[index])).load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::I64TruncF64S);
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
             local
         })
     }
@@ -147,13 +146,13 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         fields: &TemporalDurationFields,
         unit: TemporalUnit,
-        integer: u32,
+        integer: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(integer));
+        (integer).load(function);
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(fields.number_bits(unit)));
+        (fields.number_bits(unit)).store(function);
     }
 
     /// Divide the exact integer represented by a finite integral Number. The
@@ -162,107 +161,109 @@ impl<'a> FunctionBuilder<'a> {
     /// division or first narrowing a wide Number to i64.
     pub(super) fn emit_temporal_duration_number_divmod(
         &mut self,
-        number_bits: u32,
+        number_bits: I64Local,
         unit: TemporalDurationSubsecondUnit,
-        quotient: u32,
-        remainder: u32,
+        quotient: I64Local,
+        remainder: I64Local,
         function: &mut Function,
     ) {
         let divisor = unit.per_second();
-        let magnitude = self.reserve_temp_local();
-        let significand = self.reserve_temp_local();
-        let shift = self.reserve_temp_local();
+        let magnitude = self.runtime_schema().reserve_i64_local(function);
+        let significand = self.runtime_schema().reserve_i64_local(function);
+        let shift = self.runtime_schema().reserve_i64_local(function);
         for local in [quotient, remainder] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
-        function.instruction(&Instruction::LocalGet(number_bits));
+        (number_bits).load(function);
         function.instruction(&Instruction::I64Const(i64::MAX));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalTee(magnitude));
+        magnitude.store(function);
+        magnitude.load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(magnitude));
+        (magnitude).load(function);
         function.instruction(&Instruction::I64Const((1_i64 << 52) - 1));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(1_i64 << 52));
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(significand));
-        function.instruction(&Instruction::LocalGet(magnitude));
+        (significand).store(function);
+        (magnitude).load(function);
         function.instruction(&Instruction::I64Const(52));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Const(1075));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(shift));
-        function.instruction(&Instruction::LocalGet(shift));
+        (shift).store(function);
+        (shift).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand));
+        (significand).load(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(shift));
+        (shift).load(function);
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(significand));
+        (significand).store(function);
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(shift));
+        (shift).store(function);
         function.instruction(&Instruction::End);
         for (destination, operation) in [
             (quotient, Instruction::I64DivU),
             (remainder, Instruction::I64RemU),
         ] {
-            function.instruction(&Instruction::LocalGet(significand));
+            (significand).load(function);
             function.instruction(&Instruction::I64Const(divisor));
             function.instruction(&operation);
-            function.instruction(&Instruction::LocalSet(destination));
+            (destination).store(function);
         }
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(shift));
+        (shift).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
         for local in [quotient, remainder] {
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Shl);
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
-        function.instruction(&Instruction::LocalGet(remainder));
+        (remainder).load(function);
         function.instruction(&Instruction::I64Const(divisor));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(quotient));
+        (quotient).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(quotient));
-        function.instruction(&Instruction::LocalGet(remainder));
+        (quotient).store(function);
+        (remainder).load(function);
         function.instruction(&Instruction::I64Const(divisor));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder));
+        (remainder).store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(shift));
+        (shift).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(shift));
+        (shift).store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(number_bits));
+        (number_bits).load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         for local in [quotient, remainder] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalGet(local));
+            (local).load(function);
             function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(shift);
-        self.release_temp_local(significand);
-        self.release_temp_local(magnitude);
+        self.runtime_schema().release_i64_local(shift, function);
+        self.runtime_schema()
+            .release_i64_local(significand, function);
+        self.runtime_schema().release_i64_local(magnitude, function);
     }
 
     /// Convert exact `(seconds * scale + remainder) / divisor` to Number with
@@ -273,53 +274,76 @@ impl<'a> FunctionBuilder<'a> {
     /// sticky information. This also preserves fractional units in `total`.
     pub(crate) fn emit_temporal_duration_scaled_time_number(
         &mut self,
-        seconds: u32,
-        remainder: u32,
+        seconds: I64Local,
+        remainder: I64Local,
         projection: TemporalDurationNumberProjection,
-        output_bits: u32,
+        output_bits: I64Local,
         function: &mut Function,
     ) {
         let (scale, divisor) = projection.factors();
-        let low = self.reserve_temp_local();
-        let high = self.reserve_temp_local();
-        let bit_index = self.reserve_temp_local();
-        let significand = self.reserve_temp_local();
-        let division_remainder = self.reserve_temp_local();
-        let bit = self.reserve_temp_local();
-        let bit_count = self.reserve_temp_local();
-        let exponent = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(seconds));
+        let low = self.runtime_schema().reserve_i64_local(function);
+        let high = self.runtime_schema().reserve_i64_local(function);
+        let divisor_local = self.runtime_schema().reserve_i64_local(function);
+        (seconds).load(function);
         function.instruction(&Instruction::I64Const(0xffff_ffff));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(scale));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(remainder));
+        (remainder).load(function);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(low));
-        function.instruction(&Instruction::LocalGet(seconds));
+        (low).store(function);
+        (seconds).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Const(scale));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(low));
+        (low).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high));
-        function.instruction(&Instruction::LocalGet(high));
+        (high).store(function);
+        (high).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(low));
+        (low).load(function);
         function.instruction(&Instruction::I64Const(0xffff_ffff));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(low));
-        function.instruction(&Instruction::LocalGet(high));
+        (low).store(function);
+        (high).load(function);
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(high));
-        function.instruction(&Instruction::LocalGet(high));
-        function.instruction(&Instruction::LocalGet(low));
+        (high).store(function);
+        function.instruction(&Instruction::I64Const(divisor));
+        (divisor_local).store(function);
+        self.emit_u128_div_to_f64(high, low, divisor_local, output_bits, function);
+        self.runtime_schema()
+            .release_i64_local(divisor_local, function);
+        self.runtime_schema().release_i64_local(high, function);
+        self.runtime_schema().release_i64_local(low, function);
+    }
+
+    /// Binary long division of an unsigned 128-bit `(high, low)` numerator by
+    /// a nonzero `u64` divisor, correctly rounded to one `f64`. Emits 53
+    /// significant bits, a guard bit and exact sticky information; shared by
+    /// `scaled_time_number` and the calendar-unit `total` projections, whose
+    /// numerators and denominators both exceed `i64`.
+    pub(crate) fn emit_u128_div_to_f64(
+        &mut self,
+        high: I64Local,
+        low: I64Local,
+        divisor_local: I64Local,
+        output_bits: I64Local,
+        function: &mut Function,
+    ) {
+        let bit_index = self.runtime_schema().reserve_i64_local(function);
+        let significand = self.runtime_schema().reserve_i64_local(function);
+        let division_remainder = self.runtime_schema().reserve_i64_local(function);
+        let bit = self.runtime_schema().reserve_i64_local(function);
+        let bit_count = self.runtime_schema().reserve_i64_local(function);
+        let exponent = self.runtime_schema().reserve_i64_local(function);
+        (high).load(function);
+        (low).load(function);
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
@@ -327,102 +351,102 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         for local in [significand, division_remainder, bit_count, exponent] {
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
+            (local).store(function);
         }
         function.instruction(&Instruction::I64Const(127));
-        function.instruction(&Instruction::LocalSet(bit_index));
+        (bit_index).store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(high));
+        (high).load(function);
         function.instruction(&Instruction::I64Const(63));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(bit));
-        function.instruction(&Instruction::LocalGet(high));
+        (bit).store(function);
+        (high).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(low));
+        (low).load(function);
         function.instruction(&Instruction::I64Const(63));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(high));
-        function.instruction(&Instruction::LocalGet(low));
+        (high).store(function);
+        (low).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalSet(low));
-        function.instruction(&Instruction::LocalGet(division_remainder));
+        (low).store(function);
+        (division_remainder).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(bit));
+        (bit).load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(division_remainder));
-        function.instruction(&Instruction::LocalGet(division_remainder));
-        function.instruction(&Instruction::I64Const(divisor));
+        (division_remainder).store(function);
+        (division_remainder).load(function);
+        (divisor_local).load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(bit));
-        function.instruction(&Instruction::LocalGet(bit));
+        (bit).store(function);
+        (bit).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(division_remainder));
-        function.instruction(&Instruction::I64Const(divisor));
+        (division_remainder).load(function);
+        (divisor_local).load(function);
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(division_remainder));
+        (division_remainder).store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(bit_count));
+        (bit_count).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(bit));
+        (bit).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(bit_index));
-        function.instruction(&Instruction::LocalSet(exponent));
+        (bit_index).load(function);
+        (exponent).store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(bit_count));
+        (bit_count).store(function);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(significand));
+        (significand).store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(significand));
+        (significand).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::LocalGet(bit));
+        (bit).load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(significand));
-        function.instruction(&Instruction::LocalGet(bit_count));
+        (significand).store(function);
+        (bit_count).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(bit_count));
+        (bit_count).store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(bit_count));
+        (bit_count).load(function);
         function.instruction(&Instruction::I64Const(54));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(bit_index));
+        (bit_index).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(bit_index));
+        (bit_index).store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(significand));
+        (significand).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(bit));
-        function.instruction(&Instruction::LocalGet(significand));
+        (bit).store(function);
+        (significand).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(significand));
-        function.instruction(&Instruction::LocalGet(bit));
+        (significand).store(function);
+        (bit).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(division_remainder));
-        function.instruction(&Instruction::LocalGet(high));
+        (division_remainder).load(function);
+        (high).load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(low));
+        (low).load(function);
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(significand));
+        (significand).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Or);
@@ -430,14 +454,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(significand));
+        (significand).load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(significand));
+        (significand).store(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(significand));
+        (significand).load(function);
         function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::LocalGet(exponent));
+        (exponent).load(function);
         function.instruction(&Instruction::I64Const(971)); // 1023 - 52
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Const(52));
@@ -446,7 +470,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(output_bits));
+        (output_bits).store(function);
         for local in [
             exponent,
             bit_count,
@@ -454,10 +478,8 @@ impl<'a> FunctionBuilder<'a> {
             division_remainder,
             significand,
             bit_index,
-            high,
-            low,
         ] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
     }
 }

@@ -456,7 +456,8 @@ impl JsError {
 
                 let position = error_data.position.clone();
                 let kind = match error_data.tag {
-                    ErrorKind::Error => JsNativeErrorKind::Error,
+                    ErrorKind::RuntimeLimit => JsNativeErrorKind::RuntimeLimit,
+                    ErrorKind::Error | ErrorKind::Suppressed => JsNativeErrorKind::Error,
                     ErrorKind::Eval => JsNativeErrorKind::Eval,
                     ErrorKind::Type => JsNativeErrorKind::Type,
                     ErrorKind::Range => JsNativeErrorKind::Range,
@@ -1253,7 +1254,7 @@ impl JsNativeError {
                     "The NoInstructionsRemain native error cannot be converted to an opaque type."
                 )
             }
-            JsNativeErrorKind::RuntimeLimit => (constructors.error().prototype(), ErrorKind::Error),
+            JsNativeErrorKind::RuntimeLimit => (constructors.error().prototype(), ErrorKind::RuntimeLimit),
         };
 
         let o = JsObject::from_proto_and_data_with_shared_shape(
@@ -1459,7 +1460,8 @@ impl PartialEq<ErrorKind> for JsNativeErrorKind {
         matches!(
             (self, other),
             (Self::Aggregate(_), ErrorKind::Aggregate)
-                | (Self::Error, ErrorKind::Error)
+                | (Self::Error, ErrorKind::Error | ErrorKind::Suppressed)
+                | (Self::RuntimeLimit, ErrorKind::RuntimeLimit)
                 | (Self::Eval, ErrorKind::Eval)
                 | (Self::Range, ErrorKind::Range)
                 | (Self::Reference, ErrorKind::Reference)

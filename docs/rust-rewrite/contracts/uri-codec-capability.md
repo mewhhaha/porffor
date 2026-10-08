@@ -1,38 +1,42 @@
-# URI codec capability boundary
+# GC URI codec ownership
 
-`UriBuiltin` owns the six global URI and Annex B entry identities. Its Encode
-and Decode cases carry the private `UriCodecKind::{Uri, Component}` choice, so
-direction and codec scope cannot be selected independently.
+The six global entry methods in `builtins/uri.rs` consume one source argument
+through the whole-value ToString owner, then operate only on its immutable GC
+UTF-16 code-unit array. The standard dispatcher retains the six fixed wrapper
+names. Private `UriBuiltin` and `UriCodecKind::{Uri, Component}` matches select
+all native algorithms; no payload codec, host codec or secondary String model
+remains.
 
-Neither domain implements cloning, copying or equality. The builtin dispatcher
-consumes its operation once. URI encoding borrows the codec while the emitted
-loop selects its exact unescaped punctuation set; URI decoding consumes it in
-one exhaustive match that distinguishes reserved-escape preservation from
-Component decoding. Adding another codec is therefore a compile error until
-both independent projections define its behavior.
+The normative owners are current [Encode and Decode](https://tc39.es/ecma262/multipage/global-object.html#sec-uri-handling-functions)
+and [Annex B escape/unescape](https://tc39.es/ecma262/multipage/additional-ecmascript-features-for-web-browsers.html#sec-escape-string).
+Encoding leaves the exact ASCII sets unchanged, rejects unpaired surrogates,
+and emits uppercase percent-encoded UTF-8 octets. Decoding checks every percent
+triplet, continuation octet, shortest form, scalar range and surrogate exclusion.
+`decodeURI` preserves the original spelling and hex case of reserved ASCII
+escapes; `decodeURIComponent` decodes them. Raw input units are copied directly,
+including lone surrogates that are outside percent-encoded UTF-8.
 
-The bounded `uri_builtin_codec_domain_structure` guard pins the four named
-codec producers, the single operation dispatch, both exact codec identities,
-the borrowed encoder projection, the consuming decoder projection, and the
-absence of fallback arms and incidental capabilities.
+One pure traversal first validates and counts output units, then fills one
+exact-length `StringConstruction`. The immutable input makes the two passes
+identical and introduces no repeated user hooks. No result is published on
+malformed input. Output extents are checked against the selected runtime's
+signed I32 GC array domain before narrowing; exceeding it remains a resource
+trap, without truncation or a fabricated URIError.
 
-This is a Rust authority change only. It does not change string coercion, URI
-encoding or decoding, malformed-input errors, Realm selection, Annex B escape
-behavior, emitted Wasm, Test262 materialization or published conformance counts.
+Argument coercion and every native URIError preserve a complete completion.
+Malformed-input errors use the executing builtin's defining FunctionContext
+Realm, including borrowed methods after public error constructors are replaced.
+Original getter/call throws retain identity. Source argument evaluation,
+including ignored operands, remains in the shared invocation owner.
 
-```sh
-cargo test -p lila-aot-wasm --test uri_builtin_codec_domain_structure
-cargo test -p lila-cli language_numerics::run_wasm_backend_succeeds_for_uri_codecs_fixture -- --exact --test-threads=1
-```
+`aot_gc_uri_entries.rs` contains three finite paired strict/sloppy actual Wasm-AOT
+controls for all six entries, UTF-16/UTF-8 boundary cases, malformed sequences,
+unchanged prior assignment on Throw, callable Proxy coercion, complete argument
+order and both called-Realm directions. Existing CLI URI/Annex B fixtures remain.
+The two obsolete raw spelling/output structure guards retire with this cutover.
+The earlier 2026-08-28 URI guard/CLI/type receipts describe the former payload
+implementation and do not verify this GC source.
 
-Batch AP makes `UriBuiltin`, its named codec constants and the raw compiler
-private to `builtins/uri.rs`. The standard dispatcher sees only six fixed
-semantic wrappers for escape, unescape, encodeURI, encodeURIComponent,
-decodeURI and decodeURIComponent. This is a source-equivalent boundary
-tightening with no new URI or Annex B behavior. Batch AP verification is green
-on 2026-08-28: the strengthened URI structure target and adjacent Annex B
-output-coordination guard pass `4/4` and `3/3`, both exact URI and Annex B CLI
-controls pass `1/1`, and `cargo xc` is green. The former 51-line owner has SHA-256
-`100f2f6d900179e38b1cb5b55251b2eb05791574b32511addcdc7c0be3d24a05`;
-the private policy plus six fixed wrappers form a 95-line owner with SHA-256
-`babe4ee150351202de89ab34aff52e0e8864441b53ef3713ef5c637ea9aa4fef`.
+Current status is source-only: formatting and exact byte/path checks are allowed;
+compilation, runtime, focused pinned tests and broad conformance remain pending
+until the complete atomic GC batch is authored. No conformance counts change.

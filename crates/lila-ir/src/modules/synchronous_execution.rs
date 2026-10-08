@@ -1,6 +1,15 @@
-//! Validated execution records for compiled Module-entry graphs.
+//! Validated execution records for compiled modules reached from a Module or Script.
 
 use crate::{FunctionId, ModuleNamespaceModeIr, ModuleUnitId};
+
+/// Source-goal authority for the root that owns a compiled module graph.
+/// A Module entry evaluates its activation; a Script runs in its own root
+/// environment and only its import jobs evaluate module activations.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ModuleExecutionEntry {
+    Module(ModuleUnitId),
+    Script(ModuleUnitId),
+}
 
 /// An ultimate module environment cell, resolved before Wasm emission.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,14 +96,18 @@ impl ModuleActivationIr {
 pub struct ModuleExecutionGraphIr {
     record_count: u32,
     activations: Vec<ModuleActivationIr>,
+    initializer: Option<FunctionId>,
+    realm_requests:
+        std::collections::BTreeMap<super::ModuleRequestKeyIr, super::RealmModuleResolutionIr>,
+    realm_import_dispatcher: Option<FunctionId>,
 }
 
 impl ModuleExecutionGraphIr {
-    pub(super) fn new(record_count: u32, activations: Vec<ModuleActivationIr>) -> Self {
-        assert!(
-            !activations.is_empty(),
-            "an execution graph owns at least its entry"
-        );
+    pub(super) fn new(
+        record_count: u32,
+        activations: Vec<ModuleActivationIr>,
+        entry: ModuleExecutionEntry,
+    ) -> Self {
         let functions: std::collections::BTreeSet<_> = activations
             .iter()
             .map(ModuleActivationIr::function)
@@ -111,6 +124,22 @@ impl ModuleExecutionGraphIr {
             activations.len(),
             "a module has one activation"
         );
+        match entry {
+            ModuleExecutionEntry::Module(module) => assert!(
+                modules.contains(&module),
+                "a Module entry owns a compiled activation"
+            ),
+            ModuleExecutionEntry::Script(script) => {
+                assert!(
+                    script < record_count,
+                    "the Script belongs to the loaded graph"
+                );
+                assert!(
+                    !modules.contains(&script),
+                    "a Script entry never becomes a module activation"
+                );
+            }
+        }
         assert!(
             modules.iter().all(|&module| module < record_count),
             "module IDs fit the record vector"
@@ -125,7 +154,57 @@ impl ModuleExecutionGraphIr {
         Self {
             record_count,
             activations,
+            initializer: None,
+            realm_requests: Default::default(),
+            realm_import_dispatcher: None,
         }
+    }
+    /// Root execution invokes the same compiled initializer that another Realm
+    /// uses. Only the initializer's private body instantiates the records.
+    pub(super) fn initialize_with(mut self, function: FunctionId) -> Self {
+        assert!(self.initializer.is_none(), "initialization has one owner");
+        assert!(
+            self.activations
+                .iter()
+                .all(|activation| activation.function() != &function),
+            "the graph initializer is not a module activation"
+        );
+        self.initializer = Some(function);
+        self
+    }
+    pub fn initializer(&self) -> Option<&FunctionId> {
+        self.initializer.as_ref()
+    }
+    pub(super) fn with_realm_requests(
+        mut self,
+        requests: std::collections::BTreeMap<
+            super::ModuleRequestKeyIr,
+            super::RealmModuleResolutionIr,
+        >,
+        dispatcher: FunctionId,
+    ) -> Self {
+        assert!(
+            requests.values().all(|resolution| match resolution {
+                super::RealmModuleResolutionIr::Loaded(module) => self
+                    .activations
+                    .iter()
+                    .any(|activation| activation.module() == *module),
+                super::RealmModuleResolutionIr::Rejected(_) => true,
+            }),
+            "every successful Realm request owns a compiled activation"
+        );
+        self.realm_requests = requests;
+        self.realm_import_dispatcher = Some(dispatcher);
+        self
+    }
+    pub fn realm_requests(
+        &self,
+    ) -> &std::collections::BTreeMap<super::ModuleRequestKeyIr, super::RealmModuleResolutionIr>
+    {
+        &self.realm_requests
+    }
+    pub fn realm_import_dispatcher(&self) -> Option<&FunctionId> {
+        self.realm_import_dispatcher.as_ref()
     }
     pub const fn record_count(&self) -> u32 {
         self.record_count
@@ -188,6 +267,7 @@ mod tests {
                 ModuleActivationKindIr::Async,
                 requests.clone(),
             )],
+            ModuleExecutionEntry::Module(0),
         );
         assert_eq!(graph.activations()[0].requests(), requests);
     }
@@ -206,12 +286,35 @@ mod tests {
                     1,
                 )],
             )],
+            ModuleExecutionEntry::Module(0),
         );
     }
     #[test]
-    #[should_panic(expected = "at least its entry")]
-    fn an_execution_graph_cannot_be_empty() {
-        ModuleExecutionGraphIr::new(0, Vec::new());
+    #[should_panic(expected = "a Module entry owns a compiled activation")]
+    fn a_module_execution_graph_cannot_be_empty() {
+        ModuleExecutionGraphIr::new(1, Vec::new(), ModuleExecutionEntry::Module(0));
+    }
+
+    #[test]
+    fn a_script_with_only_rejected_imports_owns_no_module_activation() {
+        let graph = ModuleExecutionGraphIr::new(1, Vec::new(), ModuleExecutionEntry::Script(0));
+        assert_eq!(graph.record_count(), 1);
+        assert!(graph.activations().is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "a Script entry never becomes a module activation")]
+    fn a_script_cannot_become_a_module_activation() {
+        ModuleExecutionGraphIr::new(
+            1,
+            vec![ModuleActivationIr::new(
+                0,
+                "script".into(),
+                ModuleActivationKindIr::Synchronous,
+                Vec::new(),
+            )],
+            ModuleExecutionEntry::Script(0),
+        );
     }
 
     #[test]
@@ -233,6 +336,7 @@ mod tests {
                     Vec::new(),
                 ),
             ],
+            ModuleExecutionEntry::Module(0),
         );
     }
 }

@@ -2,13 +2,38 @@ use std::fs;
 use std::path::Path;
 
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
+const ASYNC_FOR_OF_PLAN_SOURCE: &str =
+    include_str!("../../lila-ir/src/ir/async_for_of_iterator.rs");
+const ASYNC_FOR_OF_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/for_of/async_function.rs");
 const ASYNC_FOR_OF_BODY_SOURCE: &str = include_str!("../../lila-ir/src/async_for_of_body.rs");
+
+const RESUMABLE_SYNC_FOR_OF_BINDING_SOURCE: &str =
+    include_str!("../../lila-ir/src/resumable_sync_for_of_binding.rs");
+const GENERATOR_FOR_OF_BODY_SOURCE: &str =
+    include_str!("../../lila-ir/src/generator_for_of_body.rs");
+const GENERATOR_FOR_OF_PLAN_SOURCE: &str =
+    include_str!("../../lila-ir/src/generator_for_of_iterator.rs");
+const GENERATOR_FOR_OF_HEAD_SOURCE: &str =
+    include_str!("../../lila-ir/src/generator_for_of_iterator/head.rs");
+const GENERATOR_FOR_OF_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/for_of/generator.rs");
+const GENERATOR_SOURCE_PLAN_SOURCE: &str =
+    include_str!("../../lila-ir/src/generator_source_plan.rs");
+const RESUMABLE_SYNC_FOR_OF_CONTROL_SOURCE: &str =
+    include_str!("../../lila-ir/src/resumable_for_of_control.rs");
+
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_of.rs");
 const OBLIGATIONS_SOURCE: &str = include_str!("../../lila-ir/src/iterator_obligations.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE: &str =
     include_str!("../src/control_flow/async_function_for_of_iterator.rs");
+const FOR_AWAIT_PLAN_SOURCE: &str = include_str!("../src/control_flow/for_await_iterator_plan.rs");
+const RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE: &str =
+    include_str!("../src/control_flow/resumable_sync_for_of_iterator.rs");
+const RESUMABLE_SYNC_FOR_OF_PLAN_SOURCE: &str =
+    include_str!("../src/control_flow/resumable_sync_for_of_iterator/plan.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const EMISSION_SITES_SOURCE: &str = include_str!("../src/emission_sites.rs");
@@ -93,72 +118,180 @@ fn rust_source_occurrences(root: &Path, needle: &str) -> usize {
 }
 
 #[test]
-fn resumable_sync_for_of_emitter_has_one_private_child_owner() {
-    assert_eq!(
-        CONTROL_FLOW_SOURCE
-            .matches("\nmod async_function_for_of_iterator;\n")
-            .count(),
-        1
-    );
-    assert!(!CONTROL_FLOW_SOURCE.contains("pub mod async_function_for_of_iterator;"));
-    assert!(!CONTROL_FLOW_SOURCE.contains("pub(crate) mod async_function_for_of_iterator;"));
-    for source in [CONTROL_FLOW_SOURCE, ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE] {
+fn resumable_sync_for_of_emitter_has_one_private_child_owner_and_two_typed_routes() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for module in [
+        "async_function_for_of_iterator",
+        "resumable_sync_for_of_iterator",
+        "for_await_iterator_plan",
+    ] {
+        let declaration = format!("mod {module};");
+        assert_eq!(CONTROL_FLOW_SOURCE.matches(&declaration).count(), 1);
+        assert!(!CONTROL_FLOW_SOURCE.contains(&format!("pub mod {module};")));
+        assert!(!CONTROL_FLOW_SOURCE.contains(&format!("pub(crate) mod {module};")));
+        assert_eq!(rust_source_occurrences(&source_root, &declaration), 1);
+    }
+    for source in [
+        CONTROL_FLOW_SOURCE,
+        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        RESUMABLE_SYNC_FOR_OF_PLAN_SOURCE,
+        FOR_AWAIT_PLAN_SOURCE,
+    ] {
         assert!(!source.contains("include!("));
         assert!(!source.contains("#[path"));
     }
 
-    let owner_declaration = "    pub(crate) fn compile_async_function_for_of_iterator(";
     assert_eq!(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
-            .matches(owner_declaration)
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE
+            .matches("mod plan;")
             .count(),
         1
     );
-    assert!(!ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
-        .contains("    pub(super) fn compile_async_function_for_of_iterator("));
-    assert!(!ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
-        .contains("    pub fn compile_async_function_for_of_iterator("));
-    assert!(!CONTROL_FLOW_SOURCE.contains("fn compile_async_function_for_of_iterator("));
+    assert!(!RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE.contains("pub mod plan;"));
+    assert!(!RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE.contains("pub(crate) mod plan;"));
+
+    let owner = "compile_resumable_sync_for_of_iterator";
     assert_eq!(
-        CONTROL_FLOW_SOURCE
-            .matches("self.compile_async_function_for_of_iterator(iterable, plan, function)?;")
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE
+            .matches(&format!("    pub(crate) fn {owner}("))
             .count(),
         1
     );
+    assert!(!CONTROL_FLOW_SOURCE.contains(&format!("fn {owner}(")));
+    assert!(!ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE.contains(&format!("fn {owner}(")));
+    assert_eq!(
+        rust_source_occurrences(&source_root, &format!("fn {owner}(")),
+        1
+    );
+    assert_eq!(rust_source_occurrences(&source_root, owner), 4);
     assert_eq!(
         EMISSION_SITES_SOURCE
-            .matches("FunctionBuilder::compile_async_function_for_of_iterator")
+            .matches(&format!("FunctionBuilder::{owner}"))
             .count(),
         1
     );
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        rust_source_occurrences(&source_root, "mod async_function_for_of_iterator;"),
-        1
+    for (route, variant, plan_type) in [
+        (
+            "compile_async_function_for_of_iterator",
+            "Async",
+            "AsyncFunctionForOfIteratorPlanIr",
+        ),
+        (
+            "compile_generator_for_of_iterator",
+            "Generator",
+            "lila_ir::GeneratorForOfIteratorPlanIr",
+        ),
+    ] {
+        let wrapper = bounded(
+            ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
+            &format!("    pub(crate) fn {route}("),
+            "\n    }",
+        );
+        assert!(wrapper.contains(&format!("plan: &{plan_type}")));
+        assert_eq!(
+            compact(wrapper)
+                .matches("self.compile_resumable_sync_for_of_iterator(")
+                .count(),
+            1
+        );
+        assert!(wrapper.contains(&format!("ResumableSyncForOfPlan::{variant}(plan)")));
+        for inline_body in [
+            "reserve_temp_local",
+            "emit_get_iterator",
+            "emit_sync_iterator_step_value",
+            "emit_iterator_close",
+            "compile_async_statement_sequence",
+            "compile_generator_statement_sequence",
+            "finally_stack",
+        ] {
+            assert!(
+                !wrapper.contains(inline_body),
+                "wrapper duplicates {inline_body}"
+            );
+        }
+        assert!(!CONTROL_FLOW_SOURCE.contains(&format!("fn {route}(")));
+        assert_eq!(
+            CONTROL_FLOW_SOURCE
+                .matches(&format!("self.{route}(iterable, plan, function)?;"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            EMISSION_SITES_SOURCE
+                .matches(&format!("FunctionBuilder::{route}"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            rust_source_occurrences(&source_root, &format!("fn {route}(")),
+            1
+        );
+        assert_eq!(rust_source_occurrences(&source_root, route), 3);
+    }
+}
+
+#[test]
+fn closed_resumable_owner_selects_each_activation_body_and_completion_protocol() {
+    let adapter = bounded(
+        RESUMABLE_SYNC_FOR_OF_PLAN_SOURCE,
+        "pub(crate) enum ResumableSyncForOfPlan<'a> {",
+        "#[derive(Clone, Copy)]",
     );
-    assert_eq!(
-        rust_source_occurrences(&source_root, "fn compile_async_function_for_of_iterator("),
-        1
+    assert!(adapter.contains("Async(lila_ir::AsyncFunctionForOfSynchronousIteratorIr<'a>)"));
+    assert!(!adapter.contains("Async(&'a AsyncFunctionForOfIteratorPlanIr)"));
+    assert!(adapter.contains("Generator(&'a GeneratorForOfIteratorPlanIr)"));
+    assert_eq!(adapter.matches("(&'a ").count(), 1);
+
+    let storage = bounded(
+        RESUMABLE_SYNC_FOR_OF_PLAN_SOURCE,
+        "    pub(super) fn value_storage(self)",
+        "    pub(super) fn entry_state(self)",
     );
-    assert_eq!(
-        rust_source_occurrences(&source_root, "compile_async_function_for_of_iterator"),
-        3
+    let async_storage = bounded(
+        storage,
+        "Self::Async(plan) => match plan.plan().value_storage() {",
+        "Self::Generator(plan)",
     );
+    let generator_storage = storage
+        .split_once("Self::Generator(plan) => match plan.value_storage() {")
+        .unwrap()
+        .1;
+    for variant in ["Activation(binding)", "IterationEnvironment(binding)"] {
+        assert_eq!(
+            async_storage
+                .matches(&format!(
+                    "AsyncFunctionForOfIteratorValueStorageIr::{variant}"
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            generator_storage
+                .matches(&format!("GeneratorForOfIteratorValueStorageIr::{variant}"))
+                .count(),
+            1
+        );
+    }
+    assert!(async_storage.contains("AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }"));
+    assert!(generator_storage.contains("GeneratorForOfIteratorValueStorageIr::EntryLocal { name }"));
+    assert!(!storage.contains("_ =>"));
 }
 
 #[test]
 fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments() {
-    assert!(IR_SOURCE.contains(
-        "#[must_use = \"a resumable synchronous for-of plan must be attached to its statement\"]"
-    ));
+    assert!(ASYNC_FOR_OF_PLAN_SOURCE
+        .contains("#[must_use = \"a plain-async for-of plan must be attached to its statement\"]"));
     let head = bounded(
         IR_SOURCE,
         "pub(crate) enum AsyncFunctionForOfIteratorHeadIr {",
         "/// Where one resumable synchronous `for-of` stores IteratorValue.",
     );
     for marker in [
-        "Binding(ForOfAssignmentIr)",
+        "Binding {",
+        "source_name: String",
+        "binding: ForOfAssignmentIr",
         "PreparedAssignment { value_name: String }",
         "LexicalPattern {",
         "mode: BindingMode",
@@ -183,11 +316,7 @@ fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments(
         assert!(value_storage.contains(variant), "value storage: {variant}");
     }
 
-    let plan = bounded(
-        IR_SOURCE,
-        "pub struct AsyncFunctionForOfIteratorPlanIr {",
-        "pub struct AsyncForOfIteratorPlanIr {",
-    );
+    let plan = ASYNC_FOR_OF_PLAN_SOURCE;
     for field in [
         "value_storage: AsyncFunctionForOfIteratorValueStorageIr",
         "value_mode: BindingMode",
@@ -206,11 +335,14 @@ fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments(
     assert!(plan.contains("head: AsyncFunctionForOfIteratorHeadIr"));
     let head_derivation = bounded(
         plan,
-        "let (value_storage, value_mode, iteration_environment, mut initialization) = match head {",
+        "        let (",
         "        initialization.append(&mut statements);",
     );
+    assert!(compact(head_derivation).starts_with(
+        "value_storage,value_mode,iteration_environment,mutinitialization,head_environment,)=matchhead{"
+    ));
     for variant in [
-        "AsyncFunctionForOfIteratorHeadIr::Binding(binding)",
+        "AsyncFunctionForOfIteratorHeadIr::Binding {",
         "AsyncFunctionForOfIteratorHeadIr::PreparedAssignment { value_name }",
         "AsyncFunctionForOfIteratorHeadIr::LexicalPattern {",
     ] {
@@ -221,21 +353,64 @@ fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments(
     }
     assert!(!head_derivation.contains("_ =>"));
     positions_in_order(
-        plan,
+        &compact(plan),
         &[
-            "let (value_storage, value_mode, iteration_environment, mut initialization) = match head",
+            "let(value_storage,value_mode,iteration_environment,mutinitialization,head_environment,)=matchhead",
             "AsyncFunctionForOfIteratorHeadIr::PreparedAssignment",
             "AsyncFunctionForOfIteratorHeadIr::LexicalPattern",
             "AsyncFunctionForOfIteratorPlanError::CapturedTdzEnvironment",
-            "initialization.append(&mut statements)",
-            "AsyncFunctionForOfBodyIr::new(initialization, entry_state)",
+            "initialization.append(&mutstatements)",
+            "AsyncFunctionForOfBodyIr::new(",
             ".map_err(AsyncFunctionForOfIteratorPlanError::InvalidBody)",
-            "let body_exit_state = body.exit_state()",
-            "let exit_state = body_exit_state",
+            "letbody_exit_state=body.exit_state()",
+            "letsuccessor=body_exit_state",
             ".checked_add(1)",
             "Ok(Self",
         ],
     );
+    assert!(plan.contains("execution: AsyncFunctionForOfIteratorProtocolIr"));
+    assert!(plan.contains("pub(crate) fn new_for_await("));
+    assert!(plan.contains("AsyncFunctionForOfBodyIr::new_for_await("));
+    assert!(plan.contains("AsyncFunctionForOfIteratorExecutionIr::Synchronous"));
+    assert!(plan.contains("AsyncFunctionForOfIteratorExecutionIr::Awaited"));
+    assert!(plan.contains("AwaitedProtocolStorageAlias"));
+    let constructor_input = bounded(
+        plan,
+        "enum AsyncFunctionForOfIteratorInputIr {",
+        "/// The private constructors bind each borrowed execution view",
+    );
+    assert!(!constructor_input.contains("close_resume_state"));
+    let completed_body = plan
+        .split_once("let body_exit_state = body.exit_state();")
+        .unwrap()
+        .1;
+    positions_in_order(
+        completed_body,
+        &[
+            "let successor = body_exit_state",
+            "AwaitedProtocolStorageAlias",
+            "let close_resume_state = successor",
+            "let exit_state = close_resume_state.checked_add(1)",
+            "AsyncFunctionForOfIteratorProtocolIr::Awaited {",
+            "Ok(Self",
+        ],
+    );
+    assert!(
+        FOR_AWAIT_PLAN_SOURCE.contains("Awaited(lila_ir::AsyncFunctionForAwaitOfIteratorIr<'a>)")
+    );
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("pub(crate) struct ForAwaitIteratorPlan<'a>"));
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("execution: ForAwaitIteratorExecution<'a>"));
+    assert!(!FOR_AWAIT_PLAN_SOURCE.contains("pub execution:"));
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("enum ForAwaitIteratorExecution<'a>"));
+    assert!(!FOR_AWAIT_PLAN_SOURCE.contains("pub(crate) enum ForAwaitIteratorExecution"));
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("pub(super) fn existing("));
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("pub(super) fn awaited("));
+    assert!(CONTROL_FLOW_SOURCE.contains("async_plan.requires_plain_async_activation()"));
+    assert!(ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE.contains("ForAwaitIteratorPlan::awaited(plan)"));
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("plan.plan().body().statements()"));
+    assert!(FOR_AWAIT_PLAN_SOURCE.contains("plan.plan().body().entry_state()"));
+    assert!(!FOR_AWAIT_PLAN_SOURCE.contains("body: AsyncFunctionForOfBodyIr"));
+
     let sequence_errors = bounded(
         IR_SOURCE,
         "pub enum AwaitSequenceError {",
@@ -286,6 +461,214 @@ fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments(
 }
 
 #[test]
+fn shared_identifier_head_and_generator_plan_are_validated_before_backend_use() {
+    let proof = bounded(
+        RESUMABLE_SYNC_FOR_OF_BINDING_SOURCE,
+        "pub(crate) struct ValidatedResumableSyncForOfBindingIr {",
+        "impl From<ResumableSyncForOfBindingError>",
+    );
+    for field in [
+        "storage: ResumableSyncForOfBindingStorageIr",
+        "head_environment: Option<ForInOfEnvironmentIr>",
+        "iteration_environment: ResumableLoopIterationEnvironmentIr",
+    ] {
+        assert!(proof.contains(field), "head proof field: {field}");
+        assert!(!proof.contains(&format!("pub {field}")));
+    }
+    for invariant in [
+        "BindingHeadEnvironmentRequired",
+        "VarBindingHasHeadEnvironment",
+        "SingleBindingTdzNameCount",
+        "validate_async_function_for_of_environment",
+        "SingleBindingIterationNamesMismatch",
+        "CapturedTdzEnvironment",
+        "ResumableLoopIterationEnvironmentIr::FreshPerIteration",
+    ] {
+        assert!(
+            proof.contains(invariant),
+            "shared head invariant: {invariant}"
+        );
+    }
+    let async_binding = bounded(
+        ASYNC_FOR_OF_PLAN_SOURCE,
+        "AsyncFunctionForOfIteratorHeadIr::Binding {",
+        "AsyncFunctionForOfIteratorHeadIr::PreparedAssignment",
+    );
+    positions_in_order(
+        async_binding,
+        &[
+            "ValidatedResumableSyncForOfBindingIr::new(",
+            "&source_name,",
+            ".map_err(AsyncFunctionForOfIteratorPlanError::from)?",
+            ".into_async_parts()",
+        ],
+    );
+
+    let lexical_proof = RESUMABLE_SYNC_FOR_OF_BINDING_SOURCE
+        .split_once("pub(crate) struct ValidatedResumableSyncForOfLexicalPatternIr {")
+        .unwrap()
+        .1;
+    for field in [
+        "mode: BindingMode",
+        "value_name: String",
+        "head_environment: ForInOfEnvironmentIr",
+        "iteration_environment: ResumableLoopIterationEnvironmentIr",
+        "initialization: Vec<StatementIr>",
+    ] {
+        assert!(
+            lexical_proof.contains(field),
+            "shared lexical proof: {field}"
+        );
+        assert!(!lexical_proof.contains(&format!("pub {field}")));
+    }
+    for invariant in [
+        "BindingMode::Let | BindingMode::Const",
+        "LexicalPatternValueNameCollision",
+        "LexicalPatternTdzNamesMismatch",
+        "LexicalPatternIterationNamesMismatch",
+        "validate_async_function_for_of_initialization(",
+        "ResumableLoopIterationEnvironmentIr::FreshPerIteration",
+    ] {
+        assert!(
+            lexical_proof.contains(invariant),
+            "shared lexical proof: {invariant}"
+        );
+    }
+    let async_pattern = bounded(
+        ASYNC_FOR_OF_PLAN_SOURCE,
+        "AsyncFunctionForOfIteratorHeadIr::LexicalPattern {",
+        "        if matches!(",
+    );
+    assert!(async_pattern.contains("ValidatedResumableSyncForOfLexicalPatternIr::new("));
+    assert!(async_pattern.contains(".into_async_parts()"));
+    assert!(LOWERING_SOURCE.contains("ValidatedResumableSyncForOfLexicalPatternIr::new("));
+    for marker in [
+        "pattern: ValidatedResumableSyncForOfLexicalPatternIr",
+        "prefix != self.pattern.initialization()",
+        "entry_local_storage_has_only_dynamic_reads(",
+    ] {
+        assert!(
+            GENERATOR_FOR_OF_HEAD_SOURCE.contains(marker),
+            "lexical prefix: {marker}"
+        );
+    }
+    assert!(RESUMABLE_SYNC_FOR_OF_PLAN_SOURCE
+        .contains("Self::Generator(plan) => plan.head_binding_environment()"));
+
+    for field in [
+        "head: GeneratorForOfIteratorHeadIr",
+        "record: IteratorRecordIr",
+        "body: GeneratorForOfBodyIr",
+        "exit_state: u32",
+    ] {
+        assert!(GENERATOR_FOR_OF_PLAN_SOURCE.contains(field));
+        assert!(!GENERATOR_FOR_OF_PLAN_SOURCE.contains(&format!("pub {field}")));
+    }
+    assert!(!GENERATOR_FOR_OF_PLAN_SOURCE.contains("pub fn new("));
+    positions_in_order(
+        GENERATOR_FOR_OF_PLAN_SOURCE,
+        &[
+            "pub(crate) fn new(",
+            "head: GeneratorForOfIteratorHeadInputIr",
+            "body: GeneratorForOfBodyIr",
+            "complete(&body)",
+            "GeneratorForOfIteratorPlanError::InvalidAssignment",
+            "let body_exit_state = body.exit_state()",
+            ".checked_add(1)",
+            "GeneratorForOfIteratorPlanError::ExitStateOverflow",
+            "Ok(Self",
+        ],
+    );
+    for invariant in [
+        "pub(crate) struct GeneratorForOfAssignmentIr",
+        "fn ordinary_property_write(",
+        "ExprIr::OrdinaryPropertyAssignment(assignment)",
+        "sink(assignment.rhs(), value)",
+        "assignment.base_and_receiver()",
+        "assignment.referenced_name()",
+        "statements_reference_storage(&reference_operands, value)",
+        "SpellableSink",
+        "HeadEnvironment",
+        "PersistentSink",
+        "InvalidPrefix",
+        "PrefixMismatch",
+        "SinkEscapesBody",
+        "body.statements().split_first()",
+        "statements_reference_storage(rest, &self.value_name)",
+        "ResumableLoopIterationEnvironmentIr::StorageOnly",
+    ] {
+        assert!(
+            GENERATOR_FOR_OF_HEAD_SOURCE.contains(invariant),
+            "assignment proof: {invariant}"
+        );
+    }
+    for invariant in [
+        "YieldRequired",
+        "require_state(state, *suspend_state)",
+        "require_state(successor(state)?, *resume_state)",
+        "GeneratorTryPlanIr",
+        "GeneratorForOfBodyError::TryClauseLayout",
+        "StatementIr::AsyncFunctionForOfIterator",
+        "StatementIr::GeneratorForOfIterator",
+        "StatementIr::Break",
+        "StatementIr::Continue",
+    ] {
+        assert!(GENERATOR_FOR_OF_BODY_SOURCE.contains(invariant));
+    }
+    for lowering_step in [
+        "FunctionExecutionKind::Generator",
+        "ValidatedResumableSyncForOfBindingIr::new",
+        "GeneratorForOfAssignmentIr::identifier",
+        "GeneratorForOfAssignmentIr::ordinary_property",
+        "GeneratorForOfLexicalPatternIr::new",
+        "GeneratorForOfBodyIr::new",
+        "self.current_generator_resume_state != Some(body.exit_state())",
+        "IteratorRecordIr::new",
+        "GeneratorForOfIteratorPlanIr::new",
+        "self.current_generator_resume_state = Some(plan.exit_state())",
+        "ForOfLoweringIr::generator_iterator",
+    ] {
+        assert!(GENERATOR_FOR_OF_LOWERING_SOURCE.contains(lowering_step));
+    }
+    for source_boundary in [
+        "IterableLoopInitializer::Var(variable)",
+        "IterableLoopInitializer::Let(_)",
+        "IterableLoopInitializer::Const(_)",
+        "IterableLoopInitializer::Identifier(_)",
+        "IterableLoopInitializer::Access(PropertyAccess::Simple(_))",
+        "!for_of.r#await()",
+        "!contains(for_of.initializer(), ContainsSymbol::YieldExpression)",
+        "!contains(for_of.initializer(), ContainsSymbol::AwaitExpression)",
+        "resumable_sync_for_of_body_has_local_control_owners(for_of.body())",
+        "GeneratorSuspensionRegion::IteratorBody => return None",
+        "current_state.checked_add(1)?",
+    ] {
+        assert!(GENERATOR_SOURCE_PLAN_SOURCE.contains(source_boundary));
+    }
+    assert!(LOWERING_SOURCE
+        .contains("!resumable_sync_for_of_body_has_local_control_owners(for_of.body())"));
+    for owner_boundary in [
+        "pub(crate) enum ResumableSyncForOfBranchOwner",
+        "pub(crate) fn resumable_sync_for_of_body_has_local_control_owners",
+        "(ResumableSyncForOfBranchOwner::CurrentLoop, None) => ControlFlow::Continue(())",
+        "(ResumableSyncForOfBranchOwner::CurrentLoop, Some(_))",
+        "(ResumableSyncForOfBranchOwner::NestedStatement, _) => ControlFlow::Break(())",
+    ] {
+        assert!(RESUMABLE_SYNC_FOR_OF_CONTROL_SOURCE.contains(owner_boundary));
+    }
+    positions_in_order(
+        ASYNC_FOR_OF_BODY_SOURCE,
+        &[
+            "pub(crate) fn new(",
+            "validate_branch_ownership(&statements, ResumableSyncForOfBranchOwner::CurrentLoop)?",
+            "let mut validation = BodyValidation",
+            "validation.sequence(&statements, entry_state)?",
+            "Ok(Self",
+        ],
+    );
+}
+
+#[test]
 fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
     for retired in [
         "AsyncForOfArrayWalkForm",
@@ -306,7 +689,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
             "backend still contains {retired}"
         );
         assert!(
-            !ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE.contains(retired),
+            !RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE.contains(retired),
             "resumable backend still contains {retired}"
         );
         assert!(
@@ -315,11 +698,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
         );
     }
 
-    let lowerer = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_async_function_for_of_iterator_with_body_await(",
-        "    pub(super) fn lower_for_of_loop(",
-    );
+    let lowerer = ASYNC_FOR_OF_LOWERING_SOURCE;
     positions_in_order(
         lowerer,
         &[
@@ -334,6 +713,21 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
             "ForOfLoweringIr::async_function_iterator(iterable, plan, body_kind)",
         ],
     );
+    let publication = bounded(
+        lowerer,
+        "        let body_exit_matches = match (plan.execution(), lowered_body_exit) {",
+        "        match plan.value_storage() {",
+    );
+    for proof in [
+        "(AsyncFunctionForOfIteratorExecutionIr::Synchronous(_), None) => true",
+        "(AsyncFunctionForOfIteratorExecutionIr::Awaited(_), Some(actual))",
+        "actual == plan.body().exit_state()",
+        "(AsyncFunctionForOfIteratorExecutionIr::Awaited(_), None) => false",
+        "if !body_exit_matches",
+    ] {
+        assert!(publication.contains(proof), "publication proof: {proof}");
+    }
+    assert!(!publication.contains("_ =>"));
     assert!(!lowerer.contains("PropertyKeyIr::ArrayLength"));
     assert!(!lowerer.contains("PropertyKeyIr::ArrayIndex"));
     assert!(lowerer.contains("head: AsyncFunctionForOfIteratorHeadIr"));
@@ -448,7 +842,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
             "tdz_placeholder_names: bindings",
             "initialization: lexical_pattern_initialization",
             "AsyncFunctionForOfIteratorHeadIr::PreparedAssignment",
-            "AsyncFunctionForOfIteratorHeadIr::Binding(ForOfAssignmentIr",
+            "AsyncFunctionForOfIteratorHeadIr::Binding {",
         ],
     );
 
@@ -496,7 +890,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
         .contains("RESUMABLE_SYNC_ITERATOR_PROTOCOL => IteratorProtocolWitness::emitted_by("));
     assert!(OBLIGATIONS_SOURCE.contains("EmissionSite::ResumableSyncForOfIterator"));
     assert!(EMISSION_SITES_SOURCE.contains(
-        "EmissionSite::ResumableSyncForOfIterator => {\n            let _ = FunctionBuilder::compile_async_function_for_of_iterator;"
+        "EmissionSite::ResumableSyncForOfIterator => {\n            let _ = FunctionBuilder::compile_resumable_sync_for_of_iterator;"
     ));
 }
 
@@ -539,6 +933,9 @@ fn checked_body_preserves_structure_and_rejects_unowned_continuations() {
         "AsyncFunctionForOfBodyError::TryClauseLayout",
         "AsyncFunctionForOfBodyError::UnsupportedContinuation",
         "AsyncFunctionForOfBodyError::AwaitRequired",
+        "BodyEnvironmentPolicy::ForAwaitHeadOnly",
+        "AsyncFunctionForOfBodyError::MaterializedBodyEnvironment",
+        "self.environment(block.lexical_environment.is_some())?",
     ] {
         assert!(
             ASYNC_FOR_OF_BODY_SOURCE.contains(proof),
@@ -553,241 +950,17 @@ fn checked_body_preserves_structure_and_rejects_unowned_continuations() {
 }
 
 #[test]
-fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
-    let emitter = bounded(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
-        "    pub(crate) fn compile_async_function_for_of_iterator(",
-        "\n    }\n}",
-    );
-    let allocation = bounded(
-        emitter,
-        "        let entry_local_storage = match plan.value_storage() {",
-        "        let iterator_storage = self.allocate_binding(",
-    );
-    for variant in [
-        "AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)",
-        "AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding)",
-        "AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }",
-    ] {
-        assert_eq!(
-            allocation.matches(variant).count(),
-            1,
-            "allocation: {variant}"
-        );
-    }
-    assert!(!allocation.contains("_ =>"));
-    positions_in_order(
-        allocation,
-        &[
-            "AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)",
-            "self.lookup_binding(&binding.name)",
-            "self.allocate_binding(binding.name.clone(), binding.mode, ValueKind::Dynamic)",
-            "BindingStorage::EnvSlot",
-            "AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding)",
-            "iteration_environment_owns_binding(plan.head_environment(), &binding.name)",
-            "AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }",
-            "self.allocate_binding(name.clone(), BindingMode::Let, ValueKind::Dynamic)",
-            "BindingStorage::Dynamic",
-        ],
-    );
-    assert!(!allocation.contains("storage_without_iteration_environment"));
-
-    let resolution = bounded(
-        emitter,
-        "        let (value_storage, value_is_entry_local) = match plan.value_storage() {",
-        "        let close_frame = self.open_frame(ControlFrameKind::Block, function);",
-    );
-    for variant in [
-        "AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)",
-        "AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding)",
-        "AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { .. }",
-    ] {
-        assert_eq!(
-            resolution.matches(variant).count(),
-            1,
-            "resolution: {variant}"
-        );
-    }
-    assert!(!resolution.contains("_ =>"));
-    positions_in_order(
-        resolution,
-        &[
-            "AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)",
-            "self.lookup_binding(&binding.name)",
-            "AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding)",
-            "self.lookup_current_scope_binding(&binding.name)",
-            "AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { .. }",
-            "entry_local_storage.expect(",
-        ],
-    );
-    positions_in_order(
-        emitter,
-        &[
-            "let entry_local_storage = match plan.value_storage()",
-            "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)",
-            "self.emit_enter_resumable_lexical_environment(",
-            "let (value_storage, value_is_entry_local) = match plan.value_storage()",
-        ],
-    );
-
-    let entry_write = bounded(
-        emitter,
-        "        let close_frame = self.open_frame(ControlFrameKind::Block, function);",
-        "        self.compile_async_statement_sequence(",
-    );
-    positions_in_order(
-        entry_write,
-        &[
-            "plan.entry_state()",
-            "self.open_frame(ControlFrameKind::If, function)",
-            "if !value_is_entry_local && plan.value_mode() != BindingMode::Var",
-            "self.write_binding_from_locals(",
-            "if !value_is_entry_local",
-            "self.mirror_binding_to_global_object(plan.value_name(), value_storage, function)?",
-        ],
-    );
-}
-
-#[test]
-fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
-    let emitter = bounded(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
-        "    pub(crate) fn compile_async_function_for_of_iterator(",
-        "\n    }\n}",
-    );
-    assert_eq!(
-        emitter
-            .matches("self.emit_sync_iterator_step_value(")
-            .count(),
-        1
-    );
-    assert_eq!(
-        emitter
-            .matches("let consumer = SyncIteratorConsumer::ForOf;")
-            .count(),
-        1
-    );
-    assert_eq!(emitter.matches("&consumer,").count(), 2);
-
-    let active_states = bounded(
-        emitter,
-        "        function.instruction(&Instruction::LocalGet(state_local));",
-        "        self.push_scope();",
-    );
-    positions_in_order(
-        active_states,
-        &[
-            "plan.entry_state()",
-            "Instruction::I64GeU",
-            "plan.body().exit_state()",
-            "Instruction::I64LeU",
-            "Instruction::I32And",
-        ],
-    );
-
-    let acquisition = bounded(
-        emitter,
-        "        function.instruction(&Instruction::LocalGet(state_local));\n        function.instruction(&Instruction::I64Const(i64::from(plan.entry_state())));",
-        "        let break_frame = self.open_frame(ControlFrameKind::Block, function);",
-    );
-    positions_in_order(
-        acquisition,
-        &[
-            "self.compile_expr_to_locals(",
-            "self.emit_get_iterator_from_value_locals(",
-            "&consumer",
-            "self.write_binding_from_locals(\n            iterator_storage",
-            "self.write_binding_from_locals(\n            next_storage",
-        ],
-    );
-    assert!(!acquisition.contains("Instruction::Else"));
-
-    let step = bounded(
-        emitter,
-        "        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);",
-        "        let (value_storage, value_is_entry_local) = match plan.value_storage() {",
-    );
-    positions_in_order(
-        step,
-        &[
-            "plan.entry_state()",
-            "self.open_frame(ControlFrameKind::If, function);",
-            "self.emit_sync_iterator_step_value(",
-            "self.write_binding_from_locals(\n            done_storage",
-            "function.branch_if_to_label(break_frame.label);",
-            "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)",
-            "self.emit_enter_resumable_lexical_environment(",
-            "function.instruction(&Instruction::Else);",
-            "let resumed_iterator_storage = self",
-            "self.read_binding_to_locals(\n            resumed_iterator_storage",
-            "self.read_binding_to_locals(\n            resumed_next_storage",
-        ],
-    );
-
-    let body_finalizer = bounded(
-        emitter,
-        "        let close_frame = self.open_frame(ControlFrameKind::Block, function);",
-        "        self.save_current_completion(",
-    );
-    positions_in_order(
-        body_finalizer,
-        &[
-            "self.finally_stack.push(close_frame)",
-            "self.write_binding_from_locals(",
-            "self.compile_async_statement_sequence(",
-            "plan.body().statements(),",
-            "plan.entry_state(),",
-            "HEAP_ASYNC_RESUME_STATE_OFFSET,",
-            "self.finally_stack.pop()",
-        ],
-    );
-    assert!(!step.contains("finally_stack.push"));
-
-    let cleanup = bounded(
-        emitter,
-        "        self.save_current_completion(",
-        "        self.emit_set_async_resume_state(activation_local, plan.entry_state(), function);",
-    );
-    positions_in_order(
-        cleanup,
-        &[
-            "self.emit_leave_lexical_environment(function)",
-            "HEAP_ASYNC_ENV_OFFSET",
-            "COMPLETION_KIND_THROW",
-            "self.emit_iterator_close_preserving_current_throw(",
-            "function.instruction(&Instruction::Else);",
-            "self.emit_iterator_close(",
-            "self.emit_dispatch_async_completion(function)?",
-        ],
-    );
-}
-
-#[test]
 fn planner_adds_every_persistent_record_local_to_the_deepest_child() {
-    let counter = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {",
-        "const SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS:",
-    );
-    let arm = bounded(
-        counter,
-        "        StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {",
-        "        StatementIr::GeneratorIf {",
-    );
-    assert!(arm.contains("RESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS"));
-    assert!(arm.contains("+ count_expr_temp_locals(iterable)"));
-    assert!(compact(arm).contains("plan.body().statements().iter()"));
-    assert!(arm.contains(".map(count_statement_temp_locals)"));
-    assert!(arm.contains(".max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)"));
-    assert!(compact(PLANNING_SOURCE).contains(
-        "constRESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS:usize=1+11+2+1+2*4;"
-    ));
-
     for consumer in [DATA_SOURCE, EMIT_SOURCE, PLANNING_SOURCE] {
-        assert!(
-            consumer.contains("StatementIr::AsyncFunctionForOfIterator"),
-            "statement traversal omitted the resumable iterator form"
-        );
+        for variant in [
+            "StatementIr::AsyncFunctionForOfIterator",
+            "StatementIr::GeneratorForOfIterator",
+        ] {
+            assert!(
+                consumer.contains(variant),
+                "statement traversal omitted {variant}"
+            );
+        }
     }
 }
 
@@ -934,4 +1107,63 @@ fn runtime_oracles_cover_acquisition_close_errors_strings_and_fresh_bindings() {
             );
         }
     }
+}
+
+#[test]
+fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
+    let emitter = bounded(
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "    pub(crate) fn compile_resumable_sync_for_of_iterator(",
+        "\n    }\n}",
+    );
+    let allocation = bounded(
+        emitter,
+        "        let entry_local = match plan.value_storage() {",
+        "        let iterator_storage = self.allocate_binding(",
+    );
+    for variant in [
+        "ResumableSyncForOfValueStorage::Activation(binding)",
+        "ResumableSyncForOfValueStorage::IterationEnvironment(binding)",
+        "ResumableSyncForOfValueStorage::EntryLocal(name)",
+    ] {
+        assert_eq!(
+            allocation.matches(variant).count(),
+            1,
+            "allocation: {variant}"
+        );
+    }
+    assert!(!allocation.contains("_ =>"));
+    assert!(allocation.contains("self.lookup_binding(&binding.name)"));
+    assert!(allocation.contains("BindingStorage::EnvSlot"));
+    assert!(allocation
+        .contains("iteration_environment_owns_binding(plan.head_environment(), &binding.name)"));
+    assert!(!allocation.contains("storage_without_iteration_environment"));
+    let resolution = bounded(
+        emitter,
+        "        let (value_storage, temporary) = match plan.value_storage() {",
+        "        self.breakable_stack.push(break_frame);",
+    );
+    for variant in [
+        "ResumableSyncForOfValueStorage::Activation(binding)",
+        "ResumableSyncForOfValueStorage::IterationEnvironment(binding)",
+        "ResumableSyncForOfValueStorage::EntryLocal(_)",
+    ] {
+        assert_eq!(
+            resolution.matches(variant).count(),
+            1,
+            "resolution: {variant}"
+        );
+    }
+    assert!(!resolution.contains("_ =>"));
+    positions_in_order(
+        resolution,
+        &[
+            "ResumableSyncForOfValueStorage::Activation(binding)",
+            "self.lookup_binding(&binding.name)",
+            "ResumableSyncForOfValueStorage::IterationEnvironment(binding)",
+            "self.lookup_current_scope_binding(&binding.name)",
+            "ResumableSyncForOfValueStorage::EntryLocal(_)",
+            "entry_local.expect(",
+        ],
+    );
 }

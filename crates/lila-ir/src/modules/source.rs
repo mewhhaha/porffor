@@ -533,8 +533,10 @@ impl<'a> Scanner<'a> {
     /// `self.index` (which points just past the `import` keyword).
     fn scan_import_declaration(&mut self) -> Result<usize, StripError> {
         let mut cursor = self.index;
-        // Everything up to the module specifier is binding syntax: skip to the
-        // first string literal, which is always the specifier.
+        // Everything up to the module specifier is binding syntax. Braced
+        // import lists may hold string-literal names (`{ "a-b" as ab }`), so
+        // they are skipped whole; the first string outside them is the
+        // specifier.
         loop {
             cursor = self.skip_trivia_from(cursor)?;
             let Some(byte) = self.bytes.get(cursor).copied() else {
@@ -542,30 +544,53 @@ impl<'a> Scanner<'a> {
                     "import declaration has no module specifier",
                 ));
             };
-            if byte == b'\'' || byte == b'"' {
-                cursor = self.string_end(cursor, byte)?;
-                break;
-            }
-            cursor += self.char_len_at(cursor);
-        }
-        // Optional `with { ... }` / `assert { ... }` attributes clause.
-        let after_specifier = self.skip_trivia_from(cursor)?;
-        if self.word_at(after_specifier, "with") || self.word_at(after_specifier, "assert") {
-            let mut attributes = after_specifier;
-            while self
-                .bytes
-                .get(attributes)
-                .copied()
-                .is_some_and(is_identifier_part_byte)
-            {
-                attributes += 1;
-            }
-            attributes = self.skip_trivia_from(attributes)?;
-            if self.bytes.get(attributes) == Some(&b'{') {
-                cursor = self.balanced_brace_end(attributes)?;
+            match byte {
+                b'{' => cursor = self.balanced_brace_end(cursor)?,
+                b'\'' | b'"' => {
+                    cursor = self.string_end(cursor, byte)?;
+                    break;
+                }
+                _ => cursor += self.char_len_at(cursor),
             }
         }
+        cursor = self.skip_import_attributes(cursor)?;
         self.consume_optional_semicolon(cursor)
+    }
+
+    /// End of an optional `with { ... }` / `assert { ... }` clause starting
+    /// after `cursor`, or `cursor` itself when there is none. An empty list is
+    /// still a clause.
+    fn skip_import_attributes(&self, cursor: usize) -> Result<usize, StripError> {
+        let after_specifier = self.skip_trivia_from(cursor)?;
+        if !(self.word_at(after_specifier, "with") || self.word_at(after_specifier, "assert")) {
+            return Ok(cursor);
+        }
+        let mut attributes = after_specifier;
+        while self
+            .bytes
+            .get(attributes)
+            .copied()
+            .is_some_and(is_identifier_part_byte)
+        {
+            attributes += 1;
+        }
+        attributes = self.skip_trivia_from(attributes)?;
+        if self.bytes.get(attributes) == Some(&b'{') {
+            return self.balanced_brace_end(attributes);
+        }
+        Ok(cursor)
+    }
+
+    /// End of `from "specifier" [with { ... }]` whose `from` starts at `from`.
+    fn from_clause_end(&self, from: usize, context: &str) -> Result<usize, StripError> {
+        let specifier = self.skip_trivia_from(from + "from".len())?;
+        let Some(quote @ (b'\'' | b'"')) = self.bytes.get(specifier).copied() else {
+            return Err(StripError::new(format!(
+                "{context} has no module specifier"
+            )));
+        };
+        let end = self.string_end(specifier, quote)?;
+        self.skip_import_attributes(end)
     }
 
     /// Edit for the part of an `export` declaration the linker rewrites.
@@ -586,33 +611,36 @@ impl<'a> Scanner<'a> {
                 let mut end = self.balanced_brace_end(cursor)?;
                 let after_list = self.skip_trivia_from(end)?;
                 if self.word_at(after_list, "from") {
-                    let mut from = after_list + "from".len();
-                    from = self.skip_trivia_from(from)?;
-                    let Some(quote) = self.bytes.get(from).copied() else {
-                        return Err(StripError::new("export ... from has no module specifier"));
-                    };
-                    if quote != b'\'' && quote != b'"' {
-                        return Err(StripError::new("export ... from has no module specifier"));
-                    }
-                    end = self.string_end(from, quote)?;
+                    end = self.from_clause_end(after_list, "export ... from")?;
                 } else {
                     end = after_list;
                 }
                 SourceEdit::blank(self.source, start, self.consume_optional_semicolon(end)?)
             }
             Some(b'*') => {
-                let mut end = cursor + 1;
-                loop {
-                    end = self.skip_trivia_from(end)?;
-                    let Some(byte) = self.bytes.get(end).copied() else {
-                        return Err(StripError::new("export * has no module specifier"));
-                    };
-                    if byte == b'\'' || byte == b'"' {
-                        end = self.string_end(end, byte)?;
-                        break;
+                // `export * from "m"` or `export * as name from "m"`, where
+                // `name` may be an identifier or a string literal.
+                let mut end = self.skip_trivia_from(cursor + 1)?;
+                if self.word_at(end, "as") {
+                    end = self.skip_trivia_from(end + "as".len())?;
+                    match self.bytes.get(end).copied() {
+                        Some(quote @ (b'\'' | b'"')) => end = self.string_end(end, quote)?,
+                        _ => {
+                            while self.source[end..]
+                                .chars()
+                                .next()
+                                .is_some_and(is_identifier_part)
+                            {
+                                end += self.char_len_at(end);
+                            }
+                        }
                     }
-                    end += self.char_len_at(end);
+                    end = self.skip_trivia_from(end)?;
                 }
+                if !self.word_at(end, "from") {
+                    return Err(StripError::new("export * has no module specifier"));
+                }
+                end = self.from_clause_end(end, "export *")?;
                 SourceEdit::blank(self.source, start, self.consume_optional_semicolon(end)?)
             }
             _ if self.word_at(cursor, DEFAULT_KEYWORD) => {

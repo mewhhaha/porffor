@@ -132,10 +132,16 @@ fn property_complements_distinguish_unicode_and_unicode_sets_fold_order() {
 }
 
 #[test]
-fn case_folding_keeps_class_string_gaps_and_later_early_errors_explicit() {
-    for pattern in [r"[\q{a}&&A]", r"[\q{ab}--\q{AB}]", r"[a--[\q{A}]]"] {
-        let error = RegExpProgram::compile(pattern, "vi").unwrap_err();
-        assert_eq!(error.kind, RegExpCompileErrorKind::UnsupportedFeature);
+fn case_folding_supports_finite_class_strings_and_keeps_later_early_errors() {
+    for character in ['a', 'A'] {
+        assert!(contains(r"[\q{a}&&A]", "vi", character));
+    }
+    assert!(!contains(r"[\q{a}&&A]", "vi", 'b'));
+    let empty = RegExpProgram::compile("[a--a]", "vi").unwrap();
+    for pattern in [r"[\q{ab}--\q{AB}]", r"[a--[\q{A}]]"] {
+        let program = RegExpProgram::compile(pattern, "vi").unwrap();
+        assert_eq!(program.instructions, empty.instructions);
+        assert_eq!(program.ranges, empty.ranges);
     }
     for pattern in [r"[\q{a}&&]", r"[\q{a}--[z-a]]", r"[^\q{ab}]"] {
         let error = RegExpProgram::compile(pattern, "vi").unwrap_err();

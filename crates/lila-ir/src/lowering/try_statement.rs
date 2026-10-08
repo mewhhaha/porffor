@@ -1,3 +1,4 @@
+use super::pattern_target::PatternContinuation;
 use super::*;
 
 struct LoweredCatchClause {
@@ -24,10 +25,20 @@ impl<'a> ScriptLowerer<'a> {
         let generator_entry_state = self.current_generator_resume_state;
         let async_entry_state = self.current_async_resume_state;
         let uses_preplanned_resumable_states = self.current_resumable_plan.is_some();
+        let owns_mixed_clauses = self.async_generator_entry_state().is_some();
+        let pattern_continuation = if owns_mixed_clauses {
+            Some(PatternContinuation::AsyncGenerator)
+        } else if self.plain_generator_entry_state().is_some() {
+            Some(PatternContinuation::Generator)
+        } else if self.plain_async_entry_state().is_some() {
+            Some(PatternContinuation::Async)
+        } else {
+            None
+        };
         // 14.15.2: the try Block's Environment Record is the Block's own, and
         // `lower_block` owns it (see `LexicalScopeInstantiation`).
         let try_block = self.lower_block(try_statement.block());
-        if !uses_preplanned_resumable_states {
+        if !uses_preplanned_resumable_states || owns_mixed_clauses {
             if let Some(state) = self.current_generator_resume_state.as_mut() {
                 *state += 1;
             }
@@ -67,7 +78,32 @@ impl<'a> ScriptLowerer<'a> {
                     (source_name, storage_name, Vec::new())
                 }
                 Some(Binding::Pattern(pattern)) => {
-                    let storage_name = self.alloc_temp_binding_name("catch.internal.");
+                    let suspended_pattern = pattern_continuation.is_some()
+                        && (contains(pattern, ContainsSymbol::YieldExpression)
+                            || contains(pattern, ContainsSymbol::AwaitExpression));
+                    if suspended_pattern {
+                        // An injected Throw can enter this catch with any
+                        // value, independent of the explicit Throw's shape.
+                        catch_info.kind = ValueKind::Dynamic;
+                        catch_info.possible_kinds = KindSet::all_runtime_tags();
+                        catch_info.heap_shape = None;
+                        catch_info.function_targets = FunctionTargetKnowledge::unknown();
+                    }
+                    let storage_name = if suspended_pattern {
+                        super::pattern_target::owned_pattern_binding(
+                            self,
+                            "resumable.catch.value.",
+                            ValueInfo {
+                                kind: catch_info.kind,
+                                possible_kinds: catch_info.possible_kinds,
+                                heap_shape: None,
+                                function_targets: catch_info.function_targets.clone(),
+                            },
+                        )
+                        .name
+                    } else {
+                        self.alloc_temp_binding_name("catch.internal.")
+                    };
                     catch_info.storage_name = storage_name.clone();
                     let catch_value = TypedExpr::from_info(
                         ValueInfo {
@@ -79,11 +115,70 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::Identifier(storage_name.clone()),
                     );
                     self.declare_binding(storage_name.clone(), catch_info);
-                    let Some(prefix) = self.lower_pattern_lexical_binding_from_value(
-                        BindingMode::Let,
-                        pattern,
-                        catch_value,
-                    ) else {
+                    let prefix = if suspended_pattern {
+                        (|| {
+                            let mut names = BTreeMap::new();
+                            for bound in supported_bound_names(
+                                self.interner,
+                                &Binding::Pattern(pattern.clone()),
+                            )? {
+                                let name = self
+                                    .direct_lexical_storage_name(&bound.source_name, bound.span);
+                                names.insert(bound.source_name.clone(), name.clone());
+                                self.declare_binding(
+                                    bound.source_name,
+                                    BindingInfo {
+                                        mode: BindingMode::Let,
+                                        storage_name: name,
+                                        kind: ValueKind::Dynamic,
+                                        possible_kinds: KindSet::all_runtime_tags(),
+                                        heap_shape: None,
+                                        function_targets: FunctionTargetKnowledge::unknown(),
+                                        initialization: Initialization::Uninitialized(
+                                            UninitializedStorage::Allocated,
+                                        ),
+                                    },
+                                );
+                            }
+                            let continuation =
+                                pattern_continuation.expect("checked suspended catch continuation");
+                            let previous_depth = self.ordinary_generator_region_depth;
+                            if matches!(continuation, PatternContinuation::Generator) {
+                                // This checked pattern owns its default branches;
+                                // the surrounding iterator body keeps its owner.
+                                self.ordinary_generator_region_depth += 1;
+                            }
+                            let result = match continuation {
+                                PatternContinuation::Generator => match pattern {
+                                    Pattern::Array(_) => self.lower_staged_generator_array_pattern_with_storage_names(
+                                        GeneratorArrayPatternSource::new(pattern)?, catch_value,
+                                        Some(BindingMode::Let), Some(&names),
+                                    ),
+                                    Pattern::Object(_) => self.lower_staged_generator_object_pattern_with_storage_names(
+                                        GeneratorObjectPatternSource::new(pattern)?, catch_value,
+                                        Some(BindingMode::Let), Some(&names),
+                                    ),
+                                },
+                                PatternContinuation::Async => self.lower_staged_async_pattern_with_storage_names(
+                                    AsyncPatternSource::new(pattern)?, catch_value,
+                                    Some(BindingMode::Let), Some(&names),
+                                ),
+                                PatternContinuation::AsyncGenerator => self.lower_staged_async_generator_pattern_with_storage_names(
+                                    crate::async_generator_source::AsyncGeneratorPatternSource::new(pattern)?,
+                                    catch_value, Some(BindingMode::Let), Some(&names),
+                                ),
+                            }.map(|(prefix, _)| prefix);
+                            self.ordinary_generator_region_depth = previous_depth;
+                            result
+                        })()
+                    } else {
+                        self.lower_pattern_lexical_binding_from_value(
+                            BindingMode::Let,
+                            pattern,
+                            catch_value,
+                        )
+                    };
+                    let Some(prefix) = prefix else {
                         self.pop_scope();
                         return (StatementIr::Empty, ValueKind::Undefined);
                     };
@@ -96,6 +191,15 @@ impl<'a> ScriptLowerer<'a> {
                     (storage_name.clone(), storage_name, Vec::new())
                 }
             };
+            if let Some(parameter) = catch
+                .parameter()
+                .filter(|_| pattern_continuation.is_some() && !catch_prefix.is_empty())
+            {
+                let empty = CheckedEmptyStatementCompletionSource::from_catch_parameter(parameter);
+                catch_prefix = vec![StatementIr::EmptyStatementCompletion(Box::new(
+                    EmptyStatementCompletionIr::new(empty, StatementIr::LexicalBlock(catch_prefix)),
+                ))];
+            }
             let catch_body = self.lower_block(catch.block());
             let catch_block = if catch_prefix.is_empty() {
                 catch_body
@@ -111,7 +215,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
             };
             self.pop_scope();
-            if !uses_preplanned_resumable_states {
+            if !uses_preplanned_resumable_states || owns_mixed_clauses {
                 if let Some(state) = self.current_generator_resume_state.as_mut() {
                     *state += 1;
                 }
@@ -138,7 +242,7 @@ impl<'a> ScriptLowerer<'a> {
             let async_finally_entry_state = self.current_async_resume_state;
             // As for the try Block: `lower_block` owns the frame.
             let lowered = self.lower_block(finally_block.block());
-            if !uses_preplanned_resumable_states {
+            if !uses_preplanned_resumable_states || owns_mixed_clauses {
                 if let Some(state) = self.current_generator_resume_state.as_mut() {
                     *state += 1;
                 }

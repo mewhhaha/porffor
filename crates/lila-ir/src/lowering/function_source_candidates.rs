@@ -19,27 +19,33 @@ impl ScriptLowerer<'_> {
     }
 
     pub(super) fn function_source_candidate(&self, expression: &Expression) -> Option<String> {
+        if self.undefined_function_source_candidate(expression) {
+            return Some("undefined".to_string());
+        }
+        self.aot_source_text(expression)
+            .or_else(|| self.static_string_receiver_value(expression))
+            .or_else(|| self.static_parse_float_input(expression))
+            .or_else(|| self.coerced_function_source_candidate(expression))
+    }
+
+    /// This only supplies a source candidate. The real operand still executes
+    /// and converts at runtime, including an effectful `void` operand.
+    fn undefined_function_source_candidate(&self, expression: &Expression) -> bool {
         if matches!(Self::unwrap_parenthesized_expr(expression), Expression::Unary(unary)
             if unary.op() == UnaryOp::Void)
         {
-            return Some("undefined".to_string());
+            return true;
         }
         if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(expression) {
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
             if self.lookup_binding(&name).is_some_and(|binding| {
                 binding.possible_kinds == KindSet::from_kind(ValueKind::Undefined)
             }) {
-                return Some("undefined".to_string());
+                return true;
             }
+            return name == "undefined" && self.identifier_resolves_to_intrinsic_global(&name);
         }
-        self.aot_source_text(expression)
-            .or_else(|| self.static_string_receiver_value(expression))
-            .or_else(|| self.static_parse_float_input(expression))
-            .or_else(|| {
-                self.is_static_undefined_expr(expression)
-                    .then(|| "undefined".to_string())
-            })
-            .or_else(|| self.coerced_function_source_candidate(expression))
+        false
     }
 
     // These are compilation candidates, not value facts: the constructor still
@@ -112,7 +118,7 @@ impl ScriptLowerer<'_> {
             "Object" => match argument {
                 None => Some("[object Object]".to_string()),
                 Some(argument)
-                    if self.is_static_undefined_expr(argument)
+                    if self.undefined_function_source_candidate(argument)
                         || matches!(Self::unwrap_parenthesized_expr(argument), Expression::Literal(literal)
                             if matches!(literal.kind(), LiteralKind::Null)) =>
                 {

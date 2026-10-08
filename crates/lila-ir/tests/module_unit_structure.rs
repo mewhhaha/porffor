@@ -42,7 +42,7 @@ fn module_unit_preserves_the_exact_public_field_record() {
         .1;
     assert_eq!(
         code_without_whitespace(fields),
-        "pubrecord:SourceTextModuleRecordIr,pubsource_text:String,pubmeta_url:String,\
+        "pubrecord:ModuleRecordIr,pubsource_text:String,pubmeta_url:String,\
          pubhoist:Option<BlockIr>,pubbody:Option<BlockIr>,pubfunctions:Vec<FunctionIr>,\
          pubowned_env_bindings:Vec<OwnedEnvBindingIr>,\
          pubnamespaces:BTreeMap<ModuleNamespaceModeIr,ModuleNamespaceIr>,\

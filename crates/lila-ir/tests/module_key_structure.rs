@@ -82,31 +82,48 @@ fn module_key_keeps_opaque_storage_and_one_host_constructor() {
 
 #[test]
 fn module_key_callers_keep_the_public_identity_domain_without_compatibility_exports() {
-    assert_eq!(OWNER_SOURCE.matches("ModuleKey").count(), 2);
-    assert_eq!(LOADED_SOURCES_SOURCE.matches("ModuleKey").count(), 7);
-    assert_eq!(GRAPH_SOURCE.matches("ModuleKey").count(), 1);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleKey").count(), 67);
-    assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleKey").count(), 2);
-    assert_eq!(GRAPH_RESOLUTION_SOURCE.matches("ModuleKey").count(), 1);
-    assert_eq!(RECORD_SOURCE.matches("ModuleKey").count(), 9);
-    assert_eq!(DYNAMIC_SOURCE.matches("ModuleKey").count(), 3);
-    assert_eq!(EARLY_SOURCE.matches("ModuleKey").count(), 1);
-    assert_eq!(LINK_SOURCE.matches("ModuleKey").count(), 1);
-    assert_eq!(LINK_ERROR_SOURCE.matches("ModuleKey").count(), 2);
-    assert_eq!(NAMESPACE_SOURCE.matches("ModuleKey").count(), 2);
-    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleKey").count(), 32);
-    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleKey").count(), 1);
-    assert_eq!(
-        LOADED_SOURCES_SOURCE
-            .matches("ANONYMOUS_MODULE_KEY")
-            .count(),
-        2
-    );
-    assert_eq!(RECORD_SOURCE.matches("ANONYMOUS_MODULE_KEY").count(), 2);
-    assert_eq!(LINK_SOURCE.matches("ANONYMOUS_MODULE_KEY").count(), 2);
+    // Callers may add parse-goal and request projections without introducing
+    // another identity owner or converting graph identities to specifier text.
+    for source in [
+        LOADED_SOURCES_SOURCE,
+        GRAPH_SOURCE,
+        GRAPH_TESTS_SOURCE,
+        GRAPH_BUILD_SOURCE,
+        GRAPH_RESOLUTION_SOURCE,
+        RECORD_SOURCE,
+        DYNAMIC_SOURCE,
+        EARLY_SOURCE,
+        LINK_SOURCE,
+        LINK_ERROR_SOURCE,
+        NAMESPACE_SOURCE,
+        ENGINE_LOADER_SOURCE,
+        ENGINE_LIB_SOURCE,
+    ] {
+        assert!(source.contains("ModuleKey"));
+        assert!(!source.contains("pub struct ModuleKey"));
+        assert!(!source.contains("impl ModuleKey"));
+        assert!(!source.contains("pub type ModuleKey"));
+    }
+    let (dynamic_production, dynamic_tests) = DYNAMIC_SOURCE
+        .split_once("\n#[cfg(test)]\nmod tests {")
+        .expect("dynamic import fixture keys are test-only");
+    assert!(dynamic_production.contains("key: &ModuleKey,"));
+    assert!(!dynamic_production.contains("ModuleKey::from_host("));
+    assert!(dynamic_tests.contains("ModuleKey::from_host("));
+    assert!(LOADED_SOURCES_SOURCE.contains("ANONYMOUS_MODULE_KEY"));
+    assert!(RECORD_SOURCE.contains("ModuleKey::from_host(ANONYMOUS_MODULE_KEY)"));
+    assert!(!LINK_SOURCE.contains("ANONYMOUS_MODULE_KEY"));
     assert!(!GRAPH_SOURCE.contains("ANONYMOUS_MODULE_KEY"));
     assert!(LOADED_SOURCES_SOURCE.contains("key: ModuleKey,"));
     assert!(GRAPH_SOURCE.contains("pub keys: BTreeMap<ModuleKey, ModuleUnitId>,"));
+    let record = code_without_whitespace(RECORD_SOURCE);
+    assert!(record.contains("pubkey:ModuleKey,"));
+    assert!(record.contains("key:ModuleKey,"));
+    let loader = code_without_whitespace(ENGINE_LOADER_SOURCE);
+    assert!(loader.contains("pubuselila_ir::{ModuleKey,ModuleRequestKeyIr};"));
+    assert!(loader.contains("referrer:Option<&ModuleKey>,"));
+    assert!(loader.contains("Result<ModuleKey,ModuleLoadError>"));
+    assert!(loader.contains("fnload(&self,key:&ModuleKey)->Result<LoadedModule,ModuleLoadError>"));
     assert!(LINK_ERROR_SOURCE.contains(
         "InconsistentLoad {\n        /// The key loaded inconsistently.\n        key: ModuleKey,"
     ));

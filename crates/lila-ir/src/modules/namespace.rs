@@ -50,8 +50,9 @@
 //! accessors. Eager and deferred namespaces share this representation; deferred
 //! internal methods first invoke the module's existing evaluation thunk.
 //!
-//! Module source objects are separate: their modules are resolved and parsed,
-//! but never instantiated or evaluated.
+//! Loaded ECMAScript Source Text Modules have no module source object. Static
+//! source bindings fail during linking and dynamic source jobs reject before
+//! instantiation; namespace construction never manufactures a replacement.
 
 use crate::*;
 
@@ -154,42 +155,23 @@ pub(super) fn push_js_string_literal(out: &mut String, value: &str) {
     out.push('"');
 }
 
-/// `true` when `name` can be written as an `IdentifierReference` in the merged
-/// script.
+/// Checks the decoded character spelling of a merged binding name.
 ///
-/// The generated source names a binding directly, so a name it cannot spell has
-/// to be reported rather than emitted.
+/// The lexer and this emitter consume the same ECMAScript `ID_Start` /
+/// `ID_Continue` authority, including its Unicode 17 additions. Escape decoding
+/// belongs to the interner; this guard must neither normalize names nor reject
+/// combining marks and connector punctuation the parser already accepted.
 ///
-/// This is a *spellability* predicate, not a domain test, and it stays a runtime
-/// predicate — contract ledger R1, whose stated reason has been corrected.
-///
-/// R1 used to justify it with two examples, and neither survives. A
-/// `\u`-escaped identifier is resolved to its code points by boa's interner long
-/// before it reaches a `SourceName`, so nothing here ever sees the escape. An
-/// astral-plane identifier *passes*, because `char::is_alphabetic` accepts
-/// astral letters. And the emitter does not need ASCII: identifiers are written
-/// raw into UTF-8 merged source that boa re-parses — only
-/// [`push_js_string_literal`] escapes to ASCII, and that is for string keys.
-/// The documented `*default*` job is genuinely dead: [`LocalName::merged_in`]
-/// has already replaced it with a minted `$d{unit}$` before this is asked.
-///
-/// What it actually does, therefore, is produce **false rejections**, and the
-/// widening below removes the cheap ones: ZWNJ/ZWJ and the `Other_ID_Start` /
-/// `Other_ID_Continue` code points that `is_alphabetic`/`is_alphanumeric` miss.
-/// It remains conservative for `IdentifierPart`'s `Mn`, `Mc` and `Pc` general
-/// categories — combining marks and connector punctuation — which would need
-/// Unicode tables this crate does not carry. That residual is recorded in the
-/// ledger rather than hidden: a conformant module using one is reported as
-/// unsupported, not miscompiled.
+/// This remains a spelling predicate, not another name domain or a reserved-word
+/// validator. Source bindings have already passed their grammar-context checks;
+/// anonymous defaults reach it only after `LocalName::merged_in` mints `$d…$`.
 fn is_binding_identifier(name: &MergedName) -> bool {
     let mut chars = name.as_str().chars();
     let Some(first) = chars.next() else {
         return false;
     };
-    if !is_identifier_start_char(first) {
-        return false;
-    }
-    chars.all(is_identifier_part_char)
+    lila_front::is_identifier_start(u32::from(first))
+        && chars.all(|ch| lila_front::is_identifier_part(u32::from(ch)))
 }
 
 /// Every global the merged script's own preludes spell.
@@ -200,7 +182,7 @@ fn is_binding_identifier(name: &MergedName) -> bool {
 /// checks and its shadowed-globals check tested only `OBJECT_NAME | SYMBOL_NAME`.
 /// So `import * as globalThis from './m.js'` emitted
 /// `const globalThis = $m0$namespace;` into the merged scope ahead of
-/// `binding_alias_prelude`'s `Object.defineProperty(globalThis, …)`, which then
+/// the former alias prelude's `Object.defineProperty(globalThis, …)`, which then
 /// defined every renamed-import alias on the namespace object — a silent wrong
 /// answer where the other two names give a diagnostic. Three literals could
 /// disagree; one cannot.
@@ -209,33 +191,6 @@ pub(crate) const PRELUDE_GLOBALS: [&str; 3] = [OBJECT_NAME, SYMBOL_NAME, GLOBAL_
 /// Whether `name` is one of [`PRELUDE_GLOBALS`].
 pub(crate) fn shadows_prelude_global(name: &str) -> bool {
     PRELUDE_GLOBALS.contains(&name)
-}
-
-/// `IdentifierStart` (12.7.1), minus the general categories noted on
-/// [`is_binding_identifier`].
-fn is_identifier_start_char(ch: char) -> bool {
-    ch == '$'
-        || ch == '_'
-        || ch.is_alphabetic()
-        // `Other_ID_Start`, which `char::is_alphabetic` does not cover.
-        || matches!(
-            ch,
-            '\u{1885}' | '\u{1886}' | '\u{2118}' | '\u{212E}' | '\u{309B}' | '\u{309C}'
-        )
-}
-
-/// `IdentifierPart` (12.7.1), minus the general categories noted on
-/// [`is_binding_identifier`].
-fn is_identifier_part_char(ch: char) -> bool {
-    is_identifier_start_char(ch)
-        || ch.is_alphanumeric()
-        // ZWNJ and ZWJ are `IdentifierPart` by name in 12.7.1.
-        || matches!(ch, '\u{200C}' | '\u{200D}')
-        // `Other_ID_Continue`.
-        || matches!(
-            ch,
-            '\u{00B7}' | '\u{0387}' | '\u{1369}'..='\u{1371}' | '\u{19DA}'
-        )
 }
 
 /// Expression the merged script evaluates to read a resolved binding.
@@ -254,9 +209,9 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedNa
             binding: ModuleBindingNameIr::Namespace(mode),
         } => Some(MergedName::minted(*module, mode.cell_role())),
         ResolvedBindingIr::Resolved {
-            module,
             binding: ModuleBindingNameIr::ModuleSource,
-        } => Some(MergedName::minted(*module, UnitCellRole::ModuleSource)),
+            ..
+        } => None,
         ResolvedBindingIr::Resolved {
             module,
             binding: ModuleBindingNameIr::Name(name),
@@ -266,7 +221,7 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedNa
             // comes from. Applied exactly once, here.
             //
             // The one site that keeps `merged_in` rather than
-            // `SourceTextModuleRecordIr::merged`: `module` and `name` are
+            // `ModuleRecordIr::merged`: `module` and `name` are
             // destructured from the *same* `ResolvedBindingIr::Resolved`, so the
             // "which unit owns this name" pairing is already structural and
             // there is no id to supply independently.
@@ -331,31 +286,22 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
 /// text, so a graph that cannot be linked says exactly what stopped it instead
 /// of emitting source that binds the wrong thing.
 pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrDiagnostic>> {
-    let has_source_import = graph.materialized_units().any(|(_, _, unit)| {
-        unit.record
-            .import_entries
+    if !graph.link_errors.is_empty() {
+        return Err(graph
+            .link_errors
             .iter()
-            .any(|entry| entry.request.phase() == ImportPhaseIr::Source)
-    });
-    let dynamic_source_modules = graph.dynamic_source_modules();
+            .map(ModuleLinkErrorIr::to_diagnostic)
+            .collect());
+    }
     if graph
         .materialized_units()
         .all(|(_, _, unit)| unit.namespaces.is_empty())
-        && !has_source_import
-        && dynamic_source_modules.is_empty()
     {
         return Ok(String::new());
     }
-
     let mut diagnostics = Vec::new();
     report_shadowed_namespace_globals(graph, &mut diagnostics);
     let aliases = collect_namespace_aliases(graph, &mut diagnostics);
-    let (mut source_modules, source_aliases) =
-        collect_module_source_aliases(graph, &mut diagnostics);
-    // `import.source("m")` observes `m`'s module source object without binding
-    // a name to it, so the object has to be declared even when no static
-    // `import source` names it.
-    source_modules.extend(dynamic_source_modules);
 
     // Unit order is unit-id order, which is stable across runs and independent
     // of evaluation order — the getters are deferred, so no namespace has to be
@@ -372,9 +318,6 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
             }
         }
     }
-    for module in &source_modules {
-        text.push_str(&module_source_object_source(*module));
-    }
     for (_, _, unit) in graph.materialized_units() {
         for namespace in unit.namespaces.values() {
             match &namespace.source {
@@ -385,7 +328,7 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
             }
         }
     }
-    for (local, object) in aliases.iter().chain(source_aliases.iter()) {
+    for (local, object) in &aliases {
         text.push_str("const ");
         text.push_str(local.as_str());
         text.push_str(" = ");
@@ -400,16 +343,9 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
     }
 }
 
-/// Source-phase objects and renamed-binding aliases still use generated global
-/// operations. Namespace construction itself has no observable global dependency.
+/// Renamed-binding inspection aliases use generated global operations.
+/// Canonical namespace construction has no observable global dependency.
 fn namespace_prelude_uses_global(graph: &ModuleGraphIr, name: &str) -> bool {
-    let source_objects = !graph.dynamic_source_modules().is_empty()
-        || graph.materialized_units().any(|(_, _, unit)| {
-            unit.record
-                .import_entries
-                .iter()
-                .any(|entry| entry.request.phase() == ImportPhaseIr::Source)
-        });
     let renamed_bindings = graph.materialized_units().any(|(_, _, unit)| {
         unit.record
             .import_entries
@@ -429,8 +365,8 @@ fn namespace_prelude_uses_global(graph: &ModuleGraphIr, name: &str) -> bool {
             })
     });
     match name {
-        OBJECT_NAME => source_objects || renamed_bindings,
-        SYMBOL_NAME => source_objects,
+        OBJECT_NAME => renamed_bindings,
+        SYMBOL_NAME => false,
         GLOBAL_THIS_NAME => renamed_bindings,
         _ => false,
     }
@@ -561,11 +497,26 @@ fn collect_namespace_aliases(
 /// retaining a thrown value does not move the module's lexical declarations into
 /// a catch or try block. Reentrant evaluation returns the published readers;
 /// subsequent failed evaluations rethrow the original value, including undefined.
-pub(crate) fn deferred_body_source(
+#[cfg(test)]
+fn deferred_body_source(
     graph: &ModuleGraphIr,
     module: ModuleUnitId,
     body: &str,
 ) -> Result<String, String> {
+    deferred_body_original_source(
+        graph,
+        module,
+        super::callable_source::OriginalUnitSource::new(body),
+    )
+    .map(super::callable_source::OriginalUnitSource::into_text)
+}
+
+#[cfg(test)]
+fn deferred_body_original_source(
+    graph: &ModuleGraphIr,
+    module: ModuleUnitId,
+    body: super::callable_source::OriginalUnitSource,
+) -> Result<super::callable_source::OriginalUnitSource, String> {
     let cells = MergedName::minted(module, UnitCellRole::DeferCells);
     let cells = cells.as_str();
     let evaluate = MergedName::minted(module, UnitCellRole::DeferEvaluate);
@@ -625,9 +576,7 @@ pub(crate) fn deferred_body_source(
         text.push_str(reference.as_str());
     }
     text.push_str(" };\n");
-    text.push_str(body);
-    text.push_str("\n;\n}\n");
-    Ok(text)
+    Ok(body.wrap(&text, "\n;\n}\n"))
 }
 
 /// Merged-script declaration of the cell a deferred module's export table lives
@@ -664,117 +613,6 @@ impl DeferredEvaluationState {
             Self::Errored => 3,
         }
     }
-}
-
-/// Merged-script statements building one module source object, and the
-/// `import source` locals bound to it.
-///
-/// # What this object is, and is not
-///
-/// The source-phase-imports proposal gives a module source object the
-/// `%AbstractModuleSource%.prototype` prototype and a `@@toStringTag` accessor
-/// reporting the source's class name. lila has no `%AbstractModuleSource%`
-/// intrinsic and no concrete module source type for ECMAScript modules, so what
-/// is emitted here is an ordinary null-prototype object carrying an own
-/// `@@toStringTag`. It is a distinct, identity-stable handle on a module that
-/// was resolved, loaded and parsed but never instantiated — which is the part of
-/// the proposal that is observable from the module system — and it is *not* a
-/// spec-shaped `AbstractModuleSource`.
-fn module_source_object_source(module: ModuleUnitId) -> String {
-    let cell = MergedName::minted(module, UnitCellRole::ModuleSource);
-    let binding = cell.as_str();
-    let mut text = String::new();
-    text.push_str("const ");
-    text.push_str(binding);
-    text.push_str(" = ");
-    text.push_str(OBJECT_NAME);
-    text.push_str(".create(null);\n");
-    text.push_str(OBJECT_NAME);
-    text.push_str(".defineProperty(");
-    text.push_str(binding);
-    text.push_str(", ");
-    text.push_str(SYMBOL_NAME);
-    text.push_str(".toStringTag, ");
-    // A complete descriptor (10.1.6.3 step 3's "fully populated"): the three
-    // flags are 6.2.6.6's defaults and the four keys and their order come from
-    // `CompleteDescriptor::keys()`, so no key list is spelled out here.
-    let mut to_string_tag = String::new();
-    push_js_string_literal(&mut to_string_tag, MODULE_SOURCE_TO_STRING_TAG);
-    text.push_str(
-        &DescriptorSourceText::data()
-            .value(to_string_tag)
-            .complete()
-            .render(),
-    );
-    text.push_str(");\n");
-    text.push_str(OBJECT_NAME);
-    text.push_str(".preventExtensions(");
-    text.push_str(binding);
-    text.push_str(");\n");
-    text
-}
-
-/// `@@toStringTag` of a module source object. See
-/// [`module_source_object_source`] for why this is lila's own choice rather
-/// than a spec value.
-pub const MODULE_SOURCE_TO_STRING_TAG: &str = "Module Source";
-
-/// Every module an `import source` request names, and the local each request
-/// binds.
-///
-/// Collision checking mirrors [`collect_namespace_aliases`]: a source binding is
-/// a fresh `const` in the merged scope, not a share of an exporter's cell.
-fn collect_module_source_aliases(
-    graph: &ModuleGraphIr,
-    diagnostics: &mut Vec<IrDiagnostic>,
-) -> (BTreeSet<ModuleUnitId>, Vec<(MergedName, MergedName)>) {
-    let mut modules = BTreeSet::new();
-    let mut aliases = Vec::new();
-    for (_, _, unit) in graph.materialized_units() {
-        let key = unit.record.key.as_str();
-        for (index, entry) in unit.record.import_entries.iter().enumerate() {
-            if entry.request.phase() != ImportPhaseIr::Source {
-                continue;
-            }
-            // As in `collect_namespace_aliases`: the binding is emitted as a
-            // `const` of the merged scope, so it is a D3 name.
-            let merged = unit.record.merged(&entry.local_name);
-            let local = merged.as_str();
-            let Some(ResolvedBindingIr::Resolved {
-                module,
-                binding: ModuleBindingNameIr::ModuleSource,
-            }) = unit.resolved_imports.get(index)
-            else {
-                diagnostics.push(namespace_unsupported(
-                    key,
-                    &format!("`import source {local}` did not resolve to a module"),
-                ));
-                continue;
-            };
-            if !is_binding_identifier(&merged) {
-                diagnostics.push(namespace_unsupported(
-                    key,
-                    &format!("module source binding `{local}` is not spellable"),
-                ));
-                continue;
-            }
-            if shadows_prelude_global(local) {
-                diagnostics.push(namespace_unsupported(
-                    key,
-                    &format!(
-                        "module source objects are built from `{local}`, which this module binds as a source alias"
-                    ),
-                ));
-                continue;
-            }
-            modules.insert(*module);
-            aliases.push((
-                merged.clone(),
-                MergedName::minted(*module, UnitCellRole::ModuleSource),
-            ));
-        }
-    }
-    (modules, aliases)
 }
 
 fn namespace_unsupported(key: &str, reason: &str) -> IrDiagnostic {
@@ -869,11 +707,15 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
         }
     }
     for component in graph.dynamic_components() {
-        // A source-phase component hands out a module *source* object, and its
-        // module is never instantiated: a namespace for it would carry getters
-        // naming bindings the merged script never declares.
+        // Source phase rejects without a namespace or source object. Only
+        // evaluation/defer requests observe a namespace cell.
         if let Some(mode) = component.request().phase().namespace_mode() {
             observed.insert((component.target(), mode));
+        }
+    }
+    for resolution in graph.realm_requests.values() {
+        if let super::RealmModuleResolutionIr::Loaded(module) = resolution {
+            observed.insert((*module, ModuleNamespaceModeIr::Eager));
         }
     }
 
@@ -917,6 +759,7 @@ mod tests {
 
     fn graph_of(modules: &[(&str, &str)]) -> ModuleGraphIr {
         let sources = ModuleGraphSources {
+            realm_requests: Default::default(),
             modules: modules
                 .iter()
                 .map(|(key, text)| {
@@ -1048,6 +891,7 @@ mod tests {
     ) -> ModuleGraphIr {
         let entry = ModuleUnitId::try_from(modules.len() - 1).expect("entry index fits");
         let sources = ModuleGraphSources {
+            realm_requests: Default::default(),
             modules: modules
                 .iter()
                 .map(|(key, text)| {
@@ -1225,6 +1069,69 @@ mod tests {
         assert!(error.contains("default"), "got {error}");
     }
 
+    #[test]
+    fn unicode_export_readers_preserve_decoded_names_without_normalization() {
+        for (spelling, decoded) in [
+            ("a\u{0301}", "a\u{0301}"),
+            (r"a\u0301", "a\u{0301}"),
+            (r"a\u093E", "a\u{093e}"),
+            ("a\u{203f}", "a\u{203f}"),
+            ("\u{309b}", "\u{309b}"),
+            (r"\u{088F}", "\u{088f}"),
+            ("\u{11db0}", "\u{11db0}"),
+            (r"a\u{1ACF}", "a\u{1acf}"),
+        ] {
+            let module = format!("export let {spelling} = 1;");
+            let mut graph = graph_of(&[("m", &module)]);
+            ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager)
+                .expect("entry materializes");
+            let namespace = graph.units[0]
+                .namespaces
+                .get(&ModuleNamespaceModeIr::Eager)
+                .expect("namespace exists");
+            assert_eq!(namespace.exports[0].export_name.as_str(), decoded);
+            let reference = namespace_target_reference(&namespace.exports[0].target)
+                .expect("the lexer and namespace accept the same spelling");
+            assert_eq!(reference.as_str(), decoded);
+            let source = source_of(&graph, 0);
+            assert!(source.contains(&format!("() => {decoded}")), "{source}");
+            lila_front::parse(&source, lila_front::ParseOptions::script())
+                .expect("generated reader spelling parses");
+        }
+    }
+
+    #[test]
+    fn unicode_namespace_aliases_use_the_lexers_spelling() {
+        for local in ["n\u{0301}", "n\u{093e}", "n\u{203f}", "\u{088f}"] {
+            for (import, role) in [(format!("import * as {local}"), UnitCellRole::Namespace)] {
+                let entry = format!("{import} from './a.mjs'; void {local};");
+                let graph = linked_graph(
+                    &[("a", "export const value = 41;"), ("c", &entry)],
+                    vec![(1, request_key("./a.mjs"), 0)],
+                );
+                let source =
+                    namespace_prelude_source(&graph).expect("Unicode alias can be emitted");
+                assert!(
+                    source.contains(&format!(
+                        "const {local} = {};",
+                        MergedName::minted(0, role).as_str()
+                    )),
+                    "{source}"
+                );
+                lila_front::parse(&source, lila_front::ParseOptions::script())
+                    .expect("generated alias spelling parses");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_synthetic_names_are_not_admitted_by_alphabetic_approximations() {
+        for local in ["", "\u{0345}a", "a\u{00b2}", "\u{200c}a", "a😀"] {
+            let namespace = namespace_of_one_local(0, local);
+            assert!(namespace_object_source(&namespace).is_err(), "{local:?}");
+        }
+    }
+
     /// The target behaviour of this lane: `import * as ns` binds a local name to
     /// the exporter's namespace object.
     #[test]
@@ -1298,7 +1205,7 @@ mod tests {
     }
 
     #[test]
-    fn source_phase_prelude_still_reports_the_globals_it_uses() {
+    fn source_phase_rejection_precedes_any_generated_global_operation() {
         for declaration in ["const Object = 1;", "const Symbol = 1;"] {
             let source =
                 format!("import source src from './a.mjs'; {declaration} print(typeof src);");
@@ -1307,12 +1214,11 @@ mod tests {
                 vec![(1, request_key("./a.mjs"), 0)],
             );
             let diagnostics =
-                namespace_prelude_source(&graph).expect_err("source prelude uses globals");
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|diagnostic| diagnostic.message.contains("module prelude uses")),
-                "{diagnostics:?}"
+                namespace_prelude_source(&graph).expect_err("no source representation");
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(
+                diagnostics[0].code(),
+                Some(EarlyErrorCode::ModuleSourceUnavailable)
             );
         }
     }
@@ -1526,18 +1432,12 @@ mod tests {
         assert!(table < body, "the table must be published first: {thunk}");
     }
 
-    /// `import source` binds its local to a module source object, and that
-    /// object is not a namespace: no export of the module is reachable through
-    /// it, because the module was never instantiated.
     #[test]
-    fn a_source_phase_import_binds_a_module_source_object() {
+    fn a_source_phase_binding_has_no_namespace_or_source_cell() {
         let graph = linked_graph(
             &[
                 ("a", "export const value = 41;"),
-                (
-                    "c",
-                    "import source src from \"./a.mjs\";\nprint(typeof src);",
-                ),
+                ("c", "import source src from './a.mjs'; print(typeof src);"),
             ],
             vec![(1, request_key("./a.mjs"), 0)],
         );
@@ -1545,27 +1445,14 @@ mod tests {
             graph.evaluation_mode(0),
             ModuleEvaluationModeIr::NotEvaluated
         );
-        let prelude = namespace_prelude_source(&graph).expect("prelude should build");
-
-        let cell = MergedName::minted(0, UnitCellRole::ModuleSource);
-        let cell = cell.as_str();
-        assert!(
-            prelude.contains(&format!("const {cell} = Object.create(null);")),
-            "got {prelude}"
+        let diagnostics = namespace_prelude_source(&graph).expect_err("source unavailable");
+        assert_eq!(
+            diagnostics[0].code(),
+            Some(EarlyErrorCode::ModuleSourceUnavailable)
         );
-        assert!(
-            prelude.contains(&format!(
-                "Symbol.toStringTag, {{ value: \"{MODULE_SOURCE_TO_STRING_TAG}\""
-            )),
-            "got {prelude}"
-        );
-        assert!(
-            prelude.contains(&format!("const src = {cell};")),
-            "got {prelude}"
-        );
-        assert!(
-            !prelude.contains("\"value\""),
-            "a module source exposes no exports: {prelude}"
+        assert_eq!(
+            namespace_target_reference(&graph.units[1].resolved_imports[0]),
+            None
         );
     }
 

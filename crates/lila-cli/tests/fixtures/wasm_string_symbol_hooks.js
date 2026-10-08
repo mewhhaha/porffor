@@ -172,4 +172,142 @@ if (globalNonDigitPairMatch.length !== 2) throw "global non-digit pair match len
 if (globalNonDigitPairMatch[0] !== "ab") throw "global non-digit pair match 0";
 if (globalNonDigitPairMatch[1] !== "cd") throw "global non-digit pair match 1";
 
+// Each original hook receives the raw String receiver and original second
+// argument. IsRegExp is false for the two entries that inspect it first.
+var symbolEntries = [
+  ["match", Symbol.match, 1], ["matchAll", Symbol.matchAll, 1],
+  ["replace", Symbol.replace, 2], ["replaceAll", Symbol.replace, 2],
+  ["search", Symbol.search, 1], ["split", Symbol.split, 2]
+];
+var hookRealm = __lilaCreateRealm().global;
+var hookMarker = new hookRealm.Error("symbol-hook-marker");
+function expectHookMarker(action, label) {
+  var prior = "before", finallyRuns = 0;
+  try {
+    try { prior = action(); } finally { finallyRuns++; }
+    throw label + " missing abrupt completion";
+  } catch (error) {
+    if (error !== hookMarker || Object.getPrototypeOf(error) !== hookRealm.Error.prototype) {
+      throw label + " original thrown identity";
+    }
+  }
+  if (prior !== "before" || finallyRuns !== 1) throw label + " abrupt effects";
+}
+for (var entryIndex = 0; entryIndex < symbolEntries.length; entryIndex++) {
+  var entry = symbolEntries[entryIndex];
+  var entryName = entry[0], entrySymbol = entry[1], entryArity = entry[2];
+  var entryMethod = String.prototype[entryName];
+  var rawReceiver = { toString: function() { throw "raw receiver conversion"; } };
+  var originalSecond = { toString: function() { throw "second argument conversion"; } };
+  var hookResult = {}, proxyTrace = "", hookGets = 0, hookApplies = 0;
+  var hookPattern = {};
+  if (entryName !== "match") hookPattern[Symbol.match] = false;
+  var hookTarget = function() { throw "Proxy target called"; };
+  var proxyHook = new Proxy(hookTarget, { apply: function(target, receiver, args) {
+    hookApplies++;
+    proxyTrace += "apply;";
+    if (target !== hookTarget || receiver !== hookPattern || args.length !== entryArity ||
+        args[0] !== rawReceiver || (entryArity === 2 && args[1] !== originalSecond)) {
+      throw entryName + " Proxy hook Reference or arguments";
+    }
+    return hookResult;
+  }});
+  Object.defineProperty(hookPattern, entrySymbol, { configurable: true, get: function() {
+    hookGets++;
+    proxyTrace += "get;";
+    if (this !== hookPattern) throw "original hook getter receiver";
+    return proxyHook;
+  }});
+  var proxyResult = entryMethod.call(rawReceiver,
+    (proxyTrace += "pattern;", hookPattern),
+    (proxyTrace += "second;", originalSecond),
+    (proxyTrace += "ignored;", 17));
+  if (proxyResult !== hookResult || hookGets !== 1 || hookApplies !== 1 ||
+      proxyTrace !== "pattern;second;ignored;get;apply;") throw entryName + " hook observation order";
+
+  Object.defineProperty(hookPattern, entrySymbol, { configurable: true, get: function() {
+    throw hookMarker;
+  }});
+  expectHookMarker(function() { return entryMethod.call(rawReceiver, hookPattern, originalSecond); }, entryName + " Get");
+  Object.defineProperty(hookPattern, entrySymbol, { configurable: true, value:
+    new Proxy(function() {}, { apply: function() { throw hookMarker; } })
+  });
+  expectHookMarker(function() { return entryMethod.call(rawReceiver, hookPattern, originalSecond); }, entryName + " apply");
+
+  var absentGets = 0;
+  Object.defineProperty(hookPattern, entrySymbol, { configurable: true, get: function() {
+    absentGets++;
+    return null;
+  }});
+  var absentReceiver = { toString: function() { throw hookMarker; } };
+  expectHookMarker(function() { return entryMethod.call(absentReceiver, hookPattern, originalSecond); }, entryName + " absence");
+  if (absentGets !== 1) throw entryName + " absent original hook reread";
+}
+
+// Primitive patterns bypass all six symbol lookups.
+for (var bypassIndex = 0; bypassIndex < symbolEntries.length; bypassIndex++) {
+  var bypassEntry = symbolEntries[bypassIndex];
+  var bypassSaved = Object.getOwnPropertyDescriptor(String.prototype, bypassEntry[1]);
+  var bypassReads = 0;
+  Object.defineProperty(String.prototype, bypassEntry[1], { configurable: true, get: function() {
+    bypassReads++;
+    throw "primitive symbol hook read";
+  }});
+  var bypassResult;
+  try { bypassResult = String.prototype[bypassEntry[0]].call("aba", "b", bypassEntry[0] === "split" ? 2 : "x"); }
+  finally {
+    if (bypassSaved === undefined) delete String.prototype[bypassEntry[1]];
+    else Object.defineProperty(String.prototype, bypassEntry[1], bypassSaved);
+  }
+  if (bypassReads !== 0) throw bypassEntry[0] + " primitive hook bypass";
+  if (bypassEntry[0] === "match" && bypassResult[0] !== "b") throw "primitive match result";
+  if (bypassEntry[0] === "matchAll" && Array.from(bypassResult)[0][0] !== "b") throw "primitive matchAll result";
+  if ((bypassEntry[0] === "replace" || bypassEntry[0] === "replaceAll") && bypassResult !== "axa") throw "primitive replace result";
+  if (bypassEntry[0] === "search" && bypassResult !== 1) throw "primitive search result";
+  if (bypassEntry[0] === "split" &&
+      (bypassResult.length !== 2 || bypassResult[0] !== "a" || bypassResult[1] !== "a")) throw "primitive split result";
+}
+
+// The created RegExp path performs a required Invoke, including Proxy hooks.
+var createdEntries = [["match", Symbol.match], ["search", Symbol.search]];
+var savedHookTypeErrorPrototype = TypeError.prototype;
+for (var createdIndex = 0; createdIndex < createdEntries.length; createdIndex++) {
+  var createdEntry = createdEntries[createdIndex];
+  var createdSaved = Object.getOwnPropertyDescriptor(RegExp.prototype, createdEntry[1]);
+  var createdGets = 0, createdCalls = 0, createdReceiver, createdResult = {};
+  var createdTarget = function() { throw "created target called"; };
+  var createdHook = new Proxy(createdTarget, { apply: function(target, receiver, args) {
+    createdCalls++;
+    if (target !== createdTarget || receiver !== createdReceiver ||
+        Object.getPrototypeOf(receiver) !== RegExp.prototype || receiver.source !== "b" ||
+        args.length !== 1 || args[0] !== "abc") throw "created Proxy receiver or argument";
+    return createdResult;
+  }});
+  Object.defineProperty(RegExp.prototype, createdEntry[1], { configurable: true, get: function() {
+    createdGets++;
+    createdReceiver = this;
+    return createdHook;
+  }});
+  try {
+    if (String.prototype[createdEntry[0]].call("abc", "b") !== createdResult ||
+        createdGets !== 1 || createdCalls !== 1) throw "created Proxy result";
+    for (var absentIndex = 0; absentIndex < 2; absentIndex++) {
+      Object.defineProperty(RegExp.prototype, createdEntry[1], { configurable: true,
+        value: absentIndex === 0 ? null : undefined });
+      var requiredCaught = false;
+      try { String.prototype[createdEntry[0]].call("abc", "b"); }
+      catch (error) {
+        requiredCaught = Object.getPrototypeOf(error) === savedHookTypeErrorPrototype;
+      }
+      if (!requiredCaught) throw "created nullish hook must throw";
+    }
+    Object.defineProperty(RegExp.prototype, createdEntry[1], { configurable: true,
+      get: function() { throw hookMarker; } });
+    expectHookMarker(function() { return String.prototype[createdEntry[0]].call("abc", "b"); }, "created Get");
+    Object.defineProperty(RegExp.prototype, createdEntry[1], { configurable: true,
+      value: new Proxy(function() {}, { apply: function() { throw hookMarker; } }) });
+    expectHookMarker(function() { return String.prototype[createdEntry[0]].call("abc", "b"); }, "created apply");
+  } finally { Object.defineProperty(RegExp.prototype, createdEntry[1], createdSaved); }
+}
+
 262;

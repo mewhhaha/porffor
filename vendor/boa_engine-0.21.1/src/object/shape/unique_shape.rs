@@ -233,6 +233,10 @@ impl UniqueShape {
         self.property_table().borrow().keys()
     }
 
+    pub(super) fn property_count(&self) -> usize {
+        self.property_table().borrow().keys.len()
+    }
+
     /// Return location in memory of the [`UniqueShape`].
     pub(crate) fn to_addr_usize(&self) -> usize {
         let ptr: *const _ = self.inner.as_ref();

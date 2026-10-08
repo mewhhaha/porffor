@@ -20,98 +20,124 @@ fn normalized(source: &str) -> String {
         .collect()
 }
 
+fn positions_in_order(source: &str, markers: &[&str]) {
+    let mut cursor = 0;
+    for marker in markers {
+        let offset = source[cursor..]
+            .find(marker)
+            .unwrap_or_else(|| panic!("missing marker after byte {cursor}: {marker}"));
+        cursor += offset + marker.len();
+    }
+}
+
 #[test]
-fn static_typeof_owns_the_complete_value_kind_domain() {
+fn typeof_evaluates_its_whole_operand_once_before_observing_the_result() {
     let body = bounded(
         OPERATIONS_SOURCE,
         "pub(crate) fn compile_typeof_payload(",
-        "pub(crate) fn emit_typeof_payload_from_tag_payload_local(",
+        "pub(crate) fn emit_typeof_value(",
     );
-    for kind in [
-        "Undefined",
-        "Null",
-        "Object",
-        "Array",
-        "Arguments",
-        "Boolean",
-        "Number",
-        "BigInt",
-        "Symbol",
-        "String",
-        "Dynamic",
-    ] {
-        assert_eq!(body.matches(&format!("ValueKind::{kind}")).count(), 1);
-    }
-    assert_eq!(body.matches("ValueKind::Function").count(), 2);
-    assert!(body.contains("ValueKind::Object | ValueKind::Dynamic => None"));
-    assert!(!body.contains("unreachable!"));
-    assert!(!body.contains("_ =>"));
-    assert!(!OPERATIONS_SOURCE.contains("emit_typeof_payload_for_kind"));
+    assert_eq!(body.matches("self.compile_expr_to_value(").count(), 1);
+    positions_in_order(
+        body,
+        &[
+            "let input = self.runtime_schema().reserve_value_local(function);",
+            "self.compile_expr_to_value(expr, &input, function)?;",
+            "self.emit_typeof_value(&input, output, function)?;",
+            "input.clear(function);",
+        ],
+    );
+    assert!(body.contains("output: &ValueLocals"));
+    assert!(!body.contains("ValueKind::"));
+    assert!(!body.contains("expr.kind"));
+    assert!(!body.contains("compile_expr_payload"));
 }
 
 #[test]
-fn static_typeof_results_and_runtime_fallback_remain_exact() {
-    let body = normalized(bounded(
+fn runtime_typeof_preserves_exact_primitive_spellings_and_the_object_default() {
+    let body = bounded(
         OPERATIONS_SOURCE,
-        "pub(crate) fn compile_typeof_payload(",
-        "pub(crate) fn emit_typeof_payload_from_tag_payload_local(",
-    ));
-    for result in [
-        "ValueKind::Undefined=>Some(\"undefined\")",
-        "ValueKind::Null|ValueKind::Array|ValueKind::Arguments=>Some(\"object\")",
-        "ValueKind::Boolean=>Some(\"boolean\")",
-        "ValueKind::Number=>Some(\"number\")",
-        "ValueKind::BigInt=>Some(\"bigint\")",
-        "ValueKind::Symbol=>Some(\"symbol\")",
-        "ValueKind::String=>Some(\"string\")",
-        "ValueKind::Object|ValueKind::Dynamic=>None",
+        "pub(crate) fn emit_typeof_value(",
+        "pub(crate) fn emit_proxy_target_is_callable_for_typeof_i32(",
+    );
+    let compact = normalized(body);
+    for (tag, spelling) in [
+        ("Undefined", "undefined"),
+        ("Boolean", "boolean"),
+        ("Number", "number"),
+        ("BigInt", "bigint"),
+        ("Symbol", "symbol"),
+        ("String", "string"),
+    ] {
+        assert_eq!(
+            body.matches(&format!("WasmRuntimeValueTag::{tag}")).count(),
+            1
+        );
+        assert!(compact.contains(&format!("(WasmRuntimeValueTag::{tag},\"{spelling}\")")));
+    }
+    positions_in_order(
+        body,
+        &[
+            "self.emit_interned_string_reference(\"object\", function)?",
+            "output.set_reference(&object, schema, function);",
+            "for (tag, spelling) in [",
+            "input.tag().load(function);",
+            "Instruction::I32Eq",
+            "self.emit_interned_string_reference(spelling, function)?",
+        ],
+    );
+    assert!(!body.contains("unreachable!"));
+    assert!(!body.contains("ValueKind::"));
+}
+
+#[test]
+fn callable_objects_and_htmldda_override_the_default_in_spec_order() {
+    let body = bounded(
+        OPERATIONS_SOURCE,
+        "pub(crate) fn emit_typeof_value(",
+        "pub(crate) fn emit_proxy_target_is_callable_for_typeof_i32(",
+    );
+    positions_in_order(
+        body,
+        &[
+            "output.set_reference(&object, schema, function);",
+            "self.emit_is_callable_i32(input, function)?;",
+            "self.emit_interned_string_reference(\"function\", function)?",
+            "output.set_reference(&string, schema, function);",
+            "self.emit_is_htmldda_function_i32(input, function)?;",
+            "self.emit_interned_string_reference(\"undefined\", function)?",
+            "output.set_reference(&string, schema, function);",
+        ],
+    );
+    let callable = bounded(
+        OPERATIONS_SOURCE,
+        "pub(crate) fn emit_is_callable_i32(",
+        "pub(crate) fn compile_string_concat_payload(",
+    );
+    for capability in [
+        "reference_type::<FunctionObject>",
+        "reference_type::<BoundFunction>",
+        "reference_type::<ProxyObject>",
+        ".field(ProxyObjectSchema::CALL_CAPABILITY)",
+        "ProxyCallCapability::ObjectOnly",
     ] {
         assert!(
-            body.contains(result),
-            "missing static typeof result: {result}"
+            callable.contains(capability),
+            "callability lost {capability}"
         );
     }
-    let function_kind = body
-        .find("ValueKind::Function=>{")
-        .expect("missing Function arm");
-    let html_dda = body
-        .find("self.emit_is_htmldda_function_i32(")
-        .expect("missing HTMLDDA observation");
-    let function_return = body[html_dda..]
-        .find("returnOk(());")
-        .map(|position| position + html_dda)
-        .expect("missing Function early return");
-    let runtime_fallback = body
-        .rfind("self.compile_expr_to_locals(")
-        .expect("missing runtime tag fallback");
-    assert!(function_kind < html_dda);
-    assert!(html_dda < function_return);
-    assert!(function_return < runtime_fallback);
 }
 
 #[test]
-fn a_known_type_still_evaluates_its_operand_before_publishing_the_type_string() {
-    let body = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "pub(crate) fn compile_typeof_payload(",
-        "pub(crate) fn emit_typeof_payload_from_tag_payload_local(",
-    ));
-    assert!(body.contains(concat!(
-        "ifletSome(static_typeof_result)=static_typeof_result{",
-        "self.compile_expr_payload(expr,function)?;",
-        "function.instruction(&Instruction::Drop);",
-        "function.instruction(&Instruction::I64Const(",
-        "self.strings.payload(static_typeof_result),));",
-        "returnOk(());}",
-    )));
-}
-
-#[test]
-fn contract_and_task_record_total_static_typeof_ownership() {
+fn contract_and_task_record_the_runtime_value_typeof_owner() {
     for source in [CONTRACT, TASK] {
-        assert!(source.contains("ValueKind"));
-        assert!(source.contains("Object"));
-        assert!(source.contains("Dynamic"));
-        assert!(source.contains("HTMLDDA"));
+        for marker in [
+            "ValueLocals",
+            "compile_typeof_payload",
+            "emit_typeof_value",
+            "HTMLDDA",
+        ] {
+            assert!(source.contains(marker), "documentation lost {marker}");
+        }
     }
 }

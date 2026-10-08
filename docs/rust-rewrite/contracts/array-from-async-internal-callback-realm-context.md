@@ -1,5 +1,14 @@
 # Array.fromAsync internal callback Realm context
 
+Current source status — 2026-10-05: the semantic GC batch replaces the raw
+Array.fromAsync owner and retires its offset/fingerprint structure guard. The
+[GC continuation contract](gc-array-from-async-execution.md) describes the
+actual closed-domain, whole-value and Promise consumers and six unrun semantic
+control cohorts. Compilation and execution are pending for the complete batch.
+All earlier implementation details and proof below are historical to their
+original source; none is inherited by this GC source.
+
+
 Status: implemented on 2026-08-26; focused verification is recorded below.
 
 ## Ownership

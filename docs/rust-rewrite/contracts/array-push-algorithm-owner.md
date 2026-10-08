@@ -1,5 +1,14 @@
 # `Array.prototype.push` complete-argument ownership
 
+## Adjacent splice retirement — 2026-10-04 dry source
+
+The separate spliceFromArray extension mentioned by the historical nonclaims
+below is now retired through the existing captured-callee/spread/canonical
+Splice owners. Push production and these earlier receipts are unchanged by
+that batch. The ref97 combined all-target Rust type check passed; runtime
+verification remains pending. See the
+[Splice contract](array-splice-algorithm-owner.md).
+
 Status: implemented and focused-verification complete for the Wasm-AOT
 compiler on 2026-08-28.
 

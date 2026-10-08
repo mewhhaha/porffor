@@ -49,7 +49,12 @@ macro_rules! wire_domain {
         }
     };
 }
-wire_domain!(DateTimeCalendar { Gregorian = 1, Iso8601 = 2, Chinese = 3 });
+wire_domain!(DateTimeCalendar {
+    Buddhist = 4, Chinese = 3, Coptic = 5, Dangi = 6,
+    Ethioaa = 7, Ethiopic = 8, Gregorian = 1, Hebrew = 9,
+    Indian = 10, IslamicCivil = 11, IslamicTbla = 12,
+    IslamicUmalqura = 13, Iso8601 = 2, Japanese = 14, Persian = 15, Roc = 16,
+});
 wire_domain!(DateTimeHourCycle { H11 = 1, H12 = 2, H23 = 3, H24 = 4 });
 wire_domain!(DateTimeLocaleMatcher { Lookup = 1, BestFit = 2 });
 wire_domain!(DateTimeFormatMatcher { Basic = 1, BestFit = 2 });

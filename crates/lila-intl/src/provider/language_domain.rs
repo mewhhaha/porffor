@@ -6,15 +6,65 @@
 //! territory-alias semantics from the empty language represented by `und`.
 
 use core::ops::Range;
+use std::sync::Arc;
 
 use icu_locale::extensions::unicode::key;
-use icu_locale::provider::{Aliases, Baked, LanguageStrStrPair};
+#[cfg(test)]
+use icu_locale::provider::Baked;
+use icu_locale::provider::{LanguageStrStrPair, LocaleAliasesV1};
 use icu_locale::subtags::{region, script, Variant, Variants};
 use icu_locale::{LanguageIdentifier, Locale, LocaleCanonicalizer, LocaleExpander};
+use icu_provider::prelude::*;
 
 use crate::{CanonicalLocaleId, LocaleId, LocaleTransformError, UnsupportedLocale};
 
-use super::keyword_aliases::{self, TransformKeywordValues};
+use super::keyword_aliases::{self, KeywordAliasData, TransformKeywordValues};
+
+/// The genuine data-only canonicalization owner. Admission derives the reserved
+/// alias rules once from the same immutable Locale image as the ICU kernel.
+/// Native data consumers do not need to invent an Intl provider identity.
+#[derive(Debug)]
+pub(crate) struct LocaleCanonicalizationData {
+    canonicalizer: Arc<LocaleCanonicalizer>,
+    expander: LocaleExpander,
+    keyword_aliases: Arc<KeywordAliasData>,
+    reserved_language_rules: ReservedLanguageAliasRules,
+}
+
+impl LocaleCanonicalizationData {
+    pub(crate) fn from_image(locale: &crate::LocaleDataImage) -> Result<Self, &'static str> {
+        Ok(Self {
+            canonicalizer: locale.canonicalizer(),
+            expander: locale.expander(),
+            keyword_aliases: locale.keyword_aliases(),
+            reserved_language_rules: ReservedLanguageAliasRules::from_image_data(locale.aliases())?,
+        })
+    }
+
+    pub(crate) fn canonicalize(
+        &self,
+        locale: &LocaleId,
+    ) -> Result<CanonicalLocaleId, LocaleTransformError> {
+        ParsedLocale::parse(locale)?.canonicalize(
+            &self.canonicalizer,
+            &self.reserved_language_rules,
+            &self.keyword_aliases,
+        )
+    }
+    pub(crate) fn apply_likely_subtags(
+        &self,
+        locale: &LocaleId,
+        operation: LikelySubtags,
+    ) -> Result<CanonicalLocaleId, LocaleTransformError> {
+        ParsedLocale::parse(locale)?.apply_likely_subtags(
+            operation,
+            &self.expander,
+            &self.canonicalizer,
+            &self.reserved_language_rules,
+            &self.keyword_aliases,
+        )
+    }
+}
 
 #[derive(Debug)]
 struct ReservedLanguage(Box<str>);
@@ -36,21 +86,32 @@ struct ReservedVariantAlias {
 /// for the pinned alias data. Unknown future data fails provider setup.
 #[derive(Debug)]
 pub(super) struct ReservedLanguageAliasRules {
-    aliases: &'static Aliases<'static>,
+    aliases: DataPayload<LocaleAliasesV1>,
     wildcard_variants: Vec<ReservedVariantAlias>,
 }
 
 impl ReservedLanguageAliasRules {
+    #[cfg(test)]
     pub(super) fn from_pinned_data() -> Result<Self, &'static str> {
-        let aliases = Baked::SINGLETON_LOCALE_ALIASES_V1;
+        Self::from_image_data(
+            DataProvider::<LocaleAliasesV1>::load(&Baked, Default::default())
+                .map_err(|_| "pinned aliases missing")?
+                .payload,
+        )
+    }
+
+    pub(super) fn from_image_data(
+        aliases: DataPayload<LocaleAliasesV1>,
+    ) -> Result<Self, &'static str> {
+        let data = aliases.get();
         // Every other language-keyed alias/likely-subtag map uses a 2- or
         // 3-byte key in ICU's authoritative schema. Only this unconstrained
         // string-keyed list could contain a reserved language rule.
-        if !aliases.language.is_empty() {
+        if !data.language.is_empty() {
             return Err("general language alias list requires reserved-language review");
         }
         let mut wildcard_variants = Vec::new();
-        for rule in aliases.language_variants.iter() {
+        for rule in data.language_variants.iter() {
             let LanguageStrStrPair(language, variants, replacement) = rule.into();
             if !language.is_unknown() {
                 continue;
@@ -109,6 +170,7 @@ impl ReservedLanguageAliasRules {
             if let Some(script) = identifier.script {
                 if let Some(&replacement) = self
                     .aliases
+                    .get()
                     .script
                     .get(&script.to_tinystr().to_unvalidated())
                 {
@@ -119,10 +181,12 @@ impl ReservedLanguageAliasRules {
             if let Some(region) = identifier.region {
                 let replacement = if region.is_alphabetic() {
                     self.aliases
+                        .get()
                         .region_alpha
                         .get(&region.to_tinystr().resize().to_unvalidated())
                 } else {
                     self.aliases
+                        .get()
                         .region_num
                         .get(&region.to_tinystr().to_unvalidated())
                 };
@@ -132,6 +196,7 @@ impl ReservedLanguageAliasRules {
                 }
                 if let Some(replacements) = self
                     .aliases
+                    .get()
                     .complex_region
                     .get(&region.to_tinystr().to_unvalidated())
                 {
@@ -150,6 +215,7 @@ impl ReservedLanguageAliasRules {
             for variant in &mut variants {
                 if let Some(&replacement) = self
                     .aliases
+                    .get()
                     .variant
                     .get(&variant.to_tinystr().to_unvalidated())
                 {
@@ -173,6 +239,7 @@ impl ReservedLanguageAliasRules {
                 if let Some(subtag) = value.as_single_subtag() {
                     if let Some(replacement) = self
                         .aliases
+                        .get()
                         .subdivision
                         .get(&subtag.to_tinystr().resize().to_unvalidated())
                     {
@@ -187,7 +254,7 @@ impl ReservedLanguageAliasRules {
     }
 }
 
-pub(super) enum LikelySubtags {
+pub(crate) enum LikelySubtags {
     Maximize,
     Minimize,
 }
@@ -233,8 +300,9 @@ impl ParsedLocale {
         mut self,
         canonicalizer: &LocaleCanonicalizer,
         rules: &ReservedLanguageAliasRules,
+        keyword_aliases: &KeywordAliasData,
     ) -> Result<CanonicalLocaleId, LocaleTransformError> {
-        self.canonicalize_components(canonicalizer, rules);
+        self.canonicalize_components(canonicalizer, rules, keyword_aliases);
         self.into_canonical_identifier()
     }
 
@@ -244,8 +312,9 @@ impl ParsedLocale {
         expander: &LocaleExpander,
         canonicalizer: &LocaleCanonicalizer,
         rules: &ReservedLanguageAliasRules,
+        keyword_aliases: &KeywordAliasData,
     ) -> Result<CanonicalLocaleId, LocaleTransformError> {
-        self.canonicalize_components(canonicalizer, rules);
+        self.canonicalize_components(canonicalizer, rules, keyword_aliases);
         // Reserved languages have no keys in the pinned ICU data. Their `und`
         // parser placeholder must never infer a different language or region.
         if self.reserved_base_language.is_none() {
@@ -276,7 +345,7 @@ impl ParsedLocale {
             }
         }
         // The methods construct a new Locale from the transformed identifier.
-        self.canonicalize_components(canonicalizer, rules);
+        self.canonicalize_components(canonicalizer, rules, keyword_aliases);
         self.into_canonical_identifier()
     }
 
@@ -284,6 +353,7 @@ impl ParsedLocale {
         &mut self,
         canonicalizer: &LocaleCanonicalizer,
         rules: &ReservedLanguageAliasRules,
+        keyword_aliases: &KeywordAliasData,
     ) {
         if self.reserved_base_language.is_some() {
             rules.canonicalize_reserved_identifier(&mut self.locale.id);
@@ -302,8 +372,8 @@ impl ParsedLocale {
             self.locale.extensions.transform.lang = Some(transform);
         }
         rules.canonicalize_subdivision_keywords(&mut self.locale);
-        keyword_aliases::canonicalize_unicode_keywords(&mut self.locale);
-        self.transform_keyword_values.canonicalize();
+        keyword_aliases.canonicalize_unicode_keywords(&mut self.locale);
+        self.transform_keyword_values.canonicalize(keyword_aliases);
     }
 
     fn into_canonical_identifier(self) -> Result<CanonicalLocaleId, LocaleTransformError> {
@@ -357,22 +427,19 @@ mod tests {
     use icu_locale::subtags::Region;
 
     fn canonical(source: &str) -> String {
-        ParsedLocale::parse(&LocaleId::parse(source).unwrap())
+        LocaleCanonicalizationData::from_image(&crate::embedded_locale_data_image().unwrap())
             .unwrap()
-            .canonicalize(
-                &LocaleCanonicalizer::new_extended(),
-                &ReservedLanguageAliasRules::from_pinned_data().unwrap(),
-            )
+            .canonicalize(&LocaleId::parse(source).unwrap())
             .unwrap()
             .as_str()
-            .to_string()
+            .to_owned()
     }
 
     #[test]
     fn pinned_alias_rules_admit_the_reserved_language_domain() {
         let rules = ReservedLanguageAliasRules::from_pinned_data().unwrap();
-        assert!(rules.aliases.language.is_empty());
-        assert_eq!(rules.aliases.language_variants.len(), 19);
+        assert!(rules.aliases.get().language.is_empty());
+        assert_eq!(rules.aliases.get().language_variants.len(), 19);
         assert_eq!(rules.wildcard_variants.len(), 10);
         assert!(rules
             .wildcard_variants

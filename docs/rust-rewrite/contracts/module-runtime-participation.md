@@ -1,10 +1,20 @@
 # Module runtime participation
 
-This contract closes the boundary between a module being part of the loaded,
-linked graph and a module contributing code or objects to the emitted artifact.
-Those are deliberately different facts for source-phase requests.
+Current source implementation, 2026-10-03: successful Module and Script graphs
+use canonical activations, including TLA, deferred requests and cycles. A
+source-only JavaScript target is loaded and parsed without loading its children;
+static source bindings/forwarded exports fail linking with SyntaxError and dynamic
+`import.source` rejects before evaluation, namespace access or activation. There
+is no fabricated source cell or retained product driver. A target also reached
+through Evaluation/Defer retains its canonical activation, but the Source job
+still rejects. See the [source-phase rejection contract](source-text-module-source-phase-rejection.md).
+Executable acceptance is pending.
 
-## Defect closed
+The remaining sections preserve the earlier participation repair and regression
+inventory as historical evidence. Their positive source-object delivery and
+merged-driver descriptions are superseded by the current boundary above.
+
+## Historical defect closed
 
 `ModuleEvaluationModeIr` already classifies a unit reached only through
 `import source` as `NotEvaluated`. The body emitter honors that classification,
@@ -20,7 +30,7 @@ For example, an entry that imports `inactive.js` in the source phase and reads
 namespace import inside `inactive.js`. Emitting that inactive import's alias
 makes the entry observe an object instead.
 
-## Closed domain
+## Historical closed domain
 
 `ModuleMaterializationModeIr` is the private, two-case domain consumed by
 runtime source generation:
@@ -42,7 +52,7 @@ runtime behavior of an existing arm. `ModuleNamespaceIr` carries this typed
 mode rather than a parallel `deferred: bool`, and namespace getter generation
 matches it exhaustively.
 
-## Invariants
+## Historical invariants
 
 1. A `NotEvaluated` unit remains in the loaded graph. It is parsed, checked for
    early errors, linked, and available as a module source object when an active
@@ -64,7 +74,7 @@ matches it exhaustively.
 6. Filtering runtime artifacts never filters parse, early-error, host
    resolution or link-error work. Source phase is not a silent-skip mechanism.
 
-## Durable regression
+## Historical durable regression
 
 One linker regression builds an active entry and a source-only unit whose body
 contains a namespace import, a nested source import, `import.meta` and a static
@@ -72,7 +82,7 @@ dynamic import. The linked source must contain the active entry's module source
 object and alias, but none of the inactive unit's namespace, alias, nested
 source object, meta cell, dispatcher or dynamic component.
 
-## Nonclaims
+## Historical nonclaims
 
 This contract does not make dynamic target evaluation lazy, implement exact
 module-namespace exotic descriptors, support deferred cycles or top-level

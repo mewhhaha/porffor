@@ -1,60 +1,18 @@
-# Math builtin policy domains
+# Native Math policy domains
 
-Status: implemented for the nested capability-free Math dispatch domains.
+The T05 atomic source draft uses the consumed closed `MathBuiltin` and
+`MathUnaryBuiltin` enums and exhaustive native dispatcher. Every numeric
+argument passes through one whole `ToNumber` completion before its scalar bits
+are read. A thrown reference is retained intact and prevents later argument
+coercion. One native cleanup edge publishes the complete result.
 
-## Closed routing
+Scalar kernels take `I64Local` operands. Host math imports keep their existing
+binary64 ABI. Shared binary16 kernels live in `binary_data/float16.rs`; Math and
+typed element writers call the same typed producer. No semantic value is an
+integer address, and no payload/tag return pair remains in Math.
 
-The private, capability-free `MathBuiltin` separates the 29 one-argument Math
-operations from the eight algorithms with distinct argument or host behavior.
-Its `Unary(MathUnaryBuiltin)` variant carries the complete one-argument choice;
-the remaining variants are `Atan2`, `Hypot`, `Imul`, `Max`, `Min`, `Pow`,
-`Random` and `SumPrecise`.
-
-The nested, capability-free `MathUnaryBuiltin` names exactly the 29 operations
-whose shared entry first coerces argument zero and then selects the result
-algorithm. The standard dispatcher constructs one nested unary policy for each
-of those namespace members. The Math emitter consumes `MathBuiltin` once and,
-only for `Unary`, consumes the carried `MathUnaryBuiltin` through a second
-exhaustive match.
-
-Neither domain can be cloned, copied, formatted, defaulted, compared, ordered
-or hashed. The previous inner arms for impossible non-unary operations are
-gone: a non-unary operation cannot inhabit `MathUnaryBuiltin`, so adding or
-misrouting an operation is now a compile error instead of an unreachable
-runtime policy branch.
-
-## Durable regression
-
-`math_builtin_policy_domains_structure.rs` pins both exact domains, all 37
-standard producers, the nested 29/8 split, the consuming exhaustive matches and
-the absence of incidental capabilities, equality routing, wildcard arms and an
-impossible unary fallback.
-
-```sh
-cargo test -p lila-aot-wasm --test math_builtin_policy_domains_structure --quiet
-```
-
-At the 2026-08-28 Batch AK checkpoint, `cargo xc` is green, the structure
-target passes `4/4`, and the existing extremum, `hypot` and `sumPrecise` CLI
-controls pass `3/3`. The exact `Math.abs` and `Math.round` Test262 leaves pass
-all `4/4` Wasm-AOT variants with every failure bucket at zero. No semantic
-golden was required or run.
-
-Batch AK changes no coercion, emitted instruction or operation ordering and
-claims no new Math behavior. It does not close platform-sensitive numeric
-accuracy, randomness, the complete Math namespace or the full pinned Test262
-tree.
-
-## Batch AW dispatcher boundary
-
-Both capability-free domains are now private to `math.rs`, together with the
-raw exhaustive emitter. Standard dispatch reaches them only through 37 fixed Math entries,
-one for each namespace operation. The frozen 825-line domain/emitter selection
-has SHA-256
-`25cedc56bf9f821608dad8f2c4b3d6b079a09279bbc5ca6e0703679d16e98049`;
-restoring only the former enum and emitter visibility reproduces that source
-exactly. `cargo xc` passes. The policy, extremum, `hypot`, `sumPrecise` limb and
-`sumPrecise` runtime structure targets pass `4/4`, `3/3`, `3/3`, `3/3` and
-`6/6`; the three established Math Wasm-AOT CLI controls pass `3/3`. No Test262
-leaf or Wasm golden was required for this source-equivalent dispatcher boundary,
-which claims no new Math behavior, conformance result or published-count change.
+This is uncompiled source. Existing CLI semantic controls remain, with new
+Engine GC controls for coercion order, signed zero, binary16 rounding and exact
+summation. Spelling-only predecessor guards are retired with the raw ABI. Their
+historical results do not establish this draft's type or runtime correctness.
+The later checkpoint must use the confirmed 4096 MiB aggregate kernel cap.

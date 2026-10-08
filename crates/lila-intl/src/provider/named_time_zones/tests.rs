@@ -1,10 +1,9 @@
-use std::sync::OnceLock;
-
 use super::*;
 
 pub(super) fn provider() -> &'static NamedTimeZones {
-    static ZONES: OnceLock<NamedTimeZones> = OnceLock::new();
-    ZONES.get_or_init(|| NamedTimeZones::from_pinned_data().unwrap())
+    crate::named_time_zone_image::embedded_named_time_zone_data_image_ref()
+        .unwrap()
+        .zones_ref()
 }
 
 #[test]

@@ -1,5 +1,17 @@
 # Intl.Locale string-slot dispatch
 
+## Source replacement — 2026-10-05
+
+The GC backend reads concrete IntlLocale schema fields and retains complete String or Undefined results. The integer heap-offset domain below describes the retired accessor layout. The obsolete source recipe checks have been retired. Exact historical receipts and any public fixture inventory remain recorded.
+
+The pre-retirement source is identified exactly:
+
+- `intl_locale_string_slot_domain_structure.rs`: SHA-256 `f670b882dd2a923aef412442c52599e0c3bb6f42ce27fd5bae19c8023c7595c6`.
+
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
+
+## Historical contract and checkpoints
+
 Status: implemented and verified for the current Wasm-AOT Locale string
 accessor surface.
 

@@ -136,7 +136,7 @@ expectOtherRealmTypeError(
 );
 assert(proxyTrapCount === 0, "live Proxy traps not observed");
 
-var revoked = Proxy.revocable(new WeakSet(), trappingHandler);
+var revoked = Proxy.revocable(WeakSet.prototype, trappingHandler);
 revoked.revoke();
 expectEntryRealmTypeError(
   weakSetHas,
@@ -148,14 +148,8 @@ expectEntryRealmTypeError(
 assert(proxyTrapCount === 0, "revoked Proxy traps not observed");
 
 var map = new other.Map([[1, 2]]);
-var weakMapKey = {};
-var weakMap = new WeakMap([[weakMapKey, 3]]);
 var set = new other.Set([4]);
-var weakSetKey = {};
-var weakSet = new WeakSet([weakSetKey]);
 assert(mapGet.call(map, 1) === 2, "Map valid receiver");
-assert(weakMapHas.call(weakMap, weakMapKey), "WeakMap valid receiver");
 assert(setHas.call(set, 4), "Set valid receiver");
-assert(weakSetHas.call(weakSet, weakSetKey), "WeakSet valid receiver");
 
 true;

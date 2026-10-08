@@ -1,5 +1,45 @@
 # Atomics async-waiter heap-slot identity authority
 
+## GC checkpoint progress — 2026-10-07
+
+The GC timeout checkpoint preserves the caller's complete completion and returns
+its progress in a typed i32 local. Main loads and releases that local before
+its event-loop branch; polling releases it internally because the Promise queue
+already owns continuation. Neither caller consumes an implicit stack result.
+The prior unit-returning emitter left main's `br_if` without a condition and a
+Promise polling caller with a spurious `drop`, producing invalid Wasm when the
+monotonic-clock path was selected.
+
+Drain returns as soon as it settles a waiter, before waiting for other active
+waiters. The resulting Promise reaction may notify another waiter. Waiting for
+every waiter first would turn that valid notification into a later timeout or
+deadlock. The finite native control
+`wasm_atomics_wait_async_runs_settled_reactions_before_waiting_again` registers
+two original waits and requires the first timeout's reaction to notify the
+second before its later deadline. `tasks-symbol-progress1` passes the workspace
+type check and the ordinary Await control that previously produced invalid Wasm.
+The new waiter control fails before registration: the old constructor plan
+aliases Int32Array to a body allocating Float64 storage. Its native diagnostic
+retains the actual shared buffer and confirms the wrong element kind. The
+joined constructor repair passes the workspace type check and the unchanged
+waiter control in `tasks-constructor-progress1`. The original first timeout's
+reaction observes one notification and the later Promise resolves with `ok`.
+The same checkpoint passes the all-kind constructor storage control. Historical
+passive-layout results below retain their earlier scope.
+
+Current dry source — 2026-10-05: the raw-offset source-mirror target below
+is retired from the atomic semantic GC draft. It checked passive layout
+spelling, offsets and source occurrence counts. The current GC authoring uses
+typed registry fields and complete semantic value owners; these earlier
+mirrors cannot verify that representation or its behavior. Historical source
+descriptions, commands and results below retain their original scope.
+
+The full GC source cutover, remaining Temporal and AsyncDisposableStack
+authoring, compiler checks and runtime verification remain pending. See the
+[current value/heap architecture](../value-heap-gc.md). Weak reachability retains
+its explicit [unavailable facility boundary](weak-unavailable-runtime-boundary.md).
+No verification or conformance result is inferred from this retirement.
+
 ## Closed layout identities
 
 The passive Atomics async-waiter record contains exactly six capability-free

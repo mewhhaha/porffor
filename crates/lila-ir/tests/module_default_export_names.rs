@@ -33,6 +33,7 @@ fn graph(files: &[(&str, &str)]) -> ScriptIr {
         }
     }
     let program = lower_module_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions,

@@ -1,13 +1,8 @@
 use super::*;
+use crate::ir::reference::{CapturedSuperPropertyBaseSlot, CapturedSuperReferencedNameSlot};
 
 impl<'a> ScriptLowerer<'a> {
-    /// Lower the shared operands and inferred GetValue result for a
-    /// SuperProperty. Direct reads and fused mutations call this one producer,
-    /// so the two paths cannot disagree about receiver or key representation.
-    pub(super) fn lower_super_property_reference_parts(
-        &mut self,
-        access: &SuperPropertyAccess,
-    ) -> Option<(PropertyKeyIr, Box<TypedExpr>, ValueInfo)> {
+    pub(super) fn lower_super_property_receiver(&mut self) -> Option<TypedExpr> {
         if self.class_context.is_none()
             && !matches!(
                 self.direct_eval_invocation(),
@@ -21,28 +16,153 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("object literal method");
             return None;
         }
-        let receiver = Box::new(self.lower_current_this());
+        Some(self.lower_current_this())
+    }
+
+    /// Direct reads and fused mutations consume the same actual receiver gate,
+    /// key evaluation and inferred GetValue result.
+    pub(super) fn lower_super_property_reference_parts(
+        &mut self,
+        access: &SuperPropertyAccess,
+    ) -> Option<(PropertyKeyIr, Box<TypedExpr>, ValueInfo)> {
+        let receiver = Box::new(self.lower_super_property_receiver()?);
         let key = self.lower_super_property_key(access.field())?;
-        let info = match &key {
-            PropertyKeyIr::StaticString(key_name) => self
-                .class_context
-                .as_ref()
-                .and_then(|context| context.super_base_shape.as_deref())
-                .and_then(|shape| read_heap_shape_property(shape, key_name))
-                .map(|property| match property {
-                    ObjectShapeProperty::Data(info) => info,
-                    ObjectShapeProperty::Accessor {
-                        getter: Some(getter),
-                        ..
-                    } => self.accessor_return_info(&getter.function_id),
-                    ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
-                })
-                .unwrap_or_else(unknown_runtime_value_info),
+        let base = TypedExpr::from_info(
+            Self::value_info_from_shape(
+                self.class_context
+                    .as_ref()
+                    .and_then(|context| context.super_base_shape.clone()),
+            ),
+            ExprIr::Undefined,
+        );
+        let (name, property) = match &key {
+            PropertyKeyIr::StaticString(name) => (
+                Some(name.clone()),
+                self.read_current_object_shape_property(&base, name),
+            ),
+            PropertyKeyIr::StringExpr(key) if matches!(&key.expr, ExprIr::WellKnownSymbol(_)) => {
+                let ExprIr::WellKnownSymbol(symbol) = &key.expr else {
+                    unreachable!("well-known symbol guard supplies the key")
+                };
+                (
+                    Some(shape_namespace_key(*symbol)),
+                    self.read_current_object_symbol_shape_property(&base, *symbol),
+                )
+            }
             PropertyKeyIr::StringExpr(_)
             | PropertyKeyIr::ArrayIndex(_)
-            | PropertyKeyIr::ArrayLength => unknown_runtime_value_info(),
+            | PropertyKeyIr::ArrayLength => (None, None),
+        };
+        let info = match property {
+            Some(ObjectShapeProperty::Data(info)) => info,
+            Some(ObjectShapeProperty::Accessor { getter: None, .. }) => ValueInfo::undefined(),
+            property => {
+                let info = match property {
+                    Some(ObjectShapeProperty::Accessor {
+                        getter: Some(getter),
+                        ..
+                    }) => {
+                        self.merge_function_this_info(&getter.function_id, receiver.value_info());
+                        if let Some(signature) =
+                            self.function_signatures.get_mut(&getter.function_id)
+                        {
+                            Self::merge_omitted_signature_params_as_undefined(signature, 0);
+                        }
+                        self.accessor_return_info(&getter.function_id)
+                    }
+                    None => name
+                        .as_deref()
+                        .map_or_else(unknown_runtime_value_info, |name| {
+                            self.unproven_object_property_info(&base, name)
+                        }),
+                    Some(ObjectShapeProperty::Data(_))
+                    | Some(ObjectShapeProperty::Accessor { getter: None, .. }) => {
+                        unreachable!("effect-free descriptors were handled above")
+                    }
+                };
+                // Super still performs Get with the actual `this` before call
+                // arguments or a compound-assignment RHS are evaluated.
+                self.observe_all_planned_source_as_unknown_property_hooks();
+                self.invalidate_unknown_user_code_effects();
+                info
+            }
         };
         Some((key, receiver, info))
+    }
+
+    /// PutValue of an already-obtained `value` through a freshly evaluated
+    /// SuperProperty Reference (for-in/of heads, where the Reference is
+    /// evaluated after the iteration value exists).
+    pub(super) fn lower_super_property_assign_value(
+        &mut self,
+        access: &SuperPropertyAccess,
+        value: TypedExpr,
+    ) -> Option<TypedExpr> {
+        let (name, receiver, _) = self.lower_super_property_reference_parts(access)?;
+        self.record_caller_flow_invalidation();
+        Some(TypedExpr::from_info(
+            value.value_info(),
+            ExprIr::SuperPropertyWrite {
+                key: name,
+                receiver,
+                value: Box::new(value),
+                strictness: self.reference_strictness(),
+            },
+        ))
+    }
+
+    /// A SuperProperty destructuring-assignment target. The Reference is
+    /// captured when the target is prepared (before the element value is
+    /// obtained); the PutValue reuses the captured base, `this` and
+    /// uncoerced name, never re-resolving them after user code runs.
+    pub(super) fn lower_super_destructuring_target(
+        &mut self,
+        access: &SuperPropertyAccess,
+    ) -> Option<DestructuringTargetIr> {
+        let receiver = self.lower_super_property_receiver()?;
+        let key = self.lower_super_property_key(access.field())?;
+        let receiver_slot =
+            CapturedPropertyReceiverSlot::new(self.alloc_temp_binding_name("super.target.this."));
+        let base_slot =
+            CapturedSuperPropertyBaseSlot::new(self.alloc_temp_binding_name("super.target.base."));
+        let name_slot = CapturedSuperReferencedNameSlot::new(
+            self.alloc_temp_binding_name("super.target.name."),
+        );
+        let value_binding = self.alloc_temp_binding_name("super.target.value.");
+        let plan =
+            SuperPropertyReferencePlan::new(Box::new(receiver), key, self.reference_strictness());
+        let (capture, reference) = plan.capture_reference(
+            receiver_slot,
+            base_slot,
+            name_slot,
+            SuperPropertyCaptureMode::WriteOnly,
+        );
+        let ExprIr::SuperPropertyMutation(mutation) = &capture.expr else {
+            unreachable!("Super capture is produced by its consuming Reference plan")
+        };
+        let SuperPropertyMutationOperationIr::Capture(slots) = mutation.operation() else {
+            unreachable!("capture factory owns the exact operation")
+        };
+        self.pending_super_destructuring_slots.extend([
+            slots.receiver_storage_name().to_string(),
+            slots.base_storage_name().to_string(),
+            slots.referenced_name_storage_name().to_string(),
+            value_binding.clone(),
+        ]);
+        let value = TypedExpr::from_info(
+            unknown_runtime_value_info(),
+            ExprIr::Identifier(value_binding.clone()),
+        );
+        let put = reference.write(value);
+        // PutValue can run a setter, a Proxy trap or key coercion.
+        self.observe_all_planned_source_as_unknown_property_hooks();
+        self.invalidate_unknown_user_code_effects();
+        self.record_caller_flow_invalidation();
+        Some(DestructuringTargetIr::AssignmentSuper {
+            capture: Box::new(capture),
+            value_binding,
+            put: Box::new(put),
+        })
     }
 
     /// Reify the receiver/key/strictness tuple produced by evaluating one
@@ -65,9 +185,21 @@ impl<'a> ScriptLowerer<'a> {
         access: &SuperPropertyAccess,
     ) -> TypedExpr {
         self.record_caller_flow_invalidation();
-        let Some((plan, read_info)) = self.lower_super_property_reference_plan(access) else {
+        let Some((key, receiver, read_info)) = self.lower_super_property_reference_parts(access)
+        else {
             return TypedExpr::undefined();
         };
+        self.lower_super_property_numeric_update_from_parts(source_op, key, receiver, read_info)
+    }
+
+    pub(super) fn lower_super_property_numeric_update_from_parts(
+        &mut self,
+        source_op: UpdateOp,
+        key: PropertyKeyIr,
+        receiver: Box<TypedExpr>,
+        read_info: ValueInfo,
+    ) -> TypedExpr {
+        let plan = SuperPropertyReferencePlan::new(receiver, key, self.reference_strictness());
         let (op, return_mode) = match source_op {
             UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
             UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),

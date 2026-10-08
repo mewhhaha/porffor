@@ -262,22 +262,17 @@ impl ScriptLowerer<'_> {
         &mut self,
         entry_state: u32,
     ) -> AsyncDisposableFinalizerPlanIr {
-        let dispose_state = self
+        let suffix_end = self
             .current_async_resume_state
-            .expect("an async-dispose scope must have an async resume state")
-            .checked_add(1)
-            .expect("async-dispose state overflow");
-        let resume_state = dispose_state
-            .checked_add(1)
-            .expect("async-dispose state overflow");
-        let exit_state = resume_state
-            .checked_add(1)
-            .expect("async-dispose state overflow");
-        self.current_async_resume_state = Some(exit_state);
+            .expect("an async-dispose scope must have an async resume state");
+        let finalizer =
+            AsyncDisposableFinalizerPlanIr::after_source_suffix(entry_state, suffix_end)
+                .expect("async-dispose state overflow");
+        self.current_async_resume_state = Some(finalizer.exit_state());
         if self.current_resumable_plan.is_some() {
-            self.current_generator_resume_state = Some(exit_state);
+            self.current_generator_resume_state = Some(finalizer.exit_state());
         }
-        AsyncDisposableFinalizerPlanIr::new(entry_state, dispose_state, resume_state, exit_state)
+        finalizer
     }
 
     /// Lowers the resource side of an admitted classic-for `await using` head.
@@ -349,7 +344,6 @@ impl ScriptLowerer<'_> {
             // AddDisposableResource performs the observable @@asyncDispose /
             // @@dispose lookup before the following suffix is evaluated.
             self.invalidate_unknown_user_code_effects();
-            self.static_iterator_binding_values.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
             let initialized = InitializedBinding::without_creation(
@@ -582,7 +576,6 @@ impl ScriptLowerer<'_> {
                 .init()
                 .expect("await using initializers were validated before lowering");
             let init = self.lower_expression(initializer);
-            self.static_iterator_binding_values.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let init = LoweredInitializer::evaluated(init);
             let initialized = match pending {

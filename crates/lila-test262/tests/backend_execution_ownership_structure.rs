@@ -1,4 +1,6 @@
 const OWNER_SOURCE: &str = include_str!("../src/differential.rs");
+const WORKER_SOURCE: &str = include_str!("../src/differential/worker.rs");
+const PROCESS_SOURCE: &str = include_str!("../src/differential/worker_process.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/differential-backend-execution-ownership.md"
 );
@@ -202,15 +204,9 @@ fn positions_in_order(source: &str, markers: &[&str]) {
     }
 }
 
-fn fnv1a(source: &str) -> u64 {
-    source.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
-    })
-}
-
 fn production_source() -> &'static str {
     OWNER_SOURCE
-        .split_once("#[cfg(test)]\nmod tests {")
+        .split_once("#[cfg(test)]\nfn case_fingerprint(")
         .expect("differential test module boundary")
         .0
 }
@@ -240,59 +236,35 @@ fn backend_execution_is_one_debug_only_owned_authority() {
         1
     );
 
-    let source = production_source();
-    let declaration_marker = concat!(
-        "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\n",
-        "#[derive(Debug)]\nstruct BackendExecution {"
-    );
-    let declaration_offset = source
-        .find(declaration_marker)
-        .expect("BackendExecution declaration");
-    let preceding_item_end = source[..declaration_offset]
-        .rfind('}')
-        .expect("preceding CapturingOutput implementation");
-    let following_producer = source[declaration_offset..]
-        .find("#[cfg(feature = \"spec-exec-oracle\")]\nfn execute_case(")
-        .map(|offset| declaration_offset + offset)
-        .expect("following execute_case producer");
+    let declaration = normalize_rust(bounded_inclusive(
+        production_source(),
+        "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\n#[derive(Debug)]\nstruct BackendExecution {",
+        "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\nconst fn execution_failure_phase(",
+    ));
     assert_eq!(
-        normalize_rust(&source[preceding_item_end + 1..following_producer]).code,
+        declaration.code,
         concat!(
             "#[cfg(any(test,feature=\"spec-exec-oracle\"))]",
             "#[derive(Debug)]structBackendExecution{backend:DifferentialBackend,",
             "output_events:OutputEventsObservation,result:BackendExecutionResult,}",
             "#[cfg(any(test,feature=\"spec-exec-oracle\"))]",
             "#[derive(Debug)]enumBackendExecutionResult{Completion{",
-            "completion:ObservedCompletion,backend_note:String,},EngineFailure{",
+            "completion:ObservedCompletion,backend_note:String,},RootedCompletionGraph{",
+            "completion:SnapshotCompletion,backend_note:String,},EngineFailure{",
             "phase:FailurePhase,message:String,},}",
-            "#[cfg(any(test,feature=\"spec-exec-oracle\"))]",
-            "implBackendExecutionResult{constfndisposition(&self)->ExecutionDisposition{",
-            "matchself{Self::Completion{completion:ObservedCompletion::Normal(_),..}",
-            "=>ExecutionDisposition::Normal,Self::Completion{",
-            "completion:ObservedCompletion::Throw(_),..}|Self::EngineFailure{..}",
-            "=>ExecutionDisposition::Error,}}}"
-        ),
-        "both private authorities must retain only their diagnostic Debug capability"
+        )
     );
-
-    let source = normalize_rust(source);
-    assert_eq!(
-        exact_identifier_count(&source.identifiers, "BackendExecution"),
-        7
-    );
-    assert_eq!(
-        exact_identifier_count(&source.identifiers, "BackendExecutionResult"),
-        12
-    );
-    assert_eq!(
-        exact_identifier_count(&source.routes, "BackendExecutionResult::Completion"),
-        4
-    );
-    assert_eq!(
-        exact_identifier_count(&source.routes, "BackendExecutionResult::EngineFailure"),
-        4
-    );
-    for authority in ["BackendExecution", "BackendExecutionResult"] {
+    let source = normalize_rust(&format!(
+        "{}\n{}\n{}",
+        production_source(),
+        WORKER_SOURCE.split("#[cfg(test)]").next().unwrap(),
+        PROCESS_SOURCE.split("#[cfg(test)]").next().unwrap(),
+    ));
+    for authority in [
+        "BackendExecution",
+        "BackendExecutionResult",
+        "CompletedWorkerAttempt",
+    ] {
         for capability in ["Clone", "Copy", "Default", "PartialEq", "Eq"] {
             assert!(!source
                 .routes
@@ -310,6 +282,21 @@ fn backend_execution_is_one_debug_only_owned_authority() {
             assert!(!source.routes.contains(&forbidden), "found `{forbidden}`");
         }
     }
+    let completed = normalize_rust(bounded_inclusive(
+        PROCESS_SOURCE,
+        "#[cfg(feature = \"spec-exec-oracle\")]\npub(super) struct CompletedWorkerAttempt",
+        "#[cfg(feature = \"spec-exec-oracle\")]\nstruct Stage",
+    ));
+    assert_eq!(
+        completed.code,
+        concat!(
+            "#[cfg(feature=\"spec-exec-oracle\")]",
+            "pub(super)structCompletedWorkerAttempt{observation:BackendObservation,}",
+            "#[cfg(feature=\"spec-exec-oracle\")]implCompletedWorkerAttempt{",
+            "pub(super)fninto_observation(self)->BackendObservation{self.observation}}",
+        )
+    );
+    assert!(!OWNER_SOURCE.contains("fn execute_case("));
 }
 
 #[test]
@@ -319,29 +306,32 @@ fn replay_constructs_wasm_then_spec_exec_and_moves_both_to_comparison() {
         "#[cfg(feature = \"spec-exec-oracle\")]\npub fn replay_case(",
         "#[cfg(not(feature = \"spec-exec-oracle\"))]",
     ));
-    assert_eq!(replay.code.matches("execute_case(").count(), 2);
-    assert_eq!(replay.code.matches("compare_executions(").count(), 1);
+    assert_eq!(replay.code.matches("runner.run(").count(), 2);
+    assert_eq!(replay.code.matches(".into_observation()").count(), 2);
+    assert_eq!(replay.code.matches("compare_observations(").count(), 1);
     positions_in_order(
         &replay.code,
         &[
-            "letwasm_aot=execute_case(case,DifferentialBackend::WasmAot);",
-            "letspec_exec=execute_case(case,DifferentialBackend::SpecExec);",
-            "Ok(compare_executions(case,wasm_aot,spec_exec))",
+            "letwasm=runner.run(input,DifferentialBackend::WasmAot,oracle)?;",
+            "letspec=runner.run(input,DifferentialBackend::SpecExec,oracle)?;",
+            "compare_observations(input,wasm.into_observation(),spec.into_observation(),)",
         ],
     );
-    assert_eq!(
-        (replay.code.len(), fnv1a(&replay.code)),
-        (315, 0x4efc_7e19_c664_3719)
-    );
+    assert!(!replay.code.contains("execute_case("));
+    assert!(!replay.code.contains("Engine::"));
 }
 
 #[test]
-fn execution_producer_populates_one_complete_envelope() {
-    let producer = normalize_rust(bounded_inclusive(
-        production_source(),
-        "#[cfg(feature = \"spec-exec-oracle\")]\nfn execute_case(",
-        "#[cfg(feature = \"spec-exec-oracle\")]\nfn captured_output_events(",
-    ));
+fn execution_producer_populates_one_complete_envelope_in_the_child() {
+    let producer = normalize_rust(
+        WORKER_SOURCE
+            .split_once("fn execute_case(")
+            .expect("sole child execution producer")
+            .1
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap(),
+    );
     assert_eq!(
         producer
             .code
@@ -350,31 +340,57 @@ fn execution_producer_populates_one_complete_envelope() {
         1
     );
     assert_eq!(
-        producer
-            .code
-            .matches("BackendExecutionResult::EngineFailure{")
-            .count(),
+        producer.code.matches("BackendExecution{backend,").count(),
         1
     );
     assert_eq!(
         producer
             .code
-            .matches("BackendExecution{backend,output_events,result,}")
+            .matches("BackendExecutionResult::RootedCompletionGraph{")
             .count(),
         1
     );
+    assert!(producer.code.contains("events!=journal.events"));
     assert!(producer
         .code
-        .ends_with("BackendExecution{backend,output_events,result,}}"));
-    assert_eq!(
-        (producer.code.len(), fnv1a(&producer.code)),
-        (1470, 0xc6b4_d0f8_fd89_d1ac)
+        .contains("backend_used!=backend.execution_backend()"));
+    positions_in_order(
+        &producer.code,
+        &[
+            "letordinary_outcome=|outcome:lila_engine::ObservedRunOutcome|",
+            "BackendExecutionResult::Completion{",
+            "DifferentialProgram::RootedSnapshot(program)",
+            "case.snapshot_limits().expect(",
+            "engine.observe_script_graph(program.source(),compile,run,limits)",
+            "engine.observe_module_graph(program.source(),compile,run,limits)",
+            "BackendExecutionResult::RootedCompletionGraph{",
+            "letresult=matchoutcome{",
+            "backend_used!=backend.execution_backend()||events!=journal.events",
+            "Err(error)=>observe_engine_error(backend,&error)",
+            "BackendExecution{backend,",
+        ],
     );
-
+    let worker = normalize_rust(bounded_inclusive(
+        WORKER_SOURCE,
+        "pub fn run_differential_worker(",
+        "fn execute_case(",
+    ));
+    positions_in_order(
+        &worker.code,
+        &[
+            "WorkerFrame::Header{",
+            "native.admit()",
+            "WorkerFrame::Admitted{",
+            "execute_case(&case,request.binding.backend",
+            "project_backend_execution(case.protocol(),execution)",
+            "WorkerFrame::Terminal{",
+        ],
+    );
+    assert_eq!(worker.code.matches("execute_case(").count(), 1);
     let engine_error = normalize_rust(bounded_inclusive(
         production_source(),
-        "#[cfg(feature = \"spec-exec-oracle\")]\nfn observe_engine_error(",
-        "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\nfn compare_executions(",
+        "fn observe_engine_error(",
+        "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\nfn compare_observations(",
     ));
     assert_eq!(
         engine_error
@@ -383,52 +399,79 @@ fn execution_producer_populates_one_complete_envelope() {
             .count(),
         1
     );
-    assert!(engine_error.code.ends_with(concat!(
-        "BackendExecutionResult::EngineFailure{phase,",
-        "message:error.message().to_string(),}}"
-    )));
-    assert_eq!(
-        (engine_error.code.len(), fnv1a(&engine_error.code)),
-        (635, 0x7c25_999d_0eea_68f8)
-    );
+    assert!(engine_error.code.ends_with(
+        "BackendExecutionResult::EngineFailure{phase,message:error.message().to_string(),}}"
+    ));
 }
 
 #[test]
-fn comparison_borrows_both_envelopes_before_consuming_each_once() {
+fn comparison_borrows_completed_observations_and_worker_failure_wins() {
     let comparison = normalize_rust(bounded_inclusive(
         production_source(),
-        "fn compare_executions(",
+        "fn compare_observations(",
         "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\nfn obeys_output_policy(",
     ));
-    assert_eq!(
-        exact_identifier_count(&comparison.identifiers, "wasm_execution"),
-        4
-    );
-    assert_eq!(
-        exact_identifier_count(&comparison.identifiers, "spec_execution"),
-        4
-    );
     positions_in_order(
         &comparison.code,
         &[
-            "&wasm_execution.output_events",
-            "&spec_execution.output_events",
-            "letwasm_disposition=wasm_execution.result.disposition();",
-            "letspec_disposition=spec_execution.result.disposition();",
-            "letwasm_aot=project_backend_execution(protocol,wasm_execution);",
-            "letspec_exec=project_backend_execution(protocol,spec_execution);",
+            "&wasm_aot.output_events",
+            "&spec_exec.output_events",
+            "letwasm_disposition=wasm_aot.execution.disposition();",
+            "letspec_disposition=spec_exec.execution.disposition();",
+            "ExecutionObservation::WorkerFailure{..}",
+            "DifferentialVerdict::WorkerFailure",
+            "elseif!output_policy_satisfied",
+            "DifferentialVerdict::ObservationContractViolated",
+            "matches!(verdict,DifferentialVerdict::Mismatch).then",
+            "DifferentialReport{",
+            "wasm_aot,spec_exec,",
         ],
     );
-    let wasm_move_route = "project_backend_execution(protocol,wasm_execution)";
-    let wasm_move = comparison.code.find(wasm_move_route).unwrap();
-    let spec_move_route = "project_backend_execution(protocol,spec_execution)";
-    let spec_move = comparison.code.find(spec_move_route).unwrap();
-    assert!(!comparison.code[wasm_move + wasm_move_route.len()..].contains("wasm_execution"));
-    assert!(!comparison.code[spec_move + spec_move_route.len()..].contains("spec_execution"));
-    assert_eq!(
-        (comparison.code.len(), fnv1a(&comparison.code)),
-        (1980, 0x7ea7_39af_e205_62c2)
+    assert!(!comparison.code.contains("project_backend_execution("));
+    // The original single transport now retires and cleans up before returning
+    // its evidence to the protocol-specific supervisor/decoder.
+    let retire = normalize_rust(bounded_inclusive(
+        PROCESS_SOURCE,
+        "let mut cleanup = live.retire();",
+        "pub(super) fn run_robustness(",
+    ));
+    positions_in_order(
+        &retire.code,
+        &[
+            "live.retire()",
+            "drop(live)",
+            "fs::File::open(&journal_path)",
+            "stage.finish()",
+            "Ok(TransportAttempt{",
+        ],
     );
+    assert!(!retire.code.contains("self.decode_journal("));
+    let supervisor = normalize_rust(bounded_inclusive(
+        PROCESS_SOURCE,
+        "let transport = self.run_transport(input.timeout_ms().get()",
+        "pub(super) fn run_transport(",
+    ));
+    positions_in_order(
+        &supervisor.code,
+        &[
+            "self.run_transport(",
+            "self.decode_journal(&transport.bytes,&binding,input)",
+            "ifletSome(failure)=transport.failure",
+            "ifletSome(message)=transport.cleanup",
+            "JournalTail::Completed(execution)",
+        ],
+    );
+    let decoder = normalize_rust(bounded_inclusive(
+        PROCESS_SOURCE,
+        "fn decode_journal(",
+        "#[cfg(not(unix))]",
+    ));
+    assert!(decoder.code.contains(concat!(
+        "ifprint_count==decoded.events.len()asu64",
+        "&&valid_terminal(input.protocol(),&execution)",
+        "&&rooted_snapshot::terminal_limits_match(input,&execution)=>{",
+        "decoded.tail=JournalTail::Completed(execution);phase=JournalPhase::Terminal;}",
+    )));
 }
 
 #[test]
@@ -439,16 +482,15 @@ fn projection_consumes_the_envelope_and_all_five_result_routes() {
         "#[cfg(any(test, feature = \"spec-exec-oracle\"))]\nfn project_primitive_completion(",
     ));
     assert!(projection.code.starts_with(concat!(
-        "fnproject_backend_execution(protocol:DifferentialProtocol,",
-        "execution:BackendExecution,)->BackendObservation{letBackendExecution{",
-        "backend,output_events,result,}=execution;"
+        "fnproject_backend_execution(protocol:DifferentialProtocol,execution:BackendExecution,)",
+        "->BackendObservation{letBackendExecution{backend,output_events,result,}=execution;"
     )));
     assert_eq!(
         projection
             .code
             .matches("BackendExecutionResult::Completion{")
             .count(),
-        3
+        5
     );
     assert_eq!(
         projection
@@ -458,27 +500,36 @@ fn projection_consumes_the_envelope_and_all_five_result_routes() {
         2
     );
     assert_eq!(projection.code.matches("_=>").count(), 0);
+    // The historical five-arm name is retained; V5 and V7 add four closed
+    // routes, including explicit refusal in both wrong-result directions.
+    assert_eq!(
+        projection
+            .code
+            .matches("BackendExecutionResult::RootedCompletionGraph{")
+            .count(),
+        2
+    );
+    assert_eq!(projection.code.matches(")=>").count(), 9);
+    assert!(projection.code.contains(concat!(
+        "DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript,",
+        "BackendExecutionResult::RootedCompletionGraph{completion,backend_note,},",
+        ")=>ExecutionObservation::RootedCompletionGraph{completion,backend_note,}",
+    )));
+    assert!(projection.code.contains(concat!(
+        "DifferentialProtocol::V7Test262HostRootedCompletionGraphPrintTranscript,",
+        "BackendExecutionResult::Completion{..},)=>ExecutionObservation::EngineFailure{",
+        "phase:FailurePhase::RunnerInvariant,",
+    )));
+    assert!(projection.code.contains(concat!(
+        "BackendExecutionResult::RootedCompletionGraph{..},",
+        ")=>ExecutionObservation::ObservationRejected{",
+    )));
     assert!(projection
         .code
-        .ends_with("BackendObservation{backend,output_events,execution,}}"));
-    assert_eq!(
-        (projection.code.len(), fnv1a(&projection.code)),
-        (1265, 0xa6c8_e8d8_71be_286b)
-    );
-
-    let source = normalize_rust(production_source());
-    assert_eq!(
-        exact_identifier_count(&source.identifiers, "project_backend_execution"),
-        3
-    );
-    assert_eq!(
-        source.routes.matches(".project_backend_execution").count(),
-        0
-    );
-    assert_eq!(
-        source.routes.matches("::project_backend_execution").count(),
-        0
-    );
+        .ends_with("BackendObservation{worker_identity:None,backend,output_events,execution,}}"));
+    let worker = normalize_rust(WORKER_SOURCE.split("#[cfg(test)]").next().unwrap());
+    assert_eq!(worker.code.matches("project_backend_execution(").count(), 1);
+    assert!(!PROCESS_SOURCE.contains("project_backend_execution("));
 }
 
 #[test]
@@ -494,8 +545,11 @@ fn contract_and_t25_record_the_owned_execution_lifecycle() {
     ] {
         assert!(
             contract_words.contains(marker),
-            "missing contract marker: {marker}"
+            "missing historical contract marker: {marker}"
         );
-        assert!(task_words.contains(marker), "missing T25 marker: {marker}");
+        assert!(
+            task_words.contains(marker),
+            "missing historical T25 marker: {marker}"
+        );
     }
 }

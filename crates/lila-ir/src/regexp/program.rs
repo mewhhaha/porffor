@@ -1,5 +1,8 @@
 use super::*;
 
+mod counted;
+use counted::validate_counted_regions;
+
 /// A word in the versioned, allocation-relative immutable program descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -12,10 +15,12 @@ pub enum RegExpProgramWord {
     SplitCount,
     RepeatableSplitCount,
     NamedGroupTableOffset,
+    RepeatSlotCount,
+    RepeatStateByteLength,
 }
 
 impl RegExpProgramWord {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::MagicVersion,
         Self::ByteLength,
         Self::InstructionCount,
@@ -24,6 +29,8 @@ impl RegExpProgramWord {
         Self::SplitCount,
         Self::RepeatableSplitCount,
         Self::NamedGroupTableOffset,
+        Self::RepeatSlotCount,
+        Self::RepeatStateByteLength,
     ];
 
     pub const fn offset(self) -> u64 {
@@ -32,8 +39,8 @@ impl RegExpProgramWord {
 }
 
 pub const REGEXP_PROGRAM_HEADER_SIZE: usize =
-    (RegExpProgramWord::NamedGroupTableOffset as usize + 1) * 8;
-pub const REGEXP_PROGRAM_MAGIC_VERSION: u64 = (1_u64 << 32) | u32::from_le_bytes(*b"RGPB") as u64;
+    (RegExpProgramWord::RepeatStateByteLength as usize + 1) * 8;
+pub const REGEXP_PROGRAM_MAGIC_VERSION: u64 = (3_u64 << 32) | u32::from_le_bytes(*b"RGPB") as u64;
 pub const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
     (2_u64 << 32) | u32::from_le_bytes(*b"NRGT") as u64;
 
@@ -82,6 +89,9 @@ impl ValidatedRegExpProgram {
             .sum();
         let instructions_and_ranges = instruction_count * REGEXP_INSTRUCTION_WIDTH
             + program.ranges.len() * REGEXP_RANGE_ENTRY_WIDTH;
+        let bounds_offset = REGEXP_PROGRAM_HEADER_SIZE + instructions_and_ranges;
+        let (encoded_bounds, repeat_state_byte_length) =
+            encode_repeat_bounds(&program.repeat_bounds, bounds_offset)?;
         let candidates_offset = program
             .named_groups
             .len()
@@ -105,12 +115,14 @@ impl ValidatedRegExpProgram {
         };
         let byte_length = REGEXP_PROGRAM_HEADER_SIZE
             .checked_add(instructions_and_ranges)
+            .and_then(|length| length.checked_add(encoded_bounds.len()))
             .and_then(|length| length.checked_add(named_byte_length))
             .and_then(|length| u32::try_from(length).ok())
             .ok_or(RegExpProgramValidationError::Capacity)?;
         let mut bytes = Vec::with_capacity(byte_length as usize);
         bytes.resize(REGEXP_PROGRAM_HEADER_SIZE, 0);
         bytes.extend_from_slice(&program.encode());
+        bytes.extend_from_slice(&encoded_bounds);
         let named_offset = if program.named_groups.is_empty() {
             0
         } else {
@@ -158,6 +170,8 @@ impl ValidatedRegExpProgram {
                 RegExpProgramWord::SplitCount => split_count as u64,
                 RegExpProgramWord::RepeatableSplitCount => repeatable_split_count as u64,
                 RegExpProgramWord::NamedGroupTableOffset => named_offset as u64,
+                RegExpProgramWord::RepeatSlotCount => program.repeat_bounds.len() as u64,
+                RegExpProgramWord::RepeatStateByteLength => repeat_state_byte_length as u64,
             };
             let offset = word.offset() as usize;
             bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
@@ -200,8 +214,8 @@ impl ValidatedRegExpProgram {
             return Err(invalid);
         }
         let ranges_offset = REGEXP_PROGRAM_HEADER_SIZE + count * REGEXP_INSTRUCTION_WIDTH;
-        let names_offset = ranges_offset + range_count * REGEXP_RANGE_ENTRY_WIDTH;
-        if names_offset > bytes.len() {
+        let bounds_offset = ranges_offset + range_count * REGEXP_RANGE_ENTRY_WIDTH;
+        if bounds_offset > bytes.len() {
             return Err(invalid);
         }
         let mut instructions = Vec::with_capacity(count);
@@ -218,6 +232,18 @@ impl ValidatedRegExpProgram {
             let word = read(ranges_offset + index * REGEXP_RANGE_ENTRY_WIDTH)?;
             ranges.push((word as u32, (word >> 32) as u32));
         }
+        let repeat_slot_count =
+            usize::try_from(read(RegExpProgramWord::RepeatSlotCount.offset() as usize)?)
+                .map_err(|_| invalid.clone())?;
+        if repeat_slot_count > count {
+            return Err(invalid);
+        }
+        let (repeat_bounds, names_offset) = decode_repeat_bounds(
+            &bytes,
+            bounds_offset,
+            repeat_slot_count,
+            read(RegExpProgramWord::RepeatStateByteLength.offset() as usize)?,
+        )?;
         let named_offset = read(RegExpProgramWord::NamedGroupTableOffset.offset() as usize)?;
         let mut named_groups = Vec::new();
         if named_offset == 0 {
@@ -305,6 +331,7 @@ impl ValidatedRegExpProgram {
             named_groups,
             instructions,
             ranges,
+            repeat_bounds,
         };
         let validated = Self::from_program(&program)?;
         if validated.bytes != bytes {
@@ -312,6 +339,156 @@ impl ValidatedRegExpProgram {
         }
         Ok(validated)
     }
+}
+
+fn encode_repeat_bounds(
+    bounds: &[RegExpRepeatBounds],
+    allocation_offset: usize,
+) -> Result<(Vec<u8>, usize), RegExpProgramValidationError> {
+    let capacity = RegExpProgramValidationError::Capacity;
+    let records_length = bounds
+        .len()
+        .checked_mul(REGEXP_REPEAT_BOUND_RECORD_SIZE)
+        .ok_or_else(|| capacity.clone())?;
+    let payload_end = bounds
+        .iter()
+        .try_fold(records_length, |length, bound| {
+            let maximum = match bound.maximum() {
+                RegExpRepeatMaximum::Finite(value) => value.digits().len(),
+                RegExpRepeatMaximum::Unbounded => 0,
+            };
+            length
+                .checked_add(bound.minimum().digits().len())?
+                .checked_add(maximum)
+        })
+        .ok_or_else(|| capacity.clone())?;
+    let section_length = payload_end
+        .checked_add(7)
+        .map(|length| length & !7)
+        .ok_or_else(|| capacity.clone())?;
+    allocation_offset
+        .checked_add(section_length)
+        .and_then(|length| u32::try_from(length).ok())
+        .ok_or_else(|| capacity.clone())?;
+    let mut encoded = vec![0; records_length];
+    let mut state_offset = 0_usize;
+    for (slot, bound) in bounds.iter().enumerate() {
+        let minimum_offset = allocation_offset + encoded.len();
+        encoded.extend_from_slice(bound.minimum().digits());
+        let (maximum_kind, maximum_offset, maximum_length) = match bound.maximum() {
+            RegExpRepeatMaximum::Finite(value) => {
+                let offset = allocation_offset + encoded.len();
+                encoded.extend_from_slice(value.digits());
+                (
+                    RegExpRepeatMaximumKind::Finite,
+                    offset,
+                    value.digits().len(),
+                )
+            }
+            RegExpRepeatMaximum::Unbounded => (RegExpRepeatMaximumKind::Unbounded, 0, 0),
+        };
+        for word in RegExpRepeatBoundWord::ALL {
+            let value = match word {
+                RegExpRepeatBoundWord::MinimumDigitsOffset => minimum_offset,
+                RegExpRepeatBoundWord::MinimumDigitsLength => bound.minimum().digits().len(),
+                RegExpRepeatBoundWord::MaximumKind => maximum_kind.word() as usize,
+                RegExpRepeatBoundWord::MaximumDigitsOffset => maximum_offset,
+                RegExpRepeatBoundWord::MaximumDigitsLength => maximum_length,
+                RegExpRepeatBoundWord::StateOffset => state_offset,
+            };
+            let offset = slot * REGEXP_REPEAT_BOUND_RECORD_SIZE + word.offset() as usize;
+            encoded[offset..offset + 8].copy_from_slice(&(value as u64).to_le_bytes());
+        }
+        state_offset = state_offset
+            .checked_add(bound.state_byte_length().ok_or_else(|| capacity.clone())?)
+            .ok_or_else(|| capacity.clone())?;
+    }
+    encoded.resize(section_length, 0);
+    Ok((encoded, state_offset))
+}
+
+fn decode_repeat_bounds(
+    bytes: &[u8],
+    allocation_offset: usize,
+    slot_count: usize,
+    expected_state_byte_length: u64,
+) -> Result<(Vec<RegExpRepeatBounds>, usize), RegExpProgramValidationError> {
+    let invalid = RegExpProgramValidationError::InvalidDescriptor;
+    let read = |offset: usize| {
+        let word = bytes.get(offset..offset.checked_add(8)?)?;
+        Some(u64::from_le_bytes(word.try_into().ok()?))
+    };
+    let records_length = slot_count
+        .checked_mul(REGEXP_REPEAT_BOUND_RECORD_SIZE)
+        .ok_or_else(|| invalid.clone())?;
+    let mut payload_offset = allocation_offset
+        .checked_add(records_length)
+        .filter(|&offset| offset <= bytes.len())
+        .ok_or_else(|| invalid.clone())?;
+    let mut state_offset = 0_usize;
+    let mut bounds = Vec::with_capacity(slot_count);
+    for slot in 0..slot_count {
+        let record = allocation_offset + slot * REGEXP_REPEAT_BOUND_RECORD_SIZE;
+        let field = |word: RegExpRepeatBoundWord| -> Result<usize, RegExpProgramValidationError> {
+            usize::try_from(read(record + word.offset() as usize).ok_or_else(|| invalid.clone())?)
+                .map_err(|_| invalid.clone())
+        };
+        let mut natural =
+            |offset: usize, length: usize| -> Result<RegExpNatural, RegExpProgramValidationError> {
+                if offset != payload_offset {
+                    return Err(invalid.clone());
+                }
+                let end = offset.checked_add(length).ok_or_else(|| invalid.clone())?;
+                let digits = bytes.get(offset..end).ok_or_else(|| invalid.clone())?;
+                let value =
+                    RegExpNatural::from_decimal_digits(digits).ok_or_else(|| invalid.clone())?;
+                if value.digits() != digits {
+                    return Err(invalid.clone());
+                }
+                payload_offset = end;
+                Ok(value)
+            };
+        let minimum = natural(
+            field(RegExpRepeatBoundWord::MinimumDigitsOffset)?,
+            field(RegExpRepeatBoundWord::MinimumDigitsLength)?,
+        )?;
+        let maximum_kind =
+            RegExpRepeatMaximumKind::from_word(field(RegExpRepeatBoundWord::MaximumKind)? as u64)
+                .ok_or_else(|| invalid.clone())?;
+        let maximum_offset = field(RegExpRepeatBoundWord::MaximumDigitsOffset)?;
+        let maximum_length = field(RegExpRepeatBoundWord::MaximumDigitsLength)?;
+        let maximum = match maximum_kind {
+            RegExpRepeatMaximumKind::Finite => {
+                RegExpRepeatMaximum::Finite(natural(maximum_offset, maximum_length)?)
+            }
+            RegExpRepeatMaximumKind::Unbounded if maximum_offset == 0 && maximum_length == 0 => {
+                RegExpRepeatMaximum::Unbounded
+            }
+            RegExpRepeatMaximumKind::Unbounded => return Err(invalid),
+        };
+        if field(RegExpRepeatBoundWord::StateOffset)? != state_offset {
+            return Err(invalid.clone());
+        }
+        let bound = RegExpRepeatBounds::new(minimum, maximum).ok_or_else(|| invalid.clone())?;
+        state_offset = state_offset
+            .checked_add(bound.state_byte_length().ok_or_else(|| invalid.clone())?)
+            .ok_or_else(|| invalid.clone())?;
+        bounds.push(bound);
+    }
+    if state_offset as u64 != expected_state_byte_length {
+        return Err(invalid.clone());
+    }
+    let section_end = payload_offset
+        .checked_add(7)
+        .map(|offset| offset & !7)
+        .ok_or_else(|| invalid.clone())?;
+    if bytes
+        .get(payload_offset..section_end)
+        .is_none_or(|padding| padding.iter().any(|&byte| byte != 0))
+    {
+        return Err(invalid.clone());
+    }
+    Ok((bounds, section_end))
 }
 
 fn validate_program(program: &RegExpProgram) -> Result<(), RegExpProgramValidationError> {
@@ -391,6 +568,9 @@ fn validate_program(program: &RegExpProgram) -> Result<(), RegExpProgramValidati
             }
             RegExpOperandRule::LookaroundFailure => target(a) && b <= 3,
             RegExpOperandRule::ProgressSplit => target(a) && target(b >> 1),
+            RegExpOperandRule::RepeatSlot => a < program.repeat_bounds.len() as u64 && b == 0,
+            RegExpOperandRule::RepeatGuard => target(a) && b >> 1 < count as u64,
+            RegExpOperandRule::RepeatOwner => target(a) && b == 0,
             RegExpOperandRule::ProgressCheck => {
                 target(a)
                     && target(b)
@@ -404,6 +584,7 @@ fn validate_program(program: &RegExpProgram) -> Result<(), RegExpProgramValidati
             return Err(Failure::InvalidInstruction { pc });
         }
     }
+    validate_counted_regions(program)?;
     if has_non_consuming_cycle(program) {
         return Err(Failure::NonConsumingCycle);
     }
@@ -464,7 +645,17 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
                 stack.pop();
                 continue;
             }
-            let next = opcode.successors(instruction, *pc, instructions.len())[*edge];
+            let successors = if opcode == RegExpOpcode::RepeatEnd {
+                // Full paired-region validation precedes this proof. Required
+                // empty iterations decrease a finite minimum; optional empty
+                // iterations fail. Summarize completion without hiding a
+                // surrounding cycle that reactivates and resets the counter.
+                let guard = instructions[instruction.operand0 as usize + 1];
+                [Some(guard.operand0 as usize + 1), None]
+            } else {
+                opcode.successors(instruction, *pc, instructions.len())
+            };
+            let next = successors[*edge];
             *edge += 1;
             if let Some(next) = next {
                 match colors[next] {
@@ -489,6 +680,7 @@ mod tests {
             named_groups: Vec::new(),
             instructions,
             ranges: Vec::new(),
+            repeat_bounds: Vec::new(),
         }
     }
 
@@ -514,7 +706,7 @@ mod tests {
     fn choice_accounting_preserves_progress_and_lookaround_edges() {
         for (source, choices, repeatable) in [
             ("(?:a?)*", 2, 2),
-            ("(?:a?){0,2}", 4, 0),
+            ("(?:a?){0,2}", 2, 2),
             ("(?=a*)b", 2, 1),
             (r"(?:\b)*", 1, 1),
         ] {

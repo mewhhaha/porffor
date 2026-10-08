@@ -1,7 +1,7 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, DynamicFunctionKind, DynamicSourceGap, PreparedScriptKind, ProgramIr,
-    UnsupportedFeature, ValueKind,
+    lower, DynamicFunctionKind, DynamicSourceGap, ExprIr, PreparedScriptKind, ProgramIr,
+    PropertyKeyIr, StandardBuiltinId, StatementIr, TypedExpr, UnsupportedFeature, ValueKind,
 };
 
 fn lower_script(source: &str) -> ProgramIr {
@@ -88,12 +88,37 @@ fn intrinsic_call_forwards_every_function_family_identity() {
 }
 
 #[test]
-fn intrinsic_call_preserves_no_source_eval_result_precision() {
-    for (source, expected_kind) in [
-        ("eval.call(undefined);", ValueKind::Undefined),
-        ("eval.call('ignored this');", ValueKind::Undefined),
-        ("eval.call(undefined, 7);", ValueKind::Number),
-        ("eval.call(undefined, true, 'ignored');", ValueKind::Boolean),
+fn non_string_eval_forwarding_retains_the_unproven_method_get_and_original_arguments() {
+    for (source, expected_arguments) in [
+        (
+            "eval.call(undefined);",
+            vec![ExprIr::GlobalPropertyRead {
+                name: "undefined".into(),
+            }],
+        ),
+        (
+            "eval.call('ignored this');",
+            vec![ExprIr::String("ignored this".into())],
+        ),
+        (
+            "eval.call(undefined, 7);",
+            vec![
+                ExprIr::GlobalPropertyRead {
+                    name: "undefined".into(),
+                },
+                ExprIr::Number(7.0f64.to_bits()),
+            ],
+        ),
+        (
+            "eval.call(undefined, true, 'ignored');",
+            vec![
+                ExprIr::GlobalPropertyRead {
+                    name: "undefined".into(),
+                },
+                ExprIr::Boolean(true),
+                ExprIr::String("ignored".into()),
+            ],
+        ),
     ] {
         let program = lower_script(source);
         assert!(
@@ -101,9 +126,55 @@ fn intrinsic_call_preserves_no_source_eval_result_precision() {
             "{source}: {:?}",
             program.diagnostics
         );
+        let script = program.script.as_ref().expect("script IR");
+        // A function's incomplete shape does not prove its current inherited
+        // `call`. Preserve the Get and call operands; the native admission
+        // cohort checks eval's exact non-String pass-through results.
+        assert_eq!(script.result_kind(), ValueKind::Dynamic, "{source}");
+        // Finite candidate discovery may retain source spellings for these
+        // operands. Only the acquired runtime callee decides how to use them.
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::MaterializeBinding { name, value, body },
+            ..
+        }) = script.body.statements.last().expect("forwarded invocation")
+        else {
+            panic!("the original eval receiver must be acquired once: {source}");
+        };
+        assert!(matches!(
+            &value.expr,
+            ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name }
+                if name == "eval"
+        ));
+        assert!(value
+            .function_targets
+            .known_targets()
+            .contains(&StandardBuiltinId::EvalFunction.function_id()));
+        let ExprIr::CallIndirect {
+            direct_eval: None,
+            callee,
+            this_arg: Some(this_arg),
+            args,
+            ..
+        } = &body.expr
+        else {
+            panic!("forwarding must retain the actual indirect Call: {source}");
+        };
+        assert!(callee.function_targets.exact_targets().is_none());
+        assert!(callee
+            .function_targets
+            .known_targets()
+            .contains(&StandardBuiltinId::FunctionPrototypeCall.function_id()));
+        let ExprIr::PropertyRead { target, key } = &callee.expr else {
+            panic!("the live call property must be acquired: {source}");
+        };
+        assert_eq!(key, &PropertyKeyIr::StaticString("call".into()));
+        assert!(matches!(&target.expr, ExprIr::Identifier(base) if base == name));
+        assert!(matches!(&this_arg.expr, ExprIr::Identifier(receiver) if receiver == name));
         assert_eq!(
-            program.script.as_ref().expect("script IR").result_kind(),
-            expected_kind,
+            args.iter()
+                .map(|argument| &argument.expr)
+                .collect::<Vec<_>>(),
+            expected_arguments.iter().collect::<Vec<_>>(),
             "{source}"
         );
     }

@@ -1,0 +1,11 @@
+# Custom service and frame selection
+
+`CheckedIntlServiceSelection` accepts a nonempty closed `IntlServiceSet` and derives the exact immutable component closure. Every service retains the original Locale authority. Shared Number, List, named-zone, DateTime, and Locale-information dependencies are retained only where the actual native consumer requires them. A retained dependency does not advertise another formatter service.
+
+The selected bundle owns optional original typed images. Its sparse builder creates only required image factories; the native provider admits exactly the checked component inventory and verifies the same profile, digest, and actual Arc foundation joins used by the complete provider. Missing or extra frames, foreign dependencies, and partial Minimal or Conformance profiles reject. Complete legacy selections preserve their original twelve-frame identity and admission path.
+
+Public formatter and Locale-property operations check the requested service before using a retained consumer. Kernel operation handles and wire decoders enforce the same boundary. Missing service data returns a typed `UnavailableService` error; no embedded image or fake formatter is substituted. Common locale transforms and admitted named-zone foundation operations retain their existing data-bound authorization.
+
+Sparse exports use version two, explicit requested-service bits, and canonical original component IDs. Admission rederives the dependency closure before decoding each present original frame, remints all actual native foundations, and verifies the provider identity. Version-one exports remain the exact complete twelve-frame format. Wasm custom sections use the actual dynamic frame inventory, and missing supported-values roots reject their key instead of emitting an empty substitute list.
+
+Native controls cover exact frame closure, rejected wire bits, missing/extra/foreign frames, partial non-Custom refusal, and a genuine RelativeTime provider whose Number dependency cannot authorize NumberFormat, PluralRules, or their wire decoding. Shared controls cover sparse SDK/export/CLI/artifact paths and selected output. The current batch remains source-only: no compilation or runtime verification has run.

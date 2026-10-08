@@ -1,5 +1,52 @@
 # T11 — Proxy and Reflect meta-object protocol
 
+## Object.defineProperty entry order — 2026-10-04 dry source
+
+The actual Object.defineProperty builtin now validates its Object target before
+ToPropertyKey and ToPropertyDescriptor. Caller argument expressions retain their
+normal evaluation order. Primitive targets cause an immediate intrinsic
+TypeError in the called builtin Realm; key coercion and descriptor hooks remain
+unread. Existing valid-object and Proxy compatibility paths are unchanged.
+
+Two paired Engine fixtures cover all primitive kinds, unread poisoned hooks,
+caller expression order, valid exotic targets, trap false/true results and both
+borrowed Realm directions after public globals are replaced. Source authoring
+is separate from executable acceptance. The preceding shared foundation passed
+the combined workspace all-target type check; this new entry correction and
+its controls still need their own checkpoint. Full T11 remains open. See the
+[entry-order contract](../docs/rust-rewrite/contracts/object-define-property-entry-order.md).
+
+## Actual target descriptors for Get, Set, Has and Delete — 2026-10-04 dry source
+
+The common direct descriptor loop now invokes the real existing descriptor
+builtin for a nested Proxy target. One private completed recursive descriptor
+owner serves both the public descriptor compatibility algorithm and the outer
+Fact/Get/Set projections; ordinary and exotic storage projections remain in
+place. Each of the four invariant consumers acquires its completed projection
+before applying constraints. Normal Get, Set true, Has false and Delete true
+observe the target descriptor hook in specification order, with original throws
+retained. Early Boolean outcomes and absent Has/Delete descriptors skip the
+unneeded target operations. Literal global declaration Fact acquisition retains
+its direct API and policy.
+
+Existing trusted Proxy/set-path contexts supply the actual planned ordinary
+builtin call. All emitted callers, including global Fact and outlined helpers,
+retain its metadata/body dependency and descriptor fields before emission.
+Nested descriptor errors and outer Get/Delete errors use the executing operation
+Realm. Inline Delete now propagates native errors through the active catch/finally
+handler. Its former CurrentCompletion revocation route has no producer and is
+retired; three closed routes remain, with seventeen source identifier mentions.
+
+Two paired semantic Engine fixtures cover four-operation hook order, Symbol
+identity, original throws and finally/prior effects, invalid/missing/frozen
+and accessor descriptors, Boolean shortcuts and SameValue NaN/signed zero.
+Both Reflect Realm directions and source operators retain intrinsic TypeError
+prototypes after public foreign bindings are replaced. Source review and Rust
+formatting are complete; compilation, execution and full T11 acceptance remain
+pending. Earlier checkpoints below retain their original source scope and do
+not verify this correction. See the
+[completed target contract](../docs/rust-rewrite/contracts/proxy-target-descriptor-completion.md).
+
 **Status:** In progress — Proxy/Reflect paths exist; product semantics and broad verification remain
 
 **Parallel group:** Feature lane  
@@ -7,6 +54,63 @@
 **Blocks:** Proxy-sensitive closure in most other lanes
 
 ## Current repository state
+
+The 2026-10-03 dry ownKeys list conversion uses one ordinary Get of length,
+ToLength, then one ascending ordinary Get per index for every object trap result,
+including actual Arrays with accessor or inherited indices. Each indexed value
+must be a String or Symbol before the next Get. Only after the complete private
+snapshot exists does duplicate checking run, preserving later getter abrupt
+precedence over an earlier duplicate. The 2026-10-04 target follow-up snapshots
+actual IsExtensible, obtains the actual target OwnPropertyKeys list and completes
+GetOwnProperty for every captured target key before checking membership. It
+uses the existing internal-operation builtin implementations with the trusted
+outer Realm context, including recursive Proxy and exotic targets. A private
+non-Copy classified-target owner retains the extensibility, target keys and
+nonconfigurable keys until the constraints consume it. A private non-Copy
+completed-list owner is minted only after those steps
+and consumed by Reflect.ownKeys or filtered Object result publication. Generated
+validation errors and fresh result Arrays use the called builtin's defining
+Realm. Typed target/trap/pending-result roles and acquisition are preserved.
+
+Three new paired Engine fixtures cover live Gets, mutation and once-only reads,
+type/duplicate/abrupt precedence, Symbol identity, existing target invariants,
+and borrowed Realm errors/Array prototypes after mutable globals are clobbered.
+Existing handler/revocation structure guards follow the actual moved owner.
+Source review is complete; compilation and execution remain pending. Historical
+ownKeys receipts below do not verify this revision. Two additional paired
+fixtures cover full target-operation order, descriptor abrupt precedence,
+extensibility/key snapshots across mutation, exotic keys and recursive errors
+for all three builtin consumers in both borrowed Realm directions. The outlined
+IsExtensible helper now receives and propagates the outer operation's trusted
+Realm context; original trap thrown values retain their identity. Existing
+Realm/revocation guards follow that actual consumed path, and the obsolete
+namespace-only invariant implementation is retired. Compilation/runtime and
+full T11 acceptance stay open. See the
+[result owner](../docs/rust-rewrite/contracts/proxy-own-keys-result-ownership.md).
+
+The related 2026-10-04 source follow-up forwards the same trusted outer Realm
+through the real recursive GetPrototypeOf and PreventExtensions helpers,
+including handler Get, trap dispatch, revocation and generated invariant errors.
+All three outlined traversal helpers consume the existing Proxy execution Realm
+revocation route; its former fallback route has no producer and is retired.
+Object.preventExtensions now selects its called builtin Realm for a false-result
+TypeError while Reflect retains false. Original user-thrown identity and the
+existing request/completion ownership are preserved. Two additional paired
+Engine fixtures cover both Object/Reflect consumer pairs in both borrowed Realm
+directions, early error ordering, recursive errors, arbitrary marker/finally
+identity, and successful Boolean/prototype/object outcomes after foreign globals
+are clobbered. At that helper checkpoint the guards followed four routes; the
+newer target-descriptor source above retires CurrentCompletion and retains three. Compilation,
+runtime and full T11 acceptance remain pending; historical receipts below do not
+verify this follow-up. See the
+[request contract](../docs/rust-rewrite/contracts/proxy-prevent-extensions-request.md).
+
+The 2026-10-03 dry Reflect.defineProperty conversion now uses shared
+ToPropertyDescriptor. Its original attributes are read once in specification
+order; the fresh trap object and subsequent invariant checks consume the same
+validated partial fields. The defining Realm and Boolean/throw result policies
+are preserved. Source review is complete; compilation and runtime checks remain
+pending. See the [descriptor contract](../docs/rust-rewrite/contracts/reflect-to-property-descriptor-owner.md).
 
 Proxy and Reflect builtins are implemented through dedicated backend paths, and
 focused tests cover several traps and object-integrity interactions. The

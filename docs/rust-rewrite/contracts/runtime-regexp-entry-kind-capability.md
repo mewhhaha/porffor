@@ -1,6 +1,7 @@
 # Runtime RegExp entry-kind capability
 
-Status: implemented as a source-equivalent Wasm-AOT emitter invariant.
+Status: the entry-kind authority is implemented; the typed T19 rejection follow-up
+and two additional structure witnesses are staged for integration verification.
 
 ## Boundary
 
@@ -9,8 +10,9 @@ authority for the three words stored in each runtime RegExp program-table row.
 It derives no cloning, copying, debugging, equality or default capability. Its
 borrowed exhaustive `word` projection preserves the existing wire values 0, 1
 and 2, while its borrowed exhaustive `throws_syntax_error` policy keeps
-`Rejected` as the sole throwing row. `Unsupported` remains a legal pattern that
-falls through to the runtime matcher, not a syntax error.
+`Rejected` as the sole syntax-throwing row. `Unsupported` enters the emitted
+pattern compiler. If that compiler also reports Unsupported, the product reports
+the typed T19 semantic gap outside JavaScript completion.
 
 The table writer uses the projection in all three exhaustive entry arms. The
 reader uses it for its two `Program` comparisons and builds the throwing-word
@@ -18,8 +20,10 @@ list by borrowing `ALL`, filtering through `throws_syntax_error`, and mapping
 through `word`. No copied enum value, raw enum cast, equality/default policy or
 wildcard arm participates in that route.
 
-This is Rust-time capability hardening. It changes no table word, emitted Wasm
+The original entry-kind hardening changed no table word, emitted Wasm
 instruction, comparison order, branch depth, local lifetime or error behavior.
+The follow-up preserves those wire words and changes the Unsupported compiler
+outcome to a mandatory semantic rejection before publication.
 `ALL` remains a handwritten list whose two exhaustive projections force a new
 variant to choose both a wire word and a throwing policy before the crate can
 build.
@@ -38,7 +42,9 @@ equality/OR aggregation, SyntaxError emission and reverse local release tail.
 The existing valid and invalid runtime-pattern CLI fixtures exercise the
 program-row and rejected-row paths. They are focused witnesses, not arbitrary
 runtime-pattern compilation or complete RegExp/Test262 conformance. The
-structure target passes `3/3`, and these two CLI witnesses pass `2/2`.
+original structure checkpoint passed `3/3`, and its two CLI witnesses passed
+`2/2`. Those historical results do not verify the staged rejection policy or the
+new literal/allocation proof witness.
 
 ## Focused verification
 

@@ -1,12 +1,490 @@
 # T19 — Complete ECMAScript RegExp semantics
 
-**Status:** In progress — the ordered-bytecode engine architecture is fixed; dynamic compilation and broad grammar remain incomplete
+## Folding inventory and native checkpoint — 2026-10-08
+
+Unicode folding enumerates the pinned regress mapping ranges directly; legacy
+folding scans only its UTF-16 domain. An exhaustive comparison with the previous
+full-scalar algorithm proves identical mapping values and ordering. All seven
+native backreference-folding controls pass. RegExp publication has a private
+expression-family owner and retains compiled-program admission. These focused
+results do not establish full pinned RegExp or performance acceptance; see the
+[current checkpoint](README.md#closure-audit-and-verification--2026-10-08).
+
+## Current source position — 2026-10-07
+
+The reviewed static/runtime grammar owners and class-character domain repairs
+are authored. The bounded audit below found no remaining reachable grammar
+capability rejection; explicit resource limits and corruption checks remain.
+This does not close task-wide native semantics, full pinned RegExp/Test262 or
+resource/performance acceptance. Earlier unsupported-grammar notes retain their
+historical scope.
+
+## Current compiler capability audit — 2026-10-07 dry source
+
+A bounded audit of the current static producer and emitted compiler found no
+remaining reachable grammar-capability rejection in those owners. This is a
+source finding, not a conformance result. The runtime parser owns ordinary and
+Unicode classes, Unicode-set algebra and finite strings, named and numbered
+references, forward/reverse assertions, scoped modifiers and exact decimal
+quantifiers. The older dynamic-grammar and runtime-Unsupported checkpoints below
+describe predecessors.
+
+The closed runtime outcomes are `Compiled`, `SyntaxError`, `ResourceExhausted`
+and `CorruptProgram` in
+[`runtime_helpers.rs`](../crates/lila-aot-wasm/src/runtime_helpers.rs).
+[`compiler/contracts.rs`](../crates/lila-aot-wasm/src/builtins/regexp/compiler/contracts.rs)
+admits only `CompileFailure::{Syntax, Resource, Corrupt}`; its resource reasons
+are address space, memory growth, nodes, tasks, instructions and ranges.
+[`program.rs`](../crates/lila-aot-wasm/src/builtins/regexp/program.rs) validates
+descriptor extents and ownership; its corruption paths do not reject language
+features. The retained source limits are 32,768 instructions and 65,536 pooled
+ranges in [`regexp.rs`](../crates/lila-ir/src/regexp.rs). The emitted workspace
+uses source-sized capacities (`units = source bytes + 1`, `nodes = 4 * units + 1`,
+`tasks = 4 * nodes + 8 * instruction limit + 32`) and checks its aligned end
+against the Wasm32 address domain before growth or writes. These remain resource
+bounds, not missing grammar implementations.
+
+Static `UnsupportedFeature` still preserves runtime compilation through
+[`lowering/static_literals.rs`](../crates/lila-ir/src/lowering/static_literals.rs).
+The audit classified its remaining sites as actual range/instruction/capture
+limits or parser-precondition guards: the lookbehind guard accepts every
+currently constructible atom, group/alternative parsing consumes the remaining
+syntax-character fallthrough, and non-ASCII classes select the full range owner.
+Those guards were not expanded into a separate cleanup batch.
+
+The audit did find and fix two static class representation defects: `\s` includes
+non-ASCII whitespace, and Annex B octal escapes `\200` through `\377` exceed the
+128-bit ASCII bitmap. Both now select the existing full range parser before
+bitmap construction. Two static controls and the paired literal/computed
+[`class_character_domains.js`](../crates/lila-engine/tests/fixtures/regexp_runtime_gap/class_character_domains.js)
+fixture cover whitespace, complements, reverse matching, octal endpoints,
+nonmembers and preserved syntax errors. Only narrow formatting and diff checks
+were run; compilation, focused execution, resource/performance acceptance and
+the full pinned RegExp/Test262 gates remain pending for the combined batch.
+
+## Current counted source closure — 2026-10-06 dry source
+
+The current matcher consumes linked choices, recursive required-run templates,
+live progress playback and actual failed-group exhaustion traces. The producers
+also share the pure-empty proof. A separate proof at the actual counted Begin
+now admits complete iteration-independent bodies: the entry Clear resets every
+written capture, nested counters and progress attempts have fresh source-owned
+lifecycles, and assertions restore the original cursor and direction. Ordered
+continuation results stabilize at the actual UTF-16 input length plus one, or
+one for an all-zero-width body. Exact source-sized subtraction retains the
+finite maximum-minus-minimum gap; unbounded maxima remain unbounded. This closes
+successful empty alternatives that reach End and would recreate same-row runs,
+without weakening Run observation or relying on cursor/template equality.
+
+Two new literal/computed Engine controls contain 26 semantic cases covering
+priority, last-iteration captures, assertions, references, reverse and astral
+matching, nested cycles and finite optional gaps. The independent source
+challenge is clear. Unproved reset/owner shapes retain the original matcher
+path; descriptor semantics and resource ceilings are unchanged. The older
+sections below record their narrower source epochs. The current combined source
+is uncompiled, unformatted and unrun; full RegExp, performance and pinned-suite
+acceptance remain pending. See the [independent iteration contract](../docs/rust-rewrite/contracts/regexp-independent-counted-repetition.md).
+
+## Completed child and capture-assertion templates — 2026-10-06 dry source
+
+The original required-run proof now scans complete nested counted pairs and
+retains optional, zero-bound and choice-owning child continuations. Actual v3
+pair admission requires a distinct inactive child row; the complete ordered
+templates compare all its counters. Original optional Guard snapshots may supply
+the fixed-point witness. Discharged capture-writing assertions and references
+share the closed assertion scanner only under the full snapshot proof; the
+required-empty replay remains input-only. Paired literal/computed controls cover
+huge bounds, child fallback order, captures, reverse matching and finite exhaustion.
+
+These changes are uncompiled and unrun. Live progress entries, nested Run
+templates, nested assertions, nonuniform iterations and huge exhaustive fallback
+traversal remain source work. No resource limit or failure outcome was relaxed.
+
+## Linked choices and required runs — 2026-10-06 source
+
+The original matcher now stores choices in one demand-grown linked arena with
+complete capture/repetition snapshots. Its consumed required-run proof compares
+two actual ordered templates before replacing mandatory iterations with exact
+source-sized counters and immutable fallback templates. Restoring a virtual
+choice preserves LIFO order and the original affine minimum/maximum state.
+Shared exact-child admission covers completed positive exact nested lifecycles.
+
+The original input-only assertion scanner is now shared by required-empty
+replay and required-run body admission. A fully discharged assertion can appear
+inside an outer surviving choice without retaining an assertion sentinel in the
+compressed template. The original linked matcher still owns assertions,
+progress, backtracking and full state restoration. Meaningful literal/computed
+cohorts are authored and unrun. Live assertion/progress templates, optional or
+choice-owning nested lifecycles, nonuniform iterations and huge exhaustive
+fallback traversal remain open; resource ceilings are unchanged.
+See the [run contract](../docs/rust-rewrite/contracts/regexp-required-choice-runs.md).
+
+## Required empty replay source successor — 2026-10-06
+
+The native matcher now consumes one paired Begin/End admission and its retained
+counter workspace. After a genuine required iteration ends at the unchanged
+UTF-16 cursor, it can prove capture effects, input-only assertions, untouched
+canonical numbered/named references and completed positive exact nested counters
+idempotent. The consuming proof updates minimum/maximum through the original
+typed natural-counter operations; guard, backtracking and restoration owners
+remain unchanged. The old capture-only child is replaced by this shared proof.
+
+Independent source review is clear and actual producer/descriptor controls are
+authored but unrun. A dry source successor now simulates each reference's ordered
+prefix from the actual post-body fixed point, permitting balanced body-written
+empty captures and checking named alias participation again. The real forward/
+reverse capture rules and temporary open-capture nonparticipation are retained.
+The same successor admits input-only lookarounds only through their exact closed
+sentinel/End/Failure shape and bounded internal branches. Their original matcher
+removes assertion choices and restores cursor/repeat state before returning.
+No new controls or executions were run for this successor. General escaping choices,
+nonempty capture-dependent references,
+lookarounds, optional nested repeats and performance acceptance remain open.
+Original source schemas and resource ceilings are unchanged.
+
+## Exact natural bounds and native counters — 2026-10-06 source
+
+Both actual producers retain canonical decimal minimum/finite maximum bounds at
+and beyond u64 without numeric expansion or an Unbounded approximation. The v3
+immutable descriptor carries checked bound rows and exact source-sized state
+extents. Dense Begin slots, proper regions, canonical digit storage and successor
+ownership are admitted before the matcher consumes the layout.
+
+Native minimum/maximum counters have distinct sealed types and exact base-10^9
+limbs. Choices/assertions restore the entire live slab. A scoped capture-only proof
+admits mandatory empty acceleration after one real successful iteration and checks
+CaptureEnd's actual replay precondition. General empty choices, assertions,
+references and nested repeats remain outside that proof. Scratch ceilings are
+unchanged. The transactional rejection control now exceeds genuine source-body
+capacity; large numeric bounds are admitted.
+
+Source peers and meaningful descriptor/native controls are written. No current
+compilation or execution is claimed. See the [exact counter contract](../docs/rust-rewrite/contracts/regexp-exact-natural-counter.md).
+
+## Non-ASCII identity atoms — 2026-10-06 source
+
+The existing static atom decoder now shares scalar acquisition for ordinary and
+legacy-escaped non-ASCII source characters. Its existing UTF-16 pair owner keeps
+astral quantifier binding, grouped/reverse behavior and lone code units. Unicode
+IdentityEscape retains its actual syntax-rule/backslash-offset rejection.
+Two IR controls and a paired literal/computed Engine cohort are authored and
+independently source-reviewed; all original RegExp controls are retained.
+No compilation or execution is claimed. Exact oversized bounds now have the
+source representation above; general execution-time acceleration remains open.
+
+## Earlier counted compiler and demand-grown matcher — 2026-10-06 source
+
+Static and emitted RegExp compilation now retain one body for admitted numeric
+repetitions. The sole immutable program descriptor has reciprocal Begin/Guard/
+End/Exit instructions and a dense repeat-slot count. Pair, nesting, active-region
+and progress validation precede publication; certified End summaries still
+expose cycles that reset counters by re-entering Begin.
+
+The matcher saves capture and repetition state together in ordered choices.
+Required empty successes decrement the exact minimum; optional empty attempts
+backtrack before decrement. Scratch capacity grows on actual choice demand
+under the unchanged 512 MiB ceiling, after immutable input materialization.
+Positive/negative assertion completion restores the appropriate repeat state.
+Tiny semantic controls compare literals and runtime character-loop constructors
+for finite bounds, empty/captured alternatives, greedy/lazy order, reverse
+matching and assertion restoration.
+
+Braced syntax now orders the original decimal spans before backend admission;
+an exact/overflow decimal enum prevents saturated upper bounds from being
+re-sorted as mathematical counts. Existing controls cover ordered, equal and
+reversed bounds around the u64 boundary. These controls remain unexecuted.
+
+At this earlier source epoch, oversized nullable minima remained unsupported;
+they do not expand instructions or become approximate counts. Compilation,
+runtime regressions, broader RegExp coverage and pinned acceptance remain
+unrun on this source successor. See the counted compiler and matcher workspace
+contracts in `docs/rust-rewrite/contracts/`.
+
+## Realm-owned legacy state — 2026-10-05 dry source
+
+The constructor's legacy accessors now capture a closed slot and read actual
+Realm-owned GC Strings instead of returning an unconditional empty value.
+Successful builtin matches update all slots, including the final capture beyond
+nine and exact UTF-16 contexts. Source literals and constructed objects retain
+their original Realm and immutable legacy-enabled choice; successful subclass
+matches invalidate their Realm's legacy state. Input ToString preserves receiver
+validation order, reentrancy and abrupt identity. Foreign or disabled `compile`
+receivers are rejected before mutation. Two paired Engine controls and the
+[legacy-state contract](../docs/rust-rewrite/contracts/regexp-legacy-state.md) are
+written for the complete batch. Compilation, execution and current-pin T19/T26
+acceptance remain pending.
+
+
+## String invocation results and effects — 2026-10-04 dry source
+
+The complete String invocation-family successor keeps the actual acquired
+callee, raw receiver and full real argument list. Both live result analysis and
+the spread-aware signature retain arbitrary MatchAll hook returns, joining
+Match, Replace, ReplaceAll, Search and Split. Generic String catalog effects
+invalidate captured facts through original symbol GetMethod and Call. A const
+rule requires the synchronous-user-code flag on every generic String row.
+
+Meaningful IR and paired Engine controls retain all six hook roles, arbitrary
+Number/Function/Symbol values, original getters/Proxy calls, spread, caller
+mutations, borrowed Realm errors and exact abrupt cutoffs. This complete source
+is authored after the passing ref105 checkpoint and remains type/runtime
+unverified. Existing RegExp native algorithms, created-hook ownership and full
+RegExpCreate/grammar/descriptor acceptance remain separate. No current pinned
+result or full T19/T26 closure is claimed. See the
+[invocation contract](../docs/rust-rewrite/contracts/string-invocation-family.md).
+
+## Number borrowed String hooks — 2026-10-04 dry source
+
+The successor removes Number primitive Match/Split gates and all copied native
+method booleans. The actual acquired property, raw receiver and complete real
+arguments use the existing indirect analysis/call owner; hook returns cannot
+inherit a synthetic Array result. The static separator shortcut no longer
+throws while discarding argument IR. Existing String symbol algorithms and
+called-function Realm ownership remain independent.
+
+Meaningful lowering and two paired Engine cohorts retain acquisition before
+prototype replacement, spread/ignored operands, arbitrary hook returns and
+caller mutation, original abrupt identity and both borrowed error Realms.
+These controls and the coupled dead inline dispatch retirement remain
+uncompiled and unexecuted. All remaining task source precedes capped
+verification; full T19/T26 and pinned acceptance remain open. See the
+[successor contract](../docs/rust-rewrite/contracts/number-string-hook-and-dispatch-retirement.md).
+
+## String integration — 2026-10-04 dry source
+
+A private consuming method owner joins original String hook GetMethod and the
+created-RegExp required Invoke paths. An absent original hook enters fallback
+once; the created receiver supplies its own observed hook, and its nullish or
+non-callable result throws rather than selecting another literal iterator.
+Match/search/matchAll share callable Proxy dispatch. The created receiver uses
+the called String builtin's intrinsic RegExp prototype, with no mutable public
+constructor/prototype lookup. Existing matcher/program initialization and
+independently live iterator-from-start consumers retain their owners.
+
+Finite existing Engine/CLI controls cover original/created getter identity,
+Proxy/apply order, abrupt values, called Realm errors and prototype selection.
+This complete String protocol batch passed the ref93 combined all-target Rust
+type check and remains unexecuted. It does
+not close all RegExpCreate initialization, pattern grammar, descriptor or
+current-pin RegExp conformance work. See the
+[contract](../docs/rust-rewrite/contracts/string-symbol-hook-operation.md).
+
+## Current dry implementation — 2026-10-03
+
+The emitted pattern compiler now has unverified source support for computed
+named captures and named backreferences. Canonical names and duplicate-name
+admission feed a completed capture inventory required by instruction lowering
+and consumed by named-table publication. Forward references use that completed
+inventory; existing matcher and groups/indices construction consume the table.
+Workspace allocation preserves eight-byte descriptor alignment, including
+padding in its capacity guard. Runtime and static class escapes retain the
+complete named-capture context, including range endpoints.
+
+Computed non-Unicode lookbehind now retains containing and child directions
+through the existing parser workspace and reverse matcher. A closed child-order
+choice keeps alternatives in source order and requires a direction for
+sequences. Reverse capture boundaries and both nested assertion exits preserve
+the containing state; quantified lookbehind remains a genuine SyntaxError.
+
+The already accepted shared `u`/`v` route now retains one private validated
+character-mode owner through workspace and parser consumers. It selects the
+full code-point bitmap and existing Unicode fold table, closes scoped word
+membership before nonword complement, and publishes those ranges for boundaries.
+Raw/raw and fixed/fixed surrogate pairs retain their grammar-specific association;
+decimal misses, quantified lookahead and ordinary `v` punctuation receive
+mode-specific syntax checks. Existing shared lookbehind continues through the
+reverse matcher. Both fold tables are rooted for computed backreferences without
+requiring a static reference. Two finite Engine sources and one stale legacy
+named-capture status-cell correction accompany the source change. They remain
+unexecuted; see the [Unicode character contract](../docs/rust-rewrite/contracts/runtime-regexp-unicode-character-domain.md).
+
+Computed braced Unicode escapes now consume a complete code-point atom through
+that same mode owner. Only fixed escapes invoke fixed/fixed surrogate pairing;
+braced null, maximum and lone-surrogate values remain separate characters.
+Existing quantifier/class/range consumers and validated braced GroupSpecifier
+names use the current representation. The sole braced pre-scan taint is
+removed; the later code-point property owner closes that gate, while the later finite-string owner closes runtime string matching in unverified source.
+Two finite semantic sources cover accepted values, cross-form separation,
+syntax and recompile transaction. They remain uncompiled and unexecuted; see
+the [braced escape contract](../docs/rust-rewrite/contracts/runtime-regexp-braced-unicode-escape.md).
+
+Computed Unicode named references now reach the actual canonical name parser
+and completed capture inventory. The validated character mode enables named
+grammar for every Unicode pattern, including a pattern without declarations;
+unknown names therefore produce a syntax error rather than Legacy identity text.
+Existing directional comparisons, scoped Unicode folding, UTF-16 indices and
+transactional publication remain shared. The ordinary prescan retains its named
+escape delimiters; the later class owner consumes complete v bodies. The later code-point property owner closes its
+property gate; the later class and finite-string owners close nested code-point
+and finite-string algebra in unverified source. Two finite
+matching and syntax sources and corrected raw success rows remain uncompiled
+and unexecuted; see the [Unicode named reference contract](../docs/rust-rewrite/contracts/runtime-regexp-named-unicode-reference.md).
+
+The native code-point property resolver now consumes one exact validated alias
+owner. Its complete binary domain maps exhaustively to the existing pinned ICU
+data, and the Unicode 17 delta accepts only validated values/new Script kinds.
+Four ICU-only mixed-case names reject; strict GC/Script/scx aliases, Unicode 17
+additions, string-property restrictions and Legacy grammar remain shared. Five
+finite native semantic controls are authored and unexecuted; see the
+[native alias contract](../docs/rust-rewrite/contracts/regexp-native-unicode-property-alias.md).
+
+Computed code-point property escapes now consume a complete cached immutable
+catalog from that validated native owner. Exact binary, GC/GC-family, Script
+and Script_Extensions aliases derive from pinned provider data, including the
+typed Unicode 17 additions. The module image deduplicates immutable range
+payloads and checks every address before publishing its five-word rows.
+The emitted parser consumes validated character-set operands through both
+range-endpoint routes. Its separate property bitmap preserves `u` raw
+complement followed by closure, `v` operand closure before complement/union,
+and final negated-class closure before complement.
+
+The complete property image now retains validated code-point keys for all seven
+provider properties of strings, including singletons. Native static parsing and
+immutable serialization consume that same catalog. String rows select checked
+16-byte descriptors and u32 little-endian backing keys; code-point rows retain
+their existing range bytes. No source-sized AST expansion is needed.
+
+Computed `v` classes now consume a private closed grammar/frame owner for nested
+union, homogeneous intersection and homogeneous subtraction. Character versus Set
+operands enforce range endpoints; strict escapes and decoded `\q` cardinality
+feed exact static MayContainStrings. Union uses OR, intersection uses AND and
+subtraction retains the left static fact. Negation rejects a true fact even when
+algebra eliminates every string. Actual finite keys and the separate empty key
+participate in the same algebra as singleton bitmaps. Each operand is folded and
+deduplicated before `/iv` algebra and nested complement.
+
+The completed finite atom replaces the pending string-capability node. Its keys
+are ordered longest first, followed by a singleton alternative and then empty;
+checked lowering emits the existing literal/range and Split/Jump instructions.
+Reverse code-point order, UTF-16 capture bounds and nullable quantifier progress
+reuse the matcher. Full syntax and capture/name completion still precede checked
+instruction expansion and descriptor publication. Checked compiler workspace
+extensions retain rollback, zeroed released storage and receiver transactions.
+Valid direct `\p` string properties and bracketed `\q`/property algebra share
+this route; invalid aliases, `u` properties of strings, `\P` strings, true-MCS
+negation and Set range endpoints retain SyntaxError.
+
+Three paired finite-string Engine sources cover all seven complete properties,
+algebra, longest-priority backtracking, empty progress, operand-local folding,
+reverse bounds and recompile rollback. Existing string-gap controls become
+positive admission/matching controls. Earlier code-point, named and property
+controls remain. All new source is uncompiled and unexecuted. Normal Cargo lock
+resolution for the direct pinned alias-iterator dependency remains part of the
+deferred compile checkpoint; no lock file was hand-edited. See the
+[computed property contract](../docs/rust-rewrite/contracts/runtime-regexp-codepoint-property.md),
+[computed set contract](../docs/rust-rewrite/contracts/runtime-regexp-computed-unicode-sets.md)
+and [finite catalog contract](../docs/rust-rewrite/contracts/runtime-regexp-finite-string-catalog.md).
+
+All three emitted program-layout consumers now reserve a Pending owner without
+decoded-section accessors. Only the consuming factory, which emits the existing
+closed corrupt-program return, exposes a Validated owner. Raw fields, the
+decoder and validity flag are private. The existing guards were already correct;
+this source invariant prevents a future caller from omitting their handoff.
+See the [program boundary](../docs/rust-rewrite/contracts/regexp-program-boundary.md).
+
+The regression sources cover name spelling, forward references, alternative
+duplicates, groups/indices identity, workspace parity and class grammar.
+Computed lookbehind sources cover greediness, references, nested assertions,
+anchors, nullable/huge bounds, sticky lastIndex and recompile publication.
+Compilation and runtime verification are deferred until the coherent
+implementation batch is ready. Full RegExp acceptance remains open; earlier results below apply to their original
+source. See the
+[named-capture contract](../docs/rust-rewrite/contracts/runtime-regexp-named-capture-inventory.md)
+and [lookbehind contract](../docs/rust-rewrite/contracts/runtime-regexp-lookbehind-direction.md).
+
+## Current candidate verification
+
+Seven new operand-fold IR controls and nine paired direct Engine fixtures
+pass. Ten selected adjacent RegExp files pass 20 modes, including both
+circled-M property rows and the Unicode case-mapping neighbor. The 33-file/
+66-mode direct class-string inventory is /v-only and was not replayed in
+full by this selection. No direct /iv pins are selected. Runtime grammar
+and full RegExp conformance remain open.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
+**Status:** In progress — reviewed static/runtime RegExp source and class-domain repairs are authored; task-wide native semantics, resource/performance acceptance and full pinned-suite verification remain incomplete.
 
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T10, T18  
 **Blocks:** String-RegExp integration and RegExp-related T26 closure
 
-## Current repository state
+## Historical repository state — before current compiler closures
+
+The current static compiler lowers all seven provider Unicode properties of
+strings into finite sets. The historical keycap-only checkpoints below retain
+their original scope; they do not describe the current provider projection.
+Direct class-string `/iv` folding is now prepared in an isolated source-only
+successor. It folds direct and finite-property operands before finite-set
+algebra, normalizes singleton aliases through the established range representation
+and matches each string position through existing scoped-fold instructions.
+`Basic_Emoji` and `RGI_Emoji` include a casable circled-M sequence and require
+this operand-local normalization. Seven new IR controls and nine paired Engine
+fixtures are uncompiled and unexecuted. All 33 pinned
+direct class-string files use `/v`; their 66 modes are adjacent coverage only.
+Broader runtime grammar and full-tree gates remain open.
+
+The runtime capability rejection follow-up routes emitted compiler Unsupported,
+missing static literal programs and a defensive missing exec program through
+`RuntimeSemanticGap::RegExpRuntimePatternCompilation` (T19, ABI 7). A compiler gap
+cannot become a catchable TypeError or satisfy a runtime-negative expectation.
+Compiled u/v programs, true SyntaxError, resource RangeError and failed compile
+receiver preservation retain their separate paths. The staged Engine target defines
+eight tests and 20 sloppy/strict observations; runner controls cover catching and
+runtime-negative matching. Verification of this follow-up remains pending; no
+conformance counts are changed. The contract and refresh commands are in
+[`regexp-runtime-capability-rejection.md`](../docs/rust-rewrite/contracts/regexp-runtime-capability-rejection.md).
+
+The same corrective batch removes 1,659 lines of unreachable zero-program exec
+code: the simple matcher, final pattern fallback and handled-local handshake.
+Exec retains its brand, input and single ActiveHandler ToLength ordering before
+one real compiled matcher. The five compiled result-mode projections retain
+their exact normalized bodies; the existing structure witnesses now bind two
+consumers, five projections and a 16-mention ownership census. Genuine matcher
+errors remain unchanged. Verification is pending integration with the capability
+rejection and CLI controls. The subsequent ordinary `@@match` protocol retirement removes its compact
+source catalogue and exact orphan closure. It preserves the prior generic
+protocol body, including object acceptance, ToString, flags, custom exec,
+Unicode advancement and lastIndex ordering. The three child owners and their
+nine source-layout tests are deleted; semantic fixture coverage remains and now
+includes UTF-16/sticky/flags/custom-exec/input-recompile controls. A subsequent
+bounded repair passes the already-read exec value to one private abstract-operation
+emitter: callable Function/Proxy values are called once and return Object/null;
+noncallable values check the RegExp internal slots before using the current
+compiled program. It fixes branded null/noncallable exec while retaining ordinary
+custom-exec receivers and genuine non-RegExp TypeError. String.match always
+invokes the created RegExp's observed `@@match`, fixing computed `a+` and `(a)+`;
+its exact 301-line fallback closure is deleted. The expanded existing CLI fixture
+checks getter throw/recompile order, proxy calls, primitive-result rejection and
+created-method overrides. Node v24.12.0 passes both modes; Lila verification remains
+pending integration. Separate String.matchAll, `@@search` and other String source
+routes require their own audit.
+
+The 2026-09-29 continuation repairs the emitted pattern compiler's unbounded
+plus encoding. A shared must-advance predicate selects the same atom/loop-back
+layout as static compilation, while nullable atoms retain their progress
+handling. Descriptor round trips now cover greedy/lazy plus, nullable atoms,
+backreferences and a program at the instruction cap. Resource probes derive
+their sizes from `REGEXP_MAX_INSTRUCTIONS`; simple Unicode patterns are positive
+controls, and unsupported property/set forms remain explicit capability
+controls. All ten runtime-pattern compiler tests pass on 2026-09-30, including
+the five failures found in the interrupted workspace run. Broad integration
+verification remains pending.
 
 Lila now has dedicated RegExp IR parsing and Wasm builtin support for a
 growing syntax/behavior subset, plus String symbol-dispatch integration. The
@@ -61,18 +539,18 @@ harness, unsupported, crash or bug outcomes. The fixture found one integration
 gap after the IR implementation: reverse lookbehind rejected the existing
 code-point-literal and Unicode-range instructions. The matcher now admits those
 instructions in reverse and shares one canonical range-membership emitter
-between forward and reverse paths. Other Unicode properties of strings and
-direct class-string `/iv` folding remain distinct typed capability boundaries;
-this records no broader UnicodeSets or RegExp completion claim.
+between forward and reverse paths. At that checkpoint, other Unicode properties
+of strings and direct class-string `/iv` folding remained distinct capability
+boundaries; this historical evidence records no broader UnicodeSets closure.
 
 The adjacent Unicode-property-of-strings batch now gives Unicode 17
 `Emoji_Keycap_Sequence` an exact finite representation: the twelve strings
 `[#*0-9] FE0F 20E3`. Direct `\p{Emoji_Keycap_Sequence}` atoms and `v`-mode
 union, intersection and subtraction all consume the existing canonical
 `FiniteClassSet`; the direct `iv` form shares the same bytecode because every
-member is simple-case-fold invariant. Other properties of strings retain their
-typed unsupported capability, and negated classes that may contain strings
-retain their required early error. At clean pre-batch commit `04e38f2ba`, exact direct-property file
+member is simple-case-fold invariant. At that checkpoint, other properties of
+strings retained typed unsupported capability. Negated classes that may contain
+strings retain their required early error. At clean pre-batch commit `04e38f2ba`, exact direct-property file
 `built-ins/RegExp/property-escapes/generated/strings/Emoji_Keycap_Sequence.js`
 and generated algebra representative
 `string-literal-union-property-of-strings-escape.js` each reported `0/2`
@@ -84,17 +562,18 @@ Central verification passed workspace/all-target checking, focused IR `1/1`,
 the retained UnicodeSets structure executable `7/7`, and the expanded Wasm
 fixture `1/1` in `24.04s`. The exact raw inventory is `74/74`, with every
 failure-kind and NotImplemented/Crash/Bug bucket at zero. This closes only the
-finite keycap property; Basic_Emoji, the remaining RGI properties, general
-Unicode property data and complete RegExp conformance remain open.
+finite keycap property. Basic_Emoji and the remaining RGI properties were still
+open at that checkpoint; the current seven-property implementation supersedes
+that boundary without extending this historical measurement.
 
 The property-of-strings authority is now closed at the vendored provider
 boundary without changing that behavior. The provider crate root narrowly
 re-exports its strict parser, seven-variant `UnicodeStringProperty` and
 read-only sequence accessor while keeping the generated table module private.
 Lila parses once into that domain and projects every variant in an exhaustive,
-catch-all-free match: only `EmojiKeycapSequence` consumes the provider's exact
-twelve rows into `FiniteClassSet`; each of the other six variants remains the
-typed unsupported capability. The duplicate handwritten keycap construction
+catch-all-free match. At that checkpoint, only `EmojiKeycapSequence` consumed the
+provider's exact twelve rows into `FiniteClassSet`, and the other six variants
+were typed unsupported capabilities. The current projection consumes all seven. The duplicate handwritten keycap construction
 is deleted. This invariant lane adds no RegExp syntax or conformance claim;
 focused IR witnesses passed `1/1` and `1/1`, the dedicated provider-domain
 structure target passed `3/3`, the retained finite-string structure target
@@ -122,9 +601,8 @@ passed `5/5` in `22.36s`; the new CLI fixture passed `1/1` in `22.83s`; and the
 retained quantifier CLI fixture passed `1/1` in `27.19s`. The exact Test262 file
 now passes `2/2` with zero unsupported, crash or bug verdicts. No broader RegExp
 or full-suite claim is made. Other Unicode properties of strings, arbitrary
-runtime pattern compilation, broad
-nullable-pattern closure and the complete RegExp/String trees remain outside
-this batch.
+runtime compilation, broad nullable-pattern closure and complete RegExp/String
+coverage were outside that measured batch.
 
 `OptionalAtomProgress` now makes each forward and reverse atom-nullability
 classification a one-shot value: it derives no cloning or copying capability,
@@ -237,9 +715,11 @@ UnicodeSets parser.
 Named-group identifier classification now uses a closed start/continue domain
 and the pinned ICU `ID_Start`/`ID_Continue` tables directly. The RegExp parser
 no longer asks the third-party regex dependency to decide that product grammar
-rule. That dependency remains in a separate shape-limited static generator fold
-whose accepted results can influence emitted IR; it must be proven against the
-Lila engine or removed.
+rule. The former shape-limited static generator membership fold has since been
+removed with the obsolete lowering specializations. The remaining vendored
+dependency supplies pinned Unicode property, string-sequence and fold data;
+product matching goes through Lila's emitted program. This source census does
+not replace the pending combined executable checkpoint.
 
 Legacy direct astral source now has a typed term boundary. A validated UTF-16
 surrogate pair cannot flow through the ordinary one-atom quantifier path: the
@@ -279,8 +759,11 @@ exact §22.2.1.8 `MayContainStrings` negation early error. The typed capability
 marker then survives the complete Pattern group, named-reference, and
 nullable-group unbounded-quantifier checks; only a globally valid Pattern
 remains an explicit unsupported capability. That validation boundary now feeds
-finite class-string matching and the finite Emoji Keycap property; it does not
-implement other Unicode properties of strings or full UnicodeSets conformance.
+finite class-string matching and all seven finite provider properties of strings.
+The prepared direct class-string `/iv` successor removes the private deferred
+capability only after operand folding and established matcher lowering are
+connected. Fresh runtime verification and full UnicodeSets conformance remain
+open.
 
 The emitted range-pool reader now accepts one closed `RegExpRangeBound`
 instead of an arbitrary byte offset. Its exhaustive projection preserves the
@@ -342,7 +825,11 @@ failure bucket at zero. No CLI fixture or emitted-Wasm golden was run. The
 bounded contract remains
 [`regexp-substitution-kind.md`](../docs/rust-rewrite/contracts/regexp-substitution-kind.md).
 
-The complete duplicate-named-group pattern policy now lives in the private
+The following three child-owner extraction receipts are historical: the T19
+ordinary `@@match` retirement deletes these unreachable owners and their nine
+layout-only structure tests. They do not describe current product dispatch.
+
+The complete duplicate-named-group pattern policy previously lived in the private
 `builtins/string/duplicate_named_group_pattern.rs` child. Its capability-free
 two-variant domain and sole raw pattern-parameterized emitter moved together;
 the String parent retains only the alternative-captures and
@@ -359,48 +846,35 @@ and
 `9cb88aa5ee221e66911a1070062e7e15242aaa91585562dbfba51d4c709ee560`.
 Recursive structure and module policies pin zero parent raw-policy names, six
 child policy mentions, the one raw definition plus two child calls, and the two
-parent semantic calls. The raw owner remains byte-equivalent; only the parent
-call spelling is narrowed. At the Batch AC shared checkpoint, `cargo xc` is
+parent semantic calls. At that historical checkpoint, the raw owner was byte-equivalent; only the
+parent call spelling was narrowed. At the Batch AC shared checkpoint, `cargo xc` is
 green, the structure target passes `3/3`, the exact CLI fixture passes `1/1`,
 and the exact String match ordinary-groups and indices-groups leaves pass all
 `4/4` variants with every failure bucket at zero. The semantic golden was not
 rerun. The bounded contract remains
 [`duplicate-named-group-pattern.md`](../docs/rust-rewrite/contracts/duplicate-named-group-pattern.md).
 
-Internal RegExp execution now accepts one private closed
-`RegExpExecResultMode` instead of threading a `return_boolean` Boolean through
-the wrapper, bytecode-program matcher and simple matcher. The two variants bind
-non-global `@@match` and `exec` to Array/null results and bind the intrinsic
-`test` fallback to Boolean results. Seven direct exhaustive matches also make
-the bytecode matcher's capture-carrier allocation and rewind policy explicit,
-without adding a runtime word or changing instruction and local ordering. The
-bounded source target pins the two variants, exact three consumers, seven
-projections and exact three-producer census and passes `3/3`. A finite Wasm CLI
-witness selects the bytecode-program, simple and final legacy fallback paths,
-distinguishes their Array/null and Boolean success/failure results plus
-`lastIndex` effects, and passes `1/1`. The callable custom-`exec` protocol,
-global `@@match`, arbitrary runtime compilation, broader grammar and matcher
-coverage remain open; the focused
+Internal RegExp execution accepts the private closed `RegExpExecResultMode`.
+Its two variants bind intrinsic exec and the noncallable-`exec` fallback in
+`@@match` to Array/null and the
+intrinsic `test` fallback to Boolean. The wrapper owns one value and lends it
+to the sole compiled-program matcher; five exhaustive projections choose
+materialization and capture-carrier lifetime. The source guard pins both
+signatures, unchanged projection bodies, the 16-mention ownership census,
+nonreturning rejection and exact three-intrinsic-producer mapping. The
 [contract](../docs/rust-rewrite/contracts/regexp-exec-result-mode.md) records
-the boundary and explicit deferrals.
+current verification commands and the remaining boundary.
 
-The result-mode authority now derives no cloning, copying, debugging, equality
-or default capability. Its wrapper owns the single value, lends it in program-
-then-simple matcher order, and consumes it only in the existing final
-exhaustive projection; the borrowed matcher parameters retain their six
-existing exhaustive projections. The strengthened structure target pins that
-ownership, forwarding order and the recursive 21-mention capability census.
-This capability hardening is source-equivalent and expected to leave
-emitted Wasm byte-identical. Independent dry review is clean after strengthening
-the guard's exact signatures, seven lexical body fingerprints and
-borrow-borrow-consume order. The shared format, `cargo xc`, diff,
-module-boundary and task-plan checkpoint is green with the workspace's existing
-warnings.
-
-The following workspace semantic golden passes `2/2` in 707.16 seconds and
-contains 665 dumps. It adds only the result-mode fixture, removes none and
-preserves 663 of 664 retained non-accounting summaries; the sole retained
-structural change is the independently expanded Promise Realm witness.
+Before runtime rejection and fallback retirement, the source-equivalent
+result-mode closure retained three consumers, seven projections and a
+21-mention census. Its structure target passed `3/3`, the result-shape CLI
+fixture passed `1/1`, and the shared format, `cargo xc`, diff, module-boundary
+and task-plan checkpoint was green with existing workspace warnings. Its
+following semantic golden passed `2/2` in 707.16 seconds with 665 dumps,
+preserving 663 of 664 retained non-accounting summaries; the sole structural
+change was the independently expanded Promise Realm witness. These are
+historical receipts for the previous boundary, not verification of the new
+corrective batch.
 
 The eight intrinsic RegExp Boolean flag getters now cross standard dispatch
 through the closed, sibling-visible `RegExpFlagGetter` domain instead of

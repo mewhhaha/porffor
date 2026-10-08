@@ -1,26 +1,43 @@
 # Canonical module instantiation and global Script preludes
 
-The compiler allocates each eligible module's environment before installing any
-import or evaluating any module body. Imports refer to canonical exporter cells;
+Current source implementation, 2026-10-03; executable acceptance of the T12
+retirement is pending. Earlier focused verification remains bounded historical
+evidence, not a result for the revised source paths.
+
+The compiler allocates each participating module's environment before installing
+any import or evaluating any module body. Imports refer to canonical exporter cells;
 namespace readers resolve those same cells, preserving live values, TDZ errors,
 and immutable import writes.
 
+The 2026-10-07 JSON regression exposed a stale private resume consumer. It copied
+the completion branch target over the generator's committed resume point, so
+evaluation repeated the instantiation pause. Private resume now reads the same
+actual activation status as ordinary generator resume. A suspension requires a
+Normal completion and a nonzero saved point; completed execution retires private
+argument lists. No branch-target field transports a module continuation. The
+repair passes the `tasks-scope-native5` native controls for nested live imports
+after reassignment and cached dependency failures retaining the original thrown
+value. The embedded Module rooted-snapshot worker also passes. The separate JSON
+fixture reaches an invariant failure and remains open.
+
 ## Admission boundary
 
-`ModuleInstantiationGraph` is the sole source-construction witness. It accepts
-Module-entry graphs without source-phase requests, including local top-level
-await and transitive asynchronous dependencies. Ordinary and deferred imports
-use the same canonical owners. Original request phases and order survive linking;
-runtime traversal owns cycle and async dependency state.
+`ModuleInstantiationGraph` is the sole source-construction witness. It rejects
+link diagnostics before minting the canonical owner. Successful Module and Script
+graphs use that owner, including local top-level await, transitive asynchronous
+dependencies, deferred imports and cycles. Original request phases and order
+survive linking; runtime traversal owns cycle and async dependency state.
 
-Script entries and source-phase graphs retain their separate driver and explicit
-capability boundaries. Retained Module-entry drivers use a private lexical arrow
-owner, including an async arrow when required. Their declarations stay outside
-the independent global Script, but those drivers still share declarations between
-module units and retain their global import-alias limitations.
+Source-only JavaScript targets load and parse without opening their dependencies.
+Static source bindings and forwarded source exports fail linking with SyntaxError;
+dynamic `import.source` rejects before target evaluation or cell/namespace access.
+No fabricated source cell or retained product driver remains. See the
+[source-phase rejection contract](source-text-module-source-phase-rejection.md).
+Script roots retain their original globals, strictness and completion; their
+module targets use separate canonical activations and start through import jobs.
 
 The original source is parsed and linked as Module code before the compiler's
-private driver is parsed. Generated arrow syntax cannot authorize source-level
+private activation scaffolding is parsed. Generated arrow syntax cannot authorize source-level
 `return`, `new.target`, `yield`, or sloppy `with` statements in a Module.
 
 ## Allocation, instantiation, and evaluation
@@ -43,8 +60,9 @@ Statement-list, classic-for and for-of synchronous resource declarations require
 an enclosing canonical ModuleActivation or AsyncModuleActivation owner. Nested functions retain their own
 source execution lifetime under that module owner. Classic-for and for-of heads
 still require immediate execution; statement-list scopes retain the existing
-supported resumable function lifetimes. Retained source-phase drivers have
-no canonical module owner and keep their explicit resource admission gap.
+supported resumable function lifetimes. Module targets imported from a Script
+retain the same canonical resource owner; the Script itself retains its ordinary
+source lifetime.
 
 `FunctionProtocolIr::AsyncModuleActivation` uses ordinary async function
 resumption with closed Allocate, Instantiate and Execute entry modes. Allocation
@@ -114,7 +132,8 @@ properties, independent Script lexical and var bindings, same-spelled module
 bindings, entry-rooted cycle order, hoisting and import TDZ/immutability, deferred
 access to a completed-but-still-evaluating member, shared late-error identity,
 and unvisited members after an earlier failure. Namespace initialization and
-ordinary TLA and retained Script/source-phase controls remain in the focused verification set.
+ordinary TLA, canonical Script imports and source-phase rejection controls remain
+in the focused verification set.
 No full-suite status count follows from this bounded stage.
 
 Async activation, raw import waits, readiness, cycle occurrence counts, exact undefined rejection and graphless artifact boundaries are covered by `aot_module_async_lifecycle` and `module_async_runtime_tests`.

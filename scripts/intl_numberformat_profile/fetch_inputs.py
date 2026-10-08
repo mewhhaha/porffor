@@ -13,7 +13,7 @@ COMMIT = "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
 TREE_SHA256 = "4d232d06d1208ef0a90a16149ee98035ed9e64b376e17ab7138909d9d88c8183"
 SUPPLEMENTAL = {
     "supplementalData.xml", "supplementalMetadata.xml", "numberingSystems.xml",
-    "plurals.xml", "pluralRanges.xml", "grammaticalFeatures.xml", "units.xml",
+    "plurals.xml", "ordinals.xml", "pluralRanges.xml", "grammaticalFeatures.xml", "units.xml",
     "likelySubtags.xml",
 }
 DOCS = {"tr35.md", "tr35-numbers.md", "tr35-general.md", "tr35-info.md"}

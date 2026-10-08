@@ -79,10 +79,10 @@ fn acquisition_publishes_only_after_validation_then_initializes_the_binding() {
         "    fn capture_pending_sync_dispose_completion(",
     );
     for boundary in [
-        "using declaration resource is not an object",
+        "RuntimeErrorMessage::USING_DECLARATION_RESOURCE_IS_NOT_AN_OBJECT",
         "property_key_symbol_payload(\"Symbol.dispose\")",
-        "using declaration resource has no [Symbol.dispose] method",
-        "using declaration [Symbol.dispose] method is not callable",
+        "RuntimeErrorMessage::USING_DECLARATION_RESOURCE_HAS_NO_SYMBOL_DISPOSE_METHOD",
+        "RuntimeErrorMessage::USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE",
         "LocalSet(locals.registered)",
         "self.write_binding_from_locals(",
     ] {
@@ -98,7 +98,7 @@ fn acquisition_publishes_only_after_validation_then_initializes_the_binding() {
     );
     assert_before(
         acquire,
-        "using declaration [Symbol.dispose] method is not callable",
+        "RuntimeErrorMessage::USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE",
         "LocalSet(locals.registered)",
     );
     assert_before(

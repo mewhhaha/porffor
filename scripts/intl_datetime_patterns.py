@@ -10,7 +10,7 @@ NON_ECMA_REQUEST_FIELDS = frozenset("YuUqQwWDFgA")
 FIELD_WIDTHS = {
     "G": range(1, 6), "y": range(1, 7), "r": range(1, 7), "U": range(1, 6),
     "M": range(1, 6), "L": range(1, 6), "d": range(1, 3),
-    "E": range(1, 7), "e": range(3, 7), "c": range(3, 7),
+    "E": range(1, 7), "e": range(1, 7), "c": range(1, 7),
     "a": range(1, 6), "b": range(1, 6), "B": range(1, 6),
     "h": range(1, 3), "H": range(1, 3), "K": range(1, 3), "k": range(1, 3),
     "m": range(1, 3), "s": range(1, 3), "S": range(1, 4),
@@ -96,7 +96,7 @@ def interval_field(symbol):
     return {"G": "era", "d": "day", "m": "minute", "s": "second", "S": "fractionalSecond", "z": "timeZoneName", "v": "timeZoneName", "O": "timeZoneName"}[symbol]
 
 
-def compile_interval(source):
+def compile_interval(source, *, skeleton=None):
     order = "earliest_first"
     pattern = source
     for prefix, selected in [("earliestFirst:", "earliest_first"), ("latestFirst:", "latest_first")]:
@@ -105,6 +105,10 @@ def compile_interval(source):
             pattern = pattern[len(prefix):]
             break
     tokens = compile_pattern(pattern)
+    if any(token.get("field") in ("e", "c") and token["width"] <= 2 for token in tokens):
+        fields = compile_pattern(skeleton) if skeleton is not None else []
+        if not any(token.get("field") == "E" or (token.get("field") in ("e", "c") and token["width"] >= 3) for token in fields):
+            raise ValueError("numeric interval weekday has no sourced textual skeleton field")
     seen = set()
     split = None
     for index, token in enumerate(tokens):

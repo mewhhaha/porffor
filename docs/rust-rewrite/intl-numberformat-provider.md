@@ -20,8 +20,15 @@ fallible allocation paths.
 ## Locale proof and source inventory
 
 NumberProfiles derives its 1,082-locale inventory from the complete pinned
-CLDR47 sources. Lookup and the permitted prefix-based best-fit policy share
-that inventory. The provider canonicalizer remains upstream. A resolved proof
+CLDR47 sources. Lookup uses that inventory's BCP47 prefix chain. Best fit first
+preserves an exact association, then uses the retained Locale image's pinned
+likely subtags to prefer a more specific admitted script/region association over
+a language-only fallback. For example, `zh-TW` reaches `zh-Hant-TW`, while lookup
+continues to reach `zh`. Number decoding requires the actual Locale image owner;
+complete and sparse provider admission reject a different owner even when its
+bytes and digest match. Public and dependent locale views still restrict every
+candidate, so best fit cannot expose an omitted public row through a private
+formatter dependency. The provider canonicalizer remains upstream. A resolved proof
 checks that the formatting locale exists, that its numbering system is
 admitted, that its resolved base is the same selected formatting locale, and
 that the only retained extension is an exactly matching nu value. Unsupported
@@ -32,11 +39,17 @@ The generated data's locale identities are independent of inheritance owners.
 No unresolved pattern, plural operator, required label, alias or real main
 locale can silently become English. Root inheritance and the documented
 same-locale numbering-resource fallbacks remain explicit data operations.
+The 78 checked digit alphabets include the genuine [Tolong Siki supplement](intl-numbering-tols.md);
+all 77 existing alphabets and original source files remain unchanged. NF/DTF
+artifact identities disclose this mixture separately from baseline Unicode16
+and CLDR47 versions. It implies no Unicode17 capability for unrelated services.
 The data README records the sole dangling synthetic default-content entry.
 
 Primary source pins and archive hashes are in
 crates/lila-intl/data/number-cldr-47/source-manifest.json. The package contains
 CLDR47 commit `2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`, Unicode 16.0.0, and
+a narrowly selected CLDR48/UCD17 `tols` contribution (its alphabet, six declared
+number-pattern aliases and ten decimal-number spacing points), and
 selection evidence from ICU77.1 commit
 `457157a92aa053e632cc7fcfd0e12f8a943b2d11`. Regeneration is offline and compares
 canonical extracts, provenance, the binary profile, its fingerprint and the
@@ -79,6 +92,15 @@ Composition prefers an available precomposed sanctioned pair, then a
 denominator perUnitPattern, then the locale's general per pattern. Plural and
 case derivations are consumed from pinned supplemental grammar. Numerator
 patterns retain their original placement and numeral omission.
+
+Measurement messages wrap the signed decimal value at their actual number
+placeholder. Japanese and Korean prefix units therefore precede the sign.
+Nested per-unit composition carries that placeholder's position, preserving
+range approximation inside the measurement and keeping endpoint signs separate
+from shared unit affixes. Literal-only forms that omit the number retain the
+ordinary sign pattern around the complete measurement. Currency-name messages
+use the same composition; currency-symbol, accounting and percent patterns
+retain their paired affix handling.
 
 [LDML47 compound units](https://github.com/unicode-org/cldr/blob/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/docs/ldml/tr35-general.md#compound-units)
 does not supply a complete extraction for a denominator with meaningful
@@ -140,3 +162,11 @@ Existing localized spaces remain unchanged. Adjacent literal fragments with
 the same source form one part, so `" – "` is one shared record. Coalescing checks
 combined output bytes and reserves fallibly; final part limits count emitted
 records. Other part kinds and different source labels never merge.
+
+## Shared PluralRules data and kernel
+
+The ordinal-aware payload schema2 pools locale profiles with both cardinal and
+ordinal identities. NumberFormat continues selecting its existing cardinal
+rules and uses its unchanged scaled-notation operand path. The generic predicate
+evaluator, exact numeric fields, and checked nine-word rounding codec now also
+serve the attached [PluralRules provider](intl-pluralrules-provider.md).

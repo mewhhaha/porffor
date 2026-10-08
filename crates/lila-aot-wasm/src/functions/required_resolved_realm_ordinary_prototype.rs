@@ -1,4 +1,6 @@
 use super::*;
+use crate::gc_types::{CompletionLocals, ValueLocals};
+use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 
 /// The ordinary-object intrinsic prototypes selected by
 /// `GetPrototypeFromConstructor` in constructor fallback paths.
@@ -7,25 +9,45 @@ use super::*;
 /// evaluation passes to `OrdinaryCreateFromConstructor` with the generator
 /// function itself as the constructor.
 ///
-/// `%Array.prototype%` is deliberately absent because it has an Array layout
-/// and a distinct representation tag. Keeping this domain closed prevents a
-/// caller from pairing an arbitrary realm-intrinsic offset with an entry-realm
-/// fallback.
+/// Array fallback reads its real Array-layout Realm root. Other defaults
+/// select the closed ordinary intrinsic table; neither route exposes an index.
 #[derive(Clone, Copy)]
 pub(crate) enum OrdinaryDefaultPrototype {
+    ShadowRealm,
     Object,
+    Array,
+    Function(DynamicFunctionKind),
     MessageError(ErrorMessageConstructorKind),
     String,
     Number,
     Boolean,
     Date,
+    Map,
+    Set,
+    WeakMap,
+    WeakSet,
+    WeakRef,
+    FinalizationRegistry,
+    ArrayBuffer,
+    SharedArrayBuffer,
+    DataView,
+    TypedArray(TypedArrayElementKind),
+    Temporal(TemporalIntrinsicFamily),
     Iterator,
     RegExp,
     IntlLocale,
     IntlDateTimeFormat,
     IntlNumberFormat,
+    IntlPluralRules,
+    IntlListFormat,
+    IntlCollator,
+    IntlDisplayNames,
+    IntlRelativeTimeFormat,
+    IntlSegmenter,
+    IntlDurationFormat,
     Promise,
     DisposableStack,
+    AsyncDisposableStack,
     AggregateError,
     SuppressedError,
     Generator,
@@ -33,137 +55,197 @@ pub(crate) enum OrdinaryDefaultPrototype {
 }
 
 impl OrdinaryDefaultPrototype {
-    const fn offset(self) -> u64 {
-        match self {
-            Self::Object => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            Self::MessageError(kind) => kind.prototype_slot().offset(),
-            Self::String => HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
-            Self::Number => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
-            Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
-            Self::Date => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
-            Self::Iterator => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
-            Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
-            Self::IntlLocale => HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET,
-            Self::IntlDateTimeFormat => {
-                HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
+    const fn slot(self) -> Option<NonArrayRealmIntrinsicSlot> {
+        Some(match self {
+            Self::ShadowRealm => NonArrayRealmIntrinsicSlot::ShadowRealmPrototype,
+            Self::Array => return None,
+            Self::MessageError(kind) => kind.prototype_slot(),
+            Self::Temporal(family) => family.prototype_slot(),
+            Self::Object => NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            Self::Function(kind) => match kind {
+                DynamicFunctionKind::Ordinary => NonArrayRealmIntrinsicSlot::FunctionPrototype,
+                DynamicFunctionKind::Generator => {
+                    NonArrayRealmIntrinsicSlot::GeneratorFunctionPrototype
+                }
+                DynamicFunctionKind::Async => NonArrayRealmIntrinsicSlot::AsyncFunctionPrototype,
+                DynamicFunctionKind::AsyncGenerator => {
+                    NonArrayRealmIntrinsicSlot::AsyncGeneratorFunctionPrototype
+                }
+            },
+            Self::String => NonArrayRealmIntrinsicSlot::StringPrototype,
+            Self::Number => NonArrayRealmIntrinsicSlot::NumberPrototype,
+            Self::Boolean => NonArrayRealmIntrinsicSlot::BooleanPrototype,
+            Self::Date => NonArrayRealmIntrinsicSlot::DatePrototype,
+            Self::Map => NonArrayRealmIntrinsicSlot::MapPrototype,
+            Self::Set => NonArrayRealmIntrinsicSlot::SetPrototype,
+            Self::WeakMap => NonArrayRealmIntrinsicSlot::WeakMapPrototype,
+            Self::WeakSet => NonArrayRealmIntrinsicSlot::WeakSetPrototype,
+            Self::WeakRef => NonArrayRealmIntrinsicSlot::WeakRefPrototype,
+            Self::FinalizationRegistry => NonArrayRealmIntrinsicSlot::FinalizationRegistryPrototype,
+            Self::ArrayBuffer => NonArrayRealmIntrinsicSlot::ArrayBufferPrototype,
+            Self::SharedArrayBuffer => NonArrayRealmIntrinsicSlot::SharedArrayBufferPrototype,
+            Self::DataView => NonArrayRealmIntrinsicSlot::DataViewPrototype,
+            Self::TypedArray(kind) => NonArrayRealmIntrinsicSlot::prototype_identity(kind),
+            Self::Iterator => NonArrayRealmIntrinsicSlot::IteratorPrototype,
+            Self::RegExp => NonArrayRealmIntrinsicSlot::RegExpPrototype,
+            Self::IntlLocale => NonArrayRealmIntrinsicSlot::IntlLocalePrototype,
+            Self::IntlDateTimeFormat => NonArrayRealmIntrinsicSlot::IntlDateTimeFormatPrototype,
+            Self::IntlNumberFormat => NonArrayRealmIntrinsicSlot::IntlNumberFormatPrototype,
+            Self::IntlPluralRules => NonArrayRealmIntrinsicSlot::IntlPluralRulesPrototype,
+            Self::IntlListFormat => NonArrayRealmIntrinsicSlot::IntlListFormatPrototype,
+            Self::IntlCollator => NonArrayRealmIntrinsicSlot::IntlCollatorPrototype,
+            Self::IntlDisplayNames => NonArrayRealmIntrinsicSlot::IntlDisplayNamesPrototype,
+            Self::IntlRelativeTimeFormat => {
+                NonArrayRealmIntrinsicSlot::IntlRelativeTimeFormatPrototype
             }
-            Self::IntlNumberFormat => HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET,
-            Self::Promise => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
-            Self::DisposableStack => HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
-            Self::AggregateError => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
-            Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
-            Self::Generator => HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET,
-            Self::AsyncGenerator => HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET,
-        }
+            Self::IntlSegmenter => NonArrayRealmIntrinsicSlot::IntlSegmenterPrototype,
+            Self::IntlDurationFormat => NonArrayRealmIntrinsicSlot::IntlDurationFormatPrototype,
+            Self::Promise => NonArrayRealmIntrinsicSlot::PromisePrototype,
+            Self::DisposableStack => NonArrayRealmIntrinsicSlot::DisposableStackPrototype,
+            Self::AsyncDisposableStack => NonArrayRealmIntrinsicSlot::AsyncDisposableStackPrototype,
+            Self::AggregateError => NonArrayRealmIntrinsicSlot::AggregateErrorPrototype,
+            Self::SuppressedError => NonArrayRealmIntrinsicSlot::SuppressedErrorPrototype,
+            Self::Generator => NonArrayRealmIntrinsicSlot::GeneratorPrototype,
+            Self::AsyncGenerator => NonArrayRealmIntrinsicSlot::AsyncGeneratorPrototype,
+        })
     }
 }
 
-/// A populated ordinary-object prototype loaded from a realm already proven
-/// by `GetFunctionRealm`.
-///
-/// The local is non-`Copy` and private so construction must consume it through
-/// the operation that installs both its payload and Object representation tag.
-#[must_use = "the resolved-realm prototype must be installed with its representation tag"]
-pub(super) struct ResolvedRealmOrdinaryPrototypeLocal(u32);
+/// A complete required prototype from a Realm already routed through
+/// GetFunctionRealm. Copying its full value consumes the selected owner.
+#[must_use]
+pub(super) struct ResolvedRealmOrdinaryPrototypeLocal(ValueLocals);
 
-impl<'a> FunctionBuilder<'a> {
-    /// Load a required ordinary-object intrinsic from a realm proven by
-    /// `GetFunctionRealm`.
-    ///
-    /// A resolved ECMAScript realm always has an intrinsic record and every
-    /// intrinsic in [`OrdinaryDefaultPrototype`]. Missing backend bootstrap
-    /// state is therefore an internal invariant failure, never permission to
-    /// substitute an entry-realm global.
+impl FunctionBuilder<'_> {
     pub(super) fn emit_load_required_resolved_realm_ordinary_prototype(
         &mut self,
-        realm: ResolvedFunctionRealmLocal,
+        realm: &ResolvedFunctionRealmLocal,
         intrinsic: OrdinaryDefaultPrototype,
         function: &mut Function,
     ) -> ResolvedRealmOrdinaryPrototypeLocal {
-        let prototype_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(realm.index()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm.index(),
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            intrinsic.offset(),
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        ResolvedRealmOrdinaryPrototypeLocal(prototype_local)
+        let value = self.runtime_schema().reserve_value_local(function);
+        match intrinsic.slot() {
+            Some(slot) => {
+                self.emit_load_non_array_realm_intrinsic(realm.realm(), slot, &value, function)
+            }
+            None => {
+                let schema = self.runtime_schema();
+                let array = schema.reserve_gc_local(function).initialize(
+                    self.emit_load_realm_array_prototype(realm.realm(), function),
+                    function,
+                );
+                value.set_reference(&array, schema, function);
+                array.clear(function);
+            }
+        }
+        ResolvedRealmOrdinaryPrototypeLocal(value)
     }
 
-    /// Resolve and install one required ordinary default prototype from the
-    /// original new target's function realm. Keeping the opaque realm result,
-    /// required slot load and tagged witness consumption together prevents a
-    /// fallback policy from exposing a realm before revoked/invalid outcomes
-    /// are routed or from substituting an entry-realm global.
-    pub(crate) fn emit_required_new_target_realm_ordinary_prototype(
+    /// GetPrototypeFromConstructor observes the acquired constructor's
+    /// prototype once. The caller receives either the original whole Throw
+    /// or the complete selected prototype and controls its own Realm lifetime.
+    pub(crate) fn emit_get_prototype_from_constructor(
         &mut self,
-        new_target_payload_local: u32,
-        new_target_tag_local: u32,
+        constructor: &ValueLocals,
         intrinsic: OrdinaryDefaultPrototype,
-        prototype_payload_local: u32,
-        prototype_tag_local: u32,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let realm_result =
-            self.emit_get_function_realm(new_target_payload_local, new_target_tag_local, function);
-        let realm = self.emit_route_function_realm_result(
-            realm_result,
-            FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn {
-                payload_local: self.result_local,
-                tag_local: self.result_tag_local,
-            },
+        let schema = self.runtime_schema();
+        let pending = schema.reserve_completion(function);
+        let key = self.emit_function_string_key("prototype", function)?;
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_object_read_with_throw_routing(
+            constructor,
+            constructor,
+            &key,
+            &pending,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )?;
-        let prototype =
-            self.emit_load_required_resolved_realm_ordinary_prototype(realm, intrinsic, function);
-        self.emit_install_resolved_realm_ordinary_prototype(
-            prototype,
-            prototype_payload_local,
-            prototype_tag_local,
+        result.copy_from(&pending, function);
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_THROW as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_heap_object_like_tag_i32(result.value().tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_required_function_realm_ordinary_prototype_completion(
+            constructor,
+            intrinsic,
+            result,
             function,
-        );
-        self.release_resolved_function_realm_local(realm);
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        key.clear(function);
+        pending.clear(function);
         Ok(())
     }
 
-    /// Consume a required ordinary-object prototype and install its payload
-    /// and representation tag as one transition.
+    /// Required Realm selection retains abrupt completion inside its local
+    /// boundary so a caller can restore its execution Realm before propagation.
+    pub(super) fn emit_required_function_realm_ordinary_prototype_completion(
+        &mut self,
+        constructor: &ValueLocals,
+        intrinsic: OrdinaryDefaultPrototype,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        result.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        let realm_result = self.emit_get_function_realm(constructor, function);
+        let realm = self.emit_route_function_realm_result(
+            realm_result,
+            FunctionRealmRevokedRoute::ThrowTypeErrorAndBranch {
+                result,
+                target: exit,
+            },
+            function,
+        )?;
+        let selected =
+            self.emit_load_required_resolved_realm_ordinary_prototype(&realm, intrinsic, function);
+        self.emit_install_resolved_realm_ordinary_prototype(selected, result.value(), function);
+        self.release_resolved_function_realm_local(realm, function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    pub(crate) fn emit_required_new_target_realm_ordinary_prototype(
+        &mut self,
+        new_target: &ValueLocals,
+        intrinsic: OrdinaryDefaultPrototype,
+        prototype: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let completion = self.runtime_schema().reserve_completion(function);
+        self.emit_required_function_realm_ordinary_prototype_completion(
+            new_target,
+            intrinsic,
+            &completion,
+            function,
+        )?;
+        self.completion().copy_from(&completion, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        prototype.copy_from(completion.value(), function);
+        completion.clear(function);
+        Ok(())
+    }
+
     pub(super) fn emit_install_resolved_realm_ordinary_prototype(
         &mut self,
         prototype: ResolvedRealmOrdinaryPrototypeLocal,
-        payload_local: u32,
-        tag_local: u32,
+        result: &ValueLocals,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(prototype.0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(prototype.0);
+        result.copy_from(&prototype.0, function);
+        prototype.0.clear(function);
     }
 }

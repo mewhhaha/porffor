@@ -1,5 +1,149 @@
 # T17 — ArrayBuffer, DataView, TypedArray, SharedArrayBuffer and Atomics
 
+## NativeHost atomic source — 2026-10-05
+
+Created-Realm DataView and other represented binary intrinsics now come from
+the common completed GC bootstrap. Whole GC values and typed Realm capture
+replace raw prototype/error offsets; the actual DataView access owner and
+borrowed-Realm semantics retain their independent native algorithms. The two
+maintained DataView publication/bounds targets keep their original CLI fixture
+witnesses while retiring obsolete raw-owner mirrors.
+
+NativeHost Broadcast validates a SAB resource, converts its id with ToInt32,
+and forwards both through the declared native import. Receive publishes a
+fresh Array [SAB wrapper, signed id Number]; the included harness passes those
+two entries to its callback. Native receive itself remains free of synchronous
+user callbacks. The authored harness component controls establish no native
+threading result. Agent lifecycle/shared-memory acceptance, final atomic
+representation/helper/guard composition and full T17 verification remain open;
+all new controls are unrun. Earlier offsets/counts/results below remain
+historical. See [NativeHost GC values](../docs/rust-rewrite/contracts/native-host-gc-values.md).
+
+The earlier scalar-ABI, raw-offset and duplicate-bootstrap source descriptions
+below retain their recorded predecessor scope, including sections labelled
+current at those earlier checkpoints. They are not current GC allocation or
+publication claims.
+
+
+## Factory invocation References — 2026-10-04 dry source
+
+TypedArray.from/of no longer reconstruct canonical keys from an inferred target
+or claim a concrete constructor after filtering a wider candidate set. The
+existing acquired-callee/raw-receiver/full-argument owner invokes the original
+function. Normal results retain Object without an invented empty ordinary shape;
+actual native TypedArray construction and validation remain their owners.
+TypedArrayOf joins From's synchronous effect authority through Construct and
+element conversion. Borrowed TypedArray/ArrayBuffer species getter factories and
+spread signatures admit their actual arbitrary raw this values.
+
+Meaningful lowering and three finite paired Engine cohorts are authored with
+iterator, forwarding and literal retirement. Source/type/runtime acceptance,
+full T17 and pinned publication remain open. All remaining task source precedes
+capped verification. See the
+[contract](../docs/rust-rewrite/contracts/remaining-invocation-reference-ownership.md).
+
+## Shared inferred indexed-collection calls — 2026-10-04 dry source
+
+The selected 55-target Array/TypedArray invocation owner retains the actual
+acquired callee and raw receiver through one indirect-call publication and
+full argument/spread evaluation. TypedArray transferred aliases keep their
+source property Reference. One result-bearing admission match includes the
+previously missing Keys/Entries/Values outputs, and all six iterator factories
+publish Object-only/no-shape facts rather than fabricated own mutable methods.
+The coupled String iterator result keeps its distinct actual prototype semantics.
+
+The shared Array/TypedArray toString result admits arbitrary callable join
+values and carries the actual synchronous-user-code catalog flag. Existing
+TypedArray callback merges now include six predicate/find methods so earlier
+omitted-argument observations cannot incorrectly narrow later callback values.
+True strict Map/Filter and other constrained result domains remain separate.
+Production, actual lowering controls and three finite paired Engine cohorts
+are authored with the T16 family and passed the ref105 combined all-target Rust
+type check. Emitted-Wasm/runtime and full T17/T26 acceptance remain pending.
+No GC, agent, whole flag-catalog or current pinned conformance closure is claimed. See the
+[invocation contract](../docs/rust-rewrite/contracts/indexed-collection-invocation-reference.md).
+
+## Current same-type copy and sort work — 2026-10-04 dry source
+
+`toReversed`, `toSorted` and `with` now share a private, non-Copy completed
+same-type result owner. Its sole factory captures the original concrete
+constructor from the called builtin's defining Realm, constructs with one
+length argument and validates the result before writes or publication.
+The original intrinsic identity supplies the same-kind/content invariant;
+no source constructor/species lookup participates. All three planner roots
+require all twelve constructor installers, using the existing cycle guard.
+`with` preserves initial length, index then replacement conversion, fresh
+current-index validation, and live reads for the captured copy range.
+
+The shared stable sorter no longer treats a normal comparator result followed
+by detachment as permission to stop comparing. Proxy-aware Call and ToNumber
+keep their existing abrupt propagation; writeback still uses fresh indexed
+validity. The three Engine fixture sources cover all twelve kinds in both
+borrowing directions, constructor/species poisoning, With shrink/regrow and
+earlier abrupt completion, numeric/BigInt stability, comparator result coercion,
+foreign thrown identity, detachment and resize. Existing source guards are
+maintained where their actual consumers changed. Compilation and execution
+remain pending; no earlier counts certify this source and full T17 stays open.
+See the [same-type contract](../docs/rust-rewrite/contracts/typed-array-create-same-type-ownership.md).
+
+## Current species construction — 2026-10-03 dry source
+
+`map`, `filter`, `slice` and `subarray` now consume one shared private
+TypedArraySpeciesCreate owner. Closed length-source and distinct subarray-source
+types preserve validated versus non-throwing entry policy. Their actual
+constructor/@@species selection uses
+the executing method's defining-Realm immutable default, and every selected
+constructor reaches Proxy-aware Construct. The result owner is minted only
+after genuine TypedArray brand, fresh seq-cst view, applicable minimum length
+and Number/BigInt content validation. Actual target access and final publication
+require that owner. TypedArray.from/of retain their separate constructor policy.
+
+The defining-Realm intrinsic record appends all twelve concrete constructors.
+Entry and created Realms publish actual constructor identities after their
+graphs are prepared. Root planning requires all twelve installers for each of
+the four species methods, including a borrowed method whose receiver kind is
+absent from its own global references. Mutation of globals or public prototype
+constructor properties cannot replace the stored default identity.
+
+Map still constructs before callbacks; filter still collects selected values
+before constructing. Slice still re-observes its source only for a positive
+initial count and retains ascending overlapping byte-copy behavior. Subarray
+still uses its non-throwing source-length snapshot and complete two-/three-arg
+vector; its previously Function-only species Construct now supports Proxies.
+Paired Engine sources cover Proxy traps, order and abrupt identity, result
+validation, tracking arity, global clobber and borrowed defaults with sparse entry references. Existing
+source guards are maintained around the actual shared operation. No compiler
+or runtime has verified this batch, and historical counts do not apply to it.
+Full T17, GC and agent acceptance remain open. See the
+[species contract](../docs/rust-rewrite/contracts/typed-array-species-create-ownership.md).
+
+## Current access revalidation — 2026-10-03 dry source
+
+The nine integer Atomics operations retain the entry-approved absolute byte
+index, then observe the current view after index/value/replacement coercions.
+Out-of-bounds or detached views reject with TypeError before the current backing
+length comparison can reject a removed starting byte with RangeError. Only the
+resulting opaque address can reach the raw load/store/RMW/compareExchange
+emitters. Existing method/property witnesses share the observation law;
+DoWait retains its separate entry-only Int32/BigInt64 load.
+
+The resize, transfer, coercion-order, odd-length and growth fixture is authored
+and consumed by the CLI regression source. Source review and maintained
+structure assertions are complete, but compilation and runtime execution
+remain pending. Full T17, waiter lifecycle and GC acceptance remain open. See
+the [revalidation contract](../docs/rust-rewrite/contracts/atomics-access-revalidation.md).
+
+All 22 DataView Get/Set methods now use one private preparation constructor and
+separate move-only validated read/write owners required by raw byte access.
+Immutable preflight, coercion order, fresh backing checks, element conversion,
+endian observation and existing message aliases are preserved; the previous
+methods already had the freshness checks. The separately integrated shared
+ToBigInt repair now owns primitive conversion errors in the defining Realm.
+Source review is complete; existing focused controls and the new borrowed-BigInt
+controls await compilation and runtime verification. See the
+[DataView access contract](../docs/rust-rewrite/contracts/data-view-access-owner.md)
+and [conversion Realm contract](../docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md).
+
 **Status:** In progress — broad binary-data support exists; GC/agents and full-tree closure remain
 
 **Parallel group:** Feature lane; split internally by API family  
@@ -1568,14 +1712,34 @@ published counts. The toLocaleString, map/filter and copyWithin fixtures do not
 prove created-Realm buffer-error prototype identity at direct method entry;
 only the shared witness's current-function-Realm route is structurally owned
 for that case.
-`subarray` additionally retains one adjacent semantic debt: its nullish-species
-default constructor comes from entry globals rather than the executing Realm.
+At that historical checkpoint, `subarray` retained adjacent semantic debt:
+its nullish-species default came from entry globals rather than the executing
+Realm. The current dry species batch above replaces that source route; its
+executable acceptance remains pending.
 The post-species validation and argument-vector arity lanes do not change
 constructor selection, argument coercion, general arguments-object semantics,
 result allocation, Test262 rewrites or published counts. The arity lane also
 does not generalize argument-vector construction across unrelated call sites or
 claim resizable-buffer growth, shrinkage, detachment or out-of-bounds behavior
 beyond the already verified witness boundary.
+
+On 2026-09-28 T13's separately owned `resizableArrayBufferUtils.js`
+static-subclass substitution was deleted after exact replay showed all 188
+consumers behave identically on the raw helper bytes (prepared Function
+sources cover the helper's finite candidates). Every historical checkpoint
+above that cites the substitution now describes raw-helper materialization
+instead. T17's remaining semantic ownership is the 4 typed-array
+literal/split-helper selection observations; the resizable-buffer admissions
+are unchanged.
+
+On 2026-09-28 those 4 T17 semantic observations were deleted with the whole
+literal/split-helper plan: the 319-case contract table, the nine-method
+selector, the split dispatcher, the intrinsic fragment and the compareArray
+omission, plus two plan-only invariant tests. All nine method directories
+replay identically on full helper bytes, and the session's backend fix for
+the spurious `ToNumber(array)` in TypedArray construction cleared the only
+failures there (`copyWithin` `122/6-crash` to `128/0`). The token-aware
+inventory now assigns 0 semantic observations to T17.
 
 ## Objective
 

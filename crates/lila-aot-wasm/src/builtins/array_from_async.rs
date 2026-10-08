@@ -1,79 +1,23 @@
+//! Array.fromAsync owns one typed GC continuation across intrinsic Await jobs.
 use super::super::*;
-use crate::operations::ToLengthAbruptRoute;
+use crate::emit::ControlTarget;
+use crate::gc_types::*;
+use crate::heap::PromiseSettlement;
+use crate::objects::PropertyKeyLocals;
+use lila_ir::NativeErrorKind;
 
-const ARRAY_FROM_ASYNC_STATE_SIZE: u64 = 176;
-const ARRAY_FROM_ASYNC_CAPABILITY_OFFSET: u64 = 0;
-const ARRAY_FROM_ASYNC_THROWAWAY_CAPABILITY_OFFSET: u64 = 8;
-const ARRAY_FROM_ASYNC_SOURCE_PAYLOAD_OFFSET: u64 = 16;
-const ARRAY_FROM_ASYNC_SOURCE_TAG_OFFSET: u64 = 24;
-const ARRAY_FROM_ASYNC_TARGET_PAYLOAD_OFFSET: u64 = 32;
-const ARRAY_FROM_ASYNC_TARGET_TAG_OFFSET: u64 = 40;
-const ARRAY_FROM_ASYNC_MAPPER_PAYLOAD_OFFSET: u64 = 48;
-const ARRAY_FROM_ASYNC_MAPPER_TAG_OFFSET: u64 = 56;
-const ARRAY_FROM_ASYNC_THIS_ARG_PAYLOAD_OFFSET: u64 = 64;
-const ARRAY_FROM_ASYNC_THIS_ARG_TAG_OFFSET: u64 = 72;
-const ARRAY_FROM_ASYNC_INDEX_OFFSET: u64 = 80;
-const ARRAY_FROM_ASYNC_LENGTH_OFFSET: u64 = 88;
-const ARRAY_FROM_ASYNC_FULFILLED_CALLBACK_OFFSET: u64 = 96;
-const ARRAY_FROM_ASYNC_REJECTED_CALLBACK_OFFSET: u64 = 104;
-const ARRAY_FROM_ASYNC_STAGE_OFFSET: u64 = 112;
-const ARRAY_FROM_ASYNC_ITERATOR_PAYLOAD_OFFSET: u64 = 120;
-const ARRAY_FROM_ASYNC_ITERATOR_TAG_OFFSET: u64 = 128;
-const ARRAY_FROM_ASYNC_NEXT_PAYLOAD_OFFSET: u64 = 136;
-const ARRAY_FROM_ASYNC_NEXT_TAG_OFFSET: u64 = 144;
-const ARRAY_FROM_ASYNC_MODE_OFFSET: u64 = 152;
-const ARRAY_FROM_ASYNC_SAVED_ERROR_PAYLOAD_OFFSET: u64 = 160;
-const ARRAY_FROM_ASYNC_SAVED_ERROR_TAG_OFFSET: u64 = 168;
+mod continuation;
+mod state;
+use state::{AwaitPhase, IteratorMode, SourcePlan, StateValue};
 
-enum ArrayFromAsyncStage {
-    InputValue,
-    MappedValue,
-    AsyncIteratorResult,
-    SyncIteratorDoneValue,
-    AsyncCloseResult,
-    SyncCloseValue,
-}
-
-impl ArrayFromAsyncStage {
-    const fn code(&self) -> u64 {
-        match self {
-            Self::InputValue => 0,
-            Self::MappedValue => 1,
-            Self::AsyncIteratorResult => 2,
-            Self::SyncIteratorDoneValue => 3,
-            Self::AsyncCloseResult => 4,
-            Self::SyncCloseValue => 5,
-        }
-    }
-}
-
-enum ArrayFromAsyncSourceMode {
-    ArrayLike,
-    AsyncIterator,
-    SyncIterator,
-}
-
-impl ArrayFromAsyncSourceMode {
-    const fn code(&self) -> u64 {
-        match self {
-            Self::ArrayLike => 0,
-            Self::AsyncIterator => 1,
-            Self::SyncIterator => 2,
-        }
-    }
-}
-
-/// The two observable properties of an iterator-result object.
-///
-/// Keeping the key closed prevents a continuation from compiling with a typo
-/// or an unrelated property while preserving each caller's abrupt route.
+/// A continuation may observe only the protocol's two result properties.
+#[derive(Clone, Copy)]
 enum ArrayFromAsyncIteratorResultProperty {
     Done,
     Value,
 }
-
 impl ArrayFromAsyncIteratorResultProperty {
-    const fn key(self) -> &'static str {
+    fn key(self) -> &'static str {
         match self {
             Self::Done => "done",
             Self::Value => "value",
@@ -81,2473 +25,348 @@ impl ArrayFromAsyncIteratorResultProperty {
     }
 }
 
-#[must_use = "Array.fromAsync execution Realm context must be explicitly released"]
-struct ArrayFromAsyncExecutionRealmContext {
-    constructor_payload_local: u32,
-    realm_local: u32,
-    function_prototype_local: u32,
-    type_error_prototype_local: u32,
-}
+impl FunctionBuilder<'_> {
+    pub(crate) fn emit_array_from_async(&mut self, f: &mut Function) -> Result<(), EmitError> {
+        let s = self.runtime_schema();
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(f);
+        let capability =
+            self.emit_new_current_function_realm_intrinsic_promise_capability(constructor, f)?;
+        let promise = s.reserve_value_local(f);
+        self.emit_read_promise_capability_promise(&capability, &promise, f);
+        let pending = s.reserve_completion(f);
+        pending.initialize(f);
+        let ctor = s.reserve_value_local(f);
+        let items = s.reserve_value_local(f);
+        let mapper = s.reserve_value_local(f);
+        let this_argument = s.reserve_value_local(f);
+        let method = s.reserve_value_local(f);
+        let source = s.reserve_value_local(f);
+        let target = s.reserve_value_local(f);
+        let iterator_value = s.reserve_value_local(f);
+        let state_slot = s
+            .reserve_gc_local::<ArrayFromAsyncState, Nullable>(f)
+            .initialize_null(s, f);
+        let length = s.reserve_i64_local(f);
+        let mode = IteratorMode::new(s, f);
+        f.instruction(&Instruction::I64Const(0));
+        length.store(f);
+        self.compile_this_to_locals(&ctor, f)?;
+        self.emit_builtin_arg_to_value(0, &items, f);
+        self.emit_builtin_arg_to_value(1, &mapper, f);
+        self.emit_builtin_arg_to_value(2, &this_argument, f);
+        let exit = self.open_frame(ControlFrameKind::Block, f);
 
-impl<'a> FunctionBuilder<'a> {
-    fn emit_array_from_async_execution_realm_context(
-        &mut self,
-        function: &mut Function,
-    ) -> ArrayFromAsyncExecutionRealmContext {
-        let constructor_payload_local = self.reserve_temp_local();
-        let realm_local = self.reserve_temp_local();
-        let function_prototype_local = self.reserve_temp_local();
-        let type_error_prototype_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(constructor_payload_local));
-        self.load_i64_to_local_from_offset(
-            constructor_payload_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
-            constructor_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(constructor_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        for (offset, prototype_local) in [
-            (
-                HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
-                function_prototype_local,
-            ),
-            (
-                HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
-                type_error_prototype_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(intrinsics_local, offset, prototype_local, function);
-            function.instruction(&Instruction::LocalGet(prototype_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-        }
-
-        self.release_temp_local(intrinsics_local);
-        ArrayFromAsyncExecutionRealmContext {
-            constructor_payload_local,
-            realm_local,
-            function_prototype_local,
-            type_error_prototype_local,
-        }
-    }
-
-    fn emit_array_from_async_intrinsic_promise_capability(
-        &mut self,
-        realm: &ArrayFromAsyncExecutionRealmContext,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let constructor_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        let executor_realm_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(realm.realm_local));
-        function.instruction(&Instruction::LocalSet(executor_realm_local));
-        let executor_context = self
-            .emit_promise_internal_function_materialization_context_from_realm(
-                executor_realm_local,
-                function,
-            );
-        let result = self.emit_new_promise_capability(
-            &executor_context,
-            realm.constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        );
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.release_temp_local(constructor_tag_local);
-        result
-    }
-
-    fn emit_array_from_async_internal_callback_pair(
-        &mut self,
-        realm: &ArrayFromAsyncExecutionRealmContext,
-        state_local: u32,
-        fulfilled_callback_payload_local: u32,
-        rejected_callback_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        for (builtin, callback_payload_local, missing_message) in [
-            (
-                StandardBuiltinId::ArrayFromAsyncFulfilled,
-                fulfilled_callback_payload_local,
-                "missing Array.fromAsync fulfillment callback builtin",
-            ),
-            (
-                StandardBuiltinId::ArrayFromAsyncRejected,
-                rejected_callback_payload_local,
-                "missing Array.fromAsync rejection callback builtin",
-            ),
-        ] {
-            let meta = self
-                .functions
-                .get(&builtin.function_id())
-                .cloned()
-                .ok_or_else(|| EmitError::unsupported(missing_message))?;
-            self.emit_function_value_payload(&meta, function)?;
-            function.instruction(&Instruction::LocalSet(callback_payload_local));
-            self.emit_store_function_defining_realm(
-                callback_payload_local,
-                realm.realm_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                callback_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                realm.function_prototype_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                callback_payload_local,
-                HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-                ValueKind::Function.tag() as u64,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                callback_payload_local,
-                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-                realm.type_error_prototype_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                callback_payload_local,
-                HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-                state_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                callback_payload_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                callback_payload_local,
-                function,
-            );
-        }
-        Ok(())
-    }
-
-    fn release_array_from_async_execution_realm_context(
-        &mut self,
-        realm: ArrayFromAsyncExecutionRealmContext,
-    ) {
-        self.release_temp_local(realm.type_error_prototype_local);
-        self.release_temp_local(realm.function_prototype_local);
-        self.release_temp_local(realm.realm_local);
-        self.release_temp_local(realm.constructor_payload_local);
-    }
-
-    pub(crate) fn emit_array_from_async(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Array.fromAsync receiver",
-            )
-        })?;
-        let constructor_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Array.fromAsync receiver tag",
-            )
-        })?;
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let source_payload_local = self.reserve_temp_local();
-        let source_tag_local = self.reserve_temp_local();
-        let source_object_payload_local = self.reserve_temp_local();
-        let source_object_tag_local = self.reserve_temp_local();
-        let mapper_payload_local = self.reserve_temp_local();
-        let mapper_tag_local = self.reserve_temp_local();
-        let this_arg_payload_local = self.reserve_temp_local();
-        let this_arg_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let iterator_mode_local = self.reserve_temp_local();
-
-        let execution_realm = self.emit_array_from_async_execution_realm_context(function);
-        self.emit_array_from_async_intrinsic_promise_capability(
-            &execution_realm,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        self.emit_builtin_arg_to_locals(0, source_payload_local, source_tag_local, function);
-        self.emit_builtin_arg_to_locals(1, mapper_payload_local, mapper_tag_local, function);
-        self.emit_builtin_arg_to_locals(2, this_arg_payload_local, this_arg_tag_local, function);
-
-        function.instruction(&Instruction::LocalGet(mapper_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_is_callable_i32(mapper_tag_local, mapper_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        mapper.tag().load(f);
+        f.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        f.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_is_callable_i32(&mapper, f)?;
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
         self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync mapper is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
+            RuntimeErrorMessage::ARRAY_FROMASYNC_MAPPER_IS_NOT_CALLABLE,
+            &pending,
+            f,
         )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(source_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(source_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_af_get_method(
+            &items,
+            lila_ir::WellKnownSymbol::AsyncIterator,
+            &method,
+            &pending,
+            f,
+        )?;
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        self.compile_nullish_tagged_i32(method.tag(), f)?;
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_af_get_method(
+            &items,
+            lila_ir::WellKnownSymbol::Iterator,
+            &method,
+            &pending,
+            f,
+        )?;
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        mode.set_sync(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+
+        self.compile_nullish_tagged_i32(method.tag(), f)?;
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        // GetIteratorFromMethod, including the cached next Get, precedes Construct.
+        let argv = self.emit_pre_evaluated_arg_vector(&[], f);
+        self.emit_function_or_proxy_call_with_argv(&method, &items, &argv, &pending, f)?;
+        argv.clear(f);
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        iterator_value.copy_from(pending.value(), f);
+        self.emit_is_heap_object_like_tag_i32(iterator_value.tag(), f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
         self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync input is null or undefined",
-            self.result_local,
-            self.result_tag_local,
-            function,
+            RuntimeErrorMessage::ARRAY_FROMASYNC_ITERATOR_METHOD_MUST_RETURN_OBJECT,
+            &pending,
+            f,
         )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_value_to_current_function_realm_object_locals(
-            source_payload_local,
-            source_tag_local,
-            source_object_payload_local,
-            source_object_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::AsyncIterator.code() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(iterator_mode_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.asyncIterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        self.emit_object_read_without_throw_propagation_with_key_tag(
-            source_object_payload_local,
-            source_object_tag_local,
-            source_payload_local,
-            source_tag_local,
-            key_local,
-            key_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::SyncIterator.code() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(iterator_mode_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation_with_key_tag(
-            source_object_payload_local,
-            source_object_tag_local,
-            source_payload_local,
-            source_tag_local,
-            key_local,
-            key_tag_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_array_like_start(
-            constructor_payload_local,
-            constructor_tag_local,
-            &execution_realm,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            source_object_payload_local,
-            source_object_tag_local,
-            mapper_payload_local,
-            mapper_tag_local,
-            this_arg_payload_local,
-            this_arg_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_iterable_start(
-            constructor_payload_local,
-            constructor_tag_local,
-            &execution_realm,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            source_payload_local,
-            source_tag_local,
-            method_payload_local,
-            method_tag_local,
-            iterator_mode_local,
-            mapper_payload_local,
-            mapper_tag_local,
-            this_arg_payload_local,
-            this_arg_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_array_from_async_execution_realm_context(execution_realm);
-        self.release_temp_local(iterator_mode_local);
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(this_arg_tag_local);
-        self.release_temp_local(this_arg_payload_local);
-        self.release_temp_local(mapper_tag_local);
-        self.release_temp_local(mapper_payload_local);
-        self.release_temp_local(source_object_tag_local);
-        self.release_temp_local(source_object_payload_local);
-        self.release_temp_local(source_tag_local);
-        self.release_temp_local(source_payload_local);
-        self.release_temp_local(promise_tag_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(capability_record_local);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_array_from_async_array_like_start(
-        &mut self,
-        constructor_payload_local: u32,
-        constructor_tag_local: u32,
-        execution_realm: &ArrayFromAsyncExecutionRealmContext,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        source_payload_local: u32,
-        source_tag_local: u32,
-        mapper_payload_local: u32,
-        mapper_tag_local: u32,
-        this_arg_payload_local: u32,
-        this_arg_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let length_payload_local = self.reserve_temp_local();
-        let length_tag_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let is_constructor_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-        let state_local = self.reserve_temp_local();
-        let throwaway_capability_local = self.reserve_temp_local();
-        let throwaway_promise_payload_local = self.reserve_temp_local();
-        let throwaway_promise_tag_local = self.reserve_temp_local();
-        let fulfilled_callback_payload_local = self.reserve_temp_local();
-        let rejected_callback_payload_local = self.reserve_temp_local();
-        let input_payload_local = self.reserve_temp_local();
-        let input_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            source_payload_local,
-            source_tag_local,
-            source_payload_local,
-            source_tag_local,
-            key_local,
-            length_payload_local,
-            length_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.emit_to_length_i64_from_value_locals_with_abrupt_route(
-            length_tag_local,
-            length_payload_local,
-            length_local,
-            ToLengthAbruptRoute::RejectArrayFromAsyncAndReturnPromise {
-                capability_record_local,
-                promise_payload_local,
-                promise_tag_local,
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_array_native_get(&iterator_value, "next", &pending, f)?;
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        let iterator_stored = s.reserve_gc_local(f).initialize(
+            s.struct_type::<StoredValue>()
+                .from_value(&iterator_value, f),
+            f,
+        );
+        let next_stored = s.reserve_gc_local(f).initialize(
+            s.struct_type::<StoredValue>()
+                .from_value(pending.value(), f),
+            f,
+        );
+        let complete_record = s.reserve_gc_local(f).initialize(
+            s.struct_type::<IteratorRecord>().construct(
+                (
+                    GcOperand::reference(&iterator_stored, s),
+                    GcOperand::reference(&next_stored, s),
+                    GcOperand::boolean(false),
+                ),
+                f,
+            ),
+            f,
+        );
+        next_stored.clear(f);
+        iterator_stored.clear(f);
+        self.emit_af_target(&ctor, None, &target, &capability, &pending, exit, f)?;
+        let state = self.emit_af_publish_state(
+            &capability,
+            SourcePlan::Iterable {
+                items: &items,
+                record: &complete_record,
+                mode: &mode,
             },
-            function,
+            &target,
+            &mapper,
+            &this_argument,
+            f,
         )?;
-
-        self.emit_is_constructor_i32(constructor_tag_local, constructor_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(is_constructor_local));
-        function.instruction(&Instruction::LocalGet(is_constructor_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::I64Const(MAX_ARRAY_LENGTH as i64));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid array length",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_alloc_array_payload_with_length(length_local, target_payload_local, function)?;
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(target_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(length_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(length_tag_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[(length_payload_local, length_tag_local)],
-            argc_local,
-            argv_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_construct_with_argv(
-            constructor_payload_local,
-            constructor_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            argc_local,
-            argv_local,
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_set_length(
-            target_payload_local,
-            target_tag_local,
-            length_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_resolve(
-            capability_record_local,
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_heap_alloc_const(ARRAY_FROM_ASYNC_STATE_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(state_local));
-        self.emit_array_from_async_intrinsic_promise_capability(
-            execution_realm,
-            throwaway_capability_local,
-            throwaway_promise_payload_local,
-            throwaway_promise_tag_local,
-            function,
-        )?;
-
-        self.emit_array_from_async_internal_callback_pair(
-            execution_realm,
-            state_local,
-            fulfilled_callback_payload_local,
-            rejected_callback_payload_local,
-            function,
-        )?;
-
-        for (offset, local) in [
-            (ARRAY_FROM_ASYNC_CAPABILITY_OFFSET, capability_record_local),
-            (
-                ARRAY_FROM_ASYNC_THROWAWAY_CAPABILITY_OFFSET,
-                throwaway_capability_local,
-            ),
-            (ARRAY_FROM_ASYNC_SOURCE_PAYLOAD_OFFSET, source_payload_local),
-            (ARRAY_FROM_ASYNC_SOURCE_TAG_OFFSET, source_tag_local),
-            (ARRAY_FROM_ASYNC_TARGET_PAYLOAD_OFFSET, target_payload_local),
-            (ARRAY_FROM_ASYNC_TARGET_TAG_OFFSET, target_tag_local),
-            (ARRAY_FROM_ASYNC_MAPPER_PAYLOAD_OFFSET, mapper_payload_local),
-            (ARRAY_FROM_ASYNC_MAPPER_TAG_OFFSET, mapper_tag_local),
-            (
-                ARRAY_FROM_ASYNC_THIS_ARG_PAYLOAD_OFFSET,
-                this_arg_payload_local,
-            ),
-            (ARRAY_FROM_ASYNC_THIS_ARG_TAG_OFFSET, this_arg_tag_local),
-            (ARRAY_FROM_ASYNC_LENGTH_OFFSET, length_local),
-            (
-                ARRAY_FROM_ASYNC_FULFILLED_CALLBACK_OFFSET,
-                fulfilled_callback_payload_local,
-            ),
-            (
-                ARRAY_FROM_ASYNC_REJECTED_CALLBACK_OFFSET,
-                rejected_callback_payload_local,
-            ),
-        ] {
-            self.store_i64_local_at_offset(state_local, offset, local, function);
-        }
-        self.store_i64_const_at_offset(state_local, ARRAY_FROM_ASYNC_INDEX_OFFSET, 0, function);
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::InputValue.code(),
-            function,
-        );
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MODE_OFFSET,
-            ArrayFromAsyncSourceMode::ArrayLike.code(),
-            function,
-        );
-
-        self.emit_array_from_async_read_array_like_value(
-            state_local,
-            input_payload_local,
-            input_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            input_payload_local,
-            input_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(input_tag_local);
-        self.release_temp_local(input_payload_local);
-        self.release_temp_local(rejected_callback_payload_local);
-        self.release_temp_local(fulfilled_callback_payload_local);
-        self.release_temp_local(throwaway_promise_tag_local);
-        self.release_temp_local(throwaway_promise_payload_local);
-        self.release_temp_local(throwaway_capability_local);
-        self.release_temp_local(state_local);
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(is_constructor_local);
-        self.release_temp_local(length_local);
-        self.release_temp_local(length_tag_local);
-        self.release_temp_local(length_payload_local);
-        self.release_temp_local(key_local);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_array_from_async_iterable_start(
-        &mut self,
-        constructor_payload_local: u32,
-        constructor_tag_local: u32,
-        execution_realm: &ArrayFromAsyncExecutionRealmContext,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        source_payload_local: u32,
-        source_tag_local: u32,
-        iterator_method_payload_local: u32,
-        iterator_method_tag_local: u32,
-        iterator_mode_local: u32,
-        mapper_payload_local: u32,
-        mapper_tag_local: u32,
-        this_arg_payload_local: u32,
-        this_arg_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-        let is_constructor_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let state_local = self.reserve_temp_local();
-        let throwaway_capability_local = self.reserve_temp_local();
-        let throwaway_promise_payload_local = self.reserve_temp_local();
-        let throwaway_promise_tag_local = self.reserve_temp_local();
-        let fulfilled_callback_payload_local = self.reserve_temp_local();
-        let rejected_callback_payload_local = self.reserve_temp_local();
-        let next_result_payload_local = self.reserve_temp_local();
-        let next_result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            iterator_method_payload_local,
-            iterator_method_tag_local,
-            source_payload_local,
-            source_tag_local,
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator method must return object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        self.emit_is_constructor_i32(constructor_tag_local, constructor_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(is_constructor_local));
-        function.instruction(&Instruction::LocalGet(is_constructor_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_array_payload_with_length(zero_local, target_payload_local, function)?;
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(target_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_pre_evaluated_arg_vector(&[], argc_local, argv_local, function)?;
-        self.emit_function_or_proxy_construct_with_argv(
-            constructor_payload_local,
-            constructor_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            argc_local,
-            argv_local,
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_heap_alloc_const(ARRAY_FROM_ASYNC_STATE_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(state_local));
-        self.emit_array_from_async_intrinsic_promise_capability(
-            execution_realm,
-            throwaway_capability_local,
-            throwaway_promise_payload_local,
-            throwaway_promise_tag_local,
-            function,
-        )?;
-
-        self.emit_array_from_async_internal_callback_pair(
-            execution_realm,
-            state_local,
-            fulfilled_callback_payload_local,
-            rejected_callback_payload_local,
-            function,
-        )?;
-
-        for (offset, local) in [
-            (ARRAY_FROM_ASYNC_CAPABILITY_OFFSET, capability_record_local),
-            (
-                ARRAY_FROM_ASYNC_THROWAWAY_CAPABILITY_OFFSET,
-                throwaway_capability_local,
-            ),
-            (ARRAY_FROM_ASYNC_SOURCE_PAYLOAD_OFFSET, source_payload_local),
-            (ARRAY_FROM_ASYNC_SOURCE_TAG_OFFSET, source_tag_local),
-            (ARRAY_FROM_ASYNC_TARGET_PAYLOAD_OFFSET, target_payload_local),
-            (ARRAY_FROM_ASYNC_TARGET_TAG_OFFSET, target_tag_local),
-            (ARRAY_FROM_ASYNC_MAPPER_PAYLOAD_OFFSET, mapper_payload_local),
-            (ARRAY_FROM_ASYNC_MAPPER_TAG_OFFSET, mapper_tag_local),
-            (
-                ARRAY_FROM_ASYNC_THIS_ARG_PAYLOAD_OFFSET,
-                this_arg_payload_local,
-            ),
-            (ARRAY_FROM_ASYNC_THIS_ARG_TAG_OFFSET, this_arg_tag_local),
-            (
-                ARRAY_FROM_ASYNC_FULFILLED_CALLBACK_OFFSET,
-                fulfilled_callback_payload_local,
-            ),
-            (
-                ARRAY_FROM_ASYNC_REJECTED_CALLBACK_OFFSET,
-                rejected_callback_payload_local,
-            ),
-            (
-                ARRAY_FROM_ASYNC_ITERATOR_PAYLOAD_OFFSET,
-                iterator_payload_local,
-            ),
-            (ARRAY_FROM_ASYNC_ITERATOR_TAG_OFFSET, iterator_tag_local),
-            (ARRAY_FROM_ASYNC_NEXT_PAYLOAD_OFFSET, next_payload_local),
-            (ARRAY_FROM_ASYNC_NEXT_TAG_OFFSET, next_tag_local),
-            (ARRAY_FROM_ASYNC_MODE_OFFSET, iterator_mode_local),
-        ] {
-            self.store_i64_local_at_offset(state_local, offset, local, function);
-        }
-        self.store_i64_const_at_offset(state_local, ARRAY_FROM_ASYNC_INDEX_OFFSET, 0, function);
-        self.store_i64_const_at_offset(state_local, ARRAY_FROM_ASYNC_LENGTH_OFFSET, 0, function);
-
-        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator next is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            next_result_payload_local,
-            next_result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(iterator_mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::AsyncIterator.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::AsyncIteratorResult.code(),
-            function,
-        );
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            next_result_payload_local,
-            next_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_read_iterator_result_property(
-            next_result_payload_local,
-            next_result_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Done,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_read_iterator_result_property(
-            next_result_payload_local,
-            next_result_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Value,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::SyncIteratorDoneValue.code(),
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::InputValue.code(),
-            function,
-        );
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        for local in [
-            zero_local,
-            value_tag_local,
-            value_payload_local,
-            done_tag_local,
-            done_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            rejected_callback_payload_local,
-            fulfilled_callback_payload_local,
-            throwaway_promise_tag_local,
-            throwaway_promise_payload_local,
-            throwaway_capability_local,
-            state_local,
-            key_local,
-            argv_local,
-            argc_local,
-            is_constructor_local,
-            target_tag_local,
-            target_payload_local,
-            next_tag_local,
-            next_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn emit_array_from_async_fulfilled(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let state_local = self.reserve_temp_local();
-        let stage_local = self.reserve_temp_local();
-        let capability_record_local = self.reserve_temp_local();
-        let mapper_payload_local = self.reserve_temp_local();
-        let mapper_tag_local = self.reserve_temp_local();
-        let this_arg_payload_local = self.reserve_temp_local();
-        let this_arg_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let mapped_payload_local = self.reserve_temp_local();
-        let mapped_tag_local = self.reserve_temp_local();
-        let next_index_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let mode_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-            state_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_CAPABILITY_OFFSET,
-            capability_record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            stage_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::AsyncCloseResult.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::SyncCloseValue.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_saved_error(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::SyncIteratorDoneValue.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_finish_callback(state_local, capability_record_local, function)?;
-        self.emit_array_from_async_return_undefined(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::AsyncIteratorResult.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_read_iterator_result_property(
-            value_payload_local,
-            value_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Done,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_finish_callback(state_local, capability_record_local, function)?;
-        self.emit_array_from_async_return_undefined(function);
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_read_iterator_result_property(
-            value_payload_local,
-            value_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Value,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::InputValue.code() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(stage_local));
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::InputValue.code(),
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::InputValue.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MAPPER_PAYLOAD_OFFSET,
-            mapper_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MAPPER_TAG_OFFSET,
-            mapper_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(mapper_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_THIS_ARG_PAYLOAD_OFFSET,
-            this_arg_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_THIS_ARG_TAG_OFFSET,
-            this_arg_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            mapper_payload_local,
-            mapper_tag_local,
-            this_arg_payload_local,
-            this_arg_tag_local,
-            &[
-                (value_payload_local, value_tag_local),
-                (index_payload_local, index_tag_local),
-            ],
-            mapped_payload_local,
-            mapped_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_close_or_reject_callback_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::MappedValue.code(),
-            function,
-        );
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            mapped_payload_local,
-            mapped_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_return_undefined(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_array_from_async_define_current_value(
-            state_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_close_or_reject_callback_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(next_index_local));
-        self.store_i64_local_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_INDEX_OFFSET,
-            next_index_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MODE_OFFSET,
-            mode_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::ArrayLike.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_LENGTH_OFFSET,
-            length_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_finish_callback(state_local, capability_record_local, function)?;
-        self.emit_array_from_async_return_undefined(function);
-        function.instruction(&Instruction::End);
-
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::InputValue.code(),
-            function,
-        );
-        self.emit_array_from_async_read_array_like_value(
-            state_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_return_undefined(function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(next_index_local));
-        function.instruction(&Instruction::I64Const(MAX_SAFE_INTEGER as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator produced too many values",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_begin_close_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_schedule_iterator_step_callback(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(mode_local);
-        self.release_temp_local(length_local);
-        self.release_temp_local(next_index_local);
-        self.release_temp_local(mapped_tag_local);
-        self.release_temp_local(mapped_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(this_arg_tag_local);
-        self.release_temp_local(this_arg_payload_local);
-        self.release_temp_local(mapper_tag_local);
-        self.release_temp_local(mapper_payload_local);
-        self.release_temp_local(capability_record_local);
-        self.release_temp_local(stage_local);
-        self.release_temp_local(state_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_array_from_async_rejected(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let state_local = self.reserve_temp_local();
-        let capability_record_local = self.reserve_temp_local();
-        let stage_local = self.reserve_temp_local();
-        let mode_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let close_key_local = self.reserve_temp_local();
-        let close_return_payload_local = self.reserve_temp_local();
-        let close_return_tag_local = self.reserve_temp_local();
-        let close_result_payload_local = self.reserve_temp_local();
-        let close_result_tag_local = self.reserve_temp_local();
-        let close_saved_payload_local = self.reserve_temp_local();
-        let close_saved_tag_local = self.reserve_temp_local();
-        let close_saved_completion_local = self.reserve_temp_local();
-        let close_saved_aux_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
-            state_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_CAPABILITY_OFFSET,
-            capability_record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            stage_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MODE_OFFSET,
-            mode_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, self.result_local, self.result_tag_local, function);
-        self.set_completion_kind(CompletionKind::Throw, function);
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::AsyncCloseResult.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::SyncCloseValue.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_saved_error(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::MappedValue.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::ArrayLike.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_begin_close_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(stage_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncStage::InputValue.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::SyncIterator.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_ITERATOR_PAYLOAD_OFFSET,
-            iterator_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_ITERATOR_TAG_OFFSET,
-            iterator_tag_local,
-            function,
-        );
-        self.emit_iterator_close_preserving_current_throw(
-            IteratorCloseOnThrowLocals {
-                iterator_payload_local,
-                iterator_tag_local,
-                key_local: close_key_local,
-                return_payload_local: close_return_payload_local,
-                return_tag_local: close_return_tag_local,
-                result_payload_local: close_result_payload_local,
-                result_tag_local: close_result_tag_local,
-                saved_payload_local: close_saved_payload_local,
-                saved_tag_local: close_saved_tag_local,
-                saved_completion_local: close_saved_completion_local,
-                saved_aux_local: close_saved_aux_local,
+        state_slot.replace(state.load(s, f).nullable(), f);
+        state.clear(f);
+        complete_record.clear(f);
+        f.instruction(&Instruction::Else);
+        self.emit_value_to_current_function_realm_object_locals(&items, &pending, f)?;
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        source.copy_from(pending.value(), f);
+        self.emit_array_native_get(&source, "length", &pending, f)?;
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        self.emit_to_length_i64_from_value_locals(pending.value(), length, &pending, f)?;
+        self.emit_af_reject_abrupt(&capability, &pending, exit, f)?;
+        self.emit_af_target(&ctor, Some(length), &target, &capability, &pending, exit, f)?;
+        let state = self.emit_af_publish_state(
+            &capability,
+            SourcePlan::ArrayLike {
+                object: &source,
+                length,
             },
-            function,
+            &target,
+            &mapper,
+            &this_argument,
+            f,
         )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        state_slot.replace(state.load(s, f).nullable(), f);
+        state.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
 
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        self.emit_array_from_async_return_undefined(function);
-
-        self.release_temp_local(close_saved_aux_local);
-        self.release_temp_local(close_saved_completion_local);
-        self.release_temp_local(close_saved_tag_local);
-        self.release_temp_local(close_saved_payload_local);
-        self.release_temp_local(close_result_tag_local);
-        self.release_temp_local(close_result_payload_local);
-        self.release_temp_local(close_return_tag_local);
-        self.release_temp_local(close_return_payload_local);
-        self.release_temp_local(close_key_local);
-        self.release_temp_local(iterator_tag_local);
-        self.release_temp_local(iterator_payload_local);
-        self.release_temp_local(mode_local);
-        self.release_temp_local(stage_local);
-        self.release_temp_local(capability_record_local);
-        self.release_temp_local(state_local);
+        let state = s
+            .reserve_gc_local(f)
+            .initialize(state_slot.load(s, f).require_non_null(f), f);
+        self.emit_af_drive(&state, exit, f)?;
+        state.clear(f);
+        self.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        // Every post-capability abrupt completion rejects this intrinsic Promise.
+        self.completion().set_normal(&promise, f);
+        mode.clear(s, f);
+        s.release_i64_local(length, f);
+        state_slot.clear(f);
+        iterator_value.clear(f);
+        target.clear(f);
+        source.clear(f);
+        method.clear(f);
+        this_argument.clear(f);
+        mapper.clear(f);
+        items.clear(f);
+        ctor.clear(f);
+        pending.clear(f);
+        promise.clear(f);
+        capability.clear(f);
         Ok(())
     }
 
-    fn emit_array_from_async_schedule_await(
+    fn emit_af_result_get(
         &mut self,
-        state_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let throwaway_capability_local = self.reserve_temp_local();
-        let fulfilled_payload_local = self.reserve_temp_local();
-        let rejected_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_THROWAWAY_CAPABILITY_OFFSET,
-            throwaway_capability_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_FULFILLED_CALLBACK_OFFSET,
-            fulfilled_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_REJECTED_CALLBACK_OFFSET,
-            rejected_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(callback_tag_local));
-        self.emit_intrinsic_await_with_handlers(
-            value_payload_local,
-            value_tag_local,
-            fulfilled_payload_local,
-            callback_tag_local,
-            rejected_payload_local,
-            callback_tag_local,
-            throwaway_capability_local,
-            function,
-        )?;
-
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(rejected_payload_local);
-        self.release_temp_local(fulfilled_payload_local);
-        self.release_temp_local(throwaway_capability_local);
-        Ok(())
-    }
-
-    fn emit_array_from_async_schedule_iterator_step_callback(
-        &mut self,
-        state_local: u32,
-        capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let mode_local = self.reserve_temp_local();
-        let next_result_payload_local = self.reserve_temp_local();
-        let next_result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        for (offset, local) in [
-            (
-                ARRAY_FROM_ASYNC_ITERATOR_PAYLOAD_OFFSET,
-                iterator_payload_local,
-            ),
-            (ARRAY_FROM_ASYNC_ITERATOR_TAG_OFFSET, iterator_tag_local),
-            (ARRAY_FROM_ASYNC_NEXT_PAYLOAD_OFFSET, next_payload_local),
-            (ARRAY_FROM_ASYNC_NEXT_TAG_OFFSET, next_tag_local),
-            (ARRAY_FROM_ASYNC_MODE_OFFSET, mode_local),
-        ] {
-            self.load_i64_to_local_from_offset(state_local, offset, local, function);
-        }
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            next_result_payload_local,
-            next_result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::AsyncIterator.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::AsyncIteratorResult.code(),
-            function,
-        );
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            next_result_payload_local,
-            next_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Array.fromAsync iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_read_iterator_result_property(
-            next_result_payload_local,
-            next_result_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Done,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        self.emit_array_from_async_read_iterator_result_property(
-            next_result_payload_local,
-            next_result_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Value,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::SyncIteratorDoneValue.code(),
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::InputValue.code(),
-            function,
-        );
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_return_undefined(function);
-
-        for local in [
-            value_tag_local,
-            value_payload_local,
-            done_tag_local,
-            done_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            mode_local,
-            next_tag_local,
-            next_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    fn emit_array_from_async_close_or_reject_callback_current_throw(
-        &mut self,
-        state_local: u32,
-        capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let mode_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MODE_OFFSET,
-            mode_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::ArrayLike.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_array_from_async_begin_close_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(mode_local);
-        Ok(())
-    }
-
-    fn emit_array_from_async_begin_close_current_throw(
-        &mut self,
-        state_local: u32,
-        capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let mode_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let return_payload_local = self.reserve_temp_local();
-        let return_tag_local = self.reserve_temp_local();
-        let close_result_payload_local = self.reserve_temp_local();
-        let close_result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        self.store_i64_local_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_SAVED_ERROR_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_SAVED_ERROR_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.set_completion_kind(CompletionKind::Normal, function);
-        for (offset, local) in [
-            (
-                ARRAY_FROM_ASYNC_ITERATOR_PAYLOAD_OFFSET,
-                iterator_payload_local,
-            ),
-            (ARRAY_FROM_ASYNC_ITERATOR_TAG_OFFSET, iterator_tag_local),
-            (ARRAY_FROM_ASYNC_MODE_OFFSET, mode_local),
-        ] {
-            self.load_i64_to_local_from_offset(state_local, offset, local, function);
-        }
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("return")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            return_payload_local,
-            return_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_saved_error_on_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(return_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_saved_error(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_is_callable_i32(return_tag_local, return_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_saved_error(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            return_payload_local,
-            return_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            close_result_payload_local,
-            close_result_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_saved_error_on_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::AsyncIterator.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::AsyncCloseResult.code(),
-            function,
-        );
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            close_result_payload_local,
-            close_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_is_heap_object_like_tag_i32(close_result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_saved_error(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_read_iterator_result_property(
-            close_result_payload_local,
-            close_result_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Done,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_saved_error_on_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        self.emit_array_from_async_read_iterator_result_property(
-            close_result_payload_local,
-            close_result_tag_local,
-            ArrayFromAsyncIteratorResultProperty::Value,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_saved_error_on_current_throw(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        self.store_i64_const_at_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_STAGE_OFFSET,
-            ArrayFromAsyncStage::SyncCloseValue.code(),
-            function,
-        );
-        self.emit_array_from_async_schedule_await(
-            state_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_return_undefined(function);
-
-        for local in [
-            value_tag_local,
-            value_payload_local,
-            done_tag_local,
-            done_payload_local,
-            close_result_tag_local,
-            close_result_payload_local,
-            return_tag_local,
-            return_payload_local,
-            key_local,
-            mode_local,
-            iterator_tag_local,
-            iterator_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    fn emit_array_from_async_reject_saved_error_on_current_throw(
-        &mut self,
-        state_local: u32,
-        capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_from_async_reject_saved_error(
-            state_local,
-            capability_record_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    fn emit_array_from_async_reject_saved_error(
-        &mut self,
-        state_local: u32,
-        capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_SAVED_ERROR_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_SAVED_ERROR_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        self.set_completion_kind(CompletionKind::Throw, function);
-        self.emit_array_from_async_reject_callback_current_throw(capability_record_local, function)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_array_from_async_read_iterator_result_property(
-        &mut self,
-        iterator_result_payload_local: u32,
-        iterator_result_tag_local: u32,
+        result: &ValueLocals,
         property: ArrayFromAsyncIteratorResultProperty,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
+        pending: &CompletionLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload(property.key())));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterator_result_payload_local,
-            iterator_result_tag_local,
-            iterator_result_payload_local,
-            iterator_result_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(key_local);
-        Ok(())
+        self.emit_array_native_get(result, property.key(), pending, f)
     }
 
-    fn emit_array_from_async_read_array_like_value(
+    fn emit_af_get_method(
         &mut self,
-        state_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
+        items: &ValueLocals,
+        symbol: lila_ir::WellKnownSymbol,
+        method: &ValueLocals,
+        pending: &CompletionLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let source_payload_local = self.reserve_temp_local();
-        let source_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_SOURCE_PAYLOAD_OFFSET,
-            source_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_SOURCE_TAG_OFFSET,
-            source_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_number_to_string_payload(index_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            source_payload_local,
-            source_tag_local,
-            source_payload_local,
-            source_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
+        let s = self.runtime_schema();
+        let symbol = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_well_known_symbol_reference(symbol, f)?, f);
+        let key = PropertyKeyLocals::from_symbol(s, &symbol, f);
+        self.emit_object_read(items, items, &key, pending, f)?;
+        key.clear(f);
+        symbol.clear(f);
+        pending.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        method.copy_from(pending.value(), f);
+        self.compile_nullish_tagged_i32(method.tag(), f)?;
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_is_callable_i32(method, f)?;
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_throw_current_function_realm_type_error(
+            RuntimeErrorMessage::ARRAY_FROMASYNC_ITERATOR_METHOD_IS_NOT_CALLABLE,
+            pending,
+            f,
         )?;
-
-        self.release_temp_local(key_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(source_tag_local);
-        self.release_temp_local(source_payload_local);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         Ok(())
     }
 
-    fn emit_array_from_async_define_current_value(
+    fn emit_af_target(
         &mut self,
-        state_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
+        ctor: &ValueLocals,
+        length: Option<I64Local>,
+        target: &ValueLocals,
+        capability: &GcLocal<PromiseCapability>,
+        pending: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let descriptor_payload_local = self.reserve_temp_local();
-        let descriptor_tag_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let define_property_payload_local = self.reserve_temp_local();
-        let define_property_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_TARGET_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
+        let s = self.runtime_schema();
+        let number = s.reserve_value_local(f);
+        let zero = s.reserve_i64_local(f);
+        f.instruction(&Instruction::I64Const(0));
+        zero.store(f);
+        self.emit_is_constructor_i32(ctor, f);
+        self.open_frame(ControlFrameKind::If, f);
+        if let Some(length) = length {
+            self.emit_af_number(length, &number, f);
+        }
+        let length_arguments = [&number];
+        let argv = self.emit_pre_evaluated_arg_vector(
+            if length.is_some() {
+                &length_arguments
+            } else {
+                &[]
+            },
+            f,
         );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_TARGET_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        self.emit_number_to_string_payload(index_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_create_data_property_descriptor_carrier(
-            crate::objects::TaggedLocals::new(value_payload_local, value_tag_local),
-            descriptor_payload_local,
-            function,
+        self.emit_function_or_proxy_construct_with_argv(ctor, ctor, &argv, pending, f)?;
+        argv.clear(f);
+        self.emit_af_reject_abrupt(capability, pending, exit, f)?;
+        target.copy_from(pending.value(), f);
+        f.instruction(&Instruction::Else);
+        let count = length.unwrap_or(zero);
+        // ArrayCreate's RangeError belongs to the async rejection boundary.
+        count.load(f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        f.instruction(&Instruction::I64GtU);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::RangeError,
+            RuntimeErrorMessage::INVALID_ARRAY_LENGTH,
+            pending,
+            f,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-        let define_property_meta = self
-            .functions
-            .get(&StandardBuiltinId::ObjectDefineProperty.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Object.defineProperty`",
-                )
-            })?;
-        self.emit_function_value_payload(&define_property_meta, function)?;
-        function.instruction(&Instruction::LocalSet(define_property_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(define_property_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        self.emit_function_handle_call_without_throw_propagation(
-            define_property_payload_local,
-            define_property_tag_local,
-            None,
-            &[
-                (target_payload_local, target_tag_local),
-                (key_local, key_tag_local),
-                (descriptor_payload_local, descriptor_tag_local),
-            ],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(define_property_tag_local);
-        self.release_temp_local(define_property_payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(descriptor_tag_local);
-        self.release_temp_local(descriptor_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
+        self.emit_af_reject_abrupt(capability, pending, exit, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let realm = self.emit_execution_realm(f);
+        let prototype = s
+            .reserve_gc_local(f)
+            .initialize(self.emit_load_realm_array_prototype(&realm, f), f);
+        let prototype_value = s.reserve_value_local(f);
+        prototype_value.set_reference(&prototype, s, f);
+        let array = s.reserve_gc_local(f).initialize(
+            self.emit_alloc_array_payload_with_length_and_prototype(count, &prototype_value, f)?,
+            f,
+        );
+        target.set_reference(&array, s, f);
+        array.clear(f);
+        prototype_value.clear(f);
+        prototype.clear(f);
+        realm.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        s.release_i64_local(zero, f);
+        number.clear(f);
         Ok(())
     }
 
-    fn emit_array_from_async_finish_callback(
+    fn emit_af_reject_abrupt(
         &mut self,
-        state_local: u32,
-        capability_record_local: u32,
-        function: &mut Function,
+        capability: &GcLocal<PromiseCapability>,
+        pending: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let target_payload_local = self.reserve_temp_local();
-        let target_tag_local = self.reserve_temp_local();
-        let length_local = self.reserve_temp_local();
-        let mode_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_TARGET_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_TARGET_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_LENGTH_OFFSET,
-            length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_MODE_OFFSET,
-            mode_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(
-            ArrayFromAsyncSourceMode::ArrayLike.code() as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            state_local,
-            ARRAY_FROM_ASYNC_INDEX_OFFSET,
-            length_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        self.emit_array_from_async_set_length(
-            target_payload_local,
-            target_tag_local,
-            length_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_callback_current_throw(
-            capability_record_local,
-            function,
-        )?;
-        self.emit_array_from_async_resolve(
-            capability_record_local,
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(mode_local);
-        self.release_temp_local(length_local);
-        self.release_temp_local(target_tag_local);
-        self.release_temp_local(target_payload_local);
+        pending.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_af_settle(capability, PromiseSettlement::Reject, pending.value(), f)?;
+        self.emit_branch_to_target(exit, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         Ok(())
     }
-
-    fn emit_array_from_async_set_length(
+    fn emit_af_settle(
         &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        length_local: u32,
-        function: &mut Function,
+        capability: &GcLocal<PromiseCapability>,
+        kind: PromiseSettlement,
+        value: &ValueLocals,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let length_payload_local = self.reserve_temp_local();
-        let length_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::LocalGet(length_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(length_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(length_tag_local));
-        self.emit_object_write(
-            target_payload_local,
-            target_tag_local,
-            key_local,
-            length_payload_local,
-            length_tag_local,
-            function,
-        )?;
-
-        self.release_temp_local(length_tag_local);
-        self.release_temp_local(length_payload_local);
-        self.release_temp_local(key_local);
+        let s = self.runtime_schema();
+        let called = s.reserve_completion(f);
+        self.emit_call_promise_capability(capability, kind, value, &called, f)?;
+        called.clear(f);
         Ok(())
     }
-
-    fn emit_array_from_async_resolve(
-        &mut self,
-        capability_record_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            resolve_payload_local,
-            resolve_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(value_payload_local, value_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_array_from_async_reject_current_throw_and_return_promise(
-        &mut self,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let error_payload_local = self.reserve_temp_local();
-        let error_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(error_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(error_tag_local));
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            reject_payload_local,
-            reject_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(error_payload_local, error_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(error_tag_local);
-        self.release_temp_local(error_payload_local);
-        Ok(())
-    }
-
-    fn emit_array_from_async_reject_callback_current_throw(
-        &mut self,
-        capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let error_payload_local = self.reserve_temp_local();
-        let error_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(error_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(error_tag_local));
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            reject_payload_local,
-            reject_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(error_payload_local, error_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_array_from_async_return_undefined(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(error_tag_local);
-        self.release_temp_local(error_payload_local);
-        Ok(())
-    }
-
-    fn emit_array_from_async_return_undefined(&mut self, function: &mut Function) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_return_current_completion(function);
+    fn emit_af_number(&self, integer: I64Local, value: &ValueLocals, f: &mut Function) {
+        integer.load(f);
+        f.instruction(&Instruction::F64ConvertI64U);
+        f.instruction(&Instruction::I64ReinterpretF64);
+        value.scalar().store(f);
+        value.set_number(value.scalar(), f);
     }
 }

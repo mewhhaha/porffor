@@ -1,0 +1,719 @@
+{
+  "algorithm": "locale-text-cldr47-v1",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "cldr_release": "47.0.0",
+  "license_sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6",
+  "primary_manifest_sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5",
+  "primary_source_sha256": "f765a79559429de5cf1c3346df9eebb73be5e46cef4489df7052b878e230bb0b",
+  "schema": 1,
+  "scripts": [
+    {
+      "direction": "rtl",
+      "script": "Adlm"
+    },
+    {
+      "direction": "ltr",
+      "script": "Aghb"
+    },
+    {
+      "direction": "ltr",
+      "script": "Ahom"
+    },
+    {
+      "direction": "rtl",
+      "script": "Arab"
+    },
+    {
+      "direction": "rtl",
+      "script": "Armi"
+    },
+    {
+      "direction": "ltr",
+      "script": "Armn"
+    },
+    {
+      "direction": "rtl",
+      "script": "Avst"
+    },
+    {
+      "direction": "ltr",
+      "script": "Bali"
+    },
+    {
+      "direction": "ltr",
+      "script": "Bamu"
+    },
+    {
+      "direction": "ltr",
+      "script": "Bass"
+    },
+    {
+      "direction": "ltr",
+      "script": "Batk"
+    },
+    {
+      "direction": "ltr",
+      "script": "Beng"
+    },
+    {
+      "direction": "ltr",
+      "script": "Bhks"
+    },
+    {
+      "direction": "ltr",
+      "script": "Bopo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Brah"
+    },
+    {
+      "direction": null,
+      "script": "Brai"
+    },
+    {
+      "direction": "ltr",
+      "script": "Bugi"
+    },
+    {
+      "direction": "ltr",
+      "script": "Buhd"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cakm"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cans"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cari"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cham"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cher"
+    },
+    {
+      "direction": "rtl",
+      "script": "Chrs"
+    },
+    {
+      "direction": "ltr",
+      "script": "Copt"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cpmn"
+    },
+    {
+      "direction": "rtl",
+      "script": "Cprt"
+    },
+    {
+      "direction": "ltr",
+      "script": "Cyrl"
+    },
+    {
+      "direction": "ltr",
+      "script": "Deva"
+    },
+    {
+      "direction": "ltr",
+      "script": "Diak"
+    },
+    {
+      "direction": "ltr",
+      "script": "Dogr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Dsrt"
+    },
+    {
+      "direction": "ltr",
+      "script": "Dupl"
+    },
+    {
+      "direction": "ltr",
+      "script": "Egyp"
+    },
+    {
+      "direction": "ltr",
+      "script": "Elba"
+    },
+    {
+      "direction": "rtl",
+      "script": "Elym"
+    },
+    {
+      "direction": "ltr",
+      "script": "Ethi"
+    },
+    {
+      "direction": "rtl",
+      "script": "Gara"
+    },
+    {
+      "direction": "ltr",
+      "script": "Geor"
+    },
+    {
+      "direction": "ltr",
+      "script": "Glag"
+    },
+    {
+      "direction": "ltr",
+      "script": "Gong"
+    },
+    {
+      "direction": "ltr",
+      "script": "Gonm"
+    },
+    {
+      "direction": "ltr",
+      "script": "Goth"
+    },
+    {
+      "direction": "ltr",
+      "script": "Gran"
+    },
+    {
+      "direction": "ltr",
+      "script": "Grek"
+    },
+    {
+      "direction": "ltr",
+      "script": "Gujr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Gukh"
+    },
+    {
+      "direction": "ltr",
+      "script": "Guru"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hanb"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hang"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hani"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hano"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hans"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hant"
+    },
+    {
+      "direction": "rtl",
+      "script": "Hatr"
+    },
+    {
+      "direction": "rtl",
+      "script": "Hebr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hira"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hluw"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hmng"
+    },
+    {
+      "direction": "ltr",
+      "script": "Hmnp"
+    },
+    {
+      "direction": "rtl",
+      "script": "Hung"
+    },
+    {
+      "direction": "ltr",
+      "script": "Ital"
+    },
+    {
+      "direction": "ltr",
+      "script": "Jamo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Java"
+    },
+    {
+      "direction": "ltr",
+      "script": "Jpan"
+    },
+    {
+      "direction": "ltr",
+      "script": "Kali"
+    },
+    {
+      "direction": "ltr",
+      "script": "Kana"
+    },
+    {
+      "direction": "ltr",
+      "script": "Kawi"
+    },
+    {
+      "direction": "rtl",
+      "script": "Khar"
+    },
+    {
+      "direction": "ltr",
+      "script": "Khmr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Khoj"
+    },
+    {
+      "direction": "ltr",
+      "script": "Kits"
+    },
+    {
+      "direction": "ltr",
+      "script": "Knda"
+    },
+    {
+      "direction": "ltr",
+      "script": "Kore"
+    },
+    {
+      "direction": "ltr",
+      "script": "Krai"
+    },
+    {
+      "direction": "ltr",
+      "script": "Kthi"
+    },
+    {
+      "direction": "ltr",
+      "script": "Lana"
+    },
+    {
+      "direction": "ltr",
+      "script": "Laoo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Latn"
+    },
+    {
+      "direction": "ltr",
+      "script": "Lepc"
+    },
+    {
+      "direction": "ltr",
+      "script": "Limb"
+    },
+    {
+      "direction": "ltr",
+      "script": "Lina"
+    },
+    {
+      "direction": "ltr",
+      "script": "Linb"
+    },
+    {
+      "direction": "ltr",
+      "script": "Lisu"
+    },
+    {
+      "direction": "ltr",
+      "script": "Lyci"
+    },
+    {
+      "direction": "rtl",
+      "script": "Lydi"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mahj"
+    },
+    {
+      "direction": "ltr",
+      "script": "Maka"
+    },
+    {
+      "direction": "rtl",
+      "script": "Mand"
+    },
+    {
+      "direction": "rtl",
+      "script": "Mani"
+    },
+    {
+      "direction": "ltr",
+      "script": "Marc"
+    },
+    {
+      "direction": "ltr",
+      "script": "Medf"
+    },
+    {
+      "direction": "rtl",
+      "script": "Mend"
+    },
+    {
+      "direction": "rtl",
+      "script": "Merc"
+    },
+    {
+      "direction": "rtl",
+      "script": "Mero"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mlym"
+    },
+    {
+      "direction": "ltr",
+      "script": "Modi"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mong"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mroo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mtei"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mult"
+    },
+    {
+      "direction": "ltr",
+      "script": "Mymr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Nagm"
+    },
+    {
+      "direction": "ltr",
+      "script": "Nand"
+    },
+    {
+      "direction": "rtl",
+      "script": "Narb"
+    },
+    {
+      "direction": "rtl",
+      "script": "Nbat"
+    },
+    {
+      "direction": "ltr",
+      "script": "Newa"
+    },
+    {
+      "direction": "rtl",
+      "script": "Nkoo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Nshu"
+    },
+    {
+      "direction": "ltr",
+      "script": "Ogam"
+    },
+    {
+      "direction": "ltr",
+      "script": "Olck"
+    },
+    {
+      "direction": "ltr",
+      "script": "Onao"
+    },
+    {
+      "direction": "rtl",
+      "script": "Orkh"
+    },
+    {
+      "direction": "ltr",
+      "script": "Orya"
+    },
+    {
+      "direction": "ltr",
+      "script": "Osge"
+    },
+    {
+      "direction": "ltr",
+      "script": "Osma"
+    },
+    {
+      "direction": "rtl",
+      "script": "Ougr"
+    },
+    {
+      "direction": "rtl",
+      "script": "Palm"
+    },
+    {
+      "direction": "ltr",
+      "script": "Pauc"
+    },
+    {
+      "direction": "ltr",
+      "script": "Perm"
+    },
+    {
+      "direction": "ltr",
+      "script": "Phag"
+    },
+    {
+      "direction": "rtl",
+      "script": "Phli"
+    },
+    {
+      "direction": "rtl",
+      "script": "Phlp"
+    },
+    {
+      "direction": "rtl",
+      "script": "Phnx"
+    },
+    {
+      "direction": "ltr",
+      "script": "Plrd"
+    },
+    {
+      "direction": "rtl",
+      "script": "Prti"
+    },
+    {
+      "direction": "ltr",
+      "script": "Rjng"
+    },
+    {
+      "direction": "rtl",
+      "script": "Rohg"
+    },
+    {
+      "direction": "ltr",
+      "script": "Runr"
+    },
+    {
+      "direction": "rtl",
+      "script": "Samr"
+    },
+    {
+      "direction": "rtl",
+      "script": "Sarb"
+    },
+    {
+      "direction": "ltr",
+      "script": "Saur"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sgnw"
+    },
+    {
+      "direction": "ltr",
+      "script": "Shaw"
+    },
+    {
+      "direction": "ltr",
+      "script": "Shrd"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sidd"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sind"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sinh"
+    },
+    {
+      "direction": "rtl",
+      "script": "Sogd"
+    },
+    {
+      "direction": "rtl",
+      "script": "Sogo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sora"
+    },
+    {
+      "direction": "ltr",
+      "script": "Soyo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sund"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sunu"
+    },
+    {
+      "direction": "ltr",
+      "script": "Sylo"
+    },
+    {
+      "direction": "rtl",
+      "script": "Syrc"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tagb"
+    },
+    {
+      "direction": "ltr",
+      "script": "Takr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tale"
+    },
+    {
+      "direction": "ltr",
+      "script": "Talu"
+    },
+    {
+      "direction": "ltr",
+      "script": "Taml"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tang"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tavt"
+    },
+    {
+      "direction": "ltr",
+      "script": "Telu"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tfng"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tglg"
+    },
+    {
+      "direction": "rtl",
+      "script": "Thaa"
+    },
+    {
+      "direction": "ltr",
+      "script": "Thai"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tibt"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tirh"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tnsa"
+    },
+    {
+      "direction": "ltr",
+      "script": "Todr"
+    },
+    {
+      "direction": "ltr",
+      "script": "Toto"
+    },
+    {
+      "direction": "ltr",
+      "script": "Tutg"
+    },
+    {
+      "direction": "ltr",
+      "script": "Ugar"
+    },
+    {
+      "direction": "ltr",
+      "script": "Vaii"
+    },
+    {
+      "direction": "ltr",
+      "script": "Vith"
+    },
+    {
+      "direction": "ltr",
+      "script": "Wara"
+    },
+    {
+      "direction": "ltr",
+      "script": "Wcho"
+    },
+    {
+      "direction": "ltr",
+      "script": "Xpeo"
+    },
+    {
+      "direction": "ltr",
+      "script": "Xsux"
+    },
+    {
+      "direction": "rtl",
+      "script": "Yezi"
+    },
+    {
+      "direction": "ltr",
+      "script": "Yiii"
+    },
+    {
+      "direction": "ltr",
+      "script": "Zanb"
+    },
+    {
+      "direction": null,
+      "script": "Zinh"
+    },
+    {
+      "direction": null,
+      "script": "Zyyy"
+    },
+    {
+      "direction": null,
+      "script": "Zzzz"
+    }
+  ]
+}

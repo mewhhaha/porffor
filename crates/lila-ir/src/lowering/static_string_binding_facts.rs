@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use super::{equal_map_intersection, BindingInfo};
+use super::conditional_flow::equal_map_intersection;
+use super::BindingInfo;
 
 #[derive(Clone, Default)]
 pub(super) struct StaticStringBindingFacts {

@@ -1,5 +1,293 @@
 # T05 — Value representation, heap, GC and weak reachability
 
+## Current capability audit — 2026-10-07
+
+The current product uses the canonical Wasm GC heap and Wasmtime's copying
+collector. The host GC hook calls the actual collector; ArrayBuffer detachment
+clears its rooted bytes and byte length. Older paragraphs about an unfinished
+semantic GC switch or a parallel linear heap are historical, not remaining
+implementation work on this source.
+
+Genuine weak reachability remains unavailable in pinned Wasmtime 47.0.0. Its
+host-root handle liveness API is not a weak GC reference or ephemeron facility.
+All sixteen weak routes retain the shared typed capability rejection after
+ordinary argument/prototype validation. This is the remaining runtime facility
+dependency; no strong-retaining imitation or compatibility heap is added.
+Full heap/lifecycle/independent-host acceptance still requires verification.
+
+## Atomic native records and ownership — 2026-10-05 dry source
+
+The atomic source draft joins complete values/completions with the actual typed
+GC records, captures, environments, frames, jobs and host roots. The Array
+indexed authority, native entry families, sync/async disposal continuations and
+whole Temporal family have completed source chunks. Temporal provider,
+calendar, epoch and Zoned method owners are joined. Final passive
+byte-layout/root/weak inventories and their module declarations are retired
+in the source draft. Obsolete literal representation assertions are retired;
+valid compiler/catalog ownership checks, real compiler emission controls,
+fixture registration and full pinned inventories remain. Scalar domains and
+checked private byte transport remain. There is one semantic compiler/object
+model.
+
+Completed calendar/zone/epoch/year/month owners prevent invalid carriers from
+entering their consumers. Plain and Duration String/JSON dispatch uses closed
+modes. Retained
+Date and Duration arithmetic branches join the builder's frame ledger so original
+throw-bearing calls follow the real completion path. Existing semantic controls
+remain, with finite GC-root, coercion-order, UTF16, transition and borrowed-Realm
+cohorts authored for the actual Wasm-AOT route.
+
+The complete source composition, types, controls and documentation have
+finished independent review. The complete source and integration repairs pass
+the whole-workspace, all-feature, all-target Rust type check on 2026-10-05. This
+includes authored Rust controls without executing them. Source guards, emitted
+Wasm validation, runtime and conformance remain open. The
+serial verification ladder requires the confirmed 4096 MiB aggregate cgroup
+cap. Weak/ephemeron support
+remains a reported runtime capability gap without a strong substitute or a
+passing skip. See the [Temporal GC contract](../docs/rust-rewrite/contracts/temporal-gc-values.md)
+and [heap record architecture](../crates/lila-aot-wasm/docs/heap-layout.md).
+
+## NativeHost atomic source — 2026-10-05
+
+The authored NativeHost family consumes actual GC ValueLocals, whole
+CompletionLocals and typed strong Realm/function/buffer roots. Native `gc()`
+calls the registered Engine collector boundary; the old unsupported manual
+collector route and raw publication offsets are historical. Created Realms
+consume the common completed bootstrap with their own Global Environment and
+canonical globals, excluding caller source overrides and entry-only host rows.
+Agent messages retain a native SAB resource and Int32 id; native receive
+publishes a fresh real Array pair, while the harness owns callback invocation.
+
+The selected weak-reference/ephemeron facility remains explicitly unavailable;
+strong GC does not supply it and no strong-retaining weak substitute is added.
+Existing earlier weak-instance/offset/manual-policy receipts below retain their
+original source scope. NativeHost's live-root/coercion/Realm controls are authored
+but unrun. Final raw heap/helper retirement and composed caller/guard census,
+Rust types, emitted Wasm, runtime and full T05 acceptance remain pending. See
+[NativeHost GC values](../docs/rust-rewrite/contracts/native-host-gc-values.md)
+and the [weak facility boundary](../docs/rust-rewrite/contracts/weak-unavailable-runtime-boundary.md).
+
+The earlier scalar-ABI, raw-offset and duplicate-bootstrap source descriptions
+below retain their recorded predecessor scope, including sections labelled
+current at those earlier checkpoints. They are not current GC allocation or
+publication claims.
+
+
+## Callable body and invocation roles — 2026-10-04 dry source
+
+The actual function planner now owns callable origin, the existing source
+protocol and both function-index spaces together. User, native and prepared
+Script origins project their permitted body role from that one owner. The
+builder retains the planned entry while emitting the body; a completed body
+carries it into the joint declaration/code publisher. A runtime helper remains
+an existing closed helper identity, rather than acquiring callable parameter
+access merely because it returns multiple values.
+
+Private ordinary, generator, async, async-generator and prepared-Script input
+bundles drive the actual direct/indirect calls. Ordinary inputs contain semantic
+this/new.target; each suspended family accepts only its own activation input.
+Prepared Script inputs retain the complete lexical/variable/private environment
+and direct-eval context lifecycle. The scalar encoder preserves the existing
+seven- or ten-word shape and seventeen static signature ordinals. Internal
+activation inputs cannot be passed as semantic new.target through these bundles.
+
+Dynamic dispatch loads environment, family flags and table identity from one
+validated Function object. A private branch encloses the matching role projection
+and actual call. Resume calls consume the saved record's family-specific fields.
+New.target first follows retained direct-eval or Arrow lexical ownership; an
+activation-backed generator, async or async-generator body otherwise evaluates
+it as undefined. Async Arrows therefore retain their ordinary lexical owner's
+new.target across await rather than reading an activation word.
+
+Paired strict/sloppy semantic controls cover ordinary calls/construction,
+alternate newTarget, all suspended families, escaped lexical/direct-eval Arrows
+and prepared created-Realm entries. Only source inspection and Rust formatting
+are complete. Compilation, Wasm validation, execution and broad verification
+remain pending. This joins the current scalar ABI's semantic role authority;
+it does not move values, callable references, allocations, completions, frames,
+jobs or host roots/decoding to Wasm GC. The atomic semantic migration and full
+T05 acceptance remain open.
+
+## Function declarations follow actual bodies — 2026-10-04 dry source
+
+ModuleCode now privately owns both FunctionSection and CodeSection. Its sole
+push consumes an actual EmittedFunction, derives the declaration from that
+body's closed identity, and appends declaration, body and attribution together.
+Prepared Script bodies carry a distinct identity with the existing ten-parameter
+signature; ordinary user/builtin/host bodies retain their seven-parameter shape
+and runtime helpers retain their existing exhaustive signature authority.
+All seventeen static type ordinals and shapes are unchanged. Prepared Script
+names and the script report category are preserved.
+
+The final module package consumes both sections from this one body owner.
+Assembly can no longer accept an independent function section. The positional
+prepared-body index-range inference and second declaration list are removed,
+along with the count assertion that checked those independent lists. Actual
+main/source/prepared/builtin/shared-stub/host/helper body order and conditional
+helper selection remain unchanged. Existing package guards and unit consumers
+are maintained around the new joint lifecycle; no new test groups are added.
+
+This earlier checkpoint closed the consumed declaration/body authority. It
+left the seven-I64 semantic context/activation roles for the newer callable-role
+source above. Migration of callable/value/completion, frame/job, host roots and
+decoding to GC references remains open. Current product semantic
+allocations remain linear. Compilation, Wasm validation, focused runtime and
+complete phase3/atomic migration acceptance remain pending.
+
+## Direct-eval context and retained capture edge — 2026-10-04 dry source
+
+The central registry now includes the actual direct-eval invocation context
+and its all-present derived-binding group, raising the declaration count from
+149 to 151 while preserving every existing type and field ordinal. A completed
+context retains its nullable FunctionContext, home-object StoredValue, optional
+group and mutable this/new.target snapshots. The group holds the four original
+this/status/new.target/active-function BindingCells together, preserving the
+actual aliasing instead of independently nullable or copied cells.
+
+Environment gains a nullable mutable DIRECT_EVAL_CONTEXT strong edge. During
+the atomic migration, a direct PreparedScript root publishes incoming context
+parameter9 after its Environment allocation; escaping arrows read the exact
+owner selected by the existing lexical capture hops. Only all-Arrow ancestry
+inherits this caller context. A nearest-nonnull ancestor search would cross an
+ordinary function boundary and is forbidden. Nested direct-eval roots reuse
+the context identity; arrows read without republishing. The snapshots refresh
+on each reused invocation and derived super() observes the original shared cells.
+
+These declarations describe the existing 88-byte record and retained lexical
+capture lifecycle. The recursive encoder and generated typed field accessors
+consume them through the existing sealed registry. Actual product allocations,
+capture reads and callable parameters still use the current linear ABI: the
+internal Object-tagged hidden binding must become this typed edge during the
+atomic switch, never a StoredValue containing an internal context address.
+No early semantic GC allocation, integer/reference bridge, copied object model
+or mirrored declaration test is added. Compilation, runtime, complete phase2/3
+coverage and the semantic cutover remain open.
+
+## Function-body environment edge — 2026-10-04 dry source
+
+The Environment schema now includes the actual parameter environment's strong
+FUNCTION_BODY link. Existing environment creation initializes that link to
+absent, resumable preparation publishes the body environment later, and resume
+entry traverses parameter/parent records until it finds the retained body. The
+central registry declares it as a nullable mutable reference to Environment,
+generating concrete recursive reference storage and owner-specific accessors.
+The InvocationFrame's own environment fields do not replace this traversed edge.
+
+This corrects one concrete phase2 declaration omission within the existing
+149-owner registry. It adds no semantic allocation, integer/reference bridge,
+object model, runtime fallback or new test that mirrors the declaration.
+Existing declaration checks will run at the combined checkpoint. Compilation,
+runtime, full phase2/3 coverage and the atomic semantic switch remain open.
+
+## Actual weak capability boundary — 2026-10-03 dry source
+
+One closed IR authority now supplies the product Wasmtime policy and all sixteen
+actual weak constructor/method routes. `RuntimeUnavailableCapability::WeakReachability`
+uses the existing mandatory out-of-band rejection import with new wire code 9;
+codes 0–8 retain their meanings. Valid construction rejects after ordinary
+validation and prototype observation, before any weak record, adder/iterator,
+kept target or finalization cell can be exposed. Wrong-brand and earlier
+argument/prototype failures keep their ordinary JavaScript completion and
+intrinsic Realm. Installed descriptors and constructor inspection remain
+ordinary intrinsic operations.
+
+The active strong-retaining weak implementations and shared WeakMap/WeakSet
+algorithm selectors are retired. Strong Map/Set algorithms remain on their
+existing path. Passive weak layout/edge declarations are an inventory only.
+Engine retains unavailable capabilities separately from dynamic-source reasons
+and compiler gaps, including aggregates; real JavaScript failures, timeout and
+trap retain priority. Test262 reports the capability as Unsupported/NotImplemented,
+and it cannot satisfy an expected runtime JavaScript exception or be caught to
+produce PASS. Genuine earlier TypeErrors still satisfy runtime-negative tests.
+
+Source controls cover installed surfaces, wrong-brand errors, argument/prototype
+ordering and defining-Realm identity, constructor aliases and Reflect.construct,
+uncatchable rejection and expected-negative classification. Existing fake weak
+instance/behavior assertions and producer guards are retired. All current
+controls remain uncompiled and unexecuted. Earlier results below retain their
+original source scope and cannot verify this correction. The semantic GC switch,
+real weak/ephemeron facility and complete T05/T21 acceptance remain open. See the
+[boundary contract](../docs/rust-rewrite/contracts/weak-unavailable-runtime-boundary.md).
+
+## Central declaration foundation — 2026-10-03 dry source
+
+One central declaration now generates GC struct/array fields, recursive
+membership, typed indices, encoded storage contracts and accessors. The
+product registry encodes these declarations after the existing anchor/holder;
+the anchor's actual construction and reads use the same generated accessors.
+Consumed function-prefix registration and one opaque finalized owner prevent
+later append/count queries and keep types with their matching rooted globals
+through main compilation and assembly.
+
+The consumed registry now declares 151 owners with explicit current Intl,
+Temporal, RegExp, binary-view, collection, private, Promise/job, module,
+suspension/disposal and Atomics waiter fields. Actual producers determine
+nullable initial links and closed scalar domains. Map/Set terminal cursors
+clear their owner; current typed-array iterators retain it after completion.
+Helper iterators, function protocols and native captures are also declared.
+Mutable escaping Promise capability executor state is separate from the
+completed immutable capability. Async disposal captures its nullable function
+Realm context through the actual producer route.
+
+The current host runtime-tag ABI has one concrete row domain for all twelve
+valid representations and both actual completion decoders consume it
+exhaustively. Compiler-only Dynamic cannot be bundled into the runtime tag;
+the existing numeric tags, BigInt forms and valid decoder outcomes are
+preserved. This is a consumed ABI foundation, still uncompiled and unexecuted.
+
+This is an uncompiled, unexecuted foundation. Protocol codecs, capture validity,
+closed state/value constructors, completed capability publication, typed
+callable/value ABIs, host roots and
+the atomic producer/consumer migration remain open. JavaScript semantic
+objects still use the linear heap; `gc()` remains unsupported and weak
+reachability unavailable. Authored validation and package-ownership sources
+have not run. Phase 2 and task acceptance remain open.
+
+## Current candidate verification
+
+The actual Wasmtime 47.0.0 dependency closure is locked and fetched; registry
+archive checksums and fresh current-tree offline metadata are verified. The
+original same-Source product compile and both-real-engine startup witness pass with the
+32 MiB Wasm and 64 MiB async/worker stack limits, explicit shared-memory
+permission and a real one-page allocation on each product engine. The selected
+cache, capability, ordinary-error, ticker and timeout controls also pass.
+The original eleven-test stack startup failure and later ten-pass/one-failure
+shared-memory setup result remain recorded in their separate failed attempts.
+No JavaScript semantic heap migration or weak reachability is established.
+
+The separate URI construction reproducer's retained 65,536-iteration pass
+remains a lower-workload observation; its separate URI failure is unchanged.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
+The existing shared HeapAlloc helper now validates its memory32 start and
+one-past end before page-count narrowing, growth or cursor commitment. Its
+maintained product-artifact regression requires the guards in that order.
+All heap-enabled product builders require that same helper; the unreachable
+inline allocation path is removed. Missing helper wiring reports an internal
+compiler invariant error before emitting an allocation.
+This small dry capacity boundary is integrated after independent source review;
+compilation and runtime acceptance remain pending. It introduces no allocator
+or representation and does not diagnose the historical URI failure. The atomic
+semantic Wasm-GC switch remains required. See the
+[allocation boundary contract](../docs/rust-rewrite/contracts/memory32-allocation-bound.md).
+
 **Status:** In progress — GC and weak runtime limits are explicit; cyclic collection and real weak reachability remain blocked
 
 **Parallel group:** Core foundations  
@@ -35,23 +323,29 @@ of extracting interchangeable type, field and global `u32` indices.
 
 The product implementation is still the bump-allocated linear-memory object
 model. Its layout, root, weak-edge and collector tables remain passive metadata;
-`gc()` is unsupported and current weak records are strong in practice. The GC
+`gc()` is unsupported; active strong-retaining weak producers are now retired
+and weak operations enforce the unavailable facility. The GC
 anchor and its global root are only a runtime-capability/lifecycle witness; no
 JavaScript semantic value has moved from the linear heap and there is no
 integer/reference bridge. This does not establish semantic roots for calls,
 exceptions, suspended frames or pending jobs.
 
-The engine is pinned to Wasmtime 38.0.4. One typed runtime policy now configures
-both product Wasmtime engines, explicitly requires reference types, typed
-function references, Wasm GC and exceptions, and explicitly selects DRC. The
-product dependency retains `gc-drc` and removes `gc-null`, so engine creation
-cannot silently fall back to the null collector. DRC cannot collect cycles;
-T05's cyclic-graph acceptance criterion therefore requires a cycle-capable
-lower-bound update, not a hand-written parallel collector.
+The isolated runtime foundation proposal requests exactly Wasmtime 47.0.0
+and Rust 1.94.0. Its one typed policy configures both product engines and
+requires reference types, typed function references, Wasm GC and exceptions,
+then explicitly selects the copying collector. The requested feature closure
+contains `gc-copying`, excludes `gc-drc` and `gc-null`, and rejects automatic or
+weaker collector selection before either native engine is cached. Required
+proposal support is checked against the actual engine. The complete product 47
+lock closure was pending Root-owned offline Cargo resolution at preparation;
+the then-current 38
+lock stays unchanged. Three affected regressions are authored but UNCOMPILED,
+and no product 47 runtime or admission has occurred. This does not migrate the
+JavaScript heap or close its cyclic-graph acceptance criterion.
 
 The same product policy records weak reachability separately as
-`WasmWeakReachabilityCapability::Unavailable`. Wasm GC and DRC do not expose
-the weak-reference or ephemeron operations T21 needs, and typed engine-setup
+`WasmWeakReachabilityCapability::Unavailable`. The selected Wasm-GC runtime
+exposes no required weak-reference or ephemeron interface for T21, and typed engine-setup
 errors retain that fact independently of the collector selection. This is an
 explicit blocker, not a claim that the current linear weak records have weak
 semantics.
@@ -80,6 +374,9 @@ repository policy gate pass. All 648 Wasm-golden artifacts remain present; the
 host-only decoder invariant adds no emitted delta beyond the shared Iterator
 realm repair recorded under T06/T15. No broader Test262 run was performed for
 this decoder-only invariant.
+
+The following retained checkpoint describes the earlier 38/DRC runtime; it
+is historical evidence and does not verify the proposed 47 prerequisite.
 
 The central feature-enabled CLI compile covers both `lila-aot-wasm` and
 `lila-engine`. The complete resource-bounded engine inventory and the complete
@@ -121,9 +418,11 @@ heap migration, reclamation, cycle collection or weak reachability.
   consume-once assembly operations, so owner/field/target/root-index and
   cross-package main/type/global/code pairing mistakes fail at the Rust boundary
   instead of surviving until Wasm validation.
-- `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` is the
-  closed collector truth consumed by configuration, trace reporting and typed
-  `EngineError` context; both native compiler profiles share that policy.
+- The proposed `WasmGcCapability::CopyingWithCycleCollection` is the sole
+  collector requirement consumed by configuration, instantiated-engine
+  validation, reporting and typed `EngineError` context. Both native compiler
+  profiles share it; product 47 lock, compile and runtime verification are
+  pending. JavaScript semantic allocation and roots remain linear.
 - `WasmWeakReachabilityCapability::Unavailable` independently closes the
   product weak/ephemeron capability domain, so changing the collector cannot
   silently imply weak-reference support.
@@ -1175,6 +1474,13 @@ verification remain deferred to the shared batch checkpoint.
 
 ## Remaining implementation sequence
 
+Before the semantic cutover sequence, verify the complete exact 47 dependency
+closure, both required-copying engines, module/function/program cache freshness,
+epoch timeouts and unsupported-capability rejection. The separately executed
+bounded WAT probe provides capability evidence only; all product foundation
+tests remain UNEXECUTED. No new weak facility, executable `gc()` or semantic
+collector is introduced by this prerequisite.
+
 1. Generate the complete GC layout/type/accessor registry.
 2. Close the value, completion, exception and host ABIs over scalar plus real
    Wasm-reference parts.
@@ -1320,3 +1626,101 @@ capabilities from different policies. The bounded structure target passes
 the existing dual-native-engine policy witness and Wasm `gc()` capability CLI
 witness each pass `1/1`. Broad workspace, golden, policy and Test262 gates
 remain deferred to the centralized verification pass.
+
+
+### 2026-10-02 Wasmtime 47 product stack setup repair proposal
+
+The joined Wasmtime 47 source passed its all-target compile, then all eleven
+selected async-for-of Engine regressions failed during runtime setup: the
+32 MiB Wasm stack limit exceeded Wasmtime's default 2 MiB async stack limit.
+Wasmtime validates this relationship for synchronous engines too. This
+source-only repair sets the shared Fast and SizeOptimized profiles' async
+stack limit to the existing 64 MiB worker stack budget, and a compile-time
+assertion requires `0 < WASM_MAX_STACK_SIZE < ENGINE_WORKER_STACK_SIZE`. The
+existing regression constructs both real product engines and now checks both
+configured stack limits before checking the required Copying collector and
+weak-reachability policy.
+
+At repair proposal preparation, the strengthened regression had not been
+compiled or executed. The original same-Source startup and focused receipts above now
+record its passing execution.
+The failed startup evidence remains retained; no runtime pass is inherited.
+The required feature policy, optimization profiles, cache settings and 32 MiB
+Wasm/64 MiB worker limits remain unchanged. JavaScript semantic heap records
+still use linear memory without reclamation, and weak reachability remains
+Unavailable. This startup repair does not complete T05's heap migration or
+rooting and collection acceptance criteria.
+
+
+### 2026-10-02 Wasmtime 47 shared-memory setup repair proposal
+
+The stack-repaired joined source passed its all-target compile and the
+startup regression that constructs both real product engines. In the next
+async-for-of stage, ten tests passed and
+`foreign_realm_rejection_retains_identity_through_all_clauses` failed during
+host shared-memory setup: Wasmtime reported that shared-memory support was
+disabled for the engine. The completed focused stages recorded 1,355 passes
+and one failure, with the startup preflight's one pass recorded separately.
+Remaining focused stages, default CLI, selected pinned modes and MAIN
+verification did not run in that attempt. The original eleven-test stack
+startup failure and this ten-pass/one-failure result remain retained.
+
+Wasmtime 47 separates the Wasm threads proposal from permission to allocate
+host `SharedMemory`; its allocation permission defaults to false. This
+source-only proposal enables `shared_memory(true)` in the shared product
+policy and requires both the threads feature and the instantiated engine's
+shared-memory permission before either native profile is cached. The
+existing dual-profile regression also allocates an actual one-page shared
+memory on each engine, so the startup preflight covers the host operation
+that failed. No additional runtime backend or feature fallback is introduced.
+
+At shared-memory repair proposal preparation, this repair had not been
+compiled or executed. The same-Source focused receipts above now record its
+passing allocation and selected execution; no different-Source pass was inherited. The 32 MiB Wasm and 64 MiB worker/async stack limits, Copying
+collector, weak-reachability Unavailable capability, optimization profiles,
+cache settings and test deadlines remain unchanged. T05's JavaScript heap
+migration, rooting and collection acceptance criteria remain open.
+
+
+### 2026-10-03 consumed static signature authority proposal
+
+The queued source-only foundation replaces the module's seventeen handwritten
+function-type declarations and parallel type-index constants with one closed
+`StaticSignature` row domain. Each row supplies its existing ordinal, parameter
+shape and result shape; it emits the ordered domain and exhaustive definition.
+`ModuleTypeRegistry` registers those definitions before the existing runtime
+GC anchor declarations. Main, prepared Script, helper and host-import function
+sections and indirect calls consume the same domain. Function parameter counts
+are derived from those definitions. All seventeen ordinals and shapes remain
+unchanged, including equal shapes registered at distinct ordinals.
+
+This is a consumed phase-3 foundation for the atomic semantic switch. It does
+not migrate JavaScript values, closures, completions, suspended frames, jobs or
+host decoding to GC references, and it does not reclaim the current linear
+semantic heap. T05 and the URI allocation-pressure failure remain open. A new
+signature row without a complete shape fails the macro contract, and an ordinal
+that disagrees with declaration order fails the constant assertion. The
+existing package-ownership and function-state structural assertions retain
+their original lifecycle and capability purposes with signature expectations
+updated to the new authority.
+
+The proposal is authored against the approved batch-2 composition as a virtual
+future base plus unchanged protected MAIN inputs. No actual future Source
+manifest exists at preparation, and actual-base binding is deferred. Rustfmt
+and source-only checks are preparation evidence; compilation, those existing
+Rust tests, focused execution and fresh broad verification remain UNRUN.
+There is no inherited compile or runtime pass and no change to published
+conformance counts.
+
+## Dry local declaration authority, 2026-10-03
+
+Every Wasm function body consumes an owned `LocalDeclarations` plan. Trimming
+uses the body's retained typed prefix and preserves its instruction bytes and
+control-frame identities; callers cannot supply a separate planned count or
+replace declared types with guessed `i64` locals. Existing allocation/helper
+constructors and trimming/handler regression sources follow that authority.
+
+This consumed foundation remains uncompiled and unexecuted. Product semantic
+values still use the linear heap; semantic GC, weak reachability and URI
+allocation closure remain open. See the
+[local declaration contract](../docs/rust-rewrite/contracts/local-declaration-authority.md).

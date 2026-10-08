@@ -25,6 +25,15 @@ icu_provider::data_marker!(
     is_singleton = true,
 );
 
+icu_provider::data_marker!(
+    /// Lila's consumed immutable copy of the existing Umm al-Qura year table.
+    /// This vendored marker is not an upstream ICU4X data inventory claim.
+    CalendarHijriUmmAlQuraV1,
+    "lila/calendar/hijri/ummalqura/v1",
+    HijriData<'static>,
+    is_singleton = true,
+);
+
 /// Cached/precompiled data for a certain range of years for a chinese-based
 /// calendar. Avoids the need to perform lunar calendar arithmetic for most calendrical
 /// operations.
@@ -44,6 +53,30 @@ icu_provider::data_struct!(
     HijriData<'_>,
     #[cfg(feature = "datagen")]
 );
+
+impl HijriData<'_> {
+    pub(crate) fn validate_ummalqura(&self) -> Result<(), DataError> {
+        if self.first_extended_year != 1300 || self.data.len() != 301 {
+            return Err(DataError::custom("Umm al-Qura year table extent changed"));
+        }
+        let mut next_start = None;
+        for (index, packed) in self.data.iter().enumerate() {
+            let year = self.first_extended_year
+                + i32::try_from(index)
+                    .map_err(|_| DataError::custom("Umm al-Qura year index overflow"))?;
+            let (months, start) = packed.unpack(year);
+            if next_start.is_some_and(|expected| expected != start) {
+                return Err(DataError::custom("Umm al-Qura year table is discontinuous"));
+            }
+            let days = months
+                .into_iter()
+                .map(|long| if long { 30 } else { 29 })
+                .sum::<i64>();
+            next_start = Some(start + days);
+        }
+        Ok(())
+    }
+}
 
 /// The struct containing compiled Hijri YearInfo
 ///

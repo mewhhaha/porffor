@@ -2,6 +2,24 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_if_statement(&mut self, if_statement: &If) -> (StatementIr, ValueKind) {
+        if self.async_generator_entry_state().is_some() {
+            let Some(source) = AsyncGeneratorIfSource::new(if_statement) else {
+                self.unsupported("async-generator If has no complete mixed source owner");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            return self.lower_async_generator_if(source);
+        }
+        if self.plain_generator_entry_state().is_some()
+            && (self.ordinary_generator_region_depth > 0
+                || (matches!(
+                    self.generator_value_branch_admission(),
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops
+                ) && crate::lowering_helpers::ordinary_generator_if_requires_complete_owner(
+                    if_statement,
+                )))
+        {
+            return self.lower_ordinary_generator_loop_if(if_statement);
+        }
         let generator_entry_state = self.current_generator_resume_state;
         let (mut condition_prefix, condition) = if self.plain_async_entry_state().is_some() {
             self.lower_async_prefixed_expression(if_statement.cond())
@@ -9,7 +27,15 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             (Vec::new(), self.lower_expression(if_statement.cond()))
         };
-        if condition_prefix.is_empty() {
+        if condition_prefix.is_empty()
+            && !(self.plain_async_entry_state().is_some()
+                && (self.plain_async_with_depth > 0
+                    || self.plain_async_for_in_depth > 0
+                    || self.plain_async_for_of_depth > 0
+                    || self.plain_async_classic_depth > 0
+                    || self.plain_async_resource_depth > 0
+                    || contains_plain_async_phase(if_statement)))
+        {
             if let Some(value) = Self::static_bool_expr(&condition) {
                 if value {
                     return self.lower_statement(if_statement.body());
@@ -29,7 +55,11 @@ impl<'a> ScriptLowerer<'a> {
             self.current_async_resume_state = Some(then_entry_state);
         }
         let before = self.capture_conditional_flow_facts();
+        // An unbraced arm can allocate retained operands just like a block.
+        // Only surrounding source bindings participate in the branch join.
+        self.push_scope();
         let (then_branch, then_kind) = self.lower_statement(if_statement.body());
+        self.pop_scope();
         let async_then_exit_state = self.plain_async_entry_state();
         if let Some(then_exit_state) = async_then_exit_state {
             let Some(else_entry_state) = then_exit_state.checked_add(1) else {
@@ -42,7 +72,9 @@ impl<'a> ScriptLowerer<'a> {
         let (else_branch, result_kind) = match if_statement.else_node() {
             Some(else_node) => {
                 self.install_conditional_flow_facts(before);
+                self.push_scope();
                 let (else_branch, else_kind) = self.lower_statement(else_node);
+                self.pop_scope();
                 let else_facts = self.capture_conditional_flow_facts();
                 self.merge_conditional_flow_facts(then_facts, else_facts);
                 let kind = if then_kind == else_kind {
@@ -83,17 +115,24 @@ impl<'a> ScriptLowerer<'a> {
                     };
                     Some(*resume_state)
                 });
-                let exit_state = self.current_generator_resume_state.unwrap_or(entry_state) + 1;
+                let Some(exit_state) = self
+                    .current_generator_resume_state
+                    .unwrap_or(entry_state)
+                    .checked_add(1)
+                else {
+                    self.unsupported("generator conditional continuation state overflow");
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                };
                 if let Some(plan) = self.current_resumable_plan.as_mut() {
-                    for suspension in plan
-                        .suspension_points
-                        .iter_mut()
-                        .skip(self.next_resumable_suspension_index)
-                    {
-                        suspension.suspend_state += 1;
-                        suspension.resume_state += 1;
+                    if let Err(error) = plan.insert_legacy_branch_exit(
+                        self.next_resumable_suspension_index,
+                        exit_state - 1,
+                    ) {
+                        self.unsupported_with_message(format!(
+                            "unsupported in lila wasm-aot: invalid legacy conditional source relocation: {error:?}"
+                        ));
+                        return (StatementIr::Empty, ValueKind::Undefined);
                     }
-                    plan.state_count += 1;
                     self.current_async_resume_state = Some(exit_state);
                 }
                 self.current_generator_resume_state = Some(exit_state);

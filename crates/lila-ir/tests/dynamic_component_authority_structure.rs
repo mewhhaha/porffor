@@ -126,7 +126,6 @@ fn sibling_consumers_use_the_read_only_component_boundary() {
     assert!(CLASSIFICATION_SOURCE.contains("component.referrer()"));
     assert!(CLASSIFICATION_SOURCE.contains("component.target()"));
     assert!(NAMESPACE_SOURCE.contains("graph.dynamic_components()"));
-    assert!(LINK_SOURCE.contains("graph.dynamic_components()"));
     assert!(TASK.contains("DynamicComponentIr"));
     assert!(TASK.contains("read-only component slice"));
     assert!(CONTRACT.contains("construction authority"));

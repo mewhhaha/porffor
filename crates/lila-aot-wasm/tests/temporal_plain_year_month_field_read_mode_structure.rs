@@ -57,7 +57,8 @@ fn plain_year_month_field_read_mode_is_a_private_capability_free_two_row_domain(
         .rev()
         .find(|line| !line.trim().is_empty())
         .expect("missing preceding declaration");
-    assert!(preceding_declaration.trim().ends_with("};"));
+    assert!(preceding_declaration.trim().starts_with("use "));
+    assert!(preceding_declaration.trim().ends_with(';'));
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
         assert!(!domain.contains(capability));
         assert!(!SOURCE.contains(&format!(

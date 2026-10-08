@@ -28,10 +28,11 @@ mod language;
 // ways is the lever batch 7 reached for -- the cache tiers bound disk not RSS,
 // `LILA_CPU_PERCENT` is overridden inside `run_chunk`, and `--test-threads`
 // below 3 is banned. Those three are environment knobs, and calling the split
-// "the only lever left" on the strength of them was wrong: the accumulation is
-// `lila-engine`'s `WASM_MODULE_MEMORY_CACHE_ENTRIES`, an in-process LRU of
-// compiled Wasmtime modules bounded by entry count and by no byte ceiling. See
-// the header of `language.rs` for the measurements and the corrected sizing.
+// "the only lever left" on the strength of them was wrong. The predecessor's
+// count-only native-module LRU was a retention candidate. Its 2026-10-03 source
+// replacement also bounds compilation images at 512 MiB by default, through
+// the private `memory_module_cache` owner; executable acceptance is pending.
+// See the header of `language.rs` for the historical evidence and sizing.
 //
 // Each of these needs BOTH a `mod` line here AND a `run_chunk` line in
 // `scripts/rung1c-chunks.sh`; a chunk with no `mod` line selects nothing,
@@ -121,6 +122,7 @@ struct Command {
     /// blocks in process cannot be interrupted at all.
     program: std::ffi::OsString,
     args: Vec<String>,
+    env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
 }
 
 struct CommandOutput {
@@ -144,11 +146,27 @@ impl Command {
         Self {
             program: program.as_ref().to_os_string(),
             args: Vec::new(),
+            env: Vec::new(),
         }
     }
 
     fn arg(&mut self, arg: impl AsRef<OsStr>) -> &mut Self {
         self.args.push(arg.as_ref().to_string_lossy().into_owned());
+        self
+    }
+
+    fn args(&mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> &mut Self {
+        for arg in args {
+            self.arg(arg);
+        }
+        self
+    }
+
+    /// Environment-dependent producer controls run in the existing bounded
+    /// child path so one invocation cannot mutate another test's environment.
+    fn env(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> &mut Self {
+        self.env
+            .push((key.as_ref().to_os_string(), value.as_ref().to_os_string()));
         self
     }
 
@@ -186,6 +204,19 @@ impl Command {
     /// swallowed, so `#[should_panic]` and ordinary assertion failures behave
     /// exactly as they did when the call ran inline.
     fn output(&mut self) -> io::Result<CommandOutput> {
+        // Conformance commands supervise cases through the real CLI image.
+        // An embedding libtest executable does not implement its worker route
+        // and must never fabricate that executable's snapshot provenance.
+        let mut selectors = self.args.iter();
+        let suite_command = loop {
+            match selectors.next().map(String::as_str) {
+                Some("--jobs" | "--host-surface" | "--intl-profile") => {
+                    selectors.next();
+                }
+                Some(command) => break command == "test262",
+                None => break false,
+            }
+        };
         // This integration target is a conformance-fixture harness: many of
         // its sources deliberately use `__lilaAssertThrows`, realm creation or
         // buffer detachment. Keep that authority explicit in the invocation;
@@ -196,6 +227,9 @@ impl Command {
         }
         let thread = std::thread::current();
         let thread_name = thread.name().map(str::to_owned);
+        if suite_command || !self.env.is_empty() {
+            return self.guarded_output(thread_name.as_deref().unwrap_or(UNNAMED_THREAD));
+        }
         match known_failures::execution_path(thread_name.as_deref()) {
             known_failures::ExecutionPath::InProcess => {
                 self.bounded_in_process_output(thread_name.as_deref().unwrap_or(UNNAMED_THREAD))
@@ -258,6 +292,7 @@ impl Command {
     fn guarded_output(&mut self, test_name: &str) -> io::Result<CommandOutput> {
         let mut child = ProcessCommand::new(&self.program)
             .args(&self.args)
+            .envs(self.env.iter().map(|(key, value)| (key, value)))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -390,23 +425,7 @@ fn write_project_file(root: &Path, relative_path: &str, source: &str) {
     fs::write(path, source).expect("test file should write");
 }
 
-fn tiny_wasm_suite_root(name: &str) -> String {
-    let root = std::env::temp_dir().join(format!(
-        "lila-cli-tiny-test262-{}-{}-{}",
-        name,
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test")
-    ));
-    let test_dir = root.join("test/language/wasm/pass");
-    std::fs::create_dir_all(&test_dir).expect("tiny test262 wasm dir should be created");
-    std::fs::write(
-        test_dir.join("publish-status-wasm.js"),
-        "/*---\nflags: [raw]\n---*/\n\n1 + 2;\n",
-    )
-    .expect("tiny test262 wasm case should write");
-    root.display().to_string()
-}
-
+#[cfg(feature = "spec-exec-oracle")]
 fn temp_readme_path(name: &str) -> String {
     let path = std::env::temp_dir().join(format!(
         "lila-cli-readme-{}-{}-{}.md",

@@ -94,13 +94,13 @@ fn regexp_matcher_failure_rows_own_the_exact_error_routes() {
     );
     assert_eq!(
         normalized(rows),
-        "CorruptProgram=>{word:1,route:GenericError,message:\"RegExpcompiledprogrammatcherfailed\",},ResourceExhausted=>{word:2,route:CurrentFunctionRealmRangeError,message:\"RegExpmatcherscratcharenaexceedstheengineaddressableresourcelimit\",},}"
+        "CorruptProgram=>{word:1,route:GenericError,message:REGEXP_COMPILED_PROGRAM_MATCHER_FAILED,},ResourceExhausted=>{word:2,route:CurrentFunctionRealmRangeError,message:REGEXP_MATCHER_SCRATCH_ARENA_EXCEEDS_THE_ENGINE_ADDRESSABLE_RESOURCE_LIMIT,},}"
     );
 
     let route_projection = bounded(
         OWNER_SOURCE,
         "pub(crate) const fn route(self) -> RegExpMatcherFailureRoute {",
-        "pub(crate) const fn message(self) -> &'static str {",
+        "pub(crate) const fn message(self) -> RuntimeErrorMessage {",
     );
     assert_eq!(route_projection.matches("match self {").count(), 1);
     assert!(route_projection.contains("$( Self::$failure => RegExpMatcherFailureRoute::$route, )+"));

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const AUTHORITY_SOURCE: &str = include_str!("../src/lowering/dynamic_source.rs");
-const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const OPTIONAL_CHAIN_SOURCE: &str = include_str!("../src/lowering/optional_chain.rs");
 const CALL_EXPRESSION_SOURCE: &str =
     include_str!("../src/lowering/call_expression/non_property_call.rs");
 const CALL_CANDIDATE_SOURCE: &str = include_str!("../src/lowering/call_candidate_analysis.rs");
@@ -104,7 +104,7 @@ fn optional_call_sources_have_the_exact_three_construction_routes() {
     );
 
     assert_eq!(
-        LOWERING_SOURCE
+        OPTIONAL_CHAIN_SOURCE
             .matches("&OptionalCallSource::Syntax(source_args),")
             .count(),
         1
@@ -124,7 +124,7 @@ fn optional_call_sources_have_the_exact_three_construction_routes() {
     );
 
     let syntax_call_arm = normalized(bounded(
-        LOWERING_SOURCE,
+        OPTIONAL_CHAIN_SOURCE,
         "                OptionalOperationKind::Call { args } => {",
         "                OptionalOperationKind::PrivatePropertyAccess { field } => {",
     ));
@@ -214,8 +214,8 @@ fn optional_call_sources_have_the_exact_three_construction_routes() {
 #[test]
 fn optional_chain_analysis_borrows_each_authority_exactly_once() {
     let analysis = normalized(bounded(
-        LOWERING_SOURCE,
-        "    fn analyze_optional_property_chain(",
+        OPTIONAL_CHAIN_SOURCE,
+        "    pub(super) fn analyze_optional_property_chain(",
         "    fn optional_chain_property_analysis(",
     ));
     for exact_transport in [
@@ -262,9 +262,9 @@ fn optional_chain_analysis_borrows_each_authority_exactly_once() {
 #[test]
 fn optional_call_analysis_exhaustively_couples_source_proof_and_diagnostic_ownership() {
     let consumer = normalized(bounded(
-        LOWERING_SOURCE,
+        OPTIONAL_CHAIN_SOURCE,
         "    fn optional_call_info(",
-        "    fn lower_optional_chain_property_key(",
+        "    pub(super) fn lower_optional_chain_property_key(",
     ));
     assert!(consumer
         .contains("OptionalCallSource::AlreadyAccounted=>CallCandidateSource::AlreadyAccounted"));

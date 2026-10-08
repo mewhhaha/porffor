@@ -46,7 +46,7 @@ impl ResolvedNumberLocale {
         writer.resolved_locale(self)?;
         Ok(writer.finish())
     }
-    pub fn decode(bytes: &[u8], profiles: &NumberProfiles) -> Result<Self, NumberWireError> {
+    pub fn decode(bytes: &[u8], profiles: &Arc<NumberProfiles>) -> Result<Self, NumberWireError> {
         let mut reader = NumberWireReader::new(bytes, IntlHostOp::ResolveNumberLocale, Response)?;
         let result = reader.resolved_locale(profiles)?;
         reader.finish()?;
@@ -89,7 +89,7 @@ impl NumberFormatRequest {
         writer.input(&self.input)?;
         Ok(writer.finish())
     }
-    pub fn decode(bytes: &[u8], profiles: &NumberProfiles) -> Result<Self, NumberWireError> {
+    pub fn decode(bytes: &[u8], profiles: &Arc<NumberProfiles>) -> Result<Self, NumberWireError> {
         let mut reader = NumberWireReader::new(bytes, IntlHostOp::FormatNumberParts, Request)?;
         let configuration = reader.configuration(profiles)?;
         let input = reader.input()?;
@@ -108,7 +108,7 @@ impl NumberRangeFormatRequest {
         writer.input(&self.end)?;
         Ok(writer.finish())
     }
-    pub fn decode(bytes: &[u8], profiles: &NumberProfiles) -> Result<Self, NumberWireError> {
+    pub fn decode(bytes: &[u8], profiles: &Arc<NumberProfiles>) -> Result<Self, NumberWireError> {
         let mut reader = NumberWireReader::new(bytes, IntlHostOp::FormatNumberRangeParts, Request)?;
         let configuration = reader.configuration(profiles)?;
         let start = reader.input()?;

@@ -1,219 +1,89 @@
-//! PlainDate conversion to a zoned date-time with an optional wall-clock time.
-
+//! PlainDate conversion distinguishes absent time from explicit midnight.
 use super::super::*;
-use super::temporal_options::TemporalConversionOverflowOptions;
-
-impl<'a> FunctionBuilder<'a> {
+use super::temporal::TemporalTimeZoneStringGoal;
+use super::temporal_options::Disambiguation;
+use super::temporal_zone_provider::TemporalZonedAllocationInput;
+use crate::gc_types::*;
+use crate::intrinsics::temporal::TemporalPrototypeSource;
+impl FunctionBuilder<'_> {
     pub(super) fn emit_temporal_plain_date_to_zoned_date_time(
         &mut self,
-        function: &mut Function,
+        f: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let time_zone_tag_local = self.reserve_temp_local();
-        let time_payload_local = self.reserve_temp_local();
-        let time_tag_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let field_locals = self.reserve_temporal_plain_date_time_field_locals();
-        self.emit_temporal_plain_date_record_from_receiver(record_local, function)?;
-        for (offset, local) in [
-            (HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET, field_locals[0]),
-            (HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET, field_locals[1]),
-            (HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET, field_locals[2]),
-            (
-                HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET,
-                calendar_payload_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(record_local, offset, local, function);
-        }
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(calendar_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(time_tag_local));
-        self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::LocalSet(time_zone_tag_local));
-        self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("timeZone")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            key_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
+        let schema = self.runtime_schema();
+        let (date, calendar) = self.emit_temporal_iso_date_from_plain_date_receiver(f)?;
+        let argument = schema.reserve_value_local(f);
+        let zone_value = schema.reserve_value_local(f);
+        let time = schema.reserve_value_local(f);
+        let has_time = schema.reserve_i32_local(f);
+        time.set_undefined(f);
+        f.instruction(&Instruction::I32Const(0));
+        has_time.store(f);
+        self.emit_builtin_arg_to_value(0, &argument, f);
+        zone_value.copy_from(&argument, f);
+        self.emit_is_primitive_tag_i32(argument.tag(), f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_duration_option_get(&argument, "timeZone", &zone_value, f)?;
+        zone_value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        zone_value.copy_from(&argument, f);
+        f.instruction(&Instruction::Else);
+        f.instruction(&Instruction::I32Const(1));
+        has_time.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        // Identifier conversion finishes before the optional plainTime Get.
+        let zone = self.emit_temporal_zoned_date_time_time_zone(
+            &zone_value,
+            TemporalTimeZoneStringGoal::Object,
+            f,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::LocalSet(time_zone_tag_local));
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        // Time zone conversion precedes the plainTime getter.
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("plainTime")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            argument_payload_local,
-            argument_tag_local,
-            argument_payload_local,
-            argument_tag_local,
-            key_local,
-            time_payload_local,
-            time_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            offset_seconds_local,
-            function,
-        )?;
-        let time_locals = Self::temporal_plain_date_time_time_locals(&field_locals);
-        for local in time_locals {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
-        function.instruction(&Instruction::LocalGet(time_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_to_temporal_time(
-            time_payload_local,
-            time_tag_local,
-            TemporalConversionOverflowOptions::Omit,
-            &time_locals,
-            function,
-        )?;
-        self.emit_temporal_reject_date_time_lower_bound(&field_locals, function)?;
-        function.instruction(&Instruction::End);
-        self.emit_temporal_plain_date_epoch_days(
-            field_locals[0],
-            field_locals[1],
-            field_locals[2],
-            days_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(field_locals[3]));
-        function.instruction(&Instruction::I64Const(3600));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[4]));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[5]));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(time_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_zoned_date_time_day_boundary(
-            seconds_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(field_locals[6]));
-        function.instruction(&Instruction::I64Const(1000000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[7]));
-        function.instruction(&Instruction::I64Const(1000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[8]));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        self.emit_temporal_epoch_nanoseconds_bigint(
-            seconds_local,
-            subsecond_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        self.emit_temporal_instant_validate_range(epoch_payload_local, epoch_tag_local, function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        has_time.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_temporal_duration_option_get(&argument, "plainTime", &time, f)?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        time.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        let instant = self.emit_temporal_get_start_of_day(&zone, &date, f)?;
         self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
+            TemporalZonedAllocationInput::new(&instant, &zone, &calendar),
+            TemporalPrototypeSource::Intrinsic,
+            f,
         )?;
-        self.release_temporal_plain_date_time_field_locals(field_locals);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(days_local);
-        self.release_temp_local(epoch_tag_local);
-        self.release_temp_local(epoch_payload_local);
-        self.release_temp_local(subsecond_local);
-        self.release_temp_local(seconds_local);
-        self.release_temp_local(offset_seconds_local);
-        self.release_temp_local(calendar_tag_local);
-        self.release_temp_local(calendar_payload_local);
-        self.release_temp_local(time_tag_local);
-        self.release_temp_local(time_payload_local);
-        self.release_temp_local(time_zone_tag_local);
-        self.release_temp_local(time_zone_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(argument_tag_local);
-        self.release_temp_local(argument_payload_local);
-        self.release_temp_local(record_local);
+        instant.release(self, f);
+        f.instruction(&Instruction::Else);
+        let iso = self.emit_temporal_combine_iso_date_and_time(&date, &time, f)?;
+        let local = self.emit_temporal_local_coordinate_from_iso_record(&iso, f)?;
+        let disambiguation =
+            self.emit_temporal_constant_disambiguation(Disambiguation::Compatible, f);
+        let instant =
+            self.emit_temporal_get_epoch_nanoseconds_for(&zone, &local, &disambiguation, f)?;
+        self.emit_alloc_temporal_zoned_date_time(
+            TemporalZonedAllocationInput::new(&instant, &zone, &calendar),
+            TemporalPrototypeSource::Intrinsic,
+            f,
+        )?;
+        instant.release(self, f);
+        disambiguation.release(self, f);
+        local.release(self, f);
+        iso.release(self, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        zone.release(self, f);
+        schema.release_i32_local(has_time, f);
+        time.clear(f);
+        zone_value.clear(f);
+        argument.clear(f);
+        calendar.release(self, f);
+        date.release(self, f);
         Ok(())
     }
 }

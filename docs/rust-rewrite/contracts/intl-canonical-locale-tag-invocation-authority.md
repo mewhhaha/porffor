@@ -1,5 +1,17 @@
 # Intl canonical locale tag invocation authority
 
+## Source replacement — 2026-10-05
+
+The GC backend canonicalizes rooted complete locale Strings and values. The seven raw u32 payload roles and their old recursive source counts below describe the retired invocation representation. The obsolete source recipe checks have been retired. Exact historical receipts and any public fixture inventory remain recorded.
+
+The pre-retirement source is identified exactly:
+
+- `intl_canonical_locale_tag_invocation_structure.rs`: SHA-256 `f47caedb164c13407fd58bd65b7e2f4501fa9c8c016bdbd8980475a21e190ab2`.
+
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
+
+## Historical contract and checkpoints
+
 Status: implemented as a source-equivalent Wasm-AOT invariant boundary.
 
 ## Closed invocation roles

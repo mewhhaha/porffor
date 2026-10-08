@@ -273,6 +273,66 @@ fn run_wasm_backend_resolves_temporal_time_string_calendars_by_consumer() {
 }
 
 #[test]
+fn run_wasm_backend_resolves_roc_calendar_years_and_eras() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_calendar_roc.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(113"));
+}
+
+#[test]
+fn run_wasm_backend_resolves_japanese_eras_by_start_date() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_calendar_japanese.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(6"));
+}
+
+#[test]
+fn run_wasm_backend_computes_end_of_month_differences_unclamped() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_difference_end_of_month.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(146"));
+}
+
+#[test]
 fn run_wasm_backend_preserves_temporal_date_field_read_modes() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -367,6 +427,205 @@ fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture() {
              1969-7-24T16:50:35.0.0.1/ce/1969|\
              0-12-31T12:0:0.0.0.0/bce/1"
         ),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// `Temporal.ZonedDateTime.prototype.{toJSON,valueOf,toLocaleString,toPlainTime}`.
+///
+/// The four conversion members the batch-7 survey found missing: `toJSON`
+/// shares `toString`'s emitter but must ignore its argument, `valueOf` throws
+/// before the brand check, `toLocaleString` routes through the shared DTF
+/// path, and `toPlainTime` projects the time slots of the shared `toPlain`
+/// field layout.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_conversion_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_zoned_date_time_conversion.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains(
+            "temporal-zdt-json:1970-01-01T00:00:00+00:00[UTC]|1970-01-01T00:00:30.1234+00:00[UTC]"
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("temporal-zdt-plaintime:0:0:0.000|0:0:30.1234000"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("temporal-zdt-valueof:TypeError|TypeError|TypeError"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// `Temporal.ZonedDateTime.prototype.withPlainTime`.
+///
+/// Brand-checks the receiver, converts the argument with `ToTemporalTime`
+/// (`undefined`/absent means midnight), keeps the receiver's wall-clock date,
+/// and reinterprets the combined fields through the same fixed-zone epoch
+/// tail `with` uses.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_with_plain_time_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_temporal_zoned_date_time_with_plain_time.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains(
+            "temporal-zdt-withplaintime:2015-12-07T10:00:00-08:00[-08:00]|2015-12-07T11:22:00-08:00[-08:00]|2015-12-07T12:34:00-08:00[-08:00]"
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "temporal-zdt-withplaintime-midnight:2015-12-07T00:00:00-08:00[-08:00]|2015-12-07T00:00:00-08:00[-08:00]"
+        ),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// `Temporal.Now.{plainDateTimeISO,plainDateISO,plainTimeISO}`.
+///
+/// The three members resolve an optional time-zone argument, read the host
+/// wall clock, and project it with the `iso8601` calendar. The clock reading
+/// itself is nondeterministic, so the fixture pins shape, brands and argument
+/// handling only.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_now_plain_iso_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_now_plain_iso.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-now-plain-iso:datetime|date|time"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// Temporal conversion observation order: branded-argument slot fast paths,
+/// `with` calendar/timeZone rejection reads, `toZonedDateTime` option reads,
+/// and constructor time-zone string validation.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_conversion_observation_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_conversion_observation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-conversion-order:slots|with|options|zones"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// `Temporal.Instant.prototype.toZonedDateTimeISO`.
+///
+/// Brand-checks the receiver, rejects a missing time zone with a TypeError,
+/// resolves the zone through `ToTemporalTimeZoneObject`, and allocates the
+/// `ZonedDateTime` with the receiver's epoch nanoseconds and the `iso8601`
+/// calendar.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_instant_to_zoned_date_time_iso_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_temporal_instant_to_zoned_date_time_iso.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-instant-tozoneddatetimeiso:UTC|-05:00|-07:00"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// `Temporal.Instant.prototype.toString` options and `toJSON`.
+///
+/// `toString` reads its four options in spec order, rounds the epoch to the
+/// implied quantum, shifts it into the zone, and renders; `toJSON` is the
+/// same core with `undefined` options and never reads its argument.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_instant_to_string_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_instant_to_string.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-instant-tostring:options|rounding|zone|json"),
         "{stdout}"
     );
     assert!(stdout.contains("number(262"));

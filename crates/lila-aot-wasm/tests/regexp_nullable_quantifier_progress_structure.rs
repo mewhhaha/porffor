@@ -1,6 +1,3 @@
-use std::fs;
-use std::path::Path;
-
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/regexp.rs");
 const IR_PUBLIC_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp.rs");
@@ -16,8 +13,30 @@ const EXACT_TEST262: &str =
     include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/nullable-quantifier.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/regexp-nullable-quantifier-progress.md");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/19-regexp.md");
+const COUNTED_PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program/counted.rs");
+const LOWERER_SOURCE: &str = include_str!("../src/builtins/regexp/compiler/lowerer.rs");
+const LOWER_COUNTED_SOURCE: &str =
+    include_str!("../src/builtins/regexp/compiler/lowerer/counted.rs");
+const LOWER_WIDTH_SOURCE: &str = include_str!("../src/builtins/regexp/compiler/lowerer/width.rs");
+const LOWER_GRAPH_SOURCE: &str = include_str!("../src/builtins/regexp/compiler/lowerer/graph.rs");
+const COUNTED_MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp/counted.rs");
+const WORKSPACE_SOURCE: &str = include_str!("../src/builtins/regexp/matcher_workspace.rs");
+const CHOICE_SOURCE: &str =
+    include_str!("../src/builtins/regexp/matcher_workspace/choice_entries.rs");
+const LOGICAL_RUN_SOURCE: &str =
+    include_str!("../src/builtins/regexp/matcher_workspace/choice_entries/required_run/logical.rs");
+const RUN_SOURCE: &str =
+    include_str!("../src/builtins/regexp/matcher_workspace/choice_entries/required_run.rs");
+const RUN_EXHAUSTION_SOURCE: &str = include_str!(
+    "../src/builtins/regexp/matcher_workspace/choice_entries/required_run/exhaustion.rs"
+);
+const RUN_TREE_SOURCE: &str =
+    include_str!("../src/builtins/regexp/matcher_workspace/choice_entries/required_run/tree.rs");
+const RUN_PATH_SOURCE: &str =
+    include_str!("../src/builtins/regexp/matcher_workspace/choice_entries/required_run/path.rs");
+const TRANSIENT_SOURCE: &str = include_str!("../src/builtins/regexp/transient.rs");
+const EXEC_SOURCE: &str = include_str!("../src/builtins/string/regexp_exec.rs");
+const HELPER_SOURCE: &str = include_str!("../src/runtime_helpers.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -213,71 +232,19 @@ fn exact_route_count(source: &str, route: &str) -> usize {
     exact_identifier_count(source, route)
 }
 
-fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
-    fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .map(|path| {
-            if path.is_dir() {
-                return count_identifier_in_rust_sources(&path, identifier);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return 0;
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            exact_identifier_count(&normalize_rust(&source).identifiers, identifier)
-        })
-        .sum()
-}
-
-fn count_route_in_rust_sources(dir: &Path, route: &str) -> usize {
-    fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .map(|path| {
-            if path.is_dir() {
-                return count_route_in_rust_sources(&path, route);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return 0;
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            exact_route_count(&normalize_rust(&source).routes, route)
-        })
-        .sum()
-}
-
-fn normalized_routes_in_rust_sources(dir: &Path) -> String {
-    let mut paths = fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths
-        .into_iter()
-        .map(|path| {
-            if path.is_dir() {
-                return normalized_routes_in_rust_sources(&path);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return String::new();
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            let mut routes = normalize_rust(&source).routes;
-            routes.push('\n');
-            routes
-        })
-        .collect()
-}
-
 fn positions_in_order(source: &str, markers: &[&str]) {
+    let source = source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
     let mut cursor = 0;
     for marker in markers {
+        let marker = marker
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>();
         let offset = source[cursor..]
-            .find(marker)
+            .find(&marker)
             .unwrap_or_else(|| panic!("missing marker after byte {cursor}: {marker}"));
         cursor += offset + marker.len();
     }
@@ -285,232 +252,61 @@ fn positions_in_order(source: &str, markers: &[&str]) {
 
 #[test]
 fn quantifier_lowering_owns_a_closed_optional_progress_lifecycle() {
-    let lexical_probe = r###"
-        // OptionalAtomProgress::MustAdvance
-        OptionalAtomProgress /* nested /* ignored */ comment */ :: r#MayRemainAtSameIndex;
-        "OptionalAtomProgress"; b"OptionalAtomProgress::for_atom";
-        c"OptionalAtomProgress"; r"OptionalAtomProgress::MustAdvance";
-        br##"OptionalAtomProgress::MayRemainAtSameIndex"##;
-        cr#"OptionalAtomProgress"#; 'O'; b'P'; 'lifetime;
-    "###;
-    let lexical_probe = normalize_rust(lexical_probe);
-    assert_eq!(
-        exact_identifier_count(&lexical_probe.identifiers, "OptionalAtomProgress"),
-        1
-    );
-    assert_eq!(
-        exact_route_count(
-            &lexical_probe.routes,
-            "OptionalAtomProgress::MayRemainAtSameIndex"
-        ),
-        1
-    );
-    assert_eq!(
-        exact_identifier_count(&lexical_probe.identifiers, "lifetime"),
-        1
-    );
-
-    let declaration = normalize_rust(bounded(
-        IR_SOURCE,
-        "    (value, overflow || *offset == first)\n}\n",
-        "impl OptionalAtomProgress {",
-    ));
-    assert_eq!(
-        declaration.code, "enumOptionalAtomProgress{MustAdvance,MayRemainAtSameIndex,}",
-        "optional progress must remain one private attribute-free domain"
-    );
-    let mapping = normalize_rust(bounded(
-        IR_SOURCE,
-        "impl OptionalAtomProgress {",
-        "enum NullableQuantifierContinuation {",
-    ));
-    assert_eq!(
-        mapping.code,
-        concat!(
-            "fnfor_atom(atom:&ParsedAtom)->Self{ifatom_nullable(atom){",
-            "Self::MayRemainAtSameIndex}else{Self::MustAdvance}}}"
-        ),
-        "atom nullability must remain the sole exact progress constructor"
-    );
-
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../lila-ir")
-        .join("src");
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "OptionalAtomProgress"),
-        12,
-        "declaration, impl, two producers and eight exhaustive arms own every mention"
-    );
-    assert_eq!(
-        count_route_in_rust_sources(&source_root, "OptionalAtomProgress::for_atom"),
-        2
-    );
-    assert_eq!(
-        count_route_in_rust_sources(&source_root, "OptionalAtomProgress::MustAdvance"),
-        4
-    );
-    assert_eq!(
-        count_route_in_rust_sources(&source_root, "OptionalAtomProgress::MayRemainAtSameIndex"),
-        4
-    );
-    let all_routes = normalized_routes_in_rust_sources(&source_root);
-    for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
-        assert!(!all_routes.contains(&format!("impl{capability}forOptionalAtomProgress")));
-    }
-    for forbidden in [
-        "OptionalAtomProgressas",
-        "OptionalAtomProgress::MustAdvanceas",
-        "OptionalAtomProgress::MayRemainAtSameIndexas",
+    use lila_ir::{RegExpOpcode, RegExpProgram, RegExpRepeatMaximum, ValidatedRegExpProgram};
+    for pattern in [
+        "()?",
+        "()??",
+        "()*",
+        "()*?",
+        "()+",
+        "()+?",
+        "(){2,3}",
+        "(){2,18446744073709551615}",
+        "(){2,18446744073709551616}",
+        "(){0002,9999999999999999999999999999999999999}",
+        "(){2,}",
+        "(?<=(){2,18446744073709551616})a",
     ] {
-        assert!(!all_routes.contains(forbidden), "found `{forbidden}`");
-    }
-
-    for domain in [
-        "enum QuantifierOptionalIterations {\n    Finite(usize),\n    Unbounded,\n}",
-        "enum QuantifierPreference {\n    Greedy,\n    Lazy,\n}",
-        "enum OptionalAtomProgress {\n    MustAdvance,\n    MayRemainAtSameIndex,\n}",
-        "enum NullableQuantifierContinuation {\n    NextInstruction,\n    Repeat,\n}",
-    ] {
-        assert!(
-            IR_SOURCE.contains(domain),
-            "missing closed domain: {domain}"
+        let program = RegExpProgram::compile(pattern, "d").expect(pattern);
+        let descriptor = ValidatedRegExpProgram::from_program(&program).expect(pattern);
+        assert_eq!(
+            ValidatedRegExpProgram::from_bytes(descriptor.bytes().to_vec()).unwrap(),
+            descriptor
         );
+        for (pc, instruction) in program.instructions.iter().enumerate() {
+            if RegExpOpcode::from_word(instruction.opcode) == Some(RegExpOpcode::ProgressCheck) {
+                let mut damaged = program.clone();
+                damaged.instructions[pc].operand0 = u64::MAX;
+                assert!(
+                    ValidatedRegExpProgram::from_program(&damaged).is_err(),
+                    "unowned optional progress: {pattern}"
+                );
+            }
+        }
     }
-
-    let forward_dispatch = bounded(IR_SOURCE, "    fn quantified(\n", "    fn optional(\n");
-    let expected_forward_dispatch = r#"
-        &mut self,
-        atom: &ParsedAtom,
-        quantifier: Quantifier,
-        offset: usize,
-    ) -> Result<(), RegExpCompileError> {
-        self.error_offset = offset;
-        for _ in 0..quantifier.required_iterations {
-            self.atom(atom)?;
-        }
-        let progress = OptionalAtomProgress::for_atom(atom);
-        match quantifier.optional_iterations {
-            QuantifierOptionalIterations::Finite(count) => match progress {
-                OptionalAtomProgress::MustAdvance => {
-                    for _ in 0..count {
-                        self.optional(atom, quantifier.preference)?;
-                    }
-                }
-                OptionalAtomProgress::MayRemainAtSameIndex => {
-                    self.nullable_finite(atom, quantifier.preference, count)?;
-                }
-            },
-            QuantifierOptionalIterations::Unbounded => match progress {
-                OptionalAtomProgress::MustAdvance => self.star(atom, quantifier.preference)?,
-                OptionalAtomProgress::MayRemainAtSameIndex => {
-                    self.nullable_star(atom, quantifier.preference)?;
-                }
-            },
-        }
-        Ok(())
-    }
-
-"#;
-    assert_eq!(
-        normalize_rust(forward_dispatch).code,
-        normalize_rust(expected_forward_dispatch).code,
-        "forward progress must be classified once after required iterations and consumed exhaustively"
-    );
-
-    let reverse_dispatch = bounded(
-        IR_SOURCE,
-        "    fn reverse_quantified(\n",
-        "    fn reverse_optional(\n",
-    );
-    let expected_reverse_dispatch = r#"
-        &mut self,
-        atom: &ParsedAtom,
-        quantifier: Quantifier,
-        offset: usize,
-    ) -> Result<(), RegExpCompileError> {
-        self.error_offset = offset;
-        for _ in 0..quantifier.required_iterations {
-            self.reverse_atom(atom)?;
-        }
-        let progress = OptionalAtomProgress::for_atom(atom);
-        match quantifier.optional_iterations {
-            QuantifierOptionalIterations::Finite(count) => match progress {
-                OptionalAtomProgress::MustAdvance => {
-                    for _ in 0..count {
-                        self.reverse_optional(atom, quantifier.preference)?;
-                    }
-                }
-                OptionalAtomProgress::MayRemainAtSameIndex => {
-                    self.reverse_nullable_finite(atom, quantifier.preference, count)?;
-                }
-            },
-            QuantifierOptionalIterations::Unbounded => match progress {
-                OptionalAtomProgress::MustAdvance => {
-                    self.reverse_star(atom, quantifier.preference)?;
-                }
-                OptionalAtomProgress::MayRemainAtSameIndex => {
-                    self.reverse_nullable_star(atom, quantifier.preference)?;
-                }
-            },
-        }
-        Ok(())
-    }
-
-"#;
-    assert_eq!(
-        normalize_rust(reverse_dispatch).code,
-        normalize_rust(expected_reverse_dispatch).code,
-        "reverse progress must be classified once after required iterations and consumed exhaustively"
-    );
-
-    let producer = bounded(
-        IR_SOURCE,
-        "    fn quantified(\n",
-        "    fn atom(&mut self, atom: &ParsedAtom)",
-    );
-    positions_in_order(
-        producer,
-        &[
-            "for _ in 0..quantifier.required_iterations",
-            "match quantifier.optional_iterations",
-            "QuantifierOptionalIterations::Finite(count)",
-            "OptionalAtomProgress::MayRemainAtSameIndex",
-            "self.nullable_finite(atom, quantifier.preference, count)?",
-            "QuantifierOptionalIterations::Unbounded",
-            "self.nullable_star(atom, quantifier.preference)?",
-            "fn nullable_finite(",
-            "let mut fallbacks = Vec::with_capacity(count);",
-            "self.begin_nullable_optional(preference)?",
-            "self.complete_nullable_optional(",
-            "let after = self.instructions.len();",
-            "self.finish_nullable_optional(fallback, after);",
-            "fn nullable_star(",
-            "NullableQuantifierContinuation::Repeat",
-        ],
-    );
-
-    let reverse = bounded(
-        IR_SOURCE,
-        "    fn reverse_quantified(\n",
-        "    fn reverse_atom(&mut self, atom: &ParsedAtom)",
-    );
-    for marker in [
-        "QuantifierOptionalIterations::Finite(count)",
-        "QuantifierOptionalIterations::Unbounded",
-        "OptionalAtomProgress::MustAdvance",
-        "OptionalAtomProgress::MayRemainAtSameIndex",
-        "self.reverse_nullable_finite(atom, quantifier.preference, count)?",
-        "self.reverse_nullable_star(atom, quantifier.preference)?",
-        "self.begin_nullable_optional(preference)?",
-        "self.complete_nullable_optional(",
-        "self.finish_nullable_optional(fallback, after);",
+    let small = RegExpProgram::compile("(){2,3}", "").unwrap();
+    for maximum in [
+        "18446744073709551615",
+        "18446744073709551616",
+        "9999999999999999999999999999999999999",
     ] {
-        assert!(reverse.contains(marker), "reverse lowering lost {marker}");
+        let program = RegExpProgram::compile(&format!("(){{2,{maximum}}}"), "").unwrap();
+        assert_eq!(
+            program.instructions, small.instructions,
+            "the bound cannot copy its atom"
+        );
+        assert_eq!(program.repeat_bounds.len(), 1);
+        assert_eq!(program.repeat_bounds[0].minimum().digits(), b"2");
+        let RegExpRepeatMaximum::Finite(bound) = program.repeat_bounds[0].maximum() else {
+            panic!("finite remains finite")
+        };
+        assert_eq!(bound.digits(), maximum.as_bytes());
     }
-
-    assert!(!IR_SOURCE.contains(
-        "unbounded quantifier over a nullable atom is unsupported by this matcher-program grammar"
-    ));
+    let unbounded = RegExpProgram::compile("(){2,}", "").unwrap();
+    assert_eq!(
+        unbounded.repeat_bounds[0].maximum(),
+        &RegExpRepeatMaximum::Unbounded
+    );
 }
 
 #[test]
@@ -578,16 +374,15 @@ fn pending_types_force_split_check_and_fallback_registration_order() {
 
 #[test]
 fn matcher_frames_preserve_ordered_backtracking_and_exact_progress_identity() {
-    let frame_kind = bounded(
-        MATCHER_SOURCE,
-        "enum RegExpChoiceFrameKind {",
-        "impl RegExpChoiceFrameKind {",
-    );
-    let variants = frame_kind
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && *line != "}")
-        .collect::<Vec<_>>();
+    let variants = bounded(
+        CHOICE_SOURCE,
+        "enum ChoiceEntryKind {",
+        "impl ChoiceEntryKind {",
+    )
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty() && *line != "}")
+    .collect::<Vec<_>>();
     assert_eq!(
         variants,
         [
@@ -595,116 +390,397 @@ fn matcher_frames_preserve_ordered_backtracking_and_exact_progress_identity() {
             "GreedyProgress,",
             "LazyProgressChoice,",
             "LazyProgressAttempt,",
+            "RequiredRun,"
         ]
     );
-    let frame_words = bounded(
-        MATCHER_SOURCE,
-        "impl RegExpChoiceFrameKind {",
-        "impl<'a> FunctionBuilder<'a> {",
+    let words = bounded(
+        CHOICE_SOURCE,
+        "impl ChoiceEntryKind {",
+        "enum SnapshotChoice",
     );
     for variant in variants.iter().map(|variant| variant.trim_end_matches(',')) {
-        assert!(frame_words.contains(&format!("Self::{variant} =>")));
+        assert!(words.contains(&format!("Self::{variant} =>")));
     }
-    assert!(!frame_words.contains("_ =>"));
-
-    let dispatch = bounded(
+    assert!(!words.contains("_ =>"));
+    let compact = |source: &str| source.split_whitespace().collect::<String>();
+    let dispatch = compact(bounded(
         MATCHER_SOURCE,
-        "        // `Split` records the fallback before taking the primary arm.",
-        "        function.instruction(&Instruction::LocalGet(reverse_mode));",
-    );
+        "// `Split` records the fallback before taking the primary arm.",
+        "        reverse_mode.load(&mut function);",
+    ));
     positions_in_order(
-        dispatch,
+        &dispatch,
         &[
-            "REGEXP_OPCODE_PROGRESS_SPLIT as i64",
-            "REGEXP_CHOICE_ORIGIN_MASK",
-            "RegExpChoiceFrameKind::LazyProgressChoice.word()",
-            "RegExpChoiceFrameKind::GreedyProgress.word()",
-            "self.emit_regexp_push_choice_frame(",
-            "REGEXP_OPCODE_PROGRESS_CHECK as i64",
-            "LocalSet(progress_frame_depth)",
-            "RegExpChoiceFrameKind::GreedyProgress.word()",
-            "RegExpChoiceFrameKind::LazyProgressAttempt.word()",
-            "REGEXP_CHOICE_ORIGIN_SHIFT",
-            "LocalGet(operand0)",
-            "LocalSet(progress_frame_found)",
-            "LocalGet(match_utf16)",
+            "SnapshotChoice::Ordinary",
+            "fallback:operand1",
+            "origin:pc",
+            "REGEXP_OPCODE_PROGRESS_SPLITasi64",
+            "I64Const(0x3fff_ffff)",
+            "choice_lazy.store(&mutfunction)",
+            "choice_header.store(&mutfunction)",
+            "SnapshotChoice::Progress",
+            "fallback:choice_header",
+            "origin:pc",
+            "lazy:choice_lazy",
+            "REGEXP_OPCODE_PROGRESS_CHECKasi64",
+            "find_progress(self,operand0",
+            "entry.load_utf16(function)",
+            "match_utf16.load(function)",
             "I64Eq",
+            "progress_no_advance.store(function)",
             "self.emit_regexp_backtrack_or_fail(",
-            "LocalGet(operand1)",
-            "LocalSet(pc)",
+            "operand1.load(&mutfunction)",
+            "pc.store(&mutfunction)",
         ],
     );
     assert_eq!(
         dispatch
-            .matches("self.emit_regexp_push_choice_frame(")
+            .matches("workspace.choices().push_snapshot(")
             .count(),
-        2,
-        "ordinary Split and progress Split must share the one frame writer"
+        2
     );
-
-    let progress_split = bounded(
-        dispatch,
-        "        // A nullable optional attempt carries its pre-attempt cursor and",
-        "        function.instruction(&Instruction::LocalGet(opcode));\n        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_JUMP as i64));",
-    );
-    assert_eq!(
-        progress_split
-            .matches("If(BlockType::Result(ValType::I64))")
-            .count(),
-        3,
-        "fallback, frame kind and selected PC are explicit preference-dependent choices"
-    );
+    let push = compact(bounded(
+        CHOICE_SOURCE,
+        "fn push_snapshot(",
+        "fn top_cursor(",
+    ));
     positions_in_order(
-        progress_split,
+        &push,
         &[
-            "If(BlockType::Result(ValType::I64))",
-            "LocalGet(operand0)",
-            "Else",
-            "LocalGet(operand1)",
-            "I64ShrU",
-            "RegExpChoiceFrameKind::LazyProgressChoice.word()",
-            "RegExpChoiceFrameKind::GreedyProgress.word()",
-            "self.emit_regexp_push_choice_frame(",
-            "If(BlockType::Result(ValType::I64))",
-            "LocalGet(operand1)",
-            "I64ShrU",
-            "Else",
-            "LocalGet(operand0)",
-            "LocalSet(pc)",
+            "ensure_choice_bytes(builder,required,function)?",
+            "Self::store(address,0,",
+            "Self::store(address,8,",
+            "SnapshotChoice::Ordinary",
+            "SnapshotChoice::Progress",
+            "LazyProgressChoice.word()",
+            "GreedyProgress.word()",
+            "Self::store(address,24,fallback,function)",
+            "I64Store(FunctionBuilder::memarg8(32))",
+            "cursor.byte",
+            "cursor.utf16",
+            "cursor.on_low_surrogate",
+            "Instruction::MemoryCopy",
+            "choice_top.store(function)",
+            "choice_used.store(function)",
         ],
     );
-
-    let push = bounded(
-        MATCHER_SOURCE,
-        "    fn emit_regexp_push_choice_frame(\n",
-        "    /// On an atom failure, restore the latest ordered fallback.",
-    );
-    for marker in [
-        "for (offset, local) in [(0, header), (8, byte), (16, utf16), (24, on_low_surrogate)]",
-        "Every ordered choice owns the full capture state",
-        "LocalGet(capture_count)",
-        "I64Load(Self::memarg8(offset))",
-        "I64Store(Self::memarg8(0))",
-    ] {
-        assert!(push.contains(marker), "choice snapshot lost {marker}");
-    }
-
-    let backtrack = bounded(
-        MATCHER_SOURCE,
-        "    fn emit_regexp_backtrack_or_fail(\n",
-        "    fn emit_regexp_ascii_class_contains(\n",
-    );
+    let search = compact(bounded(CHOICE_SOURCE, "fn find_progress(", "    fn find("));
+    assert!(search.contains("ChoiceSearchPredicate::Progress(origin)"));
+    let predicate = compact(bounded(
+        CHOICE_SOURCE,
+        "impl ChoiceSearchPredicate {",
+        "impl<'workspace> ChoiceStack",
+    ));
     positions_in_order(
-        backtrack,
+        &predicate,
         &[
-            "RegExpChoiceFrameKind::LazyProgressAttempt.word()",
-            "RegExpChoiceFrameKind::LazyProgressChoice.word()",
-            "RegExpChoiceFrameKind::LazyProgressAttempt.word()",
-            "LocalSet(pc)",
-            "LocalSet(byte)",
-            "LocalSet(utf16)",
+            "GreedyProgress",
+            "LazyProgressAttempt",
+            "ChoiceStack::load(address,32,function)",
+            "origin.load(function)",
+            "I64Eq",
+            "I32And",
         ],
     );
+    let logical_search = compact(bounded(CHOICE_SOURCE, "    fn find(", "    fn address("));
+    positions_in_order(
+        &logical_search,
+        &[
+            "self.check_entry",
+            "ChoiceEntryKind::RequiredRun",
+            "entry.find_required_run",
+            "predicate.emit(address,None,function)",
+            "entry.with_snapshot",
+            "found.load(function)",
+            "Self::load(address,8,function)",
+        ],
+    );
+    let run_search = compact(bounded(
+        LOGICAL_RUN_SOURCE,
+        "fn find_required_run(",
+        "fn restore_required_run(",
+    ));
+    positions_in_order(
+        &run_search,
+        &[
+            "PathWord::Index,index",
+            "node.selected_kind",
+            "predicate.emit(template,Some(kind),f)",
+            "LogicalChoiceEntry::Run",
+            "node.has_older_group",
+            "I64Const(1));older.store(f)",
+            "node.count.load(f)",
+        ],
+    );
+    let run_pop = compact(
+        LOGICAL_RUN_SOURCE
+            .split_once("fn restore_required_run(")
+            .unwrap()
+            .1,
+    );
+    positions_in_order(
+        &run_pop,
+        &[
+            "LazyProgressAttempt.word()",
+            "node.consume(&root,RunEntryConsumption::FailedBacktrack",
+            "logical.restore_cursor",
+            "logical.restore_state",
+            "LazyProgressChoice.word()",
+            "node.current_kind_override.store(f)",
+            "node.consume(&root,RunEntryConsumption::FailedBacktrack",
+            "I32Const(1)",
+            "selected.store(f)",
+        ],
+    );
+    let backtrack = compact(bounded(
+        MATCHER_SOURCE,
+        "fn emit_regexp_backtrack_or_fail(",
+        "    fn emit_regexp_instruction_load(",
+    ));
+    positions_in_order(
+        &backtrack,
+        &[
+            "workspace.choices().is_empty(function)",
+            "Instruction::Br(5+caller_block_depth)",
+            "with_top(self,function",
+            "ChoiceEntryKind::RequiredRun",
+            "restore_required_run",
+            "selected.load(function)",
+            "Instruction::I32Eqz",
+            "Instruction::Br(2)",
+            "ChoiceEntryKind::LazyProgressAttempt",
+            "entry.discard_through(function)",
+            "Instruction::Br(2)",
+            "ChoiceEntryKind::LazyProgressChoice",
+            "activate_lazy_attempt",
+            "entry.restore_fallback",
+            "entry.restore_cursor",
+            "entry.restore_state",
+            "Instruction::Br(1+caller_block_depth)",
+        ],
+    );
+}
+
+#[test]
+fn required_run_failed_groups_need_owned_counter_observation_and_actual_exhaustion() {
+    let compact = |source: &str| source.split_whitespace().collect::<String>();
+    assert!(WORKSPACE_SOURCE.contains("active_run_offset: I64Local"));
+    assert!(WORKSPACE_SOURCE.contains("active_run_row: I64Local"));
+    assert!(WORKSPACE_SOURCE.contains("active_run_node: I64Local"));
+    let observer = compact(bounded(
+        RUN_EXHAUSTION_SOURCE,
+        "fn observe_repeat_end(",
+        "impl ChoiceEntry",
+    ));
+    positions_in_order(
+        &observer,
+        &[
+            "self.visit_active_ancestry",
+            "self.workspace.base.load(f)",
+            "ChoiceStack::load(saved,40,f)",
+            "state.load(f)",
+            "I64Eq",
+            "[(104,1),(112,0)]",
+        ],
+    );
+    let end = compact(bounded(
+        COUNTED_MATCHER_SOURCE,
+        "CountedOperation::End => {",
+        "let accelerated",
+    ));
+    positions_in_order(
+        &end,
+        &[
+            "workspace.choices().observe_repeat_end(self,p.state,f)",
+            "RegExpRepeatStateWord::Active",
+            "RegExpRepeatStateWord::Stage",
+            "RegExpRepeatStateWord::PreUtf16",
+        ],
+    );
+    let append = compact(bounded(RUN_SOURCE, "fn append_required_run(", "fn reject("));
+    positions_in_order(
+        &append,
+        &[
+            "self.invalidate_active_run(builder,f)",
+            "layout.observed_group,layout.pending_complete",
+            "layout.derive_addresses",
+            "Instruction::MemoryCopy",
+        ],
+    );
+    let assertion = compact(bounded(
+        LOGICAL_RUN_SOURCE,
+        "fn discard_through(",
+        "impl ChoiceEntry",
+    ));
+    positions_in_order(
+        &assertion,
+        &[
+            "invalidate_active_run",
+            "I64Const(1)",
+            "node.observed_group.store(f)",
+            "I64Const(0)",
+            "node.pending_complete.store(f)",
+            "RunEntryConsumption::AssertionTruncate",
+        ],
+    );
+    let consume = compact(bounded(
+        LOGICAL_RUN_SOURCE,
+        "fn consume(",
+        "fn restore_affine_row(",
+    ));
+    positions_in_order(
+        &consume,
+        &[
+            "self.index.load(f)",
+            "RunEntryConsumption::FailedBacktrack",
+            "self.observed_group.load(f)",
+            "I64Eqz",
+            "self.pending_complete.store(f)",
+            "self.observed_group.store(f)",
+            "self.advance_group",
+        ],
+    );
+    let select = compact(
+        RUN_EXHAUSTION_SOURCE
+            .split_once("fn begin_backtracked_node(")
+            .unwrap()
+            .1,
+    );
+    positions_in_order(
+        &select,
+        &[
+            "workspace.active_run_offset.load(f)",
+            "self.offset.load(f)",
+            "I64Eq",
+            "layout.pending_complete.load(f)",
+            "layout.observed_group.load(f)",
+            "I64Eqz",
+            "self.stack.invalidate_active_run",
+            "workspace.active_run_row.store(f)",
+        ],
+    );
+    let pop = compact(
+        LOGICAL_RUN_SOURCE
+            .split_once("fn restore_required_run(")
+            .unwrap()
+            .1,
+    );
+    positions_in_order(
+        &pop,
+        &[
+            "self.begin_backtracked_node",
+            "selected.load(f)",
+            "node.remaining_used.store(f)",
+            "node.publish_used(f)",
+            "I32Const(0)",
+            "selected.store(f)",
+            "self.discard_through(f)",
+            "node.selected_kind",
+            "logical.restore_state",
+        ],
+    );
+    let discard = compact(bounded(
+        CHOICE_SOURCE,
+        "fn discard_through(&self, function:",
+        "fn restore_fallback(",
+    ));
+    positions_in_order(
+        &discard,
+        &[
+            "clear_removed_active_run(self.offset,function)",
+            "self.load(8,function)",
+            "choice_top.store(function)",
+            "choice_used.store(function)",
+        ],
+    );
+}
+
+#[test]
+fn recursive_required_runs_keep_current_and_original_reset_domains_separate() {
+    let compact = |source: &str| source.split_whitespace().collect::<String>();
+    let append = compact(bounded(RUN_SOURCE, "fn append_required_run(", "fn reject("));
+    positions_in_order(
+        &append,
+        &[
+            "proof.template_bytes()",
+            "layout.measure_template",
+            "ensure_choice_bytes",
+            "layout.template_bytes.load(f)",
+            "Instruction::MemoryCopy",
+            "layout.initialize_tree",
+        ],
+    );
+    let initialize = compact(bounded(
+        RUN_TREE_SOURCE,
+        "fn initialize_tree(",
+        "fn reset_children(",
+    ));
+    positions_in_order(
+        &initialize,
+        &[
+            "copy_bytes(state,cursor,child.prefix_bytes,f)",
+            "taint(state,f)",
+            "copy_bytes(output,child.table,child.table_bytes,f)",
+            "foroffsetin[8,16]",
+            "relative.load(f)",
+            "taint(state,f)",
+        ],
+    );
+    let reset = compact(bounded(
+        RUN_TREE_SOURCE,
+        "fn reset_children(",
+        "impl ChoiceEntry",
+    ));
+    positions_in_order(
+        &reset,
+        &[
+            "root.state_for",
+            "copy_bytes(state,child_address,child.prefix_bytes,f)",
+            "taint(state,f)",
+            "child.table.load(f)",
+            "copy_bytes(state,source,target_relative,f)",
+            "taint(state,f)",
+        ],
+    );
+    let search = compact(bounded(
+        LOGICAL_RUN_SOURCE,
+        "fn find_required_run(",
+        "fn restore_required_run(",
+    ));
+    positions_in_order(
+        &search,
+        &[
+            "PathWord::Context,context",
+            "older.load(f)",
+            "definition.load(f);context.store(f)",
+            "RunLayout::read(context",
+            "baseline.state_for",
+            "path.initialize",
+            "predicate.emit",
+        ],
+    );
+    let patch = compact(bounded(
+        LOGICAL_RUN_SOURCE,
+        "fn patch_ancestors(",
+        "fn restore_repeats(",
+    ));
+    positions_in_order(
+        &patch,
+        &[
+            "self.depth.load(f)",
+            "PathWord::Definition",
+            "PathWord::State",
+            "PathWord::Older",
+            "node.restore_affine_row",
+            "I64Sub",
+            "level.store(f)",
+        ],
+    );
+    assert!(RUN_PATH_SOURCE.contains("enum PathWord"));
+    assert!(RUN_TREE_SOURCE.contains("fn with_template_snapshots(&self"));
+    assert!(RUN_TREE_SOURCE.contains("fn compare_template_tree(&self,other:&ChoiceEntry"));
+    assert!(RUN_TREE_SOURCE.contains("fn check_distinct_ancestry"));
+    assert!(compact(RUN_EXHAUSTION_SOURCE).contains("workspace.active_run_node.load(f)"));
 }
 
 #[test]
@@ -735,7 +811,9 @@ fn static_data_validation_counts_progress_choices_and_terminates_checks() {
     for marker in [
         "while let Some((pc, edge)) = stack.last_mut()",
         "opcode.stops_non_consuming_walk(instruction.operand1)",
-        "opcode.successors(instruction, *pc, instructions.len())[*edge]",
+        "let successors = if opcode == RegExpOpcode::RepeatEnd {",
+        "[Some(guard.operand0 as usize + 1), None]",
+        "opcode.successors(instruction, *pc, instructions.len())",
     ] {
         assert!(cycle.contains(marker), "cycle validation lost {marker}");
     }
@@ -754,7 +832,7 @@ fn static_data_validation_counts_progress_choices_and_terminates_checks() {
 }
 
 #[test]
-fn exact_inventory_fixture_and_verified_status_remain_bounded() {
+fn exact_inventory_fixture_and_progress_contract_remain_bounded() {
     for marker in [
         "esid: sec-runtime-semantics-repeatmatcher-abstract-operation",
         "let regex = /(a?b??)*/;",
@@ -784,24 +862,6 @@ fn exact_inventory_fixture_and_verified_status_remain_bounded() {
         .contains("fn run_wasm_backend_rejects_empty_optional_nullable_quantifier_iterations()"));
     assert!(CLI_TEST_SOURCE.contains("wasm_regexp_nullable_quantifier_progress.js"));
 
-    for source in [README, TASK] {
-        for marker in [
-            "44247b836b",
-            "built-ins/RegExp/nullable-quantifier.js",
-            "0/2",
-            "Runtime/NotImplemented",
-            "workspace/all-target `cargo check`",
-            "`cargo xc`",
-            "`1/1` in `8.37s`",
-            "`5/5` in `22.36s`",
-            "`1/1` in `22.83s`",
-            "`27.19s`",
-            "passes `2/2` with zero unsupported",
-            "full-suite claim is made",
-        ] {
-            assert!(source.contains(marker), "status lost {marker}");
-        }
-    }
     for marker in [
         "REGEXP_OPCODE_PROGRESS_SPLIT",
         "REGEXP_OPCODE_PROGRESS_CHECK",
@@ -812,4 +872,171 @@ fn exact_inventory_fixture_and_verified_status_remain_bounded() {
     ] {
         assert!(CONTRACT.contains(marker), "contract lost {marker}");
     }
+}
+
+#[test]
+fn static_and_emitted_counted_bodies_consume_one_paired_owner() {
+    use lila_front::{parse, ParseOptions};
+    use lila_ir::{lower_with_host_surface_policy, HostSurfacePolicy};
+    use wasmparser::{Validator, WasmFeatures};
+    // The character loop prevents the constructor's pattern from becoming a
+    // static literal. Both actual producers must reach the native module path.
+    let parsed = parse(
+        r#"
+        var source = "";
+        var units = [40, 41, 123, 50, 44, 49, 56, 52, 52, 54, 55, 52, 52, 48,
+            55, 51, 55, 48, 57, 53, 53, 49, 54, 49, 54, 125];
+        for (var i = 0; i < units.length; i++) source += String.fromCharCode(units[i]);
+        var dynamic = new RegExp(source, "d");
+        var literal = /(){2,18446744073709551616}/d;
+        dynamic.exec("");
+        literal.exec("");
+    "#,
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let program = lower_with_host_surface_policy(&parsed, HostSurfacePolicy::Test262);
+    let artifact =
+        lila_aot_wasm::emit(&program).expect("both descriptor producers reach real Wasm codegen");
+    Validator::new_with_features(WasmFeatures::all())
+        .validate_all(&artifact.bytes)
+        .expect("v3 counted descriptor, compiler and matcher emit valid Wasm");
+}
+
+#[test]
+fn counted_matcher_preserves_optional_fallback_and_required_empty_iterations() {
+    use lila_front::{parse, ParseOptions};
+    use lila_ir::{lower_with_host_surface_policy, HostSurfacePolicy};
+    use wasmparser::{Validator, WasmFeatures};
+    // Keep the retained greedy/lazy, captures, nested choices, assertions and
+    // reverse cohort on the actual parser -> IR -> native matcher codegen path.
+    let parsed = parse(FIXTURE, ParseOptions::script()).unwrap();
+    let program = lower_with_host_surface_policy(&parsed, HostSurfacePolicy::Test262);
+    let artifact =
+        lila_aot_wasm::emit(&program).expect("retained nullable cohort reaches native codegen");
+    Validator::new_with_features(WasmFeatures::all())
+        .validate_all(&artifact.bytes)
+        .expect("optional fallback and exact required counters have balanced native control flow");
+}
+
+#[test]
+fn one_bounded_tail_workspace_owns_live_state_and_demand_growth() {
+    assert!(
+        HELPER_SOURCE.contains("const REGEXP_MATCHER_SCRATCH_MAX_BYTES: i64 = 512 * 1024 * 1024;")
+    );
+    positions_in_order(
+        MATCHER_SOURCE,
+        &[
+            "All immutable program/text transients are complete",
+            "let workspace = MatcherWorkspace::allocate(",
+            "workspace.reset_repeats(&mut function);",
+        ],
+    );
+    let allocate = bounded(
+        WORKSPACE_SOURCE,
+        "    pub(super) fn allocate(
+",
+        "    pub(super) fn fail(
+",
+    );
+    positions_in_order(
+        allocate,
+        &[
+            "workspace.capture_bytes.store(function)",
+            "workspace.repeat_bytes.store(function)",
+            "workspace.live_bytes.store(function)",
+            "workspace.snapshot_bytes.store(function)",
+            "REGEXP_MATCHER_SCRATCH_MAX_BYTES",
+            "workspace.maximum_capacity.store(function)",
+            "workspace.capacity.store(function)",
+            "builder.emit_regexp_transient_allocation(",
+            "workspace.choices().reset(function)",
+        ],
+    );
+    let growth = bounded(
+        WORKSPACE_SOURCE,
+        "    fn ensure_choice_bytes(
+",
+        "    pub(super) fn choices(",
+    );
+    positions_in_order(
+        growth,
+        &[
+            "Instruction::GlobalGet(PRIVATE_BYTE_CURSOR_GLOBAL_INDEX)",
+            "self.allocated_bytes.load(function)",
+            "RegExpMatcherFailure::CorruptProgram",
+            "self.maximum_capacity.load(function)",
+            "RegExpMatcherFailure::ResourceExhausted",
+            "self.capacity.load(function)",
+            "Instruction::I64Const(2)",
+            "builder.emit_regexp_transient_allocation(",
+            "extension.load(function)",
+            "RegExpMatcherFailure::CorruptProgram",
+            "self.allocated_bytes.store(function)",
+        ],
+    );
+    assert!(!growth.contains("input_len"));
+    assert!(!growth.contains("minimum"));
+    assert!(!growth.contains("maximum.load"));
+    let compact = |source: &str| source.split_whitespace().collect::<String>();
+    let restore = compact(bounded(
+        CHOICE_SOURCE,
+        "fn restore_slice(",
+        "fn restore_state(",
+    ));
+    assert!(restore.contains("Instruction::MemoryCopy"));
+    let full_restore = compact(bounded(
+        CHOICE_SOURCE,
+        "fn restore_state(",
+        "fn restore_captures(",
+    ));
+    assert!(
+        full_restore.contains("self.restore_slice(None,self.stack.workspace.live_bytes,function)")
+    );
+    let repeat_restore = compact(bounded(
+        CHOICE_SOURCE,
+        "fn restore_repeats(",
+        "impl ChoiceSnapshot",
+    ));
+    assert!(repeat_restore.contains("self.stack.workspace.repeat_bytes"));
+    assert!(repeat_restore.contains("self.stack.workspace.capture_bytes"));
+    let caller = bounded(
+        EXEC_SOURCE,
+        "    fn emit_native_regexp_scratch(\n",
+        "    fn emit_native_regexp_builtin_exec(\n",
+    );
+    assert!(caller.contains("layout.capture_count().load(f)"));
+    assert!(caller
+        .contains("self.emit_regexp_capture_output_allocation(size, base, result, exit, f)?;"));
+    assert!(!caller.contains("repeat_slot_count"));
+    assert!(!caller.contains("input_length"));
+    assert!(!caller.contains("split_count"));
+    let allocator = bounded(
+        TRANSIENT_SOURCE,
+        "    pub(super) fn emit_regexp_transient_allocation(\n",
+        "    pub(in crate::builtins) fn emit_regexp_capture_output_allocation(\n",
+    );
+    positions_in_order(
+        allocator,
+        &[
+            "u32::MAX",
+            "failure.emit(self, function)?",
+            "Instruction::MemoryGrow(0)",
+            "failure.emit(self, function)?",
+            "TransientByteAllocArguments::new(size)",
+        ],
+    );
+    let output_failure = bounded(
+        TRANSIENT_SOURCE,
+        "            Self::CaptureOutput { completion, exit } => {",
+        "        Ok(())",
+    );
+    positions_in_order(
+        output_failure,
+        &[
+            "NativeErrorKind::RangeError",
+            "completion",
+            "builder.emit_branch_to_target(*exit, function)",
+        ],
+    );
 }

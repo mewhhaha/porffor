@@ -8,7 +8,7 @@
 //! refuted runner knobs, and why the split has to be by module file rather than
 //! by libtest filter.
 //!
-//! 35 tests, all heavy. Its chunk is `run_chunk language_errors
+//! 38 tests, all heavy. Its chunk is `run_chunk language_errors
 //! language_errors::` in `scripts/rung1c-chunks.sh`, and it needs BOTH that line
 //! and `mod language_errors;` in `main.rs`: a module with a chunk but no `mod`
 //! line is not compiled, its filter selects nothing, libtest exits 0 on
@@ -26,6 +26,8 @@ use crate::*;
 #[test]
 fn run_wasm_backend_succeeds_for_abstract_module_source_host_hook_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("--host-surface")
+        .arg("test262")
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
@@ -53,6 +55,22 @@ fn run_wasm_backend_succeeds_for_htmldda_host_hook_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(262"));
+}
+
+#[test]
+fn run_wasm_backend_installs_error_constructor_stack() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_error_constructor_stack.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(348"));
 }
 
 #[test]
@@ -358,19 +376,23 @@ fn run_wasm_backend_reports_uncaught_throw_fixture_error() {
 }
 
 #[test]
-fn run_wasm_backend_reports_gc_requires_real_collector() {
+fn run_wasm_backend_collects_with_live_whole_value_roots() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
-        .arg(fixture_path("wasm_gc_requires_real_collector.js"))
+        .arg(fixture_path("wasm_gc_live_roots.js"))
         .output()
         .expect("run command should run");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw"));
-    assert!(stderr.contains("gc requires a real collector in wasm-aot"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
 }
 
 #[test]
@@ -738,4 +760,75 @@ fn run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name() {
         "runtime error message equals its name (emit_runtime_error_object must define \
          `message` from its message argument, not from the name payload): {stdout}"
     );
+}
+
+/// A `RuntimeThrow` in expression position must route its Throw completion to
+/// the active handler instead of falling through into the enclosing
+/// expression, which threw the enclosing result (`!x` threw `false`) or
+/// continued silently (`x + 1` never threw).
+#[test]
+fn run_wasm_backend_routes_expression_position_throws_to_the_active_handler() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_tdz_expression_throw_routing.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(349"), "{stdout}");
+}
+
+/// A plain assignment to a captured binding still in TDZ must throw a
+/// ReferenceError (9.1.1.1.5 step 3). Captured bindings are seeded
+/// `Initialized` in the lowering scope, so only a runtime slot-tag check on
+/// the write can catch it; writes used to land unchecked while reads threw.
+#[test]
+fn run_wasm_backend_throws_when_captured_assignment_hits_tdz() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_tdz_captured_assignment.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(350"), "{stdout}");
+}
+
+/// A bare `for (x in …)` head captures the outer `x`: the free-reference
+/// scanner used to skip for-in bare-identifier and member heads, and the
+/// per-iteration write landed on the global object instead.
+#[test]
+fn run_wasm_backend_captures_for_in_bare_head_targets() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_forin_bare_head_capture.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(351"), "{stdout}");
 }

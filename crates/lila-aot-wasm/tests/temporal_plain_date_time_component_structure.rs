@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const METHODS: &str = include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
+const PLAIN_DATE: &str = include_str!("../src/builtins/temporal_plain_date.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -91,21 +92,17 @@ fn component_emitter_extracts_the_receiver_then_projects_once() {
         "TemporalPlainDateTimeComponent::PlainDate => {",
         "            TemporalPlainDateTimeComponent::PlainTime => {",
     );
-    assert!(plain_date.contains("TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX"));
-    assert_eq!(
-        plain_date
-            .matches("let prototype_payload_local = self.reserve_temp_local();")
-            .count(),
-        1
-    );
+    assert!(plain_date.contains("TemporalPrototypeSource::Intrinsic"));
     assert!(plain_date.contains("self.emit_alloc_temporal_plain_date("));
     assert!(plain_date.contains("calendar_payload_local,"));
-    assert_eq!(
-        plain_date
-            .matches("self.release_temp_local(prototype_payload_local);")
-            .count(),
-        1
+    let allocation = bounded(
+        PLAIN_DATE,
+        "pub(crate) fn emit_alloc_temporal_plain_date(",
+        "    /// The `[[InitializedTemporalDate]]` brand check.",
     );
+    assert!(allocation.contains("prototype: TemporalPrototypeSource<'_>"));
+    assert!(allocation.contains("self.emit_alloc_temporal_object("));
+    assert!(allocation.contains("TemporalIntrinsicFamily::PlainDate"));
     assert!(!plain_date.contains("temporal_plain_date_time_time_locals"));
     assert!(!plain_date.contains("emit_alloc_temporal_plain_time"));
 

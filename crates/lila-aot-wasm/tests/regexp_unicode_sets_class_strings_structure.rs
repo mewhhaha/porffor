@@ -5,6 +5,8 @@ const FIXTURE: &str =
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/regexp.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/regexp.rs");
 const MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp.rs");
+const CHOICE_SOURCE: &str =
+    include_str!("../src/builtins/regexp/matcher_workspace/choice_entries.rs");
 const PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program.rs");
 const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs");
 const SHORTCUT_ALLOWLIST: &str = include_str!("../../../test262/backlog/shortcut-allowlist.tsv");
@@ -191,7 +193,6 @@ fn finite_class_set_is_the_only_canonical_string_algebra() {
     for domain in [
         "struct FiniteClassSet {\n    ranges: Vec<(u32, u32)>,\n    strings: BTreeSet<Vec<u32>>,\n}",
         "struct FiniteClassSetAtom {\n    multi_code_point_strings: Vec<Vec<RegExpInstruction>>,\n    singleton: RegExpInstruction,\n    contains_empty: bool,\n}",
-        "enum RequiresUnicodeSetSemantics {\n    PropertyOfStrings(RequiresUnicodePropertyOfStrings),\n    StringCaseFolding(RequiresUnicodeSetStringCaseFolding),\n}",
     ] {
         assert!(IR_SOURCE.contains(domain), "missing closed domain: {domain}");
     }
@@ -200,16 +201,16 @@ fn finite_class_set_is_the_only_canonical_string_algebra() {
     let algebra = bounded(
         IR_SOURCE,
         "impl FiniteClassSet {",
-        "\nenum ClassSetSemantics {",
+        "\nstruct ClassSetValue {",
     );
     positions_in_order(
         algebra,
         &[
-            "fn class_strings(alternatives: BTreeSet<Vec<u32>>) -> Self",
+            "fn class_strings(alternatives: BTreeSet<Vec<u32>>, folding: CaseFolding) -> Self",
             "[code_point] => ranges.push((*code_point, *code_point))",
             "[] | [_, _, ..]",
             "strings.insert(alternative);",
-            "ranges: normalize_ranges(ranges)",
+            "ranges: case_close_ranges(&normalize_ranges(ranges), folding)",
             "fn union(self, right: Self) -> Self",
             "strings.extend(right.strings);",
             "fn intersection(self, right: Self) -> Self",
@@ -231,7 +232,7 @@ fn finite_class_set_is_the_only_canonical_string_algebra() {
             "let singleton = finish_range_set",
             "let contains_empty = strings.iter().any(Vec::is_empty);",
             ".filter(|string| !string.is_empty())",
-            ".map(RegExpInstruction::literal_code_point)",
+            "apply_modifiers(",
             "multi_code_point_strings.sort_by_key(|string| std::cmp::Reverse(string.len()));",
             "multi_code_point_strings,",
             "singleton,",
@@ -282,68 +283,54 @@ fn one_lowerer_emits_longest_singleton_empty_priority_in_both_directions() {
 
 #[test]
 fn existing_aot_choices_and_shared_range_matcher_cover_both_directions() {
-    let split = bounded(
+    let compact = |source: &str| source.split_whitespace().collect::<String>();
+    let split = compact(bounded(
         MATCHER_SOURCE,
         "// `Split` records the fallback before taking the primary arm.",
-        "// A nullable optional attempt carries its pre-attempt cursor",
-    );
+        "// Nullable attempts retain",
+    ));
     positions_in_order(
-        split,
+        &split,
         &[
-            "REGEXP_OPCODE_SPLIT as i64",
-            "LocalGet(operand1)",
-            "LocalSet(choice_header)",
-            "self.emit_regexp_push_choice_frame(",
-            "LocalGet(operand0)",
-            "LocalSet(pc)",
+            "REGEXP_OPCODE_SPLITasi64",
+            "workspace.choices().push_snapshot(",
+            "SnapshotChoice::Ordinary",
+            "fallback:operand1",
+            "origin:pc",
+            "operand0.load(&mutfunction)",
+            "pc.store(&mutfunction)",
         ],
     );
-
-    let frame = bounded(
-        MATCHER_SOURCE,
-        "    fn emit_regexp_push_choice_frame(\n",
-        "    /// On an atom failure, restore the latest ordered fallback.",
-    );
+    let frame = compact(bounded(
+        CHOICE_SOURCE,
+        "fn push_snapshot(",
+        "fn top_cursor(",
+    ));
     for marker in [
-        "for (offset, local) in [(0, header), (8, byte), (16, utf16), (24, on_low_surrogate)]",
-        "Every ordered choice owns the full capture state.",
-        "LocalGet(capture_count)",
-        "I64Load(Self::memarg8(offset))",
-        "I64Store(Self::memarg8(0))",
+        "cursor.byte",
+        "cursor.utf16",
+        "cursor.on_low_surrogate",
+        "self.workspace.live_bytes.load(function)",
+        "Instruction::MemoryCopy",
     ] {
         assert!(frame.contains(marker), "choice frame lost {marker}");
     }
-
     assert!(PROGRAM_SOURCE.contains("is_some_and(RegExpOpcode::is_choice)"));
-
     assert_eq!(
         MATCHER_SOURCE
             .matches("self.emit_regexp_unicode_property_mismatch(")
             .count(),
-        2,
-        "forward and reverse matching must share one canonical range test"
+        2
     );
-    let reverse = bounded(
-        MATCHER_SOURCE,
-        concat!(
-            "        function.instruction(&Instruction::LocalGet(reverse_mode));\n",
-            "        function.instruction(&Instruction::I32WrapI64);\n",
-            "        function.instruction(&Instruction::If(BlockType::Empty));\n",
-            "        function.instruction(&Instruction::LocalGet(opcode));\n",
-        ),
-        concat!(
-            "        function.instruction(&Instruction::Br(1));\n",
-            "        function.instruction(&Instruction::End);\n",
-            "        function.instruction(&Instruction::LocalGet(opcode));\n",
-            "        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));",
-        ),
-    );
+    let reverse=compact(bounded(MATCHER_SOURCE,
+        concat!("        reverse_mode.load(&mut function);\n","        function.instruction(&Instruction::I32WrapI64);\n","        function.instruction(&Instruction::If(BlockType::Empty));\n","        opcode.load(&mut function);\n"),
+        concat!("        function.instruction(&Instruction::Br(1));\n","        function.instruction(&Instruction::End);\n","        opcode.load(&mut function);\n","        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));")));
     for marker in [
-        "REGEXP_OPCODE_LITERAL_CODE_POINT as i64",
-        "REGEXP_OPCODE_UNICODE_PROPERTY as i64",
-        "Reverse matching uses the same canonical range slice",
+        "REGEXP_OPCODE_LITERAL_CODE_POINTasi64",
+        "REGEXP_OPCODE_UNICODE_PROPERTYasi64",
+        "Reversematchingusesthesamecanonicalrangeslice",
         "self.emit_regexp_unicode_property_mismatch(",
-        "LocalGet(utf16_advance)",
+        "utf16_advance.load(&mutfunction)",
         "I64Sub",
     ] {
         assert!(reverse.contains(marker), "reverse matcher lost {marker}");
@@ -402,7 +389,11 @@ fn exact_inventory_is_nine_union_nine_intersection_and_nine_difference_files() {
         "### Finite keycap property extension",
         "`Basic_Emoji` and the remaining `RGI_Emoji*` properties retain",
         "Backward/lookbehind lowering preserves the same alternative priority",
-        "implements only the exact finite `Emoji_Keycap_Sequence`",
+        "The current static producer implements the finite tables for",
+        "`Emoji_Keycap_Sequence`, `Basic_Emoji`, `RGI_Emoji_Flag_Sequence`",
+        "`RGI_Emoji_Modifier_Sequence`, `RGI_Emoji_Tag_Sequence`, `RGI_Emoji_ZWJ_Sequence`",
+        "and `RGI_Emoji`.",
+        "historical keycap-only capability limits are superseded",
         "does not add a new Wasm matcher opcode or data",
         "finite source and property strings lower to the existing ordered matcher",
     ] {
@@ -519,7 +510,16 @@ fn durable_fixture_exercises_complete_string_members_and_set_algebra() {
 
 #[test]
 fn verified_status_preserves_baseline_and_exact_scope() {
-    for source in [README, TASK] {
+    for (source, scope) in [
+        (
+            README,
+            "This records no broader UnicodeSets or RegExp completion claim.",
+        ),
+        (
+            TASK,
+            "this historical evidence records no broader UnicodeSets closure.",
+        ),
+    ] {
         let source = source.split_whitespace().collect::<Vec<_>>().join(" ");
         for marker in [
             "f580b424d",
@@ -540,9 +540,9 @@ fn verified_status_preserves_baseline_and_exact_scope() {
             "reverse",
             "Unicode properties of strings",
             "`/iv`",
-            "no broader UnicodeSets or RegExp completion claim",
         ] {
             assert!(source.contains(marker), "status lost {marker}");
         }
+        assert!(source.contains(scope), "historical scope lost {scope}");
     }
 }

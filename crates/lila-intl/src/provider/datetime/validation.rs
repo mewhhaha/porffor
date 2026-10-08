@@ -1,30 +1,37 @@
 use crate::datetime::DateTimeFormatError;
 
 use super::{
-    names::NameKey,
+    calendar::CalendarId,
+    names::{MonthYearType, NameKey},
     pattern::{DayPeriod, Field, NameContext, NameWidth, Pattern, Token},
-    profile::{invalid, Calendar, Locale, Profile},
+    profile::{invalid, AlgorithmicField, Calendar, Locale, Profile},
 };
 
 impl Profile {
     pub(super) fn validate_names(&self) -> Result<(), DateTimeFormatError> {
         for locale in &self.locales {
-            validate_calendar(locale, &locale.gregorian, false)?;
-            validate_calendar(locale, &locale.chinese, true)?;
+            for (kind, calendar) in locale.calendars() {
+                validate_calendar(self, locale, calendar, kind)?;
+            }
         }
         Ok(())
     }
 }
 
 fn validate_calendar(
+    profile: &Profile,
     locale: &Locale,
     calendar: &Calendar,
-    cyclic: bool,
+    kind: CalendarId,
 ) -> Result<(), DateTimeFormatError> {
+    let cyclic = kind.is_cyclic();
     if calendar.append_era.is_some() == cyclic {
         return Err(invalid(
             "calendar era append availability disagrees with its year kind",
         ));
+    }
+    if calendar.kind.month_names() != kind.month_names() {
+        return Err(invalid("calculation and physical month domains disagree"));
     }
     let names = &calendar.names;
     for width in [NameWidth::Abbreviated, NameWidth::Wide, NameWidth::Narrow] {
@@ -33,13 +40,16 @@ fn validate_calendar(
                 names.get(NameKey::CyclicYear(width, year))?;
             }
         } else {
-            for era in 0..=1 {
-                names.get(NameKey::Era(width, era))?;
+            for era in kind.eras() {
+                names.get(era.key(kind, width)?)?;
             }
         }
         for context in [NameContext::Format, NameContext::Standalone] {
-            for month in 1..=12 {
-                names.get(NameKey::Month(context, width, month))?;
+            for month in 1..=kind.month_names() {
+                names.get(NameKey::Month(context, width, month, None))?;
+            }
+            if kind == CalendarId::Hebrew {
+                names.get(NameKey::Month(context, width, 7, Some(MonthYearType::Leap)))?;
             }
             for weekday in 0..=6 {
                 names.get(NameKey::Weekday(context, width, weekday))?;
@@ -59,33 +69,51 @@ fn validate_calendar(
         placeholder(names.get(NameKey::NumericLeapMonth)?)?;
     }
     for style in &calendar.styles {
-        validate_pattern(calendar, &style.date, cyclic)?;
-        validate_pattern(calendar, &style.time, cyclic)?;
+        validate_pattern(profile, calendar, kind, &style.date, false)?;
+        validate_pattern(profile, calendar, kind, &style.time, false)?;
     }
     for pattern in &calendar.available {
-        validate_pattern(calendar, pattern, cyclic)?;
+        validate_pattern(profile, calendar, kind, pattern, false)?;
     }
     for interval in &calendar.intervals {
-        validate_pattern(calendar, &interval.pattern, cyclic)?;
+        validate_pattern(profile, calendar, kind, &interval.pattern, true)?;
     }
     Ok(())
 }
 
 fn validate_pattern(
+    profile: &Profile,
     calendar: &Calendar,
+    kind: CalendarId,
     pattern: &Pattern,
-    cyclic: bool,
+    interval: bool,
 ) -> Result<(), DateTimeFormatError> {
     for token in &pattern.tokens {
         let Token::Field(field) = token else {
             continue;
         };
         match field {
-            Field::Era(_) if cyclic => {
+            Field::Era(_) if kind.is_cyclic() => {
                 return Err(invalid("cyclic calendar contains an era pattern"));
             }
-            Field::RelatedYear(_) | Field::CyclicYear(_) if !cyclic => {
+            Field::RelatedYear(_) | Field::CyclicYear(_) if !kind.is_cyclic() => {
                 return Err(invalid("era calendar contains a cyclic-year pattern"));
+            }
+            Field::NumericWeekday { .. } if !interval => {
+                return Err(invalid(
+                    "numeric weekday requires its sourced interval skeleton",
+                ));
+            }
+            Field::NumericWeekday { .. } => {
+                if !pattern
+                    .skeleton
+                    .iter()
+                    .any(|value| matches!(value, Field::Weekday { .. }))
+                {
+                    return Err(invalid(
+                        "numeric interval weekday has no sourced textual skeleton field",
+                    ));
+                }
             }
             Field::Weekday {
                 context,
@@ -100,9 +128,24 @@ fn validate_pattern(
             _ => {}
         }
     }
-    for (field, _) in &pattern.numbering {
+    for (field, system) in &pattern.numbering {
         if let Some(field) = field {
-            if !pattern.tokens.iter().any(|token| matches!(token, Token::Field(value) if value.numbering_symbol() == Some(*field))) { return Err(invalid("numbering override does not select a pattern field")); }
+            if !pattern.tokens.iter().any(|token| matches!(token, Token::Field(value) if value.numbering_symbol() == Some(*field))) {
+                return Err(invalid("numbering override does not select a pattern field"));
+            }
+        }
+        if let Some(algorithm) = profile.algorithmic.get(system) {
+            let permitted = match algorithm {
+                AlgorithmicField::FiniteDay(_) => *field == Some('d'),
+                AlgorithmicField::JapaneseYear { .. } => {
+                    kind == CalendarId::Japanese && *field == Some('y')
+                }
+            };
+            if !permitted {
+                return Err(invalid(
+                    "algorithmic numbering has the wrong calendar or field",
+                ));
+            }
         }
     }
     Ok(())

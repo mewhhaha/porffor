@@ -6,7 +6,7 @@ use super::{
 };
 
 const MAX_WINDOW_SECONDS: i64 = 2 * 366 * 86_400;
-const MAX_EPOCH_SECONDS: i64 = 8_640_000_000_000 + MAX_WINDOW_SECONDS;
+pub(super) const MAX_EPOCH_SECONDS: i64 = 8_640_000_000_000 + MAX_WINDOW_SECONDS;
 
 fn same_snapshot(left: TimeZoneTransitionInfo, right: TimeZoneTransitionInfo) -> bool {
     (left.offset, left.is_dst) == (right.offset, right.is_dst)

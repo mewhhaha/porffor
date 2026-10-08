@@ -1,0 +1,32 @@
+{
+  "schema_version": 4,
+  "id": "t25/embedded/source-phase",
+  "observation_contract": "primitive_completion_print_transcript",
+  "timeout_ms": 30000,
+  "module_graph": {
+    "entry": {
+      "goal": "script",
+      "identity": "entry.js",
+      "source": "var key = 'target';\nimport.source(key).then(() => { throw 'JavaScript source phase fulfilled'; }, error => {\n if (!(error instanceof SyntaxError)) throw 'source phase rejection';\n print('embedded-source:rejected');\n});\n262;\n",
+      "meta_url": "lila://metadata/root.js"
+    },
+    "modules": [
+      {
+        "identity": "target.js",
+        "source": "print('source-phase-body'); export const value = 7;",
+        "meta_url": "lila://target.js"
+      }
+    ],
+    "resolutions": [
+      {
+        "referrer": {
+          "kind": "script",
+          "identity": "entry.js"
+        },
+        "specifier": "target",
+        "attributes": [],
+        "target": "target.js"
+      }
+    ]
+  }
+}

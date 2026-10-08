@@ -1,4 +1,8 @@
-use super::{DynamicSourceRuntimeOperation, EngineError, ObservedCompletion, WasmExecutionOutcome};
+use super::{
+    DynamicSourceRuntimeOperation, EngineError, ObservedCompletion, RuntimeSemanticGap,
+    RuntimeSemanticRejection, RuntimeUnavailableCapability, WasmExecutionOutcome,
+};
+use lila_runtime::rooted_snapshot::SnapshotCompletionKind;
 
 /// The execution outcome relevant to conformance classification. Only a direct
 /// JavaScript exception from the root can satisfy a runtime-negative test.
@@ -8,6 +12,8 @@ pub enum WasmExecutionFailureKind {
     /// The entry evaluation is pending after supported host work becomes quiescent.
     IncompleteModuleEvaluation,
     DynamicSource,
+    SemanticGap,
+    UnavailableCapability,
     ConcurrentFailure,
     Trap,
     Timeout,
@@ -17,7 +23,7 @@ pub enum WasmExecutionFailureKind {
 pub(super) enum EngineExecutionFailure {
     JavaScriptException { constructor_name: Option<String> },
     IncompleteModuleEvaluation,
-    DynamicSource(DynamicSourceRuntimeOperation),
+    RuntimeSemantics(RuntimeSemanticRejection),
     Trap,
     Timeout,
     Concurrent(ExecutionFailures),
@@ -45,6 +51,25 @@ impl ExecutionFailures {
                     kind = WasmExecutionFailureKind::Timeout;
                 }
                 Some(WasmExecutionFailureKind::DynamicSource) => {}
+                Some(WasmExecutionFailureKind::SemanticGap) => {
+                    if !matches!(
+                        kind,
+                        WasmExecutionFailureKind::Timeout
+                            | WasmExecutionFailureKind::ConcurrentFailure
+                            | WasmExecutionFailureKind::UnavailableCapability
+                    ) {
+                        kind = WasmExecutionFailureKind::SemanticGap;
+                    }
+                }
+                Some(WasmExecutionFailureKind::UnavailableCapability) => {
+                    if !matches!(
+                        kind,
+                        WasmExecutionFailureKind::Timeout
+                            | WasmExecutionFailureKind::ConcurrentFailure
+                    ) {
+                        kind = WasmExecutionFailureKind::UnavailableCapability;
+                    }
+                }
                 None if matches!(
                     failure
                         .ir_diagnostic()
@@ -77,12 +102,17 @@ impl EngineError {
         error
     }
 
+    #[cfg(test)]
     pub(super) fn from_runtime_dynamic_source_operation(
         operation: DynamicSourceRuntimeOperation,
     ) -> Self {
+        Self::from_runtime_semantic_rejection(RuntimeSemanticRejection::DynamicSource(operation))
+    }
+
+    pub(super) fn from_runtime_semantic_rejection(rejection: RuntimeSemanticRejection) -> Self {
         Self::from_execution_failure(
-            EngineExecutionFailure::DynamicSource(operation),
-            operation.to_string(),
+            EngineExecutionFailure::RuntimeSemantics(rejection),
+            rejection.to_string(),
         )
     }
 
@@ -115,7 +145,15 @@ impl EngineError {
                 EngineExecutionFailure::IncompleteModuleEvaluation => {
                     WasmExecutionFailureKind::IncompleteModuleEvaluation
                 }
-                EngineExecutionFailure::DynamicSource(_) => WasmExecutionFailureKind::DynamicSource,
+                EngineExecutionFailure::RuntimeSemantics(rejection) => match rejection {
+                    RuntimeSemanticRejection::DynamicSource(_) => {
+                        WasmExecutionFailureKind::DynamicSource
+                    }
+                    RuntimeSemanticRejection::Gap(_) => WasmExecutionFailureKind::SemanticGap,
+                    RuntimeSemanticRejection::UnavailableCapability(_) => {
+                        WasmExecutionFailureKind::UnavailableCapability
+                    }
+                },
                 EngineExecutionFailure::Trap => WasmExecutionFailureKind::Trap,
                 EngineExecutionFailure::Timeout => WasmExecutionFailureKind::Timeout,
                 EngineExecutionFailure::Concurrent(failures) => failures.kind(),
@@ -133,7 +171,7 @@ impl EngineError {
             }
             None
             | Some(
-                EngineExecutionFailure::DynamicSource(_)
+                EngineExecutionFailure::RuntimeSemantics(_)
                 | EngineExecutionFailure::IncompleteModuleEvaluation
                 | EngineExecutionFailure::Trap
                 | EngineExecutionFailure::Timeout
@@ -147,7 +185,11 @@ impl EngineError {
     pub fn runtime_dynamic_source_operations(&self) -> Vec<DynamicSourceRuntimeOperation> {
         match &self.execution_failure {
             None => Vec::new(),
-            Some(EngineExecutionFailure::DynamicSource(operation)) => vec![*operation],
+            Some(EngineExecutionFailure::RuntimeSemantics(rejection)) => match rejection {
+                RuntimeSemanticRejection::DynamicSource(operation) => vec![*operation],
+                RuntimeSemanticRejection::Gap(_)
+                | RuntimeSemanticRejection::UnavailableCapability(_) => Vec::new(),
+            },
             Some(EngineExecutionFailure::Concurrent(failures)) => {
                 let mut operations = Vec::new();
                 for operation in failures
@@ -161,6 +203,65 @@ impl EngineError {
                 operations
             }
             Some(
+                EngineExecutionFailure::JavaScriptException { .. }
+                | EngineExecutionFailure::IncompleteModuleEvaluation
+                | EngineExecutionFailure::Trap
+                | EngineExecutionFailure::Timeout,
+            ) => Vec::new(),
+        }
+    }
+    /// Every distinct compiler semantic gap retained from the root and workers.
+    /// This projection preserves gaps even when an unrelated real failure owns
+    /// the aggregate outcome.
+    pub fn runtime_semantic_gaps(&self) -> Vec<RuntimeSemanticGap> {
+        match &self.execution_failure {
+            Some(EngineExecutionFailure::RuntimeSemantics(rejection)) => match rejection {
+                RuntimeSemanticRejection::Gap(gap) => vec![*gap],
+                RuntimeSemanticRejection::DynamicSource(_)
+                | RuntimeSemanticRejection::UnavailableCapability(_) => Vec::new(),
+            },
+            Some(EngineExecutionFailure::Concurrent(failures)) => {
+                let mut gaps = Vec::new();
+                for gap in failures.iter().flat_map(EngineError::runtime_semantic_gaps) {
+                    if !gaps.contains(&gap) {
+                        gaps.push(gap);
+                    }
+                }
+                gaps
+            }
+            None
+            | Some(
+                EngineExecutionFailure::JavaScriptException { .. }
+                | EngineExecutionFailure::IncompleteModuleEvaluation
+                | EngineExecutionFailure::Trap
+                | EngineExecutionFailure::Timeout,
+            ) => Vec::new(),
+        }
+    }
+    /// Every distinct unavailable runtime facility retained from the root and
+    /// workers, including facilities accompanied by unrelated real failures.
+    pub fn runtime_unavailable_capabilities(&self) -> Vec<RuntimeUnavailableCapability> {
+        match &self.execution_failure {
+            Some(EngineExecutionFailure::RuntimeSemantics(rejection)) => match rejection {
+                RuntimeSemanticRejection::UnavailableCapability(capability) => vec![*capability],
+                RuntimeSemanticRejection::DynamicSource(_) | RuntimeSemanticRejection::Gap(_) => {
+                    Vec::new()
+                }
+            },
+            Some(EngineExecutionFailure::Concurrent(failures)) => {
+                let mut capabilities = Vec::new();
+                for capability in failures
+                    .iter()
+                    .flat_map(EngineError::runtime_unavailable_capabilities)
+                {
+                    if !capabilities.contains(&capability) {
+                        capabilities.push(capability);
+                    }
+                }
+                capabilities
+            }
+            None
+            | Some(
                 EngineExecutionFailure::JavaScriptException { .. }
                 | EngineExecutionFailure::IncompleteModuleEvaluation
                 | EngineExecutionFailure::Trap
@@ -191,6 +292,18 @@ pub(super) fn finish_wasm_execution(
                     vec![agents],
                 )),
             },
+            WasmExecutionOutcome::Graph(observation) => match observation.completion.kind {
+                SnapshotCompletionKind::Normal => Err(agents),
+                SnapshotCompletionKind::Throw => Err(EngineError::from_execution_failures(
+                    EngineError::from_execution_failure(
+                        EngineExecutionFailure::JavaScriptException {
+                            constructor_name: None,
+                        },
+                        observation.note,
+                    ),
+                    vec![agents],
+                )),
+            },
         },
         (Err(root), Err(agents)) => Err(EngineError::from_execution_failures(root, vec![agents])),
     }
@@ -203,6 +316,91 @@ mod tests {
 
     fn rejection(operation: DynamicSourceRuntimeOperation) -> EngineError {
         EngineError::from_runtime_dynamic_source_operation(operation)
+    }
+
+    #[test]
+    fn named_zone_gap_has_no_javascript_exception_or_dynamic_source_projection() {
+        let gap = RuntimeSemanticGap::TemporalNamedTimeZone;
+        let error =
+            EngineError::from_runtime_semantic_rejection(RuntimeSemanticRejection::Gap(gap));
+        assert_eq!(
+            error.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::SemanticGap)
+        );
+        assert_eq!(error.runtime_semantic_gaps(), vec![gap]);
+        assert!(error.runtime_dynamic_source_operations().is_empty());
+        assert_eq!(error.wasm_javascript_exception_constructor_name(), None);
+        assert!(error.parse_diagnostic().is_none());
+        assert!(error.ir_diagnostic().is_none());
+    }
+
+    #[test]
+    fn semantic_and_capability_rejections_are_retained_without_hiding_real_failures() {
+        let gap = RuntimeSemanticGap::TemporalNamedTimeZone;
+        let operation = DynamicSourceRuntimeOperation::Eval;
+        let semantic =
+            EngineError::from_runtime_semantic_rejection(RuntimeSemanticRejection::Gap(gap));
+        let dynamic = rejection(operation);
+        let capability = RuntimeUnavailableCapability::WeakReachability;
+        let unavailable = EngineError::from_runtime_semantic_rejection(
+            RuntimeSemanticRejection::UnavailableCapability(capability),
+        );
+        for (first, second, third) in [
+            (semantic.clone(), dynamic.clone(), unavailable.clone()),
+            (unavailable.clone(), dynamic, semantic.clone()),
+            (rejection(operation), unavailable.clone(), semantic.clone()),
+        ] {
+            let unsupported = EngineError::from_execution_failures(
+                first,
+                vec![second, third, unavailable.clone(), semantic.clone()],
+            );
+            assert_eq!(
+                unsupported.wasm_execution_failure_kind(),
+                Some(WasmExecutionFailureKind::UnavailableCapability)
+            );
+            assert_eq!(unsupported.runtime_semantic_gaps(), vec![gap]);
+            assert_eq!(
+                unsupported.runtime_unavailable_capabilities(),
+                vec![capability]
+            );
+            assert_eq!(
+                unsupported.runtime_dynamic_source_operations(),
+                vec![operation]
+            );
+            for (reason, expected) in [
+                (
+                    EngineExecutionFailure::JavaScriptException {
+                        constructor_name: Some("RangeError".into()),
+                    },
+                    WasmExecutionFailureKind::ConcurrentFailure,
+                ),
+                (
+                    EngineExecutionFailure::IncompleteModuleEvaluation,
+                    WasmExecutionFailureKind::ConcurrentFailure,
+                ),
+                (EngineExecutionFailure::Trap, WasmExecutionFailureKind::Trap),
+                (
+                    EngineExecutionFailure::Timeout,
+                    WasmExecutionFailureKind::Timeout,
+                ),
+            ] {
+                let real = EngineError::from_execution_failure(reason, "real failure marker");
+                for (root, workers) in [
+                    (real.clone(), unsupported.clone()),
+                    (unsupported.clone(), real),
+                ] {
+                    let error = finish_wasm_execution(Err(root), Err(workers))
+                        .err()
+                        .expect("all failures must survive");
+                    assert_eq!(error.wasm_execution_failure_kind(), Some(expected));
+                    assert_eq!(error.runtime_semantic_gaps(), vec![gap]);
+                    assert_eq!(error.runtime_unavailable_capabilities(), vec![capability]);
+                    assert_eq!(error.runtime_dynamic_source_operations(), vec![operation]);
+                    assert_eq!(error.wasm_javascript_exception_constructor_name(), None);
+                    assert!(error.message().contains("real failure marker"));
+                }
+            }
+        }
     }
 
     #[test]
@@ -369,7 +567,7 @@ mod tests {
                 }
                 EngineExecutionFailure::Trap => WasmExecutionFailureKind::Trap,
                 EngineExecutionFailure::Timeout => WasmExecutionFailureKind::Timeout,
-                EngineExecutionFailure::DynamicSource(_)
+                EngineExecutionFailure::RuntimeSemantics(_)
                 | EngineExecutionFailure::Concurrent(_) => {
                     unreachable!("fixture has only real execution failures")
                 }
@@ -472,6 +670,57 @@ mod tests {
             assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
             if expected_kind == WasmExecutionFailureKind::ConcurrentFailure {
                 assert!(failure.message().contains("structured root evidence"));
+            }
+        }
+        for (kind, expected_kind) in [
+            (
+                SnapshotCompletionKind::Normal,
+                WasmExecutionFailureKind::DynamicSource,
+            ),
+            (
+                SnapshotCompletionKind::Throw,
+                WasmExecutionFailureKind::ConcurrentFailure,
+            ),
+        ] {
+            // Even a rejected snapshot retains the real root completion kind;
+            // it cannot suppress worker failure or supply exception branding.
+            let graph = crate::GraphRunOutcome {
+                backend_used: crate::ExecutionBackend::WasmAot,
+                completion: crate::SnapshotCompletion {
+                    kind,
+                    outcome: crate::SnapshotOutcome::Rejected {
+                        reason:
+                            lila_runtime::rooted_snapshot::SnapshotRejection::UnsupportedExotic {
+                                exotic: lila_runtime::rooted_snapshot::SnapshotExotic::Proxy,
+                            },
+                    },
+                },
+                output_events: vec![crate::HostOutputEvent::PrintLine("graph output".into())],
+                note: "graph root evidence".into(),
+            };
+            let Ok(WasmExecutionOutcome::Graph(retained)) =
+                finish_wasm_execution(Ok(WasmExecutionOutcome::Graph(graph.clone())), Ok(()))
+            else {
+                panic!("an unaccompanied graph observation must remain intact");
+            };
+            assert_eq!(retained, graph);
+            let Err(failure) = finish_wasm_execution(
+                Ok(WasmExecutionOutcome::Graph(graph)),
+                Err(EngineError::from_execution_failures(
+                    rejection(DynamicSourceRuntimeOperation::Eval),
+                    Vec::new(),
+                )),
+            ) else {
+                panic!("graph completion must not hide worker failure");
+            };
+            assert_eq!(failure.wasm_execution_failure_kind(), Some(expected_kind));
+            assert_eq!(
+                failure.runtime_dynamic_source_operations(),
+                vec![DynamicSourceRuntimeOperation::Eval]
+            );
+            assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
+            if kind == SnapshotCompletionKind::Throw {
+                assert!(failure.message().contains("graph root evidence"));
             }
         }
     }

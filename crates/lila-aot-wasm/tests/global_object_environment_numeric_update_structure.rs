@@ -1,5 +1,20 @@
+use lila_front::{parse, ParseOptions};
+use lila_ir::{
+    lower, EnvironmentIdentifierOperationIr, EnvironmentIdentifierResolutionStart, ExprIr,
+    NumericUpdateOp, StatementIr, TypedExpr, UpdateReturnMode,
+};
+
+fn lower_control(source: &str) -> lila_ir::ProgramIr {
+    let parsed = parse(source, ParseOptions::script()).expect("Reference control parses");
+    let program = lower(&parsed);
+    assert!(
+        program.is_wasm_supported(),
+        "{source}: {:?}",
+        program.diagnostics
+    );
+    program
+}
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_global_object_environment_numeric_update.js");
 const CONTRACT: &str = include_str!(
@@ -158,125 +173,91 @@ fn one_private_fixed_role_carrier_drives_the_shared_numeric_lifecycle() {
     assert_before(lifecycle, "let write =", "let result =");
     assert_before(lifecycle, "let result =", "let after_write =");
     assert_before(lifecycle, "let after_write =", "let after_update =");
-    assert!(!lifecycle.contains("ExprIr::GlobalPropertyUpdate"));
 }
 
 #[test]
-fn global_plan_selects_plain_has_property_then_consumes_the_same_object_record() {
-    let objects = bounded(
-        REFERENCE_SOURCE,
-        "pub(crate) struct ObjectEnvironmentBindingObject {",
-        "/// Declarative-frame depth in the function currently being lowered.",
+fn global_update_keeps_the_record_while_parameter_and_capture_updates_keep_storage() {
+    let program = lower_control(
+        "var value = 1; value++; function local(value) { value++; } function outer() { let captured = 1; return function inner() { captured++; }; }",
     );
-    for marker in [
-        "enum ObjectEnvironmentBindingObjectSource {",
-        "Materialized(String)",
-        "GlobalObject",
-        "pub(crate) fn materialized(",
-        "fn global_object(info: ValueInfo) -> Self",
-        "ObjectEnvironmentBindingObjectSource::Materialized(storage_name)",
-        "ObjectEnvironmentBindingObjectSource::GlobalObject",
-    ] {
-        assert!(objects.contains(marker), "missing object domain: {marker}");
+    let script = program.script.as_ref().expect("script IR");
+    let reference = script
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::EnvironmentIdentifier(reference),
+                ..
+            }) => Some(reference),
+            _ => None,
+        })
+        .expect("a global var declaration does not grant local source storage");
+    assert_eq!(reference.name, "value");
+    assert_eq!(
+        reference.resolution_start(),
+        EnvironmentIdentifierResolutionStart::GlobalEnvironment
+    );
+    for (owner, binding) in [("local", "value"), ("inner", "captured")] {
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == owner)
+            .expect("local/captured owner");
+        assert!(function.body.statements.iter().any(|statement| matches!(statement,
+            StatementIr::Expression(TypedExpr { expr: ExprIr::UpdateIdentifier { name, .. }, .. }) if name == binding)), "{function:?}");
     }
-
-    assert!(REFERENCE_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment\"]\npub(crate) struct GlobalObjectEnvironmentReferencePlan {"
-    ));
-    let plan = bounded(
-        REFERENCE_SOURCE,
-        "#[must_use = \"a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment\"]",
-        "/// Compiler-private bindings used by one Object Environment numeric update.",
-    );
-    assert!(plan.contains("pub(crate) struct GlobalObjectEnvironmentReferencePlan"));
-    assert!(plan.contains("ObjectEnvironmentBindingObject::global_object(global_object_info)"));
-    assert!(!plan.contains("binding_visible("));
-    assert!(!plan.contains("unscopables_binding"));
-
-    let numeric = bounded(plan, "    pub(crate) fn numeric_update(", "\n    }\n}");
-    assert!(numeric.contains("bindings: NumericUpdateBindings"));
-    assert!(numeric.contains("let present = binding_object.has_property(&referenced_name);"));
-    assert!(numeric.contains("binding_object.numeric_update("));
-    assert!(numeric.contains("name: NativeErrorKind::ReferenceError"));
-    assert!(numeric.contains("condition: Box::new(present)"));
-    assert!(numeric.contains("then_expr: Box::new(selected)"));
-    assert!(numeric.contains("else_expr: Box::new(missing)"));
-    assert_before(numeric, "let present =", "let selected =");
-    assert_before(numeric, "let selected =", "let missing =");
-
-    let object_impl = bounded(
-        REFERENCE_SOURCE,
-        "impl ObjectEnvironmentBindingObject {",
-        "/// Declarative-frame depth in the function currently being lowered.",
-    );
-    let get = bounded(
-        object_impl,
-        "    fn get_value(self, referenced_name: &str, strictness: Strictness) -> TypedExpr {",
-        "    /// SetMutableBinding on the Object Environment Record selected before RHS.",
-    );
-    let put = bounded(
-        object_impl,
-        "    fn put_value(",
-        "    /// GetValue, ToNumeric/delta, same-base PutValue, then prefix/postfix",
-    );
-    assert!(get.contains("let recheck = self.has_property(referenced_name);"));
-    assert!(get.contains("ExprIr::PropertyRead"));
-    assert!(get.contains("Strictness::Sloppy => TypedExpr::undefined()"));
-    assert!(get.contains("name: NativeErrorKind::ReferenceError"));
-    assert!(put.contains("let recheck = self.has_property(referenced_name);"));
-    assert!(put.contains("Strictness::Sloppy => TypedExpr::from_info("));
-    assert!(put.contains("Strictness::Strict => TypedExpr::from_info("));
-    assert!(put.contains("ExprIr::PropertyWrite"));
-    assert!(put.contains("name: NativeErrorKind::ReferenceError"));
 }
 
 #[test]
-fn lowering_routes_all_four_closed_modes_only_for_unproven_unresolvable_globals() {
-    let update = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_update(&mut self, op: UpdateOp, target: &UpdateTarget) -> TypedExpr {",
-        "    fn lower_located_identifier_numeric_update(",
-    );
-    for mapping in [
-        "UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix)",
-        "UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix)",
-        "UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix)",
-        "UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix)",
+fn all_numeric_modes_retain_global_resolution_for_declared_and_unknown_names() {
+    for (source, expected_operation, expected_return) in [
+        (
+            "value++",
+            NumericUpdateOp::Increment,
+            UpdateReturnMode::Postfix,
+        ),
+        (
+            "++value",
+            NumericUpdateOp::Increment,
+            UpdateReturnMode::Prefix,
+        ),
+        (
+            "value--",
+            NumericUpdateOp::Decrement,
+            UpdateReturnMode::Postfix,
+        ),
+        (
+            "--value",
+            NumericUpdateOp::Decrement,
+            UpdateReturnMode::Prefix,
+        ),
     ] {
-        assert!(update.contains(mapping), "missing closed mode: {mapping}");
+        for declaration in ["", "var value = 7;"] {
+            let program = lower_control(&format!("{declaration} {source};"));
+            let StatementIr::Expression(TypedExpr {
+                expr: ExprIr::EnvironmentIdentifier(reference),
+                ..
+            }) = program
+                .script
+                .as_ref()
+                .expect("script IR")
+                .body
+                .statements
+                .last()
+                .expect("source mutation")
+            else {
+                panic!("{source} must keep ResolveBinding/Get/coercion/Put together");
+            };
+            assert_eq!(
+                reference.resolution_start(),
+                EnvironmentIdentifierResolutionStart::GlobalEnvironment
+            );
+            assert!(matches!(&reference.operation,
+                EnvironmentIdentifierOperationIr::Update { operation, return_mode }
+                if *operation == expected_operation && *return_mode == expected_return));
+        }
     }
-    assert!(update.contains("if matches!(&reference, LocatedIdentifierReference::Unresolvable)"));
-    assert!(update.contains("&& !self.global_property_is_proven_present(&name)"));
-    assert!(update.contains("return self.lower_global_object_environment_numeric_update("));
-    assert!(!update.contains("_ =>"));
-
-    let helper = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_global_object_environment_numeric_update(",
-        "    fn lower_located_identifier_numeric_update(",
-    );
-    for marker in [
-        "info.value_info.widen_for_possible_replacement();",
-        "info.proven_present = false;",
-        "NumericUpdateBindings::allocate(",
-        "let strictness = self.reference_strictness();",
-        "GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)",
-        ".numeric_update(op, return_mode, bindings)",
-    ] {
-        assert!(helper.contains(marker), "missing lowering seam: {marker}");
-    }
-    assert_before(
-        helper,
-        "info.value_info.widen_for_possible_replacement();",
-        "info.proven_present =",
-    );
-    assert_before(helper, "let bindings =", "let strictness =");
-    assert_before(
-        helper,
-        "let strictness =",
-        "GlobalObjectEnvironmentReferencePlan::new(",
-    );
-    assert!(!helper.contains("ExprIr::GlobalPropertyUpdate"));
 }
 
 #[test]

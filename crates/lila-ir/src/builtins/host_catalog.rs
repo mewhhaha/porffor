@@ -10,6 +10,7 @@ use crate::{
 
 const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID: &str =
     "lila:async-disposable-stack:sync-dispose";
+const GET_ABSTRACT_MODULE_SOURCE_FUNCTION_ID: &str = "lila:host:get-abstract-module-source";
 
 host_builtin_catalog! {
     Print {
@@ -45,6 +46,11 @@ host_builtin_catalog! {
     CreateHTMLDDA {
         name: CREATE_HTMLDDA_NAME,
         function: HOST_CREATE_HTMLDDA_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    GetAbstractModuleSource {
+        name: "__lilaGetAbstractModuleSource",
+        function: GET_ABSTRACT_MODULE_SOURCE_FUNCTION_ID,
         surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
     }
     GeneratorFunctionConstructor {
@@ -143,6 +149,7 @@ impl HostBuiltinId {
             | Self::AsyncGeneratorFunctionConstructor
             | Self::AsyncDisposableStackSyncDispose
             | Self::CreateHTMLDDA
+            | Self::GetAbstractModuleSource
             | Self::HTMLDDA
             | Self::ParseInt
             | Self::ParseFloat
@@ -160,27 +167,31 @@ impl HostBuiltinId {
 
     pub const fn may_run_user_code_synchronously(self) -> bool {
         match self {
-            Self::AssertThrows
+            // These bodies perform observable coercion or invoke a callback.
+            // Classify the native body here; the receiveBroadcast callback is
+            // owned by its ordinary JavaScript harness wrapper instead.
+            Self::Print
+            | Self::AssertThrows
+            | Self::RealmEvalScript
+            | Self::AgentStart
+            | Self::AgentBroadcast
+            | Self::AgentReport
+            | Self::AgentSleep
             | Self::ParseInt
             | Self::ParseFloat
             | Self::GeneratorFunctionConstructor
             | Self::AsyncFunctionConstructor
             | Self::AsyncGeneratorFunctionConstructor
             | Self::AsyncDisposableStackSyncDispose => true,
-            Self::Print
-            | Self::Gc
+            Self::Gc
             | Self::IsConstructor
             | Self::CreateRealm
-            | Self::RealmEvalScript
             | Self::CreateHTMLDDA
+            | Self::GetAbstractModuleSource
             | Self::HTMLDDA
             | Self::DetachArrayBuffer
-            | Self::AgentStart
-            | Self::AgentBroadcast
             | Self::AgentReceiveBroadcast
-            | Self::AgentReport
             | Self::AgentGetReport
-            | Self::AgentSleep
             | Self::AgentMonotonicNow
             | Self::AgentLeaving => false,
         }

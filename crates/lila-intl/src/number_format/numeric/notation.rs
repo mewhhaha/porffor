@@ -70,7 +70,7 @@ impl CompactExponentTable {
     pub fn rows(&self) -> &[CompactExponentRow] {
         &self.0
     }
-    fn select(&self, magnitude: i64) -> Option<CompactExponentRow> {
+    pub(crate) fn select(&self, magnitude: i64) -> Option<CompactExponentRow> {
         let end = self
             .0
             .partition_point(|row| i64::from(row.magnitude) <= magnitude);

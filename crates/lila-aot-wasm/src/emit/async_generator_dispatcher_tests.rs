@@ -1,34 +1,75 @@
 use super::async_generator_dispatcher_unsupported_feature;
 use lila_front::{parse, ParseOptions};
-use lila_ir::{lower, StatementIr};
+use lila_ir::{AsyncResumeModeIr, ResumableLoopIterationEnvironmentIr, StatementIr, TypedExpr};
 
-fn lowered_await_loop() -> StatementIr {
+#[test]
+fn async_generator_dispatcher_retains_checked_targets_through_catch_and_finally() {
     let parsed = parse(
-        "async function* sequence() { for (let i = 0; i < 2; i++) { await 0; await 1; } yield 9; }",
+        include_str!("../../../lila-engine/tests/fixtures/async_generator_classic_regions/completions_and_environments.js"),
         ParseOptions::script(),
-    )
-    .expect("the async-generator source should parse");
-    let program = lower(&parsed);
+    ).expect("the original completion fixture parses");
+    let program =
+        lila_ir::lower_with_host_surface_policy(&parsed, lila_ir::HostSurfacePolicy::Test262);
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
-    program
-        .script
-        .as_ref()
-        .expect("the source should lower to a script")
-        .functions
-        .iter()
-        .find(|function| function.name == "sequence")
-        .expect("the async generator should be collected")
-        .body
-        .statements
-        .iter()
-        .find(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
-        .expect("the source should own a resumable loop")
-        .clone()
+    for function in &program.script.as_ref().unwrap().functions {
+        if function.protocol.execution_kind() == lila_ir::FunctionExecutionKind::AsyncGenerator {
+            assert_eq!(
+                function
+                    .body
+                    .statements
+                    .iter()
+                    .find_map(async_generator_dispatcher_unsupported_feature),
+                None,
+                "{}",
+                function.name,
+            );
+        }
+    }
+}
+
+#[test]
+fn async_generator_dispatcher_rejects_unowned_abrupt_targets() {
+    for label in [None, Some("missing".to_owned())] {
+        assert_eq!(
+            async_generator_dispatcher_unsupported_feature(&StatementIr::Break {
+                label: label.clone()
+            }),
+            Some("break without a checked control owner"),
+        );
+        assert_eq!(
+            async_generator_dispatcher_unsupported_feature(&StatementIr::Continue { label }),
+            Some("continue without a checked iteration owner"),
+        );
+    }
+}
+
+// This raw linear carrier remains independently validated. Current source
+// lowering produces opaque complete-loop owners, exercised by the original
+// completion fixture above; it cannot be used to manufacture malformed states.
+fn linear_await_loop() -> StatementIr {
+    let suspension = |suspend_state| StatementIr::AsyncAwait {
+        value: TypedExpr::undefined(),
+        suspend_state,
+        resume_state: suspend_state + 1,
+        resume_mode: AsyncResumeModeIr::Ignore,
+    };
+    StatementIr::GeneratorLoop {
+        init: None,
+        test: None,
+        update: None,
+        iteration_environment: ResumableLoopIterationEnvironmentIr::StorageOnly,
+        before_suspension: vec![],
+        suspension_statement: Box::new(suspension(0)),
+        after_suspension: vec![suspension(1)],
+        entry_state: 0,
+        resume_state: 2,
+        exit_state: 2,
+    }
 }
 
 #[test]
 fn async_generator_dispatcher_accepts_a_sequential_await_loop() {
-    let statement = lowered_await_loop();
+    let statement = linear_await_loop();
     assert_eq!(
         async_generator_dispatcher_unsupported_feature(&statement),
         None
@@ -37,7 +78,7 @@ fn async_generator_dispatcher_accepts_a_sequential_await_loop() {
 
 #[test]
 fn async_generator_dispatcher_rejects_a_truncated_loop_resume_range() {
-    let mut statement = lowered_await_loop();
+    let mut statement = linear_await_loop();
     let StatementIr::GeneratorLoop {
         resume_state,
         exit_state,
@@ -56,7 +97,7 @@ fn async_generator_dispatcher_rejects_a_truncated_loop_resume_range() {
 
 #[test]
 fn async_generator_dispatcher_rejects_a_discontinuous_await_state() {
-    let mut statement = lowered_await_loop();
+    let mut statement = linear_await_loop();
     let StatementIr::GeneratorLoop {
         after_suspension,
         resume_state,
@@ -86,7 +127,7 @@ fn async_generator_dispatcher_rejects_a_discontinuous_await_state() {
 
 #[test]
 fn async_generator_dispatcher_rejects_a_nested_await_region() {
-    let mut statement = lowered_await_loop();
+    let mut statement = linear_await_loop();
     let StatementIr::GeneratorLoop {
         after_suspension, ..
     } = &mut statement
@@ -103,7 +144,7 @@ fn async_generator_dispatcher_rejects_a_nested_await_region() {
 
 #[test]
 fn async_generator_dispatcher_rejects_a_suspending_loop_prelude() {
-    let mut statement = lowered_await_loop();
+    let mut statement = linear_await_loop();
     let StatementIr::GeneratorLoop {
         before_suspension,
         suspension_statement,
@@ -121,7 +162,7 @@ fn async_generator_dispatcher_rejects_a_suspending_loop_prelude() {
 
 #[test]
 fn async_generator_dispatcher_rejects_an_unplanned_loop_exit() {
-    let mut statement = lowered_await_loop();
+    let mut statement = linear_await_loop();
     let StatementIr::GeneratorLoop { exit_state, .. } = &mut statement else {
         unreachable!("the fixture is a resumable loop");
     };

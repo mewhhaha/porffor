@@ -1,34 +1,32 @@
 use super::*;
+use crate::gc_types::SymbolValue;
+use crate::operations::PropertyKeyLocals;
+use crate::runtime_helpers::{
+    HelperParameters, ObjectHasPropertyArguments, ObjectReadArguments,
+    WithEnvironmentHasBindingArguments, WithEnvironmentHasBindingParameters,
+};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn emit_with_environment_has_binding(
         &mut self,
-        object_local: u32,
-        object_tag_local: u32,
-        name_local: u32,
-        present_local: u32,
+        object: &ValueLocals,
+        name: &GcLocal<StringValue>,
+        present: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let helper = RuntimeHelperId::WithEnvironmentHasBinding.index(
-            self.heap_alloc_function_index
-                .expect("With HasBinding requires the object runtime"),
-        );
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalGet(object_tag_local));
-        function.instruction(&Instruction::LocalGet(name_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        self.emit_outlined_object_read_realm_argument(function);
-        function.instruction(&Instruction::Call(helper));
-        self.store_call_results(payload_local, tag_local, function);
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(present_local));
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
+        let schema = self.runtime_schema();
+        let base = self.runtime_helper_base()?;
+        schema
+            .call_helper(
+                WithEnvironmentHasBindingArguments::new(object, name, self.current_environment()),
+                base,
+                function,
+            )
+            .store(self.completion(), function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.completion().value().scalar().load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        present.store(function);
         Ok(())
     }
 
@@ -36,86 +34,103 @@ impl FunctionBuilder<'_> {
         &mut self,
     ) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::WithEnvironmentHasBinding);
+        let parameters =
+            self.helper_parameters::<WithEnvironmentHasBindingParameters>(&mut function);
         self.push_scope();
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_with_environment_has_binding_inline(0, 1, 2, self.result_local, &mut function)?;
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        let schema = self.runtime_schema();
+        self.replace_current_environment(
+            parameters.caller_environment.load(schema, &mut function),
+            &mut function,
+        );
+        self.completion().initialize(&mut function);
+        let present = schema.reserve_i32_local(&mut function);
+        self.emit_with_environment_has_binding_inline(
+            &parameters.target,
+            &parameters.name,
+            present,
+            &mut function,
+        )?;
+        let result = schema.reserve_value_local(&mut function);
+        result.set_boolean(present, &mut function);
+        self.completion().commit_if_normal(&result, &mut function);
+        result.clear(&mut function);
+        schema.release_i32_local(present, &mut function);
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        parameters.release(&mut function);
+        self.completion().emit(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
 
     fn emit_with_environment_has_binding_inline(
         &mut self,
-        object_local: u32,
-        object_tag_local: u32,
-        name_local: u32,
-        present_local: u32,
+        object: &ValueLocals,
+        name: &GcLocal<StringValue>,
+        present: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let exclusions_local = self.reserve_temp_local();
-        let exclusions_tag_local = self.reserve_temp_local();
-        let blocked_local = self.reserve_temp_local();
-        let blocked_tag_local = self.reserve_temp_local();
-        self.emit_object_has_property_i32(
-            object_local,
-            object_tag_local,
-            name_local,
-            present_local,
-            function,
-        )?;
-        self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(present_local));
-        function.instruction(&Instruction::I64Eqz);
+        let schema = self.runtime_schema();
+        let base = self.runtime_helper_base()?;
+        let name_key = PropertyKeyLocals::from_string(schema, name, function);
+        schema
+            .call_helper(
+                ObjectHasPropertyArguments::new(object, &name_key, self.current_environment()),
+                base,
+                function,
+            )
+            .store(self.completion(), function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.completion().value().scalar().load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        present.store(function);
+        present.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let symbol = schema
+            .reserve_gc_local::<SymbolValue, NonNullable>(function)
+            .initialize(
+                self.emit_well_known_symbol_reference(
+                    lila_ir::WellKnownSymbol::Unscopables,
+                    function,
+                )?,
+                function,
+            );
+        let key = PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        schema
+            .call_helper(
+                ObjectReadArguments::new(object, object, &key, self.current_environment()),
+                base,
+                function,
+            )
+            .store(self.completion(), function);
+        key.clear(function);
+        symbol.clear(function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let exclusions = schema.reserve_value_local(function);
+        exclusions.copy_from(self.completion().value(), function);
+        self.emit_is_heap_object_like_tag_i32(exclusions.tag(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .call_helper(
+                ObjectReadArguments::new(
+                    &exclusions,
+                    &exclusions,
+                    &name_key,
+                    self.current_environment(),
+                ),
+                base,
+                function,
+            )
+            .store(self.completion(), function);
+        self.emit_propagate_current_throw_if_needed(function);
+        self.compile_truthy_tagged_i32(self.completion().value(), function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.unscopables"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            object_local,
-            object_tag_local,
-            object_local,
-            object_tag_local,
-            key_local,
-            exclusions_local,
-            exclusions_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(exclusions_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_read(
-            exclusions_local,
-            exclusions_tag_local,
-            exclusions_local,
-            exclusions_tag_local,
-            name_local,
-            blocked_local,
-            blocked_tag_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(blocked_tag_local, blocked_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(present_local));
+        present.store(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        exclusions.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.release_temp_local(blocked_tag_local);
-        self.release_temp_local(blocked_local);
-        self.release_temp_local(exclusions_tag_local);
-        self.release_temp_local(exclusions_local);
-        self.release_temp_local(key_local);
+        name_key.clear(function);
         Ok(())
     }
 }

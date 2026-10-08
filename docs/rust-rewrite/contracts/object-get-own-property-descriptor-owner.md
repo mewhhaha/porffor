@@ -1,73 +1,38 @@
 # Object.getOwnPropertyDescriptor compiler owner
 
-## Private ownership boundary
+The 2026-10-05 source draft keeps the native entry in the private
+`builtins/object/get_own_property_descriptor.rs` owner and Proxy processing in
+its private `proxy.rs` child. The standard dispatcher calls the entry directly.
 
-The complete `Object.getOwnPropertyDescriptor` compiler lives in the private
-`builtins/object/get_own_property_descriptor.rs` module. Its 1,431-line compiler
-family moved together: ordinary, Array, Arguments, TypedArray, Function and
-Proxy descriptor materialization retain one implementation owner. The Object
-parent contains only the private module declaration, and the standard
-dispatcher retains one fixed builtin call.
+The entry completes ToObject before ToPropertyKey. Non-Proxy objects use the
+single shared non-Proxy GetOwnProperty storage kernel, including Array,
+Arguments, String boxes, TypedArray, functions and module namespaces. The
+nullable typed PropertyDescriptor result represents absence. Present records
+are published through the sole FromPropertyDescriptor owner as fresh ordinary
+objects with the executing Realm's Object prototype. Values and getter/setter
+identities remain complete GC values.
 
-The entry is visible only within `crate::builtins`. No raw helper, policy type
-or representation-specific branch is exported. The recursive structure guard
-pins private ownership, exact entry visibility, the single dispatcher call and
-representative branches from every exotic-object path.
+Proxy processing keeps the normative trap, target and conversion order. It
+acquires GetMethod and calls the trap with the handler receiver. An invalid
+primitive trap result is rejected before target observations. Target
+GetOwnProperty completes recursively before IsExtensible and observable
+ToPropertyDescriptor. An undefined trap result with an absent target descriptor
+returns without IsExtensible. Present trap descriptors are completed once,
+validated by the shared compatibility kernel and the remaining nonconfigurable
+and nonwritable invariants, and published as fresh objects. Missing traps
+forward through the private NativeObjectAlgorithm call authority. No public
+Object/Reflect property lookup or scalar argument adapter supplies that call.
 
-## Semantic boundary
+The execution-Realm selector also serves generated internal-method helper
+bodies that have no ordinary callable entry. Their nearest defining environment
+or active Realm supplies the native callable; normal builtin bodies use their
+actual FunctionContext Realm.
 
-This is a source-equivalent ownership move. The former 1,431-line selection has
-SHA-256
-`f656aa0168a19978df1e8698f87612426e073a8d37abd750a47cc970fba9ba24`.
-After changing only the effective entry visibility and adding the inherent-impl
-wrapper, the 1,435-line child has SHA-256
-`1ef03c5ac9dddacea8f4979ac0c0128db2f93a4433576f977fcc2c9587918b89`;
-the reduced 4,315-line parent has SHA-256
-`f3d9ba2c52e218f5bf22764c389b723b3014dbed6b15cde1e821594c88e9df16`.
-No emitted instruction, temporary-local order, descriptor algorithm or Realm
-selection is intended to change. This lane claims no new descriptor behavior,
-Test262 pass, shortcut retirement or published conformance change.
-
-## Verification
-
-```sh
-cargo test -p lila-aot-wasm --test object_get_own_property_descriptor_owner_structure
-cargo test -p lila-aot-wasm --test arguments_index_descriptor_structure
-cargo test -p lila-aot-wasm --test array_index_descriptor_structure
-cargo test -p lila-aot-wasm --test proxy_revocation_route_ownership_structure
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_object_descriptor_fixture -- --exact --test-threads=1
-cargo fmt --all -- --check
-git diff --check
-```
-
-Batch AP verification is green on 2026-08-28: the owner, Arguments neighbor,
-Array neighbor and Proxy ownership structure targets pass `4/4`, `4/4`, `3/3`
-and `4/4`; the exact object-descriptor CLI passes `1/1`; and `cargo xc` is
-green.
-
-## Proxy [[GetOwnProperty]] child
-
-The Proxy step of the target loop is the private child
-`builtins/object/get_own_property_descriptor/proxy.rs`, which implements 10.5.5
-in step order and is the only place the trap is called. The parent declares
-`mod proxy;` and calls `emit_proxy_get_own_property_descriptor` once per loop
-iteration: a handler without the trap forwards to `[[ProxyTarget]]` and the loop
-resolves that object in turn; otherwise the child leaves the answer in the
-result locals.
-
-- `targetDesc` (step 8) comes from a recursive call of this builtin on the
-  target, so a Proxy target runs its own trap and the values that
-  IsCompatiblePropertyDescriptor compares with SameValue are available.
-- IsExtensible(target) (step 10) precedes ToPropertyDescriptor (step 11), whose
-  HasProperty/Get reads of the trap result are observable.
-- The converted descriptor is completed by 6.2.6.6
-  (`emit_complete_property_descriptor`, which derives the side from `classify`),
-  validated by 10.1.6.3 with `O` undefined plus the step 15 invariants, and
-  published as a fresh object by the 6.2.6.4 owner in the executing builtin's
-  Realm. The trap's own object is never the result.
-
-This replaces the earlier behaviour that returned the trap result object itself
-and validated only `configurable`/`writable` own data fields of it.
-`crates/lila-aot-wasm/tests/object_get_own_property_descriptor_owner_structure.rs`
-pins the split and `crates/lila-engine/tests/aot_proxy_get_own_property.rs` the
-behaviour.
+The historical 2026-08-28 ownership checkpoint verified the previous source.
+Its results do not verify this GC rewrite. The authored
+`lila-engine/tests/aot_gc_object_entries.rs` controls cover recursive Proxy step
+order, fresh results and original Throw identity; existing semantic descriptor
+controls remain required. Obsolete source-spelling and linear-heap guards are
+retired. The draft has had no compilation, emitted-Wasm validation or execution.
+Run the complete implementation checkpoint under the confirmed 4096 MiB process
+tree cap before assigning acceptance or changing published conformance counts.

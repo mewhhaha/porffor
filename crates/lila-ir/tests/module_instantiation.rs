@@ -35,6 +35,7 @@ fn sources(files: &[(&str, &str)], goal: ParseGoal) -> ModuleGraphSources {
         }
     }
     ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions,
@@ -73,8 +74,14 @@ fn nested_module_import_captures_do_not_infer_source_placeholder_values() {
 #[test]
 fn synchronous_deferred_modules_have_private_owners_and_canonical_environment_slots() {
     let program = module_program(&[
-        ("entry.js", "import defer * as first from './first.js'; print(first.value);"),
-        ("first.js", "import { value as next } from './last.js'; export let value = next; export function read() { return next; }"),
+        (
+            "entry.js",
+            "import defer * as first from './first.js'; print(first.value);",
+        ),
+        (
+            "first.js",
+            "import { value as next } from './last.js'; export let value = next; export function read() { return next; }",
+        ),
         ("last.js", "export const { value } = { value: 3 };"),
     ]);
     let modules = program.modules.as_ref().expect("linked graph");
@@ -161,7 +168,7 @@ fn private_source_spans_survive_ecmascript_line_terminators_and_ordinary_arrays(
 }
 
 #[test]
-fn tla_modules_use_private_async_owners_while_script_and_source_phase_keep_their_driver() {
+fn tla_and_script_graphs_use_private_owners_and_static_source_rejects() {
     let asynchronous = module_program(&[
         (
             "entry.js",
@@ -209,13 +216,166 @@ fn tla_modules_use_private_async_owners_while_script_and_source_phase_keep_their
         ParseGoal::Script,
     ));
     assert!(script.is_wasm_supported(), "{:?}", script.diagnostics);
-    assert!(activation_graph(script.script.as_ref().unwrap()).is_none());
-    let source_phase = module_program(&[
-        ("entry.js", "import source source from './source.js'; import defer * as ns from './value.js'; source; print(ns.value);"),
+    let script = script.script.as_ref().unwrap();
+    let graph = activation_graph(script).expect("a Script owns the canonical module graph");
+    assert_eq!(graph.record_count(), 2);
+    assert_eq!(graph.activations().len(), 1);
+    assert_eq!(graph.activations()[0].module(), 1);
+    assert!(
+        script
+            .global_bindings
+            .iter()
+            .all(|binding| { !binding.name.starts_with("$lila$module$") }),
+        "compiler-owned dispatchers must stay outside the observable Global Environment"
+    );
+    assert!(script
+        .global_bindings
+        .lexical_names()
+        .all(|name| { !name.starts_with("$lila$module$") }));
+    assert!(!script.body.statements.iter().any(|statement| {
+        matches!(statement, StatementIr::Expression(expression)
+            if matches!(expression.expr, ExprIr::ModuleEvaluate(_) | ExprIr::ModuleEntryEvaluation(_)))
+    }), "a Script imports modules only through its import continuations");
+    let source_phase = lower_module_graph(&sources(&[
+        (
+            "entry.js",
+            "import source source from './source.js'; import defer * as ns from './value.js'; source; print(ns.value);",
+        ),
         ("source.js", "export const value = 1;"),
         ("value.js", "export const value = 2;"),
+    ], ParseGoal::Module));
+    assert!(source_phase.script.is_none());
+    assert!(source_phase
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code()
+            == Some(lila_ir::EarlyErrorCode::ModuleSourceUnavailable)));
+}
+
+#[test]
+fn flat_lowering_keeps_module_lexical_this_outside_the_root_script() {
+    let program = lower_script_graph(&sources(
+        &[
+            ("entry.js", "import('./target.js'); (() => this);"),
+            (
+                "target.js",
+                "export const directArrow = () => this; export const nestedArrow = () => () => this; export function ordinary() { return this; } export function arrowFromCall() { return () => this; }",
+            ),
+        ],
+        ParseGoal::Script,
+    ));
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("Script with canonical Module owners");
+    let returns = |function: &lila_ir::FunctionIr, expected_undefined: bool| {
+        assert!(
+            function.body.statements.iter().any(|statement| {
+                matches!(statement, StatementIr::Return(value)
+                if if expected_undefined { matches!(value.expr, ExprIr::Undefined) }
+                   else { matches!(value.expr, ExprIr::This) })
+            }),
+            "{} has the appropriate source this binding",
+            function.name
+        );
+    };
+    for name in ["directArrow", "ordinary"] {
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap_or_else(|| panic!("{name} remains in the flat function registry"));
+        returns(function, name == "directArrow");
+    }
+    // Engine controls exercise nested-arrow invocation and an ordinary
+    // function's returned arrow with a non-default receiver.
+}
+
+#[test]
+fn module_eval_named_environments_never_expose_compiler_dispatchers() {
+    let program = module_program(&[
+        (
+            "entry.js",
+            "export const hidden = eval('typeof $lila$module$import$0'); import('./value.js');",
+        ),
+        ("value.js", "export const value = 42;"),
     ]);
-    assert!(activation_graph(source_phase.script.as_ref().unwrap()).is_none());
+    let script = program.script.expect("canonical Module source");
+    let lila_ir::EvalEnvironmentRoleIr::Declarative { bindings, .. } = script
+        .eval_environment
+        .expect("direct eval retains the root's named environment")
+    else {
+        panic!("module root has a declarative environment")
+    };
+    assert!(
+        bindings
+            .iter()
+            .all(|binding| { !binding.source_name.starts_with("$lila$module$") }),
+        "physical private slots never become source-visible eval bindings"
+    );
+}
+
+#[test]
+fn a_script_with_only_rejected_imports_retains_its_root_and_no_activation() {
+    let program = lower_script_graph(&sources(
+        &[
+            (
+                "entry.js",
+                "var rootValue = 7; import('./invalid.js').catch(() => 0); rootValue;",
+            ),
+            ("invalid.js", "export const = 1;"),
+        ],
+        ParseGoal::Script,
+    ));
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("preserved entry Script");
+    let graph = activation_graph(script).expect("rejected import jobs still own graph state");
+    assert_eq!(graph.record_count(), 1);
+    assert!(graph.activations().is_empty());
+    assert!(script
+        .global_bindings
+        .iter()
+        .any(|binding| binding.name == "rootValue"));
+    assert!(!script.body.statements.iter().any(|statement| {
+        matches!(statement, StatementIr::Expression(expression)
+            if matches!(expression.expr, ExprIr::ModuleEvaluate(_) | ExprIr::ModuleEntryEvaluation(_)))
+    }));
+}
+
+#[test]
+fn host_resolutions_cannot_select_a_script_record_as_a_module_target() {
+    let graph = sources(&[("entry.js", "import('./entry.js');")], ParseGoal::Script);
+    // This embedder supplied only the Script Record at that URL. A proper
+    // host loader supplies a separate Module parse product for this import.
+    assert_eq!(graph.resolutions[0].2, 0);
+    let program = lower_script_graph(&graph);
+    assert!(!program.is_wasm_supported());
+    assert!(program.script.is_none());
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("host module resolution selected a Script Record")
+    }));
+}
+
+#[test]
+fn script_source_jobs_use_the_canonical_owner_without_target_activations() {
+    for resolved in [false, true] {
+        let mut graph = sources(
+            &[
+                ("entry.js", "import.source('./source.js');"),
+                ("source.js", "export const unused = 1;"),
+            ],
+            ParseGoal::Script,
+        );
+        if !resolved {
+            graph.modules.truncate(1);
+            graph.resolutions.clear();
+        }
+        let program = lower_script_graph(&graph);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let graph = activation_graph(program.script.as_ref().unwrap()).unwrap();
+        assert_eq!(graph.record_count(), 1);
+        assert!(graph.activations().is_empty());
+    }
 }
 
 #[test]
@@ -300,74 +460,52 @@ fn global_script_prelude_is_separate_from_module_and_dynamic_eval_candidates() {
 }
 
 #[test]
-fn retained_module_drivers_have_private_lexical_owners_outside_global_script() {
+fn source_rejection_jobs_keep_module_lexical_owners_outside_global_script() {
     let ParsedSource::Script(prelude) = parse(
         "const shared = 'global'; function helperRead() { return shared; }",
         ParseOptions::script(),
     )
-    .expect("global Script parses") else {
+    .unwrap() else {
         panic!("Script parse goal")
     };
-    for (files, protocol) in [
-        (
-            vec![
-                ("entry.js", "import source source from './source.js'; const shared = 'entry'; var localVar; function localFunction() {} helperRead();"),
-                ("source.js", "export const unused = 1;"),
-            ],
-            FunctionProtocolIr::Arrow,
-        ),
-    ] {
-        let program = lila_ir::lower_module_graph_with_prelude(
-            &sources(&files, ParseGoal::Module),
-            &prelude,
-            lila_ir::HostSurfacePolicy::Test262,
-        );
-        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
-        let script = program.script.as_ref().expect("Module Script IR");
-        assert!(activation_graph(script).is_none(), "retained driver control");
-        assert!(script.global_bindings.lexical_names().next().is_none());
-        assert!(script.global_bindings.iter().all(|binding| {
-            binding.declarations == lila_ir::GlobalDeclarationSetIr::None
-        }), "the private owner and its declarations must not create global bindings");
-        assert!(script.prepared_scripts.is_empty(), "the private owner must not enter eval candidate tables");
-        let calls = script.body.statements.iter().filter_map(|statement| {
-            let StatementIr::Expression(expression) = statement else {
-                return None;
-            };
-            let ExprIr::ModuleEntryEvaluation(entry) = &expression.expr else {
-                return None;
-            };
-            let ExprIr::CallIndirect { callee, args, .. } = &entry.evaluation().expr else {
-                return None;
-            };
-            let ExprIr::FunctionValue(target) = &callee.expr else {
-                return None;
-            };
-            assert!(args.is_empty(), "the private driver has no parameters");
-            Some(target)
-        });
-        let calls = calls.collect::<Vec<_>>();
-        assert_eq!(calls.len(), 1, "one top-level retained-driver invocation");
-        let owner = script
-            .functions
-            .iter()
-            .find(|function| &function.id == calls[0])
-            .expect("the invoked driver has a lowered owner");
-        assert_eq!(owner.protocol, protocol);
-        assert!(!owner.is_nested);
-        assert!(owner.strict);
-        assert!(!owner.protocol.is_constructable());
-        assert!(!owner.captures_lexical_arguments);
-        let prelude = script.module_prelude.as_ref().unwrap();
-        assert!(prelude.global_bindings.lexical_names().any(|name| name == "shared"));
-    }
+    let program = lila_ir::lower_module_graph_with_prelude(&sources(&[
+        ("entry.js", "import.source('./source.js'); const shared = 'entry'; var localVar; helperRead();"),
+        ("source.js", "export const unused = 1;")], ParseGoal::Module),
+        &prelude, lila_ir::HostSurfacePolicy::Test262);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().unwrap();
+    let graph = activation_graph(script).unwrap();
+    assert_eq!(graph.activations().len(), 1);
+    assert!(script.global_bindings.lexical_names().next().is_none());
+    assert!(script.prepared_scripts.is_empty());
+    let owner = script
+        .functions
+        .iter()
+        .find(|function| &function.id == graph.activations()[0].function())
+        .unwrap();
+    assert_eq!(owner.protocol, FunctionProtocolIr::ModuleActivation);
+    assert!(owner.strict);
+    assert!(!owner.captures_lexical_arguments);
+    assert!(script
+        .module_prelude
+        .as_ref()
+        .unwrap()
+        .global_bindings
+        .lexical_names()
+        .any(|name| name == "shared"));
 }
 
 #[test]
 fn ordinary_modules_with_colliding_names_use_distinct_activation_owners() {
     let program = module_program(&[
-        ("entry.js", "import { read as imported } from './dependency.js'; const shared = 'entry'; var localVar; function localFunction() {} print(imported(), shared);"),
-        ("dependency.js", "const shared = 'dependency'; var localVar; function localFunction() {} export function read() { return shared; }"),
+        (
+            "entry.js",
+            "import { read as imported } from './dependency.js'; const shared = 'entry'; var localVar; function localFunction() {} print(imported(), shared);",
+        ),
+        (
+            "dependency.js",
+            "const shared = 'dependency'; var localVar; function localFunction() {} export function read() { return shared; }",
+        ),
     ]);
     let script = program.script.as_ref().unwrap();
     let graph = activation_graph(script).expect("ordinary Module graph uses canonical owners");
@@ -656,33 +794,30 @@ fn synchronous_module_resource_forms_use_the_canonical_owner_lifetime() {
 }
 
 #[test]
-fn retained_module_drivers_do_not_gain_resource_admission() {
+fn static_source_rejection_precedes_module_resource_lowering() {
     for resource in [
         "using resource = null;",
         "for (using resource = null; false;) {}",
         "for (using resource of [null]) {}",
     ] {
-        for prefix in ["import source source from './source.js';"] {
-            let entry = format!("{prefix} {resource}");
-            let program = lower_module_graph(&sources(
-                &[
-                    ("entry.js", &entry),
-                    ("source.js", "export const value = 1;"),
-                ],
-                ParseGoal::Module,
-            ));
-            assert!(!program.is_wasm_supported(), "{entry}");
-            assert!(
-                program.diagnostics.iter().any(|diagnostic| diagnostic
-                    .message
-                    .contains("using declaration in a module without a canonical execution owner")),
-                "{entry}: {:?}",
-                program.diagnostics
-            );
-            if let Some(script) = program.script.as_ref() {
-                assert!(activation_graph(script).is_none());
-            }
-        }
+        let entry = format!("import source source from './source.js'; {resource}");
+        let program = lower_module_graph(&sources(
+            &[
+                ("entry.js", &entry),
+                ("source.js", "export const value = 1;"),
+            ],
+            ParseGoal::Module,
+        ));
+        assert!(program.script.is_none());
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code()
+                    == Some(lila_ir::EarlyErrorCode::ModuleSourceUnavailable)),
+            "{:?}",
+            program.diagnostics
+        );
     }
 }
 
@@ -711,7 +846,10 @@ fn async_module_resources_have_a_canonical_execution_owner() {
 #[test]
 fn original_request_phases_survive_linking_without_a_static_evaluation_schedule() {
     let program = module_program(&[
-        ("entry.js", "import defer * as deferred from './dependency.js'; import { value } from './dependency.js'; value; deferred;"),
+        (
+            "entry.js",
+            "import defer * as deferred from './dependency.js'; import { value } from './dependency.js'; value; deferred;",
+        ),
         ("dependency.js", "export const value = await 0;"),
     ]);
     let graph = activation_graph(program.script.as_ref().unwrap()).unwrap();

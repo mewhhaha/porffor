@@ -1,11 +1,11 @@
-# Global Object Environment numeric update retains one Reference
+# Global Environment numeric update retains one Reference
 
 ## Scope and exact cohort
 
 This contract covers the four numeric update forms whose operand is an
-IdentifierReference, whose lexical ResolveBinding walk finds no declarative
-binding, and whose Global Environment Record selects a property through its
-Object Environment Record:
+IdentifierReference and whose ResolveBinding walk reaches a Global Environment
+Record. That Record can select a lexical binding or its Object Environment
+Record. The exact original object-record cohort is:
 
 - `language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js`;
 - `language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js`;
@@ -21,7 +21,7 @@ remain regression controls under the with-environment contract.
 The plain assignment witness is not part of this cohort: assignment has no
 GetValue or ToNumeric phase, and its exact global deletion case already passes.
 Logical assignments have a separate short-circuit lifecycle. Eager arithmetic
-and bitwise compound assignments use the existing sealed eager operation plan.
+and bitwise compound assignments share the retained Environment Reference owner.
 Property References, declarative bindings, resumable functions, modules, and
 dynamic source generation are not claims of this batch.
 
@@ -36,79 +36,68 @@ pinned-matrix publication.
 
 For any in-scope `++x`, `--x`, `x++`, or `x--`:
 
-1. ResolveBinding reaches the Global Environment Record after finding no
-   declarative binding. Its Object Record performs HasBinding as one
-   HasProperty operation on the compiler-owned global object. This global
-   Object Environment Record has `[[IsWithEnvironment]] = false`; it never
-   reads `Symbol.unscopables`.
-2. If the initial HasProperty is false, the Reference is unresolvable and
-   GetValue throws ReferenceError before ToNumeric in sloppy or strict code.
-3. If present, retain that exact Object Environment Record as `[[Base]]` and
-   retain the strictness of the source which created the Reference.
-4. GetValue calls GetBindingValue on that same Object Record. GetBindingValue
-   independently performs HasProperty and then Get. A false recheck throws
-   ReferenceError for a strict Reference and yields `undefined` for a sloppy
-   Reference.
-5. Apply ToNumeric exactly once to the obtained value, then apply the selected
-   increment or decrement delta without changing Number/BigInt numeric domain.
-6. PutValue calls SetMutableBinding on the Object Record selected in step 1;
-   resolution never restarts. SetMutableBinding independently performs
-   HasProperty after GetValue, ToNumeric, and the delta.
-7. If the write recheck is false and the retained Reference is strict, throw
-   ReferenceError without calling Set. In sloppy code the recheck remains
-   observable, then Set runs even if it answered false.
-8. Only after PutValue succeeds does prefix return the new numeric value or
-   postfix return the old numeric value.
+1. ResolveBinding reaches the Global Environment Record after checking the
+   intervening environments. Its HasBinding first checks its declarative
+   record, then calls the Object Record's HasBinding if no lexical exists.
+   The latter observes HasProperty on the compiler-owned global object and
+   never reads `Symbol.unscopables`.
+2. If no binding exists, the Reference is unresolvable and GetValue throws
+   ReferenceError before ToNumeric in sloppy or strict code.
+3. Otherwise retain that exact **Global Environment Record** as `[[Base]]`,
+   together with the source strictness. Do not cache the selected delegate.
+4. GetValue calls its GetBindingValue. It checks the current declarative record
+   again, including lexicals installed by a HasProperty hook. Only an object
+   delegate performs the independent HasProperty/Get sequence; a false object
+   recheck throws in strict mode or returns `undefined` in sloppy mode.
+5. Apply ToNumeric exactly once, then apply the increment/decrement delta in
+   the resulting Number or BigInt domain.
+6. PutValue uses the same retained Global Record without resolving again. Its
+   SetMutableBinding checks the current lexical delegate after Get/coercion;
+   a newly installed lexical receives the value, and const/TDZ rules apply.
+7. If still delegated to the Object Record, SetMutableBinding performs its own
+   HasProperty recheck. Absence throws in strict mode; the sloppy object path
+   remains observable and follows the Object Record write algorithm.
+8. Only a successful PutValue permits prefix to return the new numeric value
+   or postfix to return the old numeric value.
 
-The initial ResolveBinding, GetBindingValue, and SetMutableBinding HasProperty
-operations are three distinct specification observations. A raw global read
-plus a checked write omits the first two and is not this contract.
+When all three phases delegate to the object record, the initial HasBinding,
+GetBindingValue and SetMutableBinding HasProperty operations are distinct
+observations. A raw global read plus checked write omits required resolution.
 
 ## Rust invariant and IR composition
 
-`NumericUpdateBindings` is one opaque fixed-role carrier for both with and
-global Object Environment Records. Its sole allocator creates old-value,
-result, and write-completion names in a fixed order. The fields remain private;
-callers cannot transpose three same-typed `String`s.
+`EnvironmentIdentifierIr::global` fixes the resolution start to the actual
+Global Environment, separate from the public `globalThis` property. Its closed
+`Update { operation, return_mode }` operation reuses the existing AOT retained
+Reference lifecycle: resolve, Get, ToNumeric/delta, Put, then return the old/new
+value and release the roots. Global Get and Put refresh the live declarative
+delegate through their shared owner, including abrupt completions.
 
-`ObjectEnvironmentBindingObject::numeric_update` owns the shared selected-base
-lifecycle. It accepts the typed `NumericUpdateOp`, typed `UpdateReturnMode`, and
-the borrowed role carrier, then composes only existing IR:
+Every source-global update uses this path, including declared `var`, initially
+known own properties, and a global fallback after explicit `with` selection.
+Known property presence cannot substitute for a runtime Environment Reference.
+Source facts are invalidated for possible Has/Get/coercion effects; known
+callable candidates remain Open rather than becoming invocation authority.
+The lowerer exhaustively maps all four `UpdateOp` forms to `NumericUpdateOp`
+and `UpdateReturnMode`.
 
-1. materialize `oldValue = binding_object.get_value(...)`;
-2. materialize `result = UpdateIdentifier(oldValue, op, returnMode, Dynamic)`;
-3. write the mutated old-value binding through
-   `binding_object.put_value(...)`;
-4. materialize that write completion;
-5. only in the write materialization's body, read `result`.
+Explicit `with` selection still owns its selected Object Environment Record and
+its `Symbol.unscopables` observation. Its `NumericUpdateBindings` fixed-role
+carrier preserves Get, numeric delta, same-object Put and prefix/postfix result.
+Only the unselected global fallback starts the Global Environment resolver;
+local and captured declarative fallbacks retain their original storage.
 
-The update operation mutates the private old-value binding to the new numeric
-value while returning old or new according to `UpdateReturnMode`; the separate
-result binding retains that expression result across PutValue.
+No new backend expression or parallel numeric algorithm is introduced. The old
+object-only `GlobalObjectEnvironmentReferencePlan` is removed because it cannot
+represent a live Global Record's lexical delegate.
 
-`WithEnvironmentResolution` alone wraps the shared lifecycle in its
-HasProperty/`Symbol.unscopables` visibility condition and fallback chain.
-`GlobalObjectEnvironmentReferencePlan` owns exactly one compiler-known global
-binding object, referenced name, and `Strictness`. It is neither `Clone` nor
-`Copy`; its consuming `numeric_update` wraps the shared lifecycle in a plain
-initial HasProperty condition whose missing branch is RuntimeThrow
-ReferenceError. Thus global selection cannot accidentally consult
-unscopables, and with selection cannot accidentally omit it.
-
-Lowering maps all four `UpdateOp` variants exhaustively into the product
-`NumericUpdateOp` and `UpdateReturnMode`. Only a pre-located
-`LocatedIdentifierReference::Unresolvable` whose global property is not proven
-present enters the new plan. Existing declarative and proven-global paths keep
-their current specializations. The dynamic global path uses fully Dynamic
-runtime tags and does not create or strengthen a static `proven_present` fact;
-an initially missing throw can be caught while the property remains absent.
-
-No new backend expression or parallel numeric implementation is introduced.
-A caller-built global object expression, an empty or reusable role carrier, a
-second plan consumption, an unscopables read on the global path, a restarted
-resolution, specialized pre-observation value metadata, a result before
-successful PutValue, and a direct `GlobalPropertyUpdate` shortcut are outside
-the producer API.
+The joined source repair adds controls to
+`aot_ordinary_global_assignment_reference::global_prototype_hasbinding_precedes_rhs_and_plain_assignment_does_not_get`
+for a pre-existing late lexical, lexical installation during numeric coercion,
+and declared-global initial HasProperty returning false with zero Get calls.
+Parsed IR controls cover all four forms, same-spelled locals/captures and With
+fallback ownership. These new source and native controls are pending execution;
+the earlier focused evidence below does not verify this repair.
 
 ## Verification
 
@@ -116,7 +105,7 @@ The focused ladder after batch integration is:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir global_object_environment_numeric_update --quiet
+cargo test -p lila-ir lowers_script_global_update_from_class_constructor --quiet
 cargo test -p lila-aot-wasm \
   --test global_object_environment_numeric_update_structure --quiet
 cargo test -p lila-cli --test cli \

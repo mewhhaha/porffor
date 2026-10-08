@@ -56,6 +56,7 @@ fn intl_namespace_plan_has_one_private_child_owner() {
         "    pub(crate) fn rooted(",
         "    pub(crate) fn members(",
         "    pub(crate) fn in_installation_order(",
+        "    pub(crate) fn methods_in_installation_order(",
     ] {
         assert_eq!(
             INTL_NAMESPACE_SOURCE.matches(definition).count(),
@@ -67,13 +68,13 @@ fn intl_namespace_plan_has_one_private_child_owner() {
             "parent must not retain `{definition}`"
         );
     }
-    assert_eq!(INTL_NAMESPACE_SOURCE.matches("fn ").count(), 3);
+    assert_eq!(INTL_NAMESPACE_SOURCE.matches("fn ").count(), 4);
     assert_eq!(
         INTL_NAMESPACE_SOURCE
             .lines()
             .filter(|line| line.starts_with("    pub(crate) fn "))
             .count(),
-        3
+        4
     );
 
     assert!(!INTL_NAMESPACE_SOURCE.contains("IntlRootsSeeded(pub"));
@@ -108,7 +109,7 @@ fn intl_namespace_plan_has_one_private_child_owner() {
 fn intl_namespace_roots_and_policy_remain_parent_owned() {
     assert_eq!(
         PLANNING_SOURCE
-            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [")
+            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId;")
             .count(),
         1
     );
@@ -123,12 +124,18 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
 
     let roots_and_proof = bounded(
         PLANNING_SOURCE,
-        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [",
+        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId;",
         "pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};",
     );
     for method in [
         "StandardBuiltinId::IntlLocalePrototypeMaximize,",
         "StandardBuiltinId::IntlLocalePrototypeMinimize,",
+        "StandardBuiltinId::IntlLocalePrototypeGetWeekInfo,",
+        "StandardBuiltinId::IntlLocalePrototypeGetCalendars,",
+        "StandardBuiltinId::IntlLocalePrototypeGetCollations,",
+        "StandardBuiltinId::IntlLocalePrototypeGetTimeZones,",
+        "StandardBuiltinId::IntlLocalePrototypeGetHourCycles,",
+        "StandardBuiltinId::IntlLocalePrototypeGetTextInfo,",
         "StandardBuiltinId::IntlNumberFormatConstructor,",
         "StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,",
         "StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions,",
@@ -137,6 +144,42 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
         "StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,",
         "StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,",
         "StandardBuiltinId::IntlNumberFormatBoundFormat,",
+        "StandardBuiltinId::IntlPluralRulesConstructor,",
+        "StandardBuiltinId::IntlPluralRulesSupportedLocalesOf,",
+        "StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlPluralRulesPrototypeSelect,",
+        "StandardBuiltinId::IntlPluralRulesPrototypeSelectRange,",
+        "StandardBuiltinId::IntlListFormatConstructor,",
+        "StandardBuiltinId::IntlListFormatSupportedLocalesOf,",
+        "StandardBuiltinId::IntlListFormatPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlListFormatPrototypeFormat,",
+        "StandardBuiltinId::IntlListFormatPrototypeFormatToParts,",
+        "StandardBuiltinId::IntlCollatorConstructor,",
+        "StandardBuiltinId::IntlCollatorSupportedLocalesOf,",
+        "StandardBuiltinId::IntlCollatorPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlCollatorPrototypeCompareGetter,",
+        "StandardBuiltinId::IntlCollatorBoundCompare,",
+        "StandardBuiltinId::IntlDisplayNamesConstructor,",
+        "StandardBuiltinId::IntlDisplayNamesSupportedLocalesOf,",
+        "StandardBuiltinId::IntlDisplayNamesPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlDisplayNamesPrototypeOf,",
+        "StandardBuiltinId::IntlRelativeTimeFormatConstructor,",
+        "StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf,",
+        "StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat,",
+        "StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts,",
+        "StandardBuiltinId::IntlSegmenterConstructor,",
+        "StandardBuiltinId::IntlSegmenterSupportedLocalesOf,",
+        "StandardBuiltinId::IntlSegmenterPrototypeSegment,",
+        "StandardBuiltinId::IntlSegmenterPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlSegmentsPrototypeContaining,",
+        "StandardBuiltinId::IntlSegmentsPrototypeIterator,",
+        "StandardBuiltinId::IntlSegmentIteratorPrototypeNext,",
+        "StandardBuiltinId::IntlDurationFormatConstructor,",
+        "StandardBuiltinId::IntlDurationFormatSupportedLocalesOf,",
+        "StandardBuiltinId::IntlDurationFormatPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlDurationFormatPrototypeFormat,",
+        "StandardBuiltinId::IntlDurationFormatPrototypeFormatToParts,",
     ] {
         assert_eq!(
             roots_and_proof.matches(method).count(),
@@ -144,6 +187,7 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
             "parent must root the Intl method exactly once: `{method}`",
         );
     }
+    let constructor_proof = roots_and_proof.split_once("let mut method = 0;").unwrap().0;
     for proof in [
         "while member < INTL_NAMESPACE_CONSTRUCTORS.len()",
         "while root < INTL_NAMESPACE_ROOTS.len()",
@@ -151,10 +195,18 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
         "assert!(\n            found,",
     ] {
         assert_eq!(
-            roots_and_proof.matches(proof).count(),
+            constructor_proof.matches(proof).count(),
             1,
             "parent must retain containment proof `{proof}`"
         );
+    }
+
+    for proof in [
+        "while method < INTL_NAMESPACE_METHODS.len()",
+        "INTL_NAMESPACE_METHODS[method].1",
+        "StandardBuiltinId::IntlSupportedValuesOf,",
+    ] {
+        assert!(roots_and_proof.contains(proof));
     }
 
     for parent_boundary in [
@@ -184,6 +236,19 @@ fn intl_bootstrap_consumes_only_the_rooted_member_witness() {
     );
     assert_eq!(
         installer.matches("members.in_installation_order()").count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches("members.methods_in_installation_order()")
+            .count(),
+        1
+    );
+    assert!(INTL_NAMESPACE_SOURCE.contains("methods: INTL_NAMESPACE_METHODS,"));
+    assert_eq!(
+        INTL_NAMESPACE_SOURCE
+            .matches("self.methods.iter().copied()")
+            .count(),
         1
     );
     assert!(!installer.contains("IntlNamespacePlan"));

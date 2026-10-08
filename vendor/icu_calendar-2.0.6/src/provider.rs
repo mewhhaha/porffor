@@ -18,7 +18,7 @@
 pub mod chinese_based;
 pub mod hijri;
 pub use chinese_based::{CalendarChineseV1, CalendarDangiV1};
-pub use hijri::CalendarHijriSimulatedMeccaV1;
+pub use hijri::{CalendarHijriSimulatedMeccaV1, CalendarHijriUmmAlQuraV1};
 
 use crate::types::Weekday;
 use icu_provider::fallback::{LocaleFallbackConfig, LocaleFallbackPriority};
@@ -54,6 +54,34 @@ const _: () = {
     impl_calendar_week_v1!(Baked);
 };
 
+#[cfg(feature = "compiled_data")]
+impl Baked {
+    /// The exact pre-existing table, exposed only for build-time image export.
+    pub const SINGLETON_LILA_CALENDAR_HIJRI_UMMALQURA_V1: &'static hijri::HijriData<'static> =
+        &hijri::HijriData {
+            first_extended_year: crate::cal::hijri::ummalqura_data::UMMALQURA_DATA_STARTING_YEAR,
+            data: ZeroVec::new_borrowed(&crate::cal::hijri::ummalqura_data::UMMALQURA_LE),
+        };
+}
+
+#[cfg(feature = "compiled_data")]
+impl DataProvider<CalendarHijriUmmAlQuraV1> for Baked {
+    fn load(
+        &self,
+        request: DataRequest,
+    ) -> Result<DataResponse<CalendarHijriUmmAlQuraV1>, DataError> {
+        if !request.id.locale.is_unknown() || !request.id.marker_attributes.is_empty() {
+            return Err(
+                DataErrorKind::InvalidRequest.with_req(CalendarHijriUmmAlQuraV1::INFO, request)
+            );
+        }
+        Ok(DataResponse {
+            metadata: Default::default(),
+            payload: DataPayload::from_static_ref(Self::SINGLETON_LILA_CALENDAR_HIJRI_UMMALQURA_V1),
+        })
+    }
+}
+
 icu_provider::data_marker!(
     /// Modern Japanese era names
     CalendarJapaneseModernV1,
@@ -86,6 +114,7 @@ pub const MARKERS: &[DataMarkerInfo] = &[
     CalendarChineseV1::INFO,
     CalendarDangiV1::INFO,
     CalendarHijriSimulatedMeccaV1::INFO,
+    CalendarHijriUmmAlQuraV1::INFO,
     CalendarJapaneseModernV1::INFO,
     CalendarJapaneseExtendedV1::INFO,
     CalendarWeekV1::INFO,

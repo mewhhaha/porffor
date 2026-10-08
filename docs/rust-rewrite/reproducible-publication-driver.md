@@ -46,12 +46,16 @@ build log and use a dedicated, unchanged checkout and binary for a publication.
 Concurrent writers to the same snapshot namespace are not supported by this
 wrapper; use one owner for the complete run.
 
-No new optional snapshot metadata or sidecar authority is introduced. In
-particular, this does **not** prove which compiler produced checkpoints from a
-previous invocation. Preserve and compare the build/publication logs when
-resuming. Mandatory cross-invocation source/binary provenance still requires the
-separately designed Rust snapshot-schema migration described by T01. Do not
-relabel old evidence as a new compiler's baseline.
+The dry schema-8 snapshot migration now makes native compiler provenance
+mandatory. The schema-3 publication session queries `lila compiler-identity`,
+checks its executing-image digest against before/after observed binary bytes,
+and retains the embedded build fingerprint/revision separately from observed
+checkout inputs. Every accepted progress response must carry the same native
+identity, and the progress writer requires it before replacing the manifest.
+The Rust harness independently rejects different-compiler resume and mixed-node
+aggregate evidence. Older snapshots and schema-1/2 sidecars remain unbound history
+and require a fresh family name; they cannot be relabelled as a current baseline.
+See [the source contract](contracts/snapshot-compiler-provenance.md).
 
 A driver contract test uses a fake CLI to exercise process ordering and failure
 handling. It is neither a compiler execution nor a real Test262 pass. A complete
@@ -61,11 +65,14 @@ non-passing and in the denominator.
 
 ## Commands
 
-Run the complete, nonempty driver contract inventory without building Rust:
+After all remaining task source is written and the kernel limiter is confirmed,
+run the complete, nonempty driver contract inventories without building Rust.
+The current migration is source only; none of these commands has run for it:
 
 ```sh
 bash -n scripts/publish-real-status-low-ram.sh
-python3 scripts/test_publish_real_status_low_ram.py
+python3 scripts/limited_verification.py -- python3 scripts/test_publish_real_status_low_ram.py
+python3 scripts/limited_verification.py -- python3 scripts/tests/test_publication_progress.py -v
 ```
 
 The retained read-only `Publication driver contracts` workflow runs that inventory
@@ -76,14 +83,16 @@ For an actual publication, build the CLI in the checkout to be measured, retain
 that build log, and capture the complete publication transcript:
 
 ```sh
-cargo build --release --locked -p lila-cli
+python3 scripts/limited_verification.py -- cargo build --release --locked -p lila-cli
 set -o pipefail
 LILA_BIN=./target/release/lila \
+  python3 scripts/limited_verification.py -- \
   ./scripts/publish-real-status-low-ram.sh wasm-aot current-pin-baseline \
   2>&1 | tee /tmp/lila-current-pin-publication.log
 ```
 
 The wrapper requires Bash, Git, Awk and `sha256sum` in addition to the built CLI.
 The printed identities belong beside the publication evidence, not in hand-edited
-status counts. The snapshot schema, Test262 sources/pins, materializers, exclusions
-and generated README status block are unchanged by this driver repair.
+status counts. Native schema migration and its source-only controls establish
+no fresh Test262 result. Suite sources/pins, materializers and exclusions retain
+their owners, and the protected generated README block remains unchanged.

@@ -1,189 +1,154 @@
 use super::*;
+use crate::gc_types::{
+    ArrayObject, ArrayObjectSchema, FunctionObject, FunctionObjectSchema, GcLocal, GcLocalSlot,
+    GcOperand, StoredValue, ValueLocals,
+};
+use crate::operations::PropertyKeyLocals;
 
-/// Storage reserved for a created realm's `%Array.prototype%`, before an
-/// Array-layout object has been emitted into it.
-///
-/// This type is deliberately neither `Copy` nor constructible outside this
-/// module. Initialization consumes it, so bootstrap cannot publish the local
-/// while it still contains an arbitrary payload.
+/// Bootstrap cannot publish this storage before ArrayCreate initializes it.
 #[must_use]
-pub(crate) struct ReservedRealmArrayPrototypeLocal(u32);
+pub(crate) struct ReservedRealmArrayPrototypeLocal(GcLocalSlot<ArrayObject>);
 
-/// A Wasm local proven to contain an initialized created-realm
-/// `%Array.prototype%` Array exotic object.
-///
-/// The raw local is private. Created-realm publication and property/link
-/// installation accept only this state, and final release consumes it.
+/// The completed Array exotic prototype remains rooted until Realm bootstrap
+/// has installed its methods and constructor link.
 #[must_use]
-pub(crate) struct RealmArrayPrototypeLocal(u32);
+pub(crate) struct RealmArrayPrototypeLocal(GcLocal<ArrayObject>);
 
-impl<'a> FunctionBuilder<'a> {
+impl RealmArrayPrototypeLocal {
+    pub(crate) fn array(&self) -> &GcLocal<ArrayObject> {
+        &self.0
+    }
+}
+
+impl FunctionBuilder<'_> {
     pub(crate) fn reserve_realm_array_prototype_local(
         &mut self,
+        function: &mut Function,
     ) -> ReservedRealmArrayPrototypeLocal {
-        ReservedRealmArrayPrototypeLocal(self.reserve_temp_local())
+        ReservedRealmArrayPrototypeLocal(self.runtime_schema().reserve_gc_local(function))
     }
 
-    /// Consume reserved storage and initialize it with the Array exotic
-    /// layout required by a created realm's `%Array.prototype%`.
     pub(crate) fn emit_initialize_realm_array_prototype(
         &mut self,
         reserved: ReservedRealmArrayPrototypeLocal,
-        object_prototype_local: u32,
+        object_prototype: &ValueLocals,
         function: &mut Function,
     ) -> Result<RealmArrayPrototypeLocal, EmitError> {
-        let length_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(length_local));
-        self.emit_alloc_array_payload_with_length(length_local, reserved.0, function)?;
-        self.store_i64_local_at_offset(
-            reserved.0,
-            HEAP_PROTOTYPE_OFFSET,
-            object_prototype_local,
+        let prototype = reserved.0.initialize(
+            self.emit_alloc_empty_array_with_prototype(object_prototype, function)?,
             function,
         );
-        self.store_i64_const_at_offset(
-            reserved.0,
-            HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Object.tag() as u64,
-            function,
-        );
-        self.release_temp_local(length_local);
-        Ok(RealmArrayPrototypeLocal(reserved.0))
-    }
-
-    pub(crate) fn emit_store_realm_array_prototype(
-        &mut self,
-        realm: RealmRecordLocal,
-        prototype: &RealmArrayPrototypeLocal,
-        function: &mut Function,
-    ) {
-        let intrinsics_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            realm.index(),
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
-            prototype.0,
-            function,
-        );
-        self.release_temp_local(intrinsics_local);
+        Ok(RealmArrayPrototypeLocal(prototype))
     }
 
     pub(crate) fn emit_define_realm_array_prototype_data_with_flags(
         &mut self,
         prototype: &RealmArrayPrototypeLocal,
-        key: &str,
-        payload_local: u32,
-        tag_local: u32,
+        name: &str,
+        value: &ValueLocals,
         writable: bool,
         enumerable: bool,
         configurable: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let writable_local = self.reserve_temp_local();
-        let enumerable_local = self.reserve_temp_local();
-        let configurable_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(
-            self.strings.static_builtin_property_key_payload(key),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(i64::from(writable)));
-        function.instruction(&Instruction::LocalSet(writable_local));
-        function.instruction(&Instruction::I64Const(i64::from(enumerable)));
-        function.instruction(&Instruction::LocalSet(enumerable_local));
-        function.instruction(&Instruction::I64Const(i64::from(configurable)));
-        function.instruction(&Instruction::LocalSet(configurable_local));
-        self.emit_array_define_named_data_descriptor(
-            prototype.0,
-            key_local,
-            payload_local,
-            tag_local,
-            writable_local,
-            enumerable_local,
-            configurable_local,
-            None,
-            None,
-            None,
-            None,
-            None,
+        let schema = self.runtime_schema();
+        let header = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ArrayObject>()
+                .field(ArrayObjectSchema::OBJECT)
+                .read(prototype.array(), schema, function)
+                .reference(),
+            function,
+        );
+        let key = if name.starts_with("Symbol.") {
+            let symbol = lila_ir::WellKnownSymbol::ALL
+                .into_iter()
+                .find(|symbol| symbol.description() == name)
+                .ok_or_else(|| EmitError::unsupported("unknown bootstrap well-known symbol"))?;
+            let symbol = schema.reserve_gc_local(function).initialize(
+                self.emit_well_known_symbol_reference(symbol, function)?,
+                function,
+            );
+            let key = PropertyKeyLocals::from_symbol(schema, &symbol, function);
+            symbol.clear(function);
+            key
+        } else {
+            self.emit_function_string_key(name, function)?
+        };
+        self.emit_object_append_data_property_with_flags(
+            &header,
+            &key,
+            value,
+            writable,
+            enumerable,
+            configurable,
             function,
         )?;
-        self.release_temp_local(configurable_local);
-        self.release_temp_local(enumerable_local);
-        self.release_temp_local(writable_local);
-        self.release_temp_local(key_local);
+        key.clear(function);
+        header.clear(function);
         Ok(())
     }
 
-    /// Install the two `%Array%` / `%Array.prototype%` links using the
-    /// representation and attributes required by the intrinsic registry.
+    /// Install the public data links and callable prototype cache with the
+    /// completed Array value, preserving the intrinsic attributes.
     pub(crate) fn emit_bind_realm_array_constructor_prototype(
         &mut self,
-        constructor_local: u32,
+        constructor: &GcLocal<FunctionObject>,
         prototype: &RealmArrayPrototypeLocal,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.store_i64_local_at_offset(
-            constructor_local,
-            HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-            tag_local,
+        let schema = self.runtime_schema();
+        let header = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<FunctionObject>()
+                .field(FunctionObjectSchema::OBJECT)
+                .read(constructor, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_local_at_offset(
-            constructor_local,
-            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-            prototype.0,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .static_builtin_property_key_payload("prototype"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_define_data_with_configurable(
-            constructor_local,
-            key_local,
-            prototype.0,
-            tag_local,
-            false,
-            false,
-            false,
-            function,
+        let value = schema.reserve_value_local(function);
+        value.set_reference(prototype.array(), schema, function);
+        let key = self.emit_function_string_key("prototype", function)?;
+        self.emit_object_append_data_property_with_flags(
+            &header, &key, &value, false, false, false, function,
         )?;
-
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
+        key.clear(function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&value, function),
+            function,
+        );
+        schema
+            .struct_type::<FunctionObject>()
+            .field(FunctionObjectSchema::PUBLIC_PROTOTYPE_CACHE)
+            .write(
+                constructor,
+                GcOperand::reference(&stored, schema),
+                schema,
+                function,
+            );
+        stored.clear(function);
+        value.set_reference(constructor, schema, function);
         self.emit_define_realm_array_prototype_data_with_flags(
             prototype,
             "constructor",
-            constructor_local,
-            tag_local,
+            &value,
             true,
             false,
             true,
             function,
         )?;
-
-        self.release_temp_local(tag_local);
-        self.release_temp_local(key_local);
+        value.clear(function);
+        header.clear(function);
         Ok(())
     }
 
     pub(crate) fn release_realm_array_prototype_local(
         &mut self,
         prototype: RealmArrayPrototypeLocal,
+        function: &mut Function,
     ) {
-        self.release_temp_local(prototype.0);
+        prototype.0.clear(function);
     }
 }

@@ -1,5 +1,12 @@
 # Temporal Gregorian and Buddhist calendar follow-up
 
+The 2026-10-04 [Indian calendar batch](temporal-indian-calendar.md) replaces
+this predecessor's year-only/ISO-coordinate consumer assumptions with shared
+complete calendar-date projection and resolved calendar-year ownership.
+Gregorian-family behavior remains in that exhaustive arithmetic domain. The
+implementation and evidence described below retain their original checkpoint;
+the newly composed calendar batch requires its own verification.
+
 The completed-baseline replay on merged main rejected
 `intl402/Temporal/PlainDate/prototype/daysInYear/basic-buddhist.js` with
 `Invalid Temporal.PlainTime string`: the shared calendar-string parser did not
@@ -31,9 +38,13 @@ The installed ICU implementation in
 offset and delegates month/day arithmetic to ISO. No new host service or
 runtime dependency is required for this calendar.
 
-`Intl.DateTimeFormat` still has no Buddhist formatter data. Its calendar
-canonicalization assertion now checks spellings supported by both services;
-Temporal arithmetic support does not imply formatter patterns or era labels.
+The later genuine Intl calendar-data batch admits Buddhist DateTimeFormat
+formatting independently of Temporal arithmetic. The broad workspace run
+then exposes a stale final assertion in this target: an explicitly requested
+Buddhist formatter is still expected to resolve to Gregorian. The isolated
+successor expects `buddhist`, preserving every preceding exception and
+option-read-order check and all six sibling tests. Original actual failure
+evidence is retained; corrected target execution remains pending.
 Other calendars still need their own complete arithmetic implementation.
 The follow-up [zoned field replacement](temporal-zoned-field-replacement.md)
 also covers `ZonedDateTime.prototype.with` and `toPlainDate`. Calendar-relative
@@ -41,7 +52,7 @@ Duration operations remain separate work. This change does not claim that all
 Buddhist fixtures or all Temporal tests pass.
 
 The dedicated native regression target is
-`cargo test -p lila-engine --test aot_temporal_buddhist_calendar -- --test-threads=1`.
+`cargo test -p lila-engine --test aot_temporal_buddhist_calendar -- --test-threads=2`.
 It covers constructors versus bags, annotation round trips, eras and extreme
 supported years, leap rules, partial-field merging, arithmetic and rounding,
 MonthDay reference years, and exception/read order. Verification and pinned

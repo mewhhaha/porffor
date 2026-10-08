@@ -5,61 +5,36 @@ pub(super) enum ForAwaitIteratorSymbol {
     AsyncIterator,
     Iterator,
 }
-
 impl ForAwaitIteratorSymbol {
-    const fn name(self) -> &'static str {
+    const fn symbol(self) -> lila_ir::WellKnownSymbol {
         match self {
-            Self::AsyncIterator => "Symbol.asyncIterator",
-            Self::Iterator => "Symbol.iterator",
+            Self::AsyncIterator => lila_ir::WellKnownSymbol::AsyncIterator,
+            Self::Iterator => lila_ir::WellKnownSymbol::Iterator,
         }
     }
 }
-
-impl<'a> FunctionBuilder<'a> {
-    /// Read a well-known-symbol method off a `for await (… of …)` head value.
-    ///
-    /// `PropertyKeyIr::StaticString("Symbol.asyncIterator")` is *not* the
-    /// well-known symbol: `compile_object_key_to_locals` lowers a static string
-    /// key to `strings.payload(name)` tagged `String`, so it looks up the
-    /// ordinary string property `"Symbol.asyncIterator"` and always misses.
-    /// A symbol key has to carry `PROPERTY_KEY_SYMBOL_MARKER`, which the
-    /// `StringExpr` path ORs in when the key expression is `Symbol`-kinded.
-    /// This mirrors `emit_generator_delegate_property_read`, the `yield*`
-    /// equivalent, and keeps primitive receivers (strings, numbers) working by
-    /// going through the dynamic read.
+impl FunctionBuilder<'_> {
     pub(super) fn emit_for_await_well_known_symbol_read(
         &mut self,
         symbol: ForAwaitIteratorSymbol,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        target: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key = symbol.name();
-        let target = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags()
-                    .without(ValueKind::Undefined)
-                    .without(ValueKind::Null),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
-            },
-            ExprIr::Undefined,
-        );
-        let symbol_key = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Symbol),
-            ExprIr::String(key.to_string()),
-        );
-        self.compile_property_read_from_locals(
-            &target,
-            &PropertyKeyIr::StringExpr(Box::new(symbol_key)),
-            target_payload_local,
-            target_tag_local,
-            value_payload_local,
-            value_tag_local,
+        let schema = self.runtime_schema();
+        let boxed = schema.reserve_completion(function);
+        self.emit_value_to_object_locals(target, &boxed, function)?;
+        self.completion().copy_from(&boxed, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let symbol = schema.reserve_gc_local(function).initialize(
+            self.emit_well_known_symbol_reference(symbol.symbol(), function)?,
             function,
-        )
+        );
+        let key = crate::operations::PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        self.emit_object_read(boxed.value(), target, &key, result, function)?;
+        key.clear(function);
+        symbol.clear(function);
+        boxed.clear(function);
+        Ok(())
     }
 }

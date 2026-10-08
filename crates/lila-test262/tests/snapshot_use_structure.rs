@@ -58,7 +58,7 @@ fn snapshot_use_is_the_exact_private_no_capability_domain() {
         .expect("snapshot-use declaration should exist");
     let preceding_item_tail = concat!(
         "    const fn is_current(self) -> bool {\n",
-        "        matches!(self, Self::CurrentLilaV7)\n",
+        "        matches!(self, Self::CurrentLilaV8)\n",
         "    }\n",
         "}\n\n",
     );
@@ -87,12 +87,12 @@ fn snapshot_use_is_the_exact_private_no_capability_domain() {
 
     assert_eq!(
         count_in_rust_sources(&source_root(), "SnapshotUse"),
-        13,
-        "one declaration, three parameters, seven producers and two exhaustive arms own every source mention"
+        14,
+        "one declaration, three parameters, eight producers and two exhaustive arms own every source mention"
     );
     assert_eq!(
         count_in_rust_sources(&source_root(), "SnapshotUse::CurrentState"),
-        7
+        8
     );
     assert_eq!(
         count_in_rust_sources(&source_root(), "SnapshotUse::ReadOnlyEvidence"),
@@ -121,8 +121,8 @@ fn aggregate_validation_exhaustively_projects_both_snapshot_uses() {
     ));
     let expected_projection = concat!(
         "matchsnapshot_use{",
-        "SnapshotUse::CurrentState=>{file.require_current(path,\"currentaggregatesnapshot\")?;}",
-        "SnapshotUse::ReadOnlyEvidence=>{}",
+        "SnapshotUse::CurrentState=>{file.require_running(path,\"currentaggregatesnapshot\")?;}",
+        "SnapshotUse::ReadOnlyEvidence=>{file.require_current(path,\"read-onlycompiler-boundaggregate\")?;}",
         "}",
         "iffile.matrix_strategy_version!=MATRIX_STRATEGY_VERSION{"
     );
@@ -154,7 +154,7 @@ fn aggregate_validation_exhaustively_projects_both_snapshot_uses() {
 }
 
 #[test]
-fn all_seven_product_producers_select_the_exact_snapshot_use() {
+fn all_eight_product_producers_select_the_exact_snapshot_use() {
     let source = source();
     let resume_loader = normalized(bounded(
         &source,
@@ -218,7 +218,7 @@ fn all_seven_product_producers_select_the_exact_snapshot_use() {
         (
             "\npub fn load_aggregate_progress_summary(",
             "\npub fn load_matrix_triage_entries(",
-            "ReadOnlyEvidence",
+            "CurrentState",
             "Envelope",
         ),
         (
@@ -234,6 +234,17 @@ fn all_seven_product_producers_select_the_exact_snapshot_use() {
         assert_eq!(producer.matches(&expected).count(), 1);
         assert_eq!(producer.matches("SnapshotUse::").count(), 1);
     }
+
+    let comparison = normalized(bounded(
+        &source,
+        "\nfn load_comparison_aggregate_summary(",
+        "\npub fn compare_snapshots(",
+    ));
+    assert_eq!(
+        comparison.matches("SnapshotUse::ReadOnlyEvidence").count(),
+        1
+    );
+    assert!(!comparison.contains("SnapshotUse::CurrentState"));
 }
 
 #[test]

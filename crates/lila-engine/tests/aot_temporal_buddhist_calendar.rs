@@ -202,7 +202,7 @@ expectError(RangeError, () => Temporal.PlainDate.from({calendar: 'buddhist', yea
 expectError(RangeError, () => Temporal.PlainMonthDay.from({calendar: 'buddhist', year: 2564, monthCode: 'M02', day: 29}, {overflow: 'reject'}));
 expectError(RangeError, () => Temporal.PlainMonthDay.from({calendar: 'buddhist', year: 1e300, monthCode: 'M02', day: 1}));
 expectError(RangeError, () => Temporal.PlainMonthDay.from({calendar: 'buddhist', year: -1e300, monthCode: 'M02', day: 1}));
-new Intl.DateTimeFormat('en', {calendar: 'buddhist'}).resolvedOptions().calendar === 'gregory';
+new Intl.DateTimeFormat('en', {calendar: 'buddhist'}).resolvedOptions().calendar === 'buddhist';
 "#,
     );
 }

@@ -11,40 +11,44 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 }
 
 const PROTOCOL_ERRORS: [(&str, &str, usize); 8] = [
-    ("TargetNotIterable", "yield* target is not iterable", 2),
+    (
+        "TargetNotIterable",
+        "RuntimeErrorMessage::YIELD_TARGET_IS_NOT_ITERABLE",
+        2,
+    ),
     (
         "IteratorMethodNotCallable",
-        "yield* iterator method must be callable",
+        "RuntimeErrorMessage::YIELD_ITERATOR_METHOD_MUST_BE_CALLABLE",
         2,
     ),
     (
         "IteratorMethodResultNotObject",
-        "yield* iterator method must return object",
+        "RuntimeErrorMessage::YIELD_ITERATOR_METHOD_MUST_RETURN_OBJECT",
         2,
     ),
     (
         "IteratorResultNotObject",
-        "yield* iterator result must be object",
+        "RuntimeErrorMessage::YIELD_ITERATOR_RESULT_MUST_BE_OBJECT",
         2,
     ),
     (
         "MissingThrowMethod",
-        "yield* iterator has no throw method",
+        "RuntimeErrorMessage::YIELD_ITERATOR_HAS_NO_THROW_METHOD",
         3,
     ),
     (
         "ReturnMethodNotCallable",
-        "yield* return method must be callable",
+        "RuntimeErrorMessage::YIELD_RETURN_METHOD_MUST_BE_CALLABLE",
         3,
     ),
     (
         "ThrowMethodNotCallable",
-        "yield* throw method must be callable",
+        "RuntimeErrorMessage::YIELD_THROW_METHOD_MUST_BE_CALLABLE",
         2,
     ),
     (
         "NextMethodNotCallable",
-        "yield* next method must be callable",
+        "RuntimeErrorMessage::YIELD_NEXT_METHOD_MUST_BE_CALLABLE",
         2,
     ),
 ];

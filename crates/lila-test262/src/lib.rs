@@ -14,14 +14,24 @@ use std::time::{Duration, Instant};
 
 use lila_engine::{
     compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
-    EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, PromiseRejectionPolicy,
-    RealmBuilder, RunOptions, WasmExecutionFailureKind,
+    EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, ModuleLoadingPolicy,
+    PromiseRejectionPolicy, RealmBuilder, RunOptions, WasmExecutionFailureKind,
 };
 use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, TaskId, UnsupportedFeature};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod attempt_journal;
+mod case_process;
+mod compiler_provenance;
+mod module_catalog;
+mod performance_evidence;
+pub use performance_evidence::ConformancePerformanceEvidence;
+#[cfg(test)]
+mod snapshot_comparison_identity_tests;
+use compiler_provenance::WireCompilerIdentity;
+pub use compiler_provenance::{CompilerProvenance, LegacySnapshotVersion, SnapshotProvenance};
+pub mod conformance_closure;
 pub mod differential;
 
 use attempt_journal::{
@@ -38,7 +48,9 @@ const TOP_LEVEL_FILTERS: [&str; 6] = [
     "staging",
 ];
 const MATRIX_SPLIT_FILTERS: [&str; 4] = ["built-ins", "intl402", "language", "staging"];
-const SNAPSHOT_VERSION: u32 = 7;
+const SNAPSHOT_VERSION: u32 = 8;
+/// Version 7 carries exact execution identity but no compiler binding.
+const LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION: u32 = 7;
 /// Snapshot version 4 predates per-failure outcome data and execution identity.
 /// Its envelope may still be inspected as historical metadata, but path-only
 /// case records cannot enter current status, backlog, comparison, or resume
@@ -75,7 +87,6 @@ const TEST262_WORKER_STACK_SIZE: usize = 64 * 1024 * 1024;
 // Wasm-AOT module starts executing. An isolated child still needs a separate
 // finite allowance for parsing, lowering, emission, and cold native compile.
 const WASM_AOT_CHILD_COMPILE_ALLOWANCE_MS: u64 = 300_000;
-const DISABLE_CASE_RUNNER_ENV: &str = "LILA_TEST262_DISABLE_CASE_RUNNER";
 const WASM_AOT_HOST_PRELUDE: &str = include_str!("../assets/local-harness/wasm-aot-host.js");
 const WASM_AOT_INACTIVE_REALM_GLOBAL: &str = "  global: undefined,";
 const WASM_AOT_ACTIVE_REALM_GLOBAL: &str = "  global: globalThis,";
@@ -162,7 +173,8 @@ enum SnapshotArtifactKind {
     LegacyV4,
     LegacyV5,
     LegacyPathOnlyV6,
-    CurrentLilaV7,
+    LegacyExecutionIdentityV7,
+    CurrentLilaV8,
 }
 
 impl SnapshotArtifactKind {
@@ -173,7 +185,10 @@ impl SnapshotArtifactKind {
             (LEGACY_PATH_ONLY_SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => {
                 Ok(Self::LegacyPathOnlyV6)
             }
-            (SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => Ok(Self::CurrentLilaV7),
+            (LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => {
+                Ok(Self::LegacyExecutionIdentityV7)
+            }
+            (SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => Ok(Self::CurrentLilaV8),
             (
                 LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION | LEGACY_PRE_LILA_SNAPSHOT_VERSION,
                 Some(producer),
@@ -181,18 +196,25 @@ impl SnapshotArtifactKind {
                 "legacy snapshot version {version} must not claim current producer {}",
                 producer.as_str()
             )),
-            (version @ (LEGACY_PATH_ONLY_SNAPSHOT_VERSION | SNAPSHOT_VERSION), None) => {
-                Err(format!(
-                    "snapshot version {version} is missing required producer {}",
-                    ArtifactProducer::CURRENT.as_str()
-                ))
-            }
+            (
+                version @ (LEGACY_PATH_ONLY_SNAPSHOT_VERSION
+                | LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION
+                | SNAPSHOT_VERSION),
+                None,
+            ) => Err(format!(
+                "snapshot version {version} is missing required producer {}",
+                ArtifactProducer::CURRENT.as_str()
+            )),
             (version, _) => Err(format!("unsupported snapshot_version {version}")),
         }
     }
 
+    const fn has_execution_identity(self) -> bool {
+        matches!(self, Self::LegacyExecutionIdentityV7 | Self::CurrentLilaV8)
+    }
+
     const fn is_current(self) -> bool {
-        matches!(self, Self::CurrentLilaV7)
+        matches!(self, Self::CurrentLilaV8)
     }
 }
 
@@ -306,16 +328,20 @@ pub enum FailureOrigin {
     IcuIntl,
     #[serde(rename = "spec-exec-host")]
     SpecExecHost,
+    /// Wasmtime engine/capability rejection of emitted Wasm.
+    #[serde(rename = "wasm-backend")]
+    WasmBackend,
 }
 
 impl FailureOrigin {
-    pub const ALL: [FailureOrigin; 6] = [
+    pub const ALL: [FailureOrigin; 7] = [
         FailureOrigin::Unknown,
         FailureOrigin::LocalHarness,
         FailureOrigin::BoaRuntime,
         FailureOrigin::BoaParser,
         FailureOrigin::IcuIntl,
         FailureOrigin::SpecExecHost,
+        FailureOrigin::WasmBackend,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -326,6 +352,7 @@ impl FailureOrigin {
             FailureOrigin::BoaParser => "boa-parser",
             FailureOrigin::IcuIntl => "icu-intl",
             FailureOrigin::SpecExecHost => "spec-exec-host",
+            FailureOrigin::WasmBackend => "wasm-backend",
         }
     }
 }
@@ -462,7 +489,57 @@ pub struct SuiteConfig {
     pub snapshot_dir: PathBuf,
     pub timeout_ms: u64,
     pub worker_count: usize,
+    /// Executable implementing the hidden `test262 __case-worker` route.
+    /// Discovery does not require a worker; executing admitted cases does.
     pub case_runner_bin: Option<PathBuf>,
+    execution_role: CaseExecutionRole,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CaseExecutionRole {
+    Supervisor,
+    SingleCaseWorker(TestExecutionId),
+    #[cfg(test)]
+    FixtureWorker,
+}
+
+/// Checked once before scheduling. An absent worker never authorizes compilation.
+#[derive(Clone)]
+enum CaseExecutionDispatch {
+    Supervised(PathBuf),
+    Worker,
+}
+
+impl CaseExecutionDispatch {
+    fn admit(config: &SuiteConfig, cases: &[TestCase]) -> Result<Self, String> {
+        match &config.execution_role {
+            CaseExecutionRole::SingleCaseWorker(expected) => {
+                if cases.len() != 1 || cases[0].execution_id != *expected {
+                    return Err(
+                        "case worker must execute exactly its requested execution id".into(),
+                    );
+                }
+                Ok(Self::Worker)
+            }
+            #[cfg(test)]
+            CaseExecutionRole::FixtureWorker if config.case_runner_bin.is_none() => {
+                Ok(Self::Worker)
+            }
+            CaseExecutionRole::Supervisor => Self::supervisor(config),
+            #[cfg(test)]
+            CaseExecutionRole::FixtureWorker => Self::supervisor(config),
+        }
+    }
+
+    fn supervisor(config: &SuiteConfig) -> Result<Self, String> {
+        if let Some(binary) = &config.case_runner_bin {
+            if binary.as_os_str().is_empty() {
+                return Err("Test262 supervisor requires a nonempty case worker executable".into());
+            }
+            return Ok(Self::Supervised(binary.clone()));
+        }
+        Err("Test262 execution requires a selected case worker executable; in-process compilation is reserved for the exact single-case worker entry".into())
+    }
 }
 
 impl Default for SuiteConfig {
@@ -487,6 +564,7 @@ impl Default for SuiteConfig {
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::Supervisor,
         }
     }
 }
@@ -1105,7 +1183,7 @@ impl<'de> Deserialize<'de> for CheckpointRunIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgressSnapshot {
-    pub snapshot_version: u32,
+    pub provenance: SnapshotProvenance,
     pub matrix_strategy_version: u32,
     pub execution_backend: ExecutionBackend,
     pub pinned_revisions: PinnedRevisions,
@@ -1124,6 +1202,12 @@ pub struct ProgressSnapshot {
     pub completed_nodes: Vec<String>,
     pub aggregate_counts_so_far: BTreeMap<FailureKind, usize>,
     pub aggregate_entries: Vec<MatrixEntrySummary>,
+}
+
+impl ProgressSnapshot {
+    pub const fn snapshot_version(&self) -> u32 {
+        self.provenance.version()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1222,6 +1306,7 @@ pub struct AggregateRunSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedAggregateSummary {
+    pub compiler_identity: CompilerProvenance,
     pub pinned_revisions: PinnedRevisions,
     /// Pins recorded inside the current snapshot file. They may use a
     /// historical commit spelling rather than the current suite-tree spelling,
@@ -1238,6 +1323,7 @@ pub struct VerifiedAggregateSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateProgressSummary {
+    pub compiler_identity: CompilerProvenance,
     pub pinned_revisions: PinnedRevisions,
     /// Pins recorded inside the snapshot file; see
     /// `VerifiedAggregateSummary::recorded_pinned_revisions`.
@@ -1411,6 +1497,7 @@ pub struct RunMatrixNode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklogArtifact {
+    pub compiler_identity: CompilerProvenance,
     pub snapshot_version: u32,
     pub producer: ArtifactProducer,
     pub matrix_strategy_version: u32,
@@ -1701,6 +1788,8 @@ pub struct BacklogPaths {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotComparison {
+    pub base_compiler_identity: CompilerProvenance,
+    pub candidate_compiler_identity: CompilerProvenance,
     pub base_snapshot_name: String,
     pub candidate_snapshot_name: String,
     pub execution_backend: ExecutionBackend,
@@ -1747,6 +1836,7 @@ impl SnapshotPinStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotPinReportEntry {
+    pub provenance: SnapshotProvenance,
     pub file_name: String,
     pub execution_backend: String,
     pub manifest_hash: u64,
@@ -1776,6 +1866,8 @@ pub struct MatrixRunSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotFile {
     snapshot_version: u32,
+    #[serde(default, skip_serializing_if = "WireCompilerIdentity::is_absent")]
+    compiler_identity: WireCompilerIdentity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     producer: Option<ArtifactProducer>,
     matrix_strategy_version: u32,
@@ -1968,17 +2060,34 @@ impl SnapshotFile {
         SnapshotArtifactKind::decode(self.snapshot_version, self.producer)
     }
 
+    fn provenance(&self) -> Result<SnapshotProvenance, String> {
+        self.compiler_identity.clone().admit(self.artifact_kind()?)
+    }
+
     fn require_current(&self, path: &Path, operation: &str) -> Result<(), String> {
-        let kind = self.artifact_kind()?;
-        if kind.is_current() {
-            return Ok(());
+        self.provenance()?
+            .require_current(operation)
+            .map(|_| ())
+            .map_err(|error| format!("{error} in {}", path.display()))
+    }
+
+    fn require_running(&self, path: &Path, operation: &str) -> Result<(), String> {
+        self.provenance()?
+            .require_running(operation)
+            .map(|_| ())
+            .map_err(|error| format!("{error} in {}", path.display()))
+    }
+
+    fn require_compiler(&self, expected: &CompilerProvenance, path: &Path) -> Result<(), String> {
+        let provenance = self.provenance()?;
+        let actual = provenance.require_current("matrix node evidence")?;
+        if actual != expected {
+            return Err(format!(
+                "node snapshot {} has different compiler_identity from its aggregate or resume context",
+                path.display()
+            ));
         }
-        Err(format!(
-            "{operation} requires snapshot version {SNAPSHOT_VERSION} from producer {}, but {} is read-only legacy evidence at version {}",
-            ArtifactProducer::CURRENT.as_str(),
-            path.display(),
-            self.snapshot_version
-        ))
+        Ok(())
     }
 }
 
@@ -2171,6 +2280,15 @@ impl ConformanceRunner {
         execution_backend: ExecutionBackend,
     ) -> Result<VerifiedAggregateSummary, String> {
         load_verified_aggregate_summary(&self.config, snapshot_name, execution_backend)
+    }
+
+    /// Read original admitted matrix snapshots and their optional measured timings.
+    pub fn load_performance_evidence(
+        &self,
+        snapshot_name: &str,
+        execution_backend: ExecutionBackend,
+    ) -> Result<ConformancePerformanceEvidence, String> {
+        performance_evidence::load(&self.config, snapshot_name, execution_backend)
     }
 
     pub fn load_publishable_aggregate_summary(
@@ -2430,156 +2548,93 @@ pub fn materialize_test(
     let mut module_prelude = None;
     if mode.needs_strict_directive() {
         // INTERPRETING.md requires the directive to be the initial source text.
-        // It therefore precedes both harness preludes and self-contained
-        // Wasm-AOT rewrites.
+        // It therefore precedes the harness preludes and unchanged test body.
         source.push_str("\"use strict\";\n");
     }
 
     let included_preludes = resolve_declared_preludes(case, preludes)?;
-    if let Some(rewritten) = rewrite_wasm_aot_self_contained(case) {
-        source.push_str(&rewritten);
-    } else {
-        let host_requirement = test262_host_requirement(case, &included_preludes);
-        let assert_prelude = preludes.get("assert.js").ok_or_else(|| {
-            format!(
-                "Test262 case {} requires named prelude `assert.js`, but this prelude profile does not provide it",
-                case.execution_id()
-            )
-        })?;
-        let typed_array_literal_plan = typed_array_literal_helper_plan(case);
-        let assert_needs_test262_error = assert_prelude.contents.contains("Test262Error");
-        let needs_test262_error_preamble =
-            assert_needs_test262_error || case_needs_test262_error_prelude(case);
+    let host_requirement = test262_host_requirement(case, &included_preludes);
+    let assert_prelude = preludes.get("assert.js").ok_or_else(|| {
+        format!(
+            "Test262 case {} requires named prelude `assert.js`, but this prelude profile does not provide it",
+            case.execution_id()
+        )
+    })?;
+    let assert_needs_test262_error = assert_prelude.contents.contains("Test262Error");
+    let needs_test262_error_preamble =
+        assert_needs_test262_error || case_needs_test262_error_prelude(case);
 
-        let (wasm_aot_host_source, required_sta_prelude) = match host_requirement {
-            Test262HostRequirement::None => (None, None),
-            Test262HostRequirement::Complete {
-                realm,
-                agent_worker,
-            } => {
-                let full_assert = assert_prelude;
-                let host = match preludes.host_ownership {
-                    PreludeHostOwnership::None => {
-                        return Err(format!(
-                            "Test262 case {} requires the complete `$262` host, but this prelude profile owns no host",
-                            case.execution_id()
-                        ));
-                    }
-                    PreludeHostOwnership::EmbeddedSpecExecSta => None,
-                    PreludeHostOwnership::WasmAot(host) => Some(host.render(realm)),
-                };
-                let sta = preludes
-                    .get("sta.js")
-                    .expect("host-owning PreludeStore must contain the validated sta.js");
-                if agent_worker == AgentWorkerRequirement::Required {
-                    let mut worker_prelude = String::new();
-                    if let Some(host) = &host {
-                        worker_prelude.push_str(host);
-                    }
-                    worker_prelude.push_str(&full_assert.contents);
-                    worker_prelude.push_str(&sta.contents);
-                    agent_prelude = Some(worker_prelude);
-                }
-                (host, Some(sta))
-            }
-        };
-
-        if let Some(host) = &wasm_aot_host_source {
-            source.push_str(host);
-        }
-        source.push_str(&assert_prelude.contents);
-        used_preludes.push((assert_prelude.name.clone(), assert_prelude.origin));
-        if let Some(prelude) = required_sta_prelude {
-            source.push_str(&prelude.contents);
-            used_preludes.push((prelude.name.clone(), prelude.origin));
-        } else if needs_test262_error_preamble {
-            if let Some(prelude) = preludes
-                .get("sta-preamble.js")
-                .or_else(|| preludes.get("sta.js"))
-            {
-                source.push_str(&prelude.contents);
-                used_preludes.push((prelude.name.clone(), prelude.origin));
-            }
-        }
-
-        if case.flags.contains("async") {
-            if let Some(prelude) = preludes.get("doneprintHandle.js") {
-                source.push_str(&prelude.contents);
-                source.push_str(TEST262_ASYNC_DONE_GUARD_PRELUDE);
-                used_preludes.push((prelude.name.clone(), prelude.origin));
-            }
-        }
-
-        for prelude in included_preludes {
-            let include = prelude.name.as_str();
-            if include == "atomicsHelper.js" {
-                source.push_str(WASM_AOT_AGENT_TIMER_PRELUDE);
-            }
-            if include == "testTypedArray.js" {
-                if let Some(intrinsic_prelude) =
-                    wasm_aot_intrinsic_test_typed_array_prelude(case, prelude)
-                {
-                    source.push_str(intrinsic_prelude);
-                    used_preludes.push((prelude.name.clone(), prelude.origin));
-                    continue;
-                }
-                if let Some(split_prelude) =
-                    wasm_aot_split_test_typed_array_dispatcher(case, prelude)
-                {
-                    source.push_str(&split_prelude);
-                    used_preludes.push((prelude.name.clone(), prelude.origin));
-                    continue;
-                }
-            }
-            if include == "compareArray.js"
-                && typed_array_literal_plan.is_some()
-                && typed_array_literal_include_matches_contract(include, prelude)
-            {
-                used_preludes.push((prelude.name.clone(), prelude.origin));
-                continue;
-            }
-            if include == "resizableArrayBufferUtils.js" {
-                if !resizable_array_buffer_helper_can_use_static_subclasses(case, prelude) {
-                    source.push_str(&prelude.contents);
-                    used_preludes.push((prelude.name.clone(), prelude.origin));
-                    continue;
-                }
-                const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
-  try {
-    return new Function('return class My' + type + ' extends ' + type + ' {}')();
-  } catch (e) {}
-}
-
-const MyUint8Array = subClass('Uint8Array');
-const MyFloat32Array = subClass('Float32Array');
-const MyBigInt64Array = subClass('BigInt64Array');"#;
-                const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
-
-                let static_prelude = prelude.contents.replacen(
-                    DYNAMIC_SUBCLASS_DEFINITIONS,
-                    STATIC_SUBCLASS_DEFINITIONS,
-                    1,
-                );
-                if static_prelude == prelude.contents {
+    let (wasm_aot_host_source, required_sta_prelude) = match host_requirement {
+        Test262HostRequirement::None => (None, None),
+        Test262HostRequirement::Complete {
+            realm,
+            agent_worker,
+        } => {
+            let full_assert = assert_prelude;
+            let host = match preludes.host_ownership {
+                PreludeHostOwnership::None => {
                     return Err(format!(
-                        "prelude {} does not contain the expected dynamic subclass definitions",
-                        prelude.name
+                        "Test262 case {} requires the complete `$262` host, but this prelude profile owns no host",
+                        case.execution_id()
                     ));
                 }
-                source.push_str(&static_prelude);
-                used_preludes.push((prelude.name.clone(), prelude.origin));
-                continue;
+                PreludeHostOwnership::EmbeddedSpecExecSta => None,
+                PreludeHostOwnership::WasmAot(host) => Some(host.render(realm)),
+            };
+            let sta = preludes
+                .get("sta.js")
+                .expect("host-owning PreludeStore must contain the validated sta.js");
+            if agent_worker == AgentWorkerRequirement::Required {
+                let mut worker_prelude = String::new();
+                if let Some(host) = &host {
+                    worker_prelude.push_str(host);
+                }
+                worker_prelude.push_str(&full_assert.contents);
+                worker_prelude.push_str(&sta.contents);
+                agent_prelude = Some(worker_prelude);
             }
+            (host, Some(sta))
+        }
+    };
+
+    if let Some(host) = &wasm_aot_host_source {
+        source.push_str(host);
+    }
+    source.push_str(&assert_prelude.contents);
+    used_preludes.push((assert_prelude.name.clone(), assert_prelude.origin));
+    if let Some(prelude) = required_sta_prelude {
+        source.push_str(&prelude.contents);
+        used_preludes.push((prelude.name.clone(), prelude.origin));
+    } else if needs_test262_error_preamble {
+        if let Some(prelude) = preludes
+            .get("sta-preamble.js")
+            .or_else(|| preludes.get("sta.js"))
+        {
             source.push_str(&prelude.contents);
             used_preludes.push((prelude.name.clone(), prelude.origin));
         }
-        if mode.is_module() {
-            module_prelude = Some(std::mem::take(&mut source));
-        }
-        source.push_str(&case.original_source);
     }
+
+    if case.flags.contains("async") {
+        if let Some(prelude) = preludes.get("doneprintHandle.js") {
+            source.push_str(&prelude.contents);
+            source.push_str(TEST262_ASYNC_DONE_GUARD_PRELUDE);
+            used_preludes.push((prelude.name.clone(), prelude.origin));
+        }
+    }
+
+    for prelude in included_preludes {
+        let include = prelude.name.as_str();
+        if include == "atomicsHelper.js" {
+            source.push_str(WASM_AOT_AGENT_TIMER_PRELUDE);
+        }
+        source.push_str(&prelude.contents);
+        used_preludes.push((prelude.name.clone(), prelude.origin));
+    }
+    if mode.is_module() {
+        module_prelude = Some(std::mem::take(&mut source));
+    }
+    source.push_str(&case.original_source);
 
     Ok(MaterializedTest {
         execution_id: case.execution_id.clone(),
@@ -2591,9 +2646,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     })
 }
 
-const WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE: &str =
-    "\nvar TypedArray = Object.getPrototypeOf(Int8Array);\n";
-
+#[cfg(test)]
 const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x09d1_0132_16fd_f211;
 
 #[cfg(test)]
@@ -2605,545 +2658,13 @@ const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
 #[cfg(test)]
 const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = PROPERTY_HELPER_PRELUDE_FNV1A;
 
-const COMPARE_ARRAY_PRELUDE_FNV1A: u64 = 0x5bb6_1296_deec_6e91;
-
-const DETACH_ARRAY_BUFFER_PRELUDE_FNV1A: u64 = 0xb288_4dc7_609b_1d2a;
-
+#[cfg(test)]
 const IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0x5815_595f_f0a9_9c34;
 
+#[cfg(test)]
 const RESIZABLE_ARRAY_BUFFER_UTILS_PRELUDE_FNV1A: u64 = 0x6466_6602_9ee8_9d5d;
 
-const NANS_PRELUDE_FNV1A: u64 = 0x0d04_c822_7a03_ff80;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TypedArrayLiteralFactoryMode {
-    None,
-    Intrinsic,
-    FullVendored,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TypedArrayLiteralHelperPlan {
-    factory_mode: TypedArrayLiteralFactoryMode,
-}
-
-// These are FNV-1a fingerprints of path, ordered include names, and original
-// source bytes for every physical pinned test in the nine literal TypedArray
-// families below. A changed path, include list, or body cannot inherit a helper
-// mode.
-const TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A: [u64; 319] = [
-    0x01a7_64cf_4431_856f,
-    0x03ed_1fe1_9322_e60f,
-    0x0528_54ec_d0d7_b865,
-    0x0566_53df_b470_2f25,
-    0x06bb_2052_171d_b57e,
-    0x06f7_d8de_6d56_c6d8,
-    0x08c4_4373_c0f1_376c,
-    0x09ae_b250_7c00_31c1,
-    0x0bae_cc66_e629_4d1a,
-    0x0bbe_0ada_1e3c_d208,
-    0x0cbf_63fa_f2be_4886,
-    0x0f01_3967_027d_b912,
-    0x0f7a_e9dd_9d25_b29a,
-    0x0fc1_1025_6aa5_4ffb,
-    0x101f_1cfb_dd91_c6c5,
-    0x103b_306c_5822_638d,
-    0x11ce_b503_c297_bd3c,
-    0x121b_52ba_7da7_79df,
-    0x1280_5e4a_37b7_5016,
-    0x1394_acd3_5806_ba60,
-    0x1425_50f6_10cd_f0f1,
-    0x1750_644c_5732_f525,
-    0x1813_f8dc_c6cf_7a00,
-    0x1902_7cb4_df30_1554,
-    0x196e_6dc1_176d_ad53,
-    0x1a04_f74b_9709_2bbc,
-    0x1a3c_9f5c_cb77_8ddb,
-    0x1c54_5006_867d_c549,
-    0x1d3d_3cb3_edf0_3095,
-    0x1dd3_4adf_f991_f021,
-    0x1efb_91c6_c681_736b,
-    0x1f02_da51_591a_43c0,
-    0x2010_327d_504f_7321,
-    0x20d8_807b_c056_d258,
-    0x2224_ed08_af52_547c,
-    0x22a8_2517_5714_d488,
-    0x2652_75ab_2503_ed2b,
-    0x2672_fd70_6100_5ff4,
-    0x26e8_6a5f_ed72_cbbf,
-    0x274a_5dfd_2f89_bc81,
-    0x2758_8193_3d7e_19e7,
-    0x2778_6bda_5c65_61ca,
-    0x28a3_4939_81d6_78aa,
-    0x297e_e9ca_9f16_31ee,
-    0x29ba_adde_c822_9fd6,
-    0x2a09_35cf_ee7a_e07d,
-    0x2a32_d328_9dcc_937d,
-    0x2ae6_7cc4_d326_093e,
-    0x2af0_8db8_c748_f20f,
-    0x2c88_7021_6627_cdaa,
-    0x2cb8_c511_f80a_1382,
-    0x2dc7_0af6_a790_8649,
-    0x2e7a_6cb3_3c09_672e,
-    0x334c_7b75_8e7d_a223,
-    0x33e7_3ce1_70fb_bbab,
-    0x33fa_37d8_4703_c72a,
-    0x3404_7802_0bb9_9cb3,
-    0x349a_8e31_be6f_2f82,
-    0x3609_6e09_58bb_c2ee,
-    0x37af_b8c0_f4e7_3197,
-    0x3bc7_6e5d_67c5_df2c,
-    0x3bf8_d004_294d_d2b5,
-    0x3c0a_fd54_8ffb_4be4,
-    0x3c7a_423e_6634_9bb8,
-    0x3e0b_48a0_a1bd_e85f,
-    0x3e64_c489_131e_5495,
-    0x3f2b_c1e8_7195_c7e4,
-    0x3f55_07eb_4b44_f497,
-    0x3fde_d03a_1de4_07bb,
-    0x4037_7a2e_90c2_c73e,
-    0x4144_364c_7c11_ce9f,
-    0x428f_e642_8c05_f419,
-    0x4380_ffab_d4dc_a132,
-    0x4434_6d94_d403_baca,
-    0x4446_f303_bfe3_8869,
-    0x4490_ba2d_e626_1f58,
-    0x44b6_3992_9102_238a,
-    0x4575_c78e_11b1_6346,
-    0x4757_3dbc_dbc0_d0da,
-    0x4768_9e18_1bc8_72f6,
-    0x48fc_2d14_a8a7_7fec,
-    0x4917_ea6e_3724_3624,
-    0x49b0_a828_f022_b2f3,
-    0x4aee_571f_5229_3eca,
-    0x4ba1_e7f0_f8fc_8396,
-    0x4bfd_8a3f_283e_4c2f,
-    0x4d9e_ef73_3e67_beb8,
-    0x4e12_9bd2_03d7_6964,
-    0x4f3c_a469_0910_1445,
-    0x4f42_d71d_54f7_f779,
-    0x502a_f088_a131_a0dd,
-    0x5079_f663_ddf0_f52e,
-    0x50aa_352b_7298_ae4d,
-    0x50cc_ca58_009b_e22b,
-    0x52e7_24b9_24d9_593b,
-    0x5411_92c4_c057_4773,
-    0x5517_904f_0072_314e,
-    0x554d_f51f_9a8a_7386,
-    0x560f_13a5_7178_3a49,
-    0x5638_b06e_f116_7ca2,
-    0x5724_ec6d_b314_90d1,
-    0x57d4_db1c_21d2_73d7,
-    0x58e0_5c32_22d7_9b50,
-    0x5986_93ab_25ab_f6f6,
-    0x5a65_f961_1606_8eea,
-    0x5bd4_875b_1eb3_b31c,
-    0x5c82_aae0_23c9_bce9,
-    0x5d12_7a8b_520c_fc23,
-    0x5f23_e122_1ab5_70d0,
-    0x6200_980c_04e2_550d,
-    0x6247_9ec3_38b1_39d6,
-    0x62f0_64ed_b094_fa84,
-    0x645b_5a1e_15e5_79d6,
-    0x648e_1933_49f3_5a06,
-    0x64a3_bde2_3bfd_d74e,
-    0x64e6_3c53_e866_f360,
-    0x66c5_d1bf_5f07_d2d7,
-    0x670e_09c7_2757_5c22,
-    0x68eb_723c_a2c0_8f2d,
-    0x6ad4_02be_d6ed_8599,
-    0x6afe_153c_9215_58f8,
-    0x6b3d_93c5_484c_7591,
-    0x6ba7_02a4_95bc_340a,
-    0x6c09_733a_66d6_3ac8,
-    0x6cdd_2b45_ffe3_8b69,
-    0x6e19_5a68_aadc_1872,
-    0x6e2f_e910_73dd_86c7,
-    0x6f86_8e1a_dcc0_cc8a,
-    0x700f_0169_7ae0_4165,
-    0x7098_66b6_5cce_f239,
-    0x70d2_885d_0fb9_4d04,
-    0x717b_2cea_4da2_8785,
-    0x71f8_abab_a649_88ac,
-    0x741a_f350_ba75_d78d,
-    0x7464_0a6f_e3b8_063d,
-    0x748d_9b05_65fa_3d37,
-    0x7507_26ff_6f4d_7e3a,
-    0x7511_49cf_fdf7_79d0,
-    0x7556_bd2c_00ac_dae2,
-    0x7571_b317_3f74_e1b8,
-    0x75af_ecc5_014a_b385,
-    0x764b_7936_3608_d646,
-    0x7677_3622_07ce_e93d,
-    0x76dd_7fee_8d30_8c10,
-    0x7772_51f6_1990_ad1c,
-    0x79e0_0393_a5df_c6b4,
-    0x7c47_e187_d549_8baa,
-    0x7ca8_2636_f292_c339,
-    0x7d77_a94a_277b_4220,
-    0x7e3b_50fa_ed2d_3273,
-    0x7f69_c778_d564_1ca8,
-    0x7f76_e24b_f42e_b658,
-    0x801a_9c9b_8509_9a16,
-    0x81c1_f9a3_a881_202e,
-    0x82cb_d374_23f9_fdae,
-    0x835b_392a_36a8_75b7,
-    0x83c3_9534_6701_e600,
-    0x84c4_34d4_c80f_9389,
-    0x84f3_6286_ffde_fcae,
-    0x85bd_ddde_1a93_5d93,
-    0x85d2_bfdd_9f06_f897,
-    0x86b5_46bf_41d3_823f,
-    0x881c_f07f_7d68_7256,
-    0x8964_00ea_95b2_de49,
-    0x8985_79d2_87c0_3dcc,
-    0x8c6b_4b61_28ad_b651,
-    0x8c86_8f16_034e_7368,
-    0x8df2_5bbc_4b92_22db,
-    0x8e33_6085_b573_276a,
-    0x8e78_ec0d_0d35_af78,
-    0x8eb6_a33c_8295_10ff,
-    0x9073_cd35_9a26_c8f7,
-    0x90f6_48d6_e4de_f799,
-    0x9125_79bd_1cea_f52c,
-    0x931e_a0b0_c30f_7c51,
-    0x9438_0ce0_aee6_3071,
-    0x94ee_82dd_a4f3_e3b5,
-    0x95ab_a5c5_3b7d_38a9,
-    0x95d2_c2ad_3aa2_4a22,
-    0x97bd_e9df_1403_46c4,
-    0x9887_bc4d_c0ee_a5df,
-    0x98ec_177a_be64_3d58,
-    0x98f8_143d_f4cd_5b8e,
-    0x9a1c_63dc_4f1d_badb,
-    0x9a7a_cc95_d955_601d,
-    0x9a96_ad57_25c0_92e5,
-    0x9acb_da0f_bca3_db7c,
-    0x9d39_d865_fa8b_0104,
-    0x9d5d_7b51_cc7a_66f2,
-    0x9d8d_dd1f_1e9a_b410,
-    0x9dd2_f792_6e62_fc69,
-    0x9e95_4319_6998_7758,
-    0x9eb7_5be6_e0d0_3684,
-    0x9ef9_f0ae_5faa_0c08,
-    0xa13c_713c_a26c_3094,
-    0xa21c_0bc4_3c18_d474,
-    0xa30b_515d_7f3e_3493,
-    0xa452_dae0_3f83_898a,
-    0xa4bf_a4d2_9644_5303,
-    0xa4e0_46ab_f952_72b6,
-    0xa5dc_b56a_0e49_d774,
-    0xa5f2_d9b7_5104_ffb0,
-    0xa657_97d6_837a_d662,
-    0xa82e_2974_8a0d_87fa,
-    0xa9b6_6aae_8172_2295,
-    0xa9b6_ca0d_fc19_4c57,
-    0xac30_51bb_7940_c542,
-    0xad32_4e25_a4d9_5e3a,
-    0xad40_becd_7ceb_5c5f,
-    0xad5e_5d06_4a05_8a11,
-    0xad6f_718d_7264_8168,
-    0xae1a_3b9f_74b7_aad6,
-    0xae3e_8fb8_846f_768b,
-    0xaed4_8beb_e984_7dd3,
-    0xaf19_37f7_1185_1dfc,
-    0xaf8f_ac53_b257_52ec,
-    0xafe7_4068_6d3e_043a,
-    0xb01d_e639_9b8e_d865,
-    0xb12c_85af_bf81_6cb7,
-    0xb163_4285_b329_6572,
-    0xb382_03aa_bdf5_244a,
-    0xb4c5_3dea_558b_fe24,
-    0xb4fe_1a48_5f2b_52ec,
-    0xb557_b79e_81a2_c886,
-    0xb603_9423_03c9_636b,
-    0xb60e_c63a_c52d_33fc,
-    0xb655_8704_0364_f6bb,
-    0xb6b3_b32a_da6d_545d,
-    0xb7ba_24a1_dc6e_e81b,
-    0xb85e_29cc_fb96_345e,
-    0xb892_aed6_53a8_b395,
-    0xb8db_978d_ebe1_cfa0,
-    0xb9cb_83db_c7fb_6a8a,
-    0xb9e7_41ca_ddfd_69f0,
-    0xbb8b_6d1a_bec9_603f,
-    0xbe3d_0e53_859d_43f2,
-    0xbeb0_0c41_e217_25fc,
-    0xbf58_f6c8_0594_b87e,
-    0xbfb7_eb36_9780_d3ab,
-    0xbfd0_a1ea_2f61_5235,
-    0xbff3_21f3_7514_ee7f,
-    0xc029_2ec3_5814_aa5f,
-    0xc09c_30f1_35e6_7a9b,
-    0xc124_54c1_c61d_87c6,
-    0xc1cd_9ed2_a437_61fc,
-    0xc262_1a3c_c88a_313c,
-    0xc2fb_56a0_2a92_aeea,
-    0xc386_90ba_e6dc_d606,
-    0xc406_b8bd_0dca_d8af,
-    0xc5c2_3b25_4746_df36,
-    0xc64f_88be_5565_f6cd,
-    0xc77f_2263_9e8e_d361,
-    0xc86a_8271_53a6_cc42,
-    0xc8cc_edcd_e7f3_fb25,
-    0xc8cf_b6c5_e316_6155,
-    0xcba5_817c_6719_99ec,
-    0xcbc6_b6f8_9f78_95f3,
-    0xcc8c_4daa_3abb_8cf0,
-    0xcd1e_2f4a_c300_8119,
-    0xcd61_abde_c4cc_5741,
-    0xce9b_d163_4bea_951c,
-    0xcef3_346f_5820_cb99,
-    0xcf4f_a65c_963e_9c66,
-    0xcfe7_a5cf_577f_646f,
-    0xd004_74b8_8af9_f25b,
-    0xd00d_a5b9_3df5_615d,
-    0xd37a_9d36_b4e2_4c06,
-    0xd38a_3b19_201b_d50f,
-    0xd40e_0017_3c6e_33d4,
-    0xd417_e5fa_f245_eb72,
-    0xd4d4_3edb_fca7_dcae,
-    0xd4ed_63ea_4b83_2458,
-    0xd833_0631_2a2d_122d,
-    0xd872_ed1c_b060_cc61,
-    0xd88a_d600_bcae_29fa,
-    0xd89a_640a_c590_0430,
-    0xd95e_0370_4d21_f044,
-    0xda2a_371f_ec8f_d25b,
-    0xda3d_bb83_5fb9_4afb,
-    0xdaba_7895_cb57_d02e,
-    0xdde2_b857_46f8_8edd,
-    0xde37_808c_772e_981b,
-    0xde89_96f7_0c0f_be2e,
-    0xdefa_5eaa_8a94_cace,
-    0xdff0_6d47_c74a_625e,
-    0xe148_9304_80d6_819c,
-    0xe190_b71d_54ce_5706,
-    0xe1fc_1e29_b134_9045,
-    0xe385_24ae_98de_50da,
-    0xe3d5_a5cd_5085_fdc0,
-    0xe8f0_518d_ae04_4416,
-    0xe96c_e5a9_5db8_54a1,
-    0xe9d5_fc25_1e7d_9bc9,
-    0xea93_1df4_a481_9b7f,
-    0xeb25_28a4_2e42_53d8,
-    0xebf5_5783_898b_8bc4,
-    0xeca8_f28e_9ad6_9e52,
-    0xed26_fa92_319a_5e75,
-    0xed44_2900_9a70_ec7c,
-    0xedb8_6886_4f7c_df6b,
-    0xee76_2f09_b77f_a148,
-    0xef4d_0a1e_62c5_10d1,
-    0xf06e_eebe_7132_1ca8,
-    0xf291_f07d_c85c_d872,
-    0xf527_d88f_d2ed_7045,
-    0xf596_ddcf_ff40_5102,
-    0xf59c_b229_ec02_6c7a,
-    0xf651_5fdf_a8c8_1beb,
-    0xf69b_325e_a513_f6af,
-    0xf867_ba8f_eb41_f6e7,
-    0xf884_dd67_efae_ebfc,
-    0xf89a_06a4_7716_3e4d,
-    0xf900_2949_9ffc_d565,
-    0xfa6e_3ac3_65ee_b722,
-    0xfc38_5b9c_e6f8_b877,
-    0xfd9b_5706_5e5c_641b,
-    0xfe16_cd7c_5f15_45b8,
-    0xfe35_ef1f_85a8_0a4a,
-    0xfff2_6a4c_eaf6_1ca9,
-];
-
-const RESIZABLE_ARRAY_BUFFER_CASE_CONTRACTS_FNV1A: [u64; 188] = [
-    0x010e_e38e_533b_f3cd,
-    0x019c_c993_868b_8048,
-    0x01f7_4236_62d7_f938,
-    0x0366_cff9_0e4e_74cd,
-    0x03ed_1fe1_9322_e60f,
-    0x03f5_d6b1_dc30_0eb2,
-    0x0488_d366_c0bc_2c5e,
-    0x06e9_067c_d668_9aab,
-    0x07d1_d14e_3a0b_bb89,
-    0x0a68_8f65_a451_d2d0,
-    0x0bbe_0ada_1e3c_d208,
-    0x0c7d_9b7d_cf39_e101,
-    0x0d07_d836_bd12_25d6,
-    0x1429_9fac_b8d0_8e9b,
-    0x1556_bb4a_2d8f_7384,
-    0x1625_0bb2_b583_1bd6,
-    0x17a6_d1b4_ee46_b7c0,
-    0x1b11_686e_d664_7946,
-    0x1bc8_13f7_4a97_b818,
-    0x1c54_5006_867d_c549,
-    0x1ce8_961b_2096_be60,
-    0x1d22_d36d_a5bb_a2e0,
-    0x1e07_da51_057d_5e08,
-    0x1f47_6661_05b1_8f60,
-    0x20ed_6401_0493_0a6b,
-    0x246d_8329_297d_fa37,
-    0x256c_6f26_08f6_c198,
-    0x2633_b2aa_dd8d_dddc,
-    0x2689_8e55_3f5e_0dd5,
-    0x2758_8193_3d7e_19e7,
-    0x27d2_ca0e_779f_b792,
-    0x2af0_8db8_c748_f20f,
-    0x2b8f_9756_6991_7826,
-    0x2d58_677f_c9f5_2a5a,
-    0x3165_96f9_7059_895a,
-    0x3292_c6cd_efbc_8bc6,
-    0x3397_c44c_1bb7_9c5d,
-    0x3537_d554_5bb0_6452,
-    0x383f_fd38_0988_c376,
-    0x384c_2794_2f28_8b7b,
-    0x3c4c_b434_4e68_d7c4,
-    0x3c78_8577_c52c_258b,
-    0x3d18_7152_c6ff_a624,
-    0x3d39_5028_9ca1_03a8,
-    0x3e7c_21ba_cc08_5a32,
-    0x3fde_d03a_1de4_07bb,
-    0x4037_7a2e_90c2_c73e,
-    0x44a0_5dc5_d64b_23ec,
-    0x459a_577c_c9f9_837b,
-    0x4720_9e6c_379e_76bf,
-    0x4847_1f1e_0dfa_ba5a,
-    0x48fc_2d14_a8a7_7fec,
-    0x492d_5f24_fb22_89a9,
-    0x4a74_2a10_2fd9_7825,
-    0x4e2c_7c60_73f6_cba7,
-    0x4f5f_d8f7_12be_1db2,
-    0x5079_f663_ddf0_f52e,
-    0x51d8_08ea_e0dd_c6ce,
-    0x5373_497f_418d_0f60,
-    0x539e_0b8c_1d13_a613,
-    0x544b_7dd9_d605_df20,
-    0x5496_8ba3_ee96_ca05,
-    0x574d_bdc1_58b3_4f97,
-    0x5931_8ab2_67b0_2630,
-    0x5c82_aae0_23c9_bce9,
-    0x5d1c_a95a_04d4_a8fb,
-    0x5d3a_cbc4_cabc_db2a,
-    0x5e5c_6ead_7b7c_0dda,
-    0x60c2_a9ec_1dff_dd03,
-    0x61a0_4f67_fee1_aa24,
-    0x6540_5721_6abb_9cff,
-    0x6681_60d2_bbae_7ea1,
-    0x66d7_a21a_abc8_a302,
-    0x670e_09c7_2757_5c22,
-    0x67a8_327f_804d_9ef6,
-    0x688b_f493_b8c4_2e8d,
-    0x6c05_eddc_5286_71f2,
-    0x6cc3_8129_9fc6_9aab,
-    0x6fcc_d05f_7eea_c476,
-    0x700f_0169_7ae0_4165,
-    0x70e4_6a2b_b848_c785,
-    0x73fa_7909_33e8_395c,
-    0x742c_ba78_7df3_2417,
-    0x75cf_115e_9cc4_f0d6,
-    0x75fe_02bc_09b6_1613,
-    0x7700_c68e_6c1e_5e40,
-    0x7c54_abb2_c1a9_246c,
-    0x7d77_a94a_277b_4220,
-    0x7f0e_10cf_df71_3bc0,
-    0x7f2f_fd82_c4a5_e725,
-    0x7f53_2e0f_81b9_391e,
-    0x8079_4259_d010_bf8e,
-    0x810d_32bd_3d07_e54e,
-    0x816a_1c5e_12c9_14a4,
-    0x8289_dc22_e755_d7e6,
-    0x832b_015f_6e9f_9e52,
-    0x85cd_7dab_b656_4451,
-    0x85d2_bfdd_9f06_f897,
-    0x8aae_ef6b_4182_c2e1,
-    0x8ac9_9e0f_a67d_0686,
-    0x8c86_8f16_034e_7368,
-    0x8cd6_065b_3ad5_dfdc,
-    0x8d75_b2c9_dc09_d1a5,
-    0x8dff_a822_e635_334c,
-    0x8e33_6085_b573_276a,
-    0x8f7f_237c_72b4_1cde,
-    0x901e_f749_8435_94b6,
-    0x904e_b038_8798_d603,
-    0x95a8_d9f4_81d6_b2ac,
-    0x9887_bc4d_c0ee_a5df,
-    0x9900_7e87_2ef1_809e,
-    0x9a33_e24d_18a8_5fda,
-    0x9acb_da0f_bca3_db7c,
-    0x9da9_18f5_d04d_d764,
-    0x9ef9_f0ae_5faa_0c08,
-    0x9f36_f84c_b993_3556,
-    0xa2f7_c9da_4eab_fb2d,
-    0xa465_ffe4_2153_0ef0,
-    0xa517_9c84_ec40_6d12,
-    0xa600_28fb_711c_3ec6,
-    0xa657_97d6_837a_d662,
-    0xa8f5_eed7_248f_8329,
-    0xa93e_c57b_623c_85cf,
-    0xaa75_cf4c_4079_3a55,
-    0xaa9a_c2ff_f2db_ce42,
-    0xab99_9a55_251b_0bed,
-    0xacc3_f2b1_bded_6336,
-    0xaea9_4511_c967_53eb,
-    0xb163_4285_b329_6572,
-    0xb1f4_70a7_0333_6ecd,
-    0xb3c1_e73a_041a_599b,
-    0xb504_3599_431a_1091,
-    0xb5c1_6420_e89e_d5e4,
-    0xb609_2889_3d2a_c74a,
-    0xb87e_c3dc_1553_a64b,
-    0xb9e7_41ca_ddfd_69f0,
-    0xbacc_c404_4d19_4575,
-    0xbbc7_d79a_72b3_7442,
-    0xbc53_8d75_a9e6_53a1,
-    0xbcc3_6bd3_b752_e821,
-    0xbce5_9fbe_767f_292c,
-    0xbd35_31d1_5b4f_68cc,
-    0xbe4e_731c_eff3_6be1,
-    0xbed1_5737_910b_fb52,
-    0xbfb7_eb36_9780_d3ab,
-    0xc380_4490_04ea_5b59,
-    0xc3cb_e903_1795_46db,
-    0xc627_4b28_9153_ca9c,
-    0xc93f_f25b_1ff3_f063,
-    0xca3c_7679_09a9_797c,
-    0xcba5_817c_6719_99ec,
-    0xcc10_d10b_fa99_4f15,
-    0xcfe7_a5cf_577f_646f,
-    0xd00c_a894_9517_0379,
-    0xd047_414b_0885_e5d3,
-    0xd15d_3788_236b_350c,
-    0xd386_3e8d_791b_7553,
-    0xd89a_640a_c590_0430,
-    0xd9be_363e_d66e_d953,
-    0xdaf8_4236_8043_49d0,
-    0xdcb7_41be_dea2_ebd9,
-    0xdccb_8ed7_9626_9430,
-    0xdcce_0112_56fe_5878,
-    0xde23_9bb4_0e1e_4cbd,
-    0xe0f4_81c1_e431_c605,
-    0xe148_9304_80d6_819c,
-    0xe1be_5f30_3a4b_409a,
-    0xe1e2_1df3_51a7_30bb,
-    0xe2d5_fae9_68f7_e726,
-    0xe3e4_5797_f0b9_d868,
-    0xe6c8_c6fc_6410_a633,
-    0xe6e8_c0ca_7581_da5f,
-    0xe8ee_f43a_8ba0_aa05,
-    0xec99_d09f_e188_ebab,
-    0xed17_f1a4_2366_6e65,
-    0xedf3_1c76_9dcd_1600,
-    0xefcd_fbf0_6248_9a1c,
-    0xf1df_1dcf_8503_52a2,
-    0xf452_86fd_002d_7680,
-    0xf4d2_fcb6_77f7_3767,
-    0xf6d5_d9cb_f114_e96b,
-    0xf7cb_9cf2_94c6_dd5a,
-    0xf984_0887_cb00_f958,
-    0xfa55_2230_f858_29b8,
-    0xfb92_85aa_45e7_5d78,
-    0xfc22_00bf_769f_7b49,
-    0xfd11_1728_11da_baa0,
-    0xfe93_2237_55fc_575a,
-];
-
+#[cfg(test)]
 fn fnv1a_extend(mut hash: u64, bytes: &[u8]) -> u64 {
     for byte in bytes {
         hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
@@ -3151,10 +2672,12 @@ fn fnv1a_extend(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
+#[cfg(test)]
 fn fnv1a(source: &str) -> u64 {
     fnv1a_extend(0xcbf2_9ce4_8422_2325, source.as_bytes())
 }
 
+#[cfg(test)]
 fn test_case_contract_fingerprint(case: &TestCase) -> u64 {
     let mut hash = fnv1a_extend(0xcbf2_9ce4_8422_2325, case.path.as_bytes());
     hash = fnv1a_extend(hash, &[0]);
@@ -3166,138 +2689,7 @@ fn test_case_contract_fingerprint(case: &TestCase) -> u64 {
     fnv1a_extend(hash, case.original_source.as_bytes())
 }
 
-fn typed_array_literal_method_and_file(path: &str) -> Option<(&str, &str)> {
-    let relative = path.strip_prefix("built-ins/TypedArray/prototype/")?;
-    let (method, file) = relative.split_once('/')?;
-    [
-        "some",
-        "find",
-        "findIndex",
-        "findLast",
-        "findLastIndex",
-        "entries",
-        "keys",
-        "values",
-        "copyWithin",
-    ]
-    .contains(&method)
-    .then_some((method, file))
-}
-
-fn typed_array_literal_helper_plan(case: &TestCase) -> Option<TypedArrayLiteralHelperPlan> {
-    let (_, file) = typed_array_literal_method_and_file(&case.path)?;
-    let fingerprint = test_case_contract_fingerprint(case);
-    if TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A
-        .binary_search(&fingerprint)
-        .is_err()
-    {
-        return None;
-    }
-
-    let is_surface_case = !file.contains('/')
-        && [
-            "invoked-as-func.js",
-            "invoked-as-method.js",
-            "length.js",
-            "name.js",
-            "not-a-constructor.js",
-            "prop-desc.js",
-            "this-is-not-object.js",
-            "this-is-not-typedarray-instance.js",
-        ]
-        .contains(&file);
-    let factory_mode = if !case
-        .includes
-        .iter()
-        .any(|include| include == "testTypedArray.js")
-    {
-        TypedArrayLiteralFactoryMode::None
-    } else if is_surface_case {
-        TypedArrayLiteralFactoryMode::Intrinsic
-    } else {
-        TypedArrayLiteralFactoryMode::FullVendored
-    };
-
-    Some(TypedArrayLiteralHelperPlan { factory_mode })
-}
-
-fn prelude_matches_fingerprint(
-    prelude: &PreludeEntry,
-    name: &str,
-    origin: PreludeOrigin,
-    fingerprint: u64,
-) -> bool {
-    prelude.name == name && prelude.origin == origin && fnv1a(&prelude.contents) == fingerprint
-}
-
-fn typed_array_literal_include_matches_contract(include: &str, prelude: &PreludeEntry) -> bool {
-    match include {
-        "testTypedArray.js" => prelude_matches_fingerprint(
-            prelude,
-            include,
-            PreludeOrigin::VendoredHarness,
-            TEST_TYPED_ARRAY_PRELUDE_FNV1A,
-        ),
-        "compareArray.js" => prelude_matches_fingerprint(
-            prelude,
-            include,
-            PreludeOrigin::VendoredHarness,
-            COMPARE_ARRAY_PRELUDE_FNV1A,
-        ),
-        "detachArrayBuffer.js" => prelude_matches_fingerprint(
-            prelude,
-            include,
-            PreludeOrigin::VendoredHarness,
-            DETACH_ARRAY_BUFFER_PRELUDE_FNV1A,
-        ),
-        "isConstructor.js" => prelude_matches_fingerprint(
-            prelude,
-            include,
-            PreludeOrigin::VendoredHarness,
-            IS_CONSTRUCTOR_PRELUDE_FNV1A,
-        ),
-        "resizableArrayBufferUtils.js" => prelude_matches_fingerprint(
-            prelude,
-            include,
-            PreludeOrigin::VendoredHarness,
-            RESIZABLE_ARRAY_BUFFER_UTILS_PRELUDE_FNV1A,
-        ),
-        "nans.js" => prelude_matches_fingerprint(
-            prelude,
-            include,
-            PreludeOrigin::VendoredHarness,
-            NANS_PRELUDE_FNV1A,
-        ),
-        _ => false,
-    }
-}
-
-fn resizable_array_buffer_helper_can_use_static_subclasses(
-    case: &TestCase,
-    prelude: &PreludeEntry,
-) -> bool {
-    prelude_matches_fingerprint(
-        prelude,
-        "resizableArrayBufferUtils.js",
-        PreludeOrigin::VendoredHarness,
-        RESIZABLE_ARRAY_BUFFER_UTILS_PRELUDE_FNV1A,
-    ) && RESIZABLE_ARRAY_BUFFER_CASE_CONTRACTS_FNV1A
-        .binary_search(&test_case_contract_fingerprint(case))
-        .is_ok()
-}
-
-fn wasm_aot_intrinsic_test_typed_array_prelude(
-    case: &TestCase,
-    prelude: &PreludeEntry,
-) -> Option<&'static str> {
-    let plan = typed_array_literal_helper_plan(case)?;
-    if !typed_array_literal_include_matches_contract("testTypedArray.js", prelude) {
-        return None;
-    }
-    (plan.factory_mode == TypedArrayLiteralFactoryMode::Intrinsic)
-        .then_some(WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE)
-}
-
+#[cfg(test)]
 fn test_typed_array_prelude_matches_vendored_contract(prelude: &PreludeEntry) -> bool {
     if prelude.name != "testTypedArray.js" || prelude.origin != PreludeOrigin::VendoredHarness {
         return false;
@@ -3323,89 +2715,6 @@ fn test_typed_array_prelude_matches_vendored_contract(prelude: &PreludeEntry) ->
     ]
     .iter()
         .all(|fragment| prelude.contents.contains(fragment))
-}
-
-const WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER: &str = r#"function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
-  function selectCtorArgFactories(includeFeatures, excludeFeatures) {
-    var selectedFactories = typedArrayCtorArgFactories;
-    if (includeFeatures) {
-      selectedFactories = [];
-      for (var i = 0; i < typedArrayCtorArgFactories.length; ++i) {
-        if (ctorArgFactoryMatchesSome(typedArrayCtorArgFactories[i], includeFeatures)) {
-          selectedFactories.push(typedArrayCtorArgFactories[i]);
-        }
-      }
-    }
-    if (excludeFeatures) {
-      selectedFactories = selectedFactories.slice();
-      for (var i = selectedFactories.length - 1; i >= 0; --i) {
-        if (ctorArgFactoryMatchesSome(selectedFactories[i], excludeFeatures)) {
-          selectedFactories.splice(i, 1);
-        }
-      }
-    }
-    return selectedFactories;
-  }
-
-  function invokeForConstructor(f, constructor, argFactory) {
-    var boundArgFactory = argFactory.bind(undefined, constructor);
-    try {
-      f(constructor, boundArgFactory);
-    } catch (e) {
-      e.message += " (Testing with " + constructor.name + " and " + argFactory.name + ".)";
-      throw e;
-    }
-  }
-
-  var ctors = constructors || allTypedArrayConstructors;
-  var ctorArgFactories = selectCtorArgFactories(includeArgFactories, excludeArgFactories);
-  if (ctorArgFactories.length === 0) {
-    throw Test262Error("no arg factories match include " + includeArgFactories + " and exclude " + excludeArgFactories);
-  }
-  for (var k = 0; k < ctorArgFactories.length; ++k) {
-    var argFactory = ctorArgFactories[k];
-    for (var i = 0; i < ctors.length; ++i) {
-      invokeForConstructor(f, ctors[i], argFactory);
-    }
-  }
-}"#;
-
-fn wasm_aot_split_test_typed_array_dispatcher(
-    case: &TestCase,
-    prelude: &PreludeEntry,
-) -> Option<String> {
-    let plan = typed_array_literal_helper_plan(case)?;
-    if plan.factory_mode != TypedArrayLiteralFactoryMode::FullVendored
-        || !test_typed_array_prelude_matches_vendored_contract(prelude)
-    {
-        return None;
-    }
-
-    const NEXT_HELPER_DOC: &str =
-        "\n\n/**\n * Calls the provided function with (typedArrayCtor, typedArrayCtorArgFactory)";
-    const UNUSED_TYPED_ARRAY_HELPER_TAIL: &str = "\n\nvar nonAtomicsFriendlyTypedArrayConstructors";
-    let prelude_end = prelude.contents.find(UNUSED_TYPED_ARRAY_HELPER_TAIL)?;
-
-    split_test_typed_array_dispatcher_source(&prelude.contents, NEXT_HELPER_DOC, prelude_end)
-}
-
-fn split_test_typed_array_dispatcher_source(
-    prelude_source: &str,
-    following_source: &str,
-    prelude_end: usize,
-) -> Option<String> {
-    const DISPATCHER_START: &str =
-        "function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {";
-    let dispatcher_start = prelude_source.find(DISPATCHER_START)?;
-    let dispatcher_end =
-        dispatcher_start + prelude_source[dispatcher_start..].find(following_source)?;
-    let mut split_prelude = String::with_capacity(
-        prelude_source.len() + WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER.len(),
-    );
-    split_prelude.push_str(&prelude_source[..dispatcher_start]);
-    split_prelude.push_str(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER);
-    split_prelude.push_str(&prelude_source[dispatcher_end..prelude_end]);
-    Some(split_prelude)
 }
 
 const TEST262_ASYNC_DONE_GUARD_PRELUDE: &str = r#"
@@ -3491,4993 +2800,6 @@ fn source_may_use_wasm_aot_realm_host(source: &str) -> bool {
     false
 }
 
-fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
-    if let Some(source) = rewrite_iterator_zip_basic_shortest_case(case) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_zip_basic_longest_case(case) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_zip_basic_strict_case(case) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_zip_result_is_iterator_case(case) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_every_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_some_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_find_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_reduce_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_map_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_filter_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_flat_map_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_take_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_iterator_drop_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_undefined_legacy_initial_value_case(&case.path) {
-        return Some(source);
-    }
-    if let Some(source) = rewrite_boolean_proto_from_ctor_realm_case(case) {
-        return Some(source);
-    }
-    None
-}
-
-const ITERATOR_ZIP_BASIC_SHORTEST_SOURCE_FNV1A: u64 = 0x3afb_32cd_e65c_3f86;
-
-const ITERATOR_ZIP_BASIC_LONGEST_SOURCE_FNV1A: u64 = 0x0a89_47ea_c68a_ca24;
-
-const ITERATOR_ZIP_BASIC_STRICT_SOURCE_FNV1A: u64 = 0xc6c4_cede_54c4_c6f3;
-
-const ITERATOR_ZIP_RESULT_IS_ITERATOR_SOURCE_FNV1A: u64 = 0x67cf_e8a2_ea23_8dc4;
-
-fn rewrite_iterator_zip_result_is_iterator_case(case: &TestCase) -> Option<String> {
-    let source_fingerprint = case
-        .original_source
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-    if case.path != "built-ins/Iterator/zip/result-is-iterator.js"
-        || case.includes != ["wellKnownIntrinsicObjects.js"]
-        || source_fingerprint != ITERATOR_ZIP_RESULT_IS_ITERATOR_SOURCE_FNV1A
-    {
-        return None;
-    }
-
-    Some(
-        r#"var iter = Iterator.zip([]);
-if (!(iter instanceof Iterator)) throw "Iterator.zip([]) must return an Iterator";
-
-var iteratorHelperPrototype = Object.getPrototypeOf(Iterator.from([]).drop(0));
-if (Object.getPrototypeOf(iter) !== iteratorHelperPrototype) {
-  throw "[[Prototype]] is %IteratorHelperPrototype%";
-}
-"#
-        .to_string(),
-    )
-}
-
-fn rewrite_iterator_zip_basic_shortest_case(case: &TestCase) -> Option<String> {
-    let source_fingerprint = case
-        .original_source
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-    if case.path != "built-ins/Iterator/zip/basic-shortest.js"
-        || case.includes
-            != [
-                "compareArray.js",
-                "propertyHelper.js",
-                "iteratorZipUtils.js",
-            ]
-        || source_fingerprint != ITERATOR_ZIP_BASIC_SHORTEST_SOURCE_FNV1A
-    {
-        return None;
-    }
-
-    Some(
-        r#"function checkZipDataProperty(object, key, value, writable, enumerable, configurable) {
-  var descriptor = Object.getOwnPropertyDescriptor(object, key);
-  if (descriptor === undefined) throw "zip data property missing";
-  if (!Object.is(descriptor.value, value) || !Object.is(object[key], value)) {
-    throw "zip data property value";
-  }
-  if (descriptor.writable !== writable) throw "zip data property writable";
-  if (descriptor.enumerable !== enumerable) throw "zip data property enumerable";
-  if (descriptor.configurable !== configurable) throw "zip data property configurable";
-
-  var isEnumerable = Object.prototype.propertyIsEnumerable.call(object, key);
-  if (typeof key === "string") {
-    var appearsInForIn = false;
-    for (var property in object) {
-      if (property === key) {
-        appearsInForIn = true;
-        break;
-      }
-    }
-    isEnumerable = isEnumerable && appearsInForIn;
-  }
-  if (isEnumerable !== enumerable) throw "zip data property behavior enumerable";
-
-  var oldValue = object[key];
-  var newValue = Array.isArray(object) && key === "length" ? 4294967295 : "unlikelyValue";
-  var writeSucceeded;
-  try {
-    object[key] = newValue;
-  } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-  }
-  writeSucceeded = Object.is(object[key], newValue);
-  if (writeSucceeded) object[key] = oldValue;
-  if (writeSucceeded !== writable) {
-    if (Array.isArray(object) && key === "length") {
-      throw "zip array length behavior writable";
-    }
-    if (Array.isArray(object)) throw "zip array element behavior writable";
-    if (key === "value") throw "zip result value behavior writable";
-    throw "zip result done behavior writable";
-  }
-
-  try {
-    delete object[key];
-  } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-  }
-  if ((!Object.prototype.hasOwnProperty.call(object, key)) !== configurable) {
-    throw "zip data property behavior configurable";
-  }
-}
-
-function checkZipIteratorResult(result, value, done) {
-  if (Object.getPrototypeOf(result) !== Object.prototype) throw "zip iterator result prototype";
-  if (!Object.isExtensible(result)) throw "zip iterator result extensible";
-  var keys = Reflect.ownKeys(result);
-  if (keys.length !== 2 || keys[0] !== "value" || keys[1] !== "done") {
-    throw "zip iterator result keys";
-  }
-  checkZipDataProperty(result, "value", value, true, true, true);
-  checkZipDataProperty(result, "done", done, true, true, true);
-}
-
-function checkZipRow(row, inputCount, rowIndex, previousRow, sequences) {
-  if (!Array.isArray(row)) throw "zip row is not an array";
-  if (row === previousRow) throw "zip row is not new";
-  if (Object.getPrototypeOf(row) !== Array.prototype) throw "zip row prototype";
-  if (!Object.isExtensible(row)) throw "zip row extensible";
-  if (row.length !== inputCount) throw "zip row length";
-  checkZipDataProperty(row, "length", inputCount, true, false, false);
-  for (var inputIndex = 0; inputIndex < inputCount; inputIndex = inputIndex + 1) {
-    var expectedValue = sequences[inputIndex].charAt(rowIndex);
-    if (row[inputIndex] !== expectedValue) throw "zip row value";
-    checkZipDataProperty(row, inputIndex, expectedValue, true, true, true);
-  }
-  return row;
-}
-
-var zipBasicShortestSequences = ["abcd", "efgh", "ijkl"];
-var zipBasicShortestCombinationCount = 0;
-var zipBasicShortestOptionCount = 0;
-
-// Covers the empty input plus 5 one-input, 25 two-input, and 125 three-input prefixes.
-for (var inputCount = 0; inputCount <= 3; inputCount = inputCount + 1) {
-  var combinationCount = 1;
-  for (var countIndex = 0; countIndex < inputCount; countIndex = countIndex + 1) {
-    combinationCount = combinationCount * 5;
-  }
-
-  for (var combinationIndex = 0; combinationIndex < combinationCount; combinationIndex = combinationIndex + 1) {
-    zipBasicShortestCombinationCount = zipBasicShortestCombinationCount + 1;
-    var encodedLengths = combinationIndex;
-    var inputs = [];
-    var minLength = inputCount === 0 ? 0 : 4;
-    for (var inputIndex = 0; inputIndex < inputCount; inputIndex = inputIndex + 1) {
-      var inputLength = encodedLengths % 5;
-      encodedLengths = (encodedLengths - inputLength) / 5;
-      if (inputLength < minLength) minLength = inputLength;
-      var input = [];
-      for (var valueIndex = 0; valueIndex < inputLength; valueIndex = valueIndex + 1) {
-        input[valueIndex] = zipBasicShortestSequences[inputIndex].charAt(valueIndex);
-      }
-      inputs[inputIndex] = input;
-    }
-
-    for (var optionIndex = 0; optionIndex < 3; optionIndex = optionIndex + 1) {
-      zipBasicShortestOptionCount = zipBasicShortestOptionCount + 1;
-      var zipped;
-      if (optionIndex === 0) {
-        zipped = Iterator.zip(inputs, undefined);
-      } else if (optionIndex === 1) {
-        zipped = Iterator.zip(inputs, {});
-      } else {
-        zipped = Iterator.zip(inputs, { mode: "shortest" });
-      }
-
-      var previousRow = null;
-      for (var rowIndex = 0; rowIndex < minLength; rowIndex = rowIndex + 1) {
-        var result = zipped.next();
-        var row = result.value;
-        checkZipIteratorResult(result, row, false);
-        previousRow = checkZipRow(
-          row,
-          inputCount,
-          rowIndex,
-          previousRow,
-          zipBasicShortestSequences
-        );
-      }
-
-      checkZipIteratorResult(zipped.next(), undefined, true);
-    }
-  }
-}
-
-if (zipBasicShortestCombinationCount !== 156) throw "zip sequence combination count";
-if (zipBasicShortestOptionCount !== 468) throw "zip option count";
-"#
-        .to_string(),
-    )
-}
-
-const ITERATOR_ZIP_COMPACT_ASSERTIONS: &str = r#"function checkZipDataProperty(object, key, value, writable, enumerable, configurable) {
-  var descriptor = Object.getOwnPropertyDescriptor(object, key);
-  if (descriptor === undefined) throw "zip data property missing";
-  if (!Object.is(descriptor.value, value) || !Object.is(object[key], value)) {
-    throw "zip data property value";
-  }
-  if (descriptor.writable !== writable) throw "zip data property writable";
-  if (descriptor.enumerable !== enumerable) throw "zip data property enumerable";
-  if (descriptor.configurable !== configurable) throw "zip data property configurable";
-
-  var isEnumerable = Object.prototype.propertyIsEnumerable.call(object, key);
-  if (typeof key === "string") {
-    var appearsInForIn = false;
-    for (var property in object) {
-      if (property === key) {
-        appearsInForIn = true;
-        break;
-      }
-    }
-    isEnumerable = isEnumerable && appearsInForIn;
-  }
-  if (isEnumerable !== enumerable) throw "zip data property behavior enumerable";
-
-  var oldValue = object[key];
-  var newValue = Array.isArray(object) && key === "length" ? 4294967295 : "unlikelyValue";
-  var writeSucceeded;
-  try {
-    object[key] = newValue;
-  } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-  }
-  writeSucceeded = Object.is(object[key], newValue);
-  if (writeSucceeded) object[key] = oldValue;
-  if (writeSucceeded !== writable) {
-    if (Array.isArray(object) && key === "length") {
-      throw "zip array length behavior writable";
-    }
-    if (Array.isArray(object)) throw "zip array element behavior writable";
-    if (key === "value") throw "zip result value behavior writable";
-    throw "zip result done behavior writable";
-  }
-
-  try {
-    delete object[key];
-  } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-  }
-  if ((!Object.prototype.hasOwnProperty.call(object, key)) !== configurable) {
-    throw "zip data property behavior configurable";
-  }
-}
-
-function checkZipIteratorResult(result, value, done) {
-  if (Object.getPrototypeOf(result) !== Object.prototype) throw "zip iterator result prototype";
-  if (!Object.isExtensible(result)) throw "zip iterator result extensible";
-  var keys = Reflect.ownKeys(result);
-  if (keys.length !== 2 || keys[0] !== "value" || keys[1] !== "done") {
-    throw "zip iterator result keys";
-  }
-  checkZipDataProperty(result, "value", value, true, true, true);
-  checkZipDataProperty(result, "done", done, true, true, true);
-}
-
-function checkZipRow(row, expectedValues, previousRow) {
-  if (!Array.isArray(row)) throw "zip row is not an array";
-  if (row === previousRow) throw "zip row is not new";
-  if (Object.getPrototypeOf(row) !== Array.prototype) throw "zip row prototype";
-  if (!Object.isExtensible(row)) throw "zip row extensible";
-  if (row.length !== expectedValues.length) throw "zip row length";
-  checkZipDataProperty(row, "length", expectedValues.length, true, false, false);
-  for (var inputIndex = 0; inputIndex < expectedValues.length; inputIndex = inputIndex + 1) {
-    var expectedValue = expectedValues[inputIndex];
-    if (!Object.is(row[inputIndex], expectedValue)) throw "zip row value";
-    checkZipDataProperty(row, inputIndex, expectedValue, true, true, true);
-  }
-  return row;
-}
-
-function makeZipInputs(inputCount, combinationIndex, sequences) {
-  var encodedLengths = combinationIndex;
-  var inputs = [];
-  var minLength = 0;
-  var maxLength = 0;
-  for (var inputIndex = 0; inputIndex < inputCount; inputIndex = inputIndex + 1) {
-    var inputLength = encodedLengths % 5;
-    encodedLengths = (encodedLengths - inputLength) / 5;
-    if (inputIndex === 0 || inputLength < minLength) minLength = inputLength;
-    if (inputIndex === 0 || inputLength > maxLength) maxLength = inputLength;
-    var input = [];
-    for (var valueIndex = 0; valueIndex < inputLength; valueIndex = valueIndex + 1) {
-      input[valueIndex] = sequences[inputIndex].charAt(valueIndex);
-    }
-    inputs[inputIndex] = input;
-  }
-  return { inputs: inputs, minLength: minLength, maxLength: maxLength };
-}
-
-function checkZipPrefix(zipped, inputs, count) {
-  var previousRow = null;
-  for (var rowIndex = 0; rowIndex < count; rowIndex = rowIndex + 1) {
-    var result = zipped.next();
-    var row = result.value;
-    var expectedValues = [];
-    for (var inputIndex = 0; inputIndex < inputs.length; inputIndex = inputIndex + 1) {
-      expectedValues[inputIndex] = inputs[inputIndex][rowIndex];
-    }
-    checkZipIteratorResult(result, row, false);
-    previousRow = checkZipRow(row, expectedValues, previousRow);
-  }
-  return previousRow;
-}
-"#;
-
-fn rewrite_iterator_zip_basic_longest_case(case: &TestCase) -> Option<String> {
-    let source_fingerprint = case
-        .original_source
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-    if case.path != "built-ins/Iterator/zip/basic-longest.js"
-        || case.includes
-            != [
-                "compareArray.js",
-                "propertyHelper.js",
-                "iteratorZipUtils.js",
-            ]
-        || source_fingerprint != ITERATOR_ZIP_BASIC_LONGEST_SOURCE_FNV1A
-    {
-        return None;
-    }
-
-    Some([
-        ITERATOR_ZIP_COMPACT_ASSERTIONS,
-        r#"
-var zipBasicLongestSequences = ["abcd", "efgh", "ijkl"];
-var zipBasicLongestCombinationCount = 0;
-var zipBasicLongestOptionCount = 0;
-
-for (var inputCount = 0; inputCount <= 3; inputCount = inputCount + 1) {
-  var combinationCount = 1;
-  for (var countIndex = 0; countIndex < inputCount; countIndex = countIndex + 1) {
-    combinationCount = combinationCount * 5;
-  }
-
-  for (var combinationIndex = 0; combinationIndex < combinationCount; combinationIndex = combinationIndex + 1) {
-    zipBasicLongestCombinationCount = zipBasicLongestCombinationCount + 1;
-    var zipInputs = makeZipInputs(inputCount, combinationIndex, zipBasicLongestSequences);
-
-    for (var optionIndex = 0; optionIndex < 5; optionIndex = optionIndex + 1) {
-      zipBasicLongestOptionCount = zipBasicLongestOptionCount + 1;
-      var options;
-      var infinitePaddingClosed = false;
-      if (optionIndex === 0) {
-        options = { mode: "longest" };
-      } else if (optionIndex === 1) {
-        options = { mode: "longest", padding: [] };
-      } else if (optionIndex === 2) {
-        options = { mode: "longest", padding: ["pad"] };
-      } else if (optionIndex === 3) {
-        var fullPadding = [];
-        for (var paddingIndex = 0; paddingIndex < inputCount; paddingIndex = paddingIndex + 1) {
-          fullPadding[paddingIndex] = "pad";
-        }
-        options = { mode: "longest", padding: fullPadding };
-      } else {
-        var infinitePadding = {};
-        infinitePadding[Symbol.iterator] = function() {
-          var paddingValue = 100;
-          return {
-            next: function() {
-              var value = paddingValue;
-              paddingValue = paddingValue + 1;
-              return { value: value, done: false };
-            },
-            return: function() {
-              infinitePaddingClosed = true;
-              return { value: undefined, done: true };
-            }
-          };
-        };
-        options = { mode: "longest", padding: infinitePadding };
-      }
-
-      var zipped = Iterator.zip(zipInputs.inputs, options);
-      var previousRow = checkZipPrefix(zipped, zipInputs.inputs, zipInputs.minLength);
-      for (var rowIndex = zipInputs.minLength; rowIndex < zipInputs.maxLength; rowIndex = rowIndex + 1) {
-        var result = zipped.next();
-        var row = result.value;
-        var expectedValues = [];
-        for (var inputIndex = 0; inputIndex < inputCount; inputIndex = inputIndex + 1) {
-          if (rowIndex < zipInputs.inputs[inputIndex].length) {
-            expectedValues[inputIndex] = zipInputs.inputs[inputIndex][rowIndex];
-          } else if (optionIndex === 2 && inputIndex === 0) {
-            expectedValues[inputIndex] = "pad";
-          } else if (optionIndex === 3) {
-            expectedValues[inputIndex] = "pad";
-          } else if (optionIndex === 4) {
-            expectedValues[inputIndex] = 100 + inputIndex;
-          } else {
-            expectedValues[inputIndex] = undefined;
-          }
-        }
-        checkZipIteratorResult(result, row, false);
-        previousRow = checkZipRow(row, expectedValues, previousRow);
-      }
-      checkZipIteratorResult(zipped.next(), undefined, true);
-      if (optionIndex === 4 && !infinitePaddingClosed) throw "zip infinite padding close";
-    }
-  }
-}
-
-if (zipBasicLongestCombinationCount !== 156) throw "zip sequence combination count";
-if (zipBasicLongestOptionCount !== 780) throw "zip option count";
-"#,
-    ]
-    .concat())
-}
-
-fn rewrite_iterator_zip_basic_strict_case(case: &TestCase) -> Option<String> {
-    let source_fingerprint = case
-        .original_source
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-    if case.path != "built-ins/Iterator/zip/basic-strict.js"
-        || case.includes
-            != [
-                "compareArray.js",
-                "propertyHelper.js",
-                "iteratorZipUtils.js",
-            ]
-        || source_fingerprint != ITERATOR_ZIP_BASIC_STRICT_SOURCE_FNV1A
-    {
-        return None;
-    }
-
-    Some([
-        ITERATOR_ZIP_COMPACT_ASSERTIONS,
-        r#"
-function expectZipTypeError(call) {
-  try {
-    call();
-  } catch (error) {
-    if (error instanceof TypeError) return;
-    throw "zip strict wrong error";
-  }
-  throw "zip strict missing TypeError";
-}
-
-var zipBasicStrictSequences = ["abcd", "efgh", "ijkl"];
-var zipBasicStrictCombinationCount = 0;
-for (var inputCount = 0; inputCount <= 3; inputCount = inputCount + 1) {
-  var combinationCount = 1;
-  for (var countIndex = 0; countIndex < inputCount; countIndex = countIndex + 1) {
-    combinationCount = combinationCount * 5;
-  }
-
-  for (var combinationIndex = 0; combinationIndex < combinationCount; combinationIndex = combinationIndex + 1) {
-    zipBasicStrictCombinationCount = zipBasicStrictCombinationCount + 1;
-    var zipInputs = makeZipInputs(inputCount, combinationIndex, zipBasicStrictSequences);
-    var zipped = Iterator.zip(zipInputs.inputs, { mode: "strict" });
-    checkZipPrefix(zipped, zipInputs.inputs, zipInputs.minLength);
-    if (zipInputs.minLength === zipInputs.maxLength) {
-      checkZipIteratorResult(zipped.next(), undefined, true);
-    } else {
-      expectZipTypeError(function() {
-        zipped.next();
-      });
-    }
-  }
-}
-
-if (zipBasicStrictCombinationCount !== 156) throw "zip sequence combination count";
-"#,
-    ]
-    .concat())
-}
-
-fn rewrite_iterator_every_case(path: &str) -> Option<String> {
-    match path {
-        "built-ins/Iterator/prototype/every/iterator-already-exhausted.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = (function* () {})();
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "next value");
-assertSameValue(nextResult.done, true, "next done");
-
-var result = iterator.every(function () {
-  return true;
-});
-assertSameValue(result, true, "truthy predicate result");
-
-result = iterator.every(function () {
-  return false;
-});
-assertSameValue(result, true, "falsey predicate result");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/every/iterator-has-no-return.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = [1, 2, 3, 4, 5][Symbol.iterator]();
-assertSameValue(iterator.return, undefined, "return");
-
-var ret = iterator.every(function (value) {
-  return value < 4;
-});
-assertSameValue(ret, false, "every result");
-
-var nextResult = iterator.next();
-assertSameValue(nextResult.done, false, "remaining done");
-assertSameValue(nextResult.value, 5, "remaining value");
-
-nextResult = iterator.next();
-assertSameValue(nextResult.done, true, "final done");
-assertSameValue(nextResult.value, undefined, "final value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/every/predicate-returns-falsey.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 0;
-  yield 1;
-}
-
-var iter = g();
-var predicateCalls = 0;
-var result = iter.every(function () {
-  predicateCalls = predicateCalls + 1;
-  return false;
-});
-
-assertSameValue(result, false, "result");
-assertSameValue(predicateCalls, 1, "predicate calls");
-
-var nextResult = iter.next();
-assertSameValue(nextResult.done, true, "done");
-assertSameValue(nextResult.value, undefined, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/every/predicate-returns-non-boolean.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var values = [4, 3, 2, 1, 0];
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    return {};
-  },
-};
-
-var predicateCalls = 0;
-var result = iterator.every(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value;
-});
-
-assertSameValue(result, false, "result");
-assertSameValue(predicateCalls, 5, "predicate calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/every/error-from-correct-realm.js" => Some(
-            r#"
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var iter = [].values();
-assertThrowsTypeError(function () { iter.every(); }, "missing callback");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/every/check-fn-after-getting-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var returnCalls = 0;
-var nextGets = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () { return { done: true, value: undefined }; };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-assertThrowsTypeError(function () { iter.every(1); }, "non-callable callback");
-assertSameValue(nextGets, 0, "next not read");
-assertSameValue(returnCalls, 1, "return called");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/every/proxy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var nextGets = 0;
-var nextCalls = 0;
-var returnCalls = 0;
-var value = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (value < 2) {
-        var result = { done: false, value: value };
-        value = value + 1;
-        return result;
-      }
-      return { done: true, value: undefined };
-    };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-var result = iter.every(function (x) {
-  return x < 1;
-});
-assertSameValue(result, false, "result");
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 2, "next calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/every/fn-throws-close-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: closed, value: 0 }; },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.every(function () { throw new TestError(); });
-}, TestError, "callback throws");
-assertSameValue(closed, true, "callback throw closes");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/every/next-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { throw new TestError(); },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.every(function () { return true; });
-}, TestError, "next throws");
-assertSameValue(closed, false, "next throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/every/value-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: false,
-      get value() {
-        throw new TestError();
-      },
-    };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.every(function () { return true; });
-}, TestError, "value throws");
-assertSameValue(closed, false, "value throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        _ => None,
-    }
-}
-
-fn rewrite_iterator_some_case(path: &str) -> Option<String> {
-    match path {
-        "built-ins/Iterator/prototype/some/iterator-already-exhausted.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = (function* () {})();
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "next value");
-assertSameValue(nextResult.done, true, "next done");
-
-var result = iterator.some(function () {
-  return true;
-});
-assertSameValue(result, false, "truthy predicate result");
-
-result = iterator.some(function () {
-  return false;
-});
-assertSameValue(result, false, "falsey predicate result");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/some/iterator-has-no-return.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = [1, 2, 3, 4, 5][Symbol.iterator]();
-assertSameValue(iterator.return, undefined, "return");
-
-var ret = iterator.some(function (value) {
-  return value > 3;
-});
-assertSameValue(ret, true, "some result");
-
-var nextResult = iterator.next();
-assertSameValue(nextResult.done, false, "remaining done");
-assertSameValue(nextResult.value, 5, "remaining value");
-
-nextResult = iterator.next();
-assertSameValue(nextResult.done, true, "final done");
-assertSameValue(nextResult.value, undefined, "final value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/some/predicate-returns-truthy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 0;
-  yield 1;
-  yield 2;
-}
-
-var iter = g();
-var predicateCalls = 0;
-var result = iter.some(function () {
-  predicateCalls = predicateCalls + 1;
-  return true;
-});
-
-assertSameValue(result, true, "result");
-assertSameValue(predicateCalls, 1, "predicate calls");
-
-var nextResult = iter.next();
-assertSameValue(nextResult.done, true, "done");
-assertSameValue(nextResult.value, undefined, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/some/predicate-returns-non-boolean.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var values = ["", null, undefined, 0, 1, 2, 3];
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    return {};
-  },
-};
-
-var predicateCalls = 0;
-var result = iterator.some(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value;
-});
-
-assertSameValue(result, true, "result");
-assertSameValue(predicateCalls, 5, "predicate calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/some/error-from-correct-realm.js" => Some(
-            r#"
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var iter = [].values();
-assertThrowsTypeError(function () { iter.some(); }, "missing callback");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/some/check-fn-after-getting-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var returnCalls = 0;
-var nextGets = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () { return { done: true, value: undefined }; };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-assertThrowsTypeError(function () { iter.some(1); }, "non-callable callback");
-assertSameValue(nextGets, 0, "next not read");
-assertSameValue(returnCalls, 1, "return called");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/some/proxy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var nextGets = 0;
-var nextCalls = 0;
-var returnCalls = 0;
-var value = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (value < 2) {
-        var result = { done: false, value: value };
-        value = value + 1;
-        return result;
-      }
-      return { done: true, value: undefined };
-    };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-var result = iter.some(function (x) {
-  return x % 2 === 1;
-});
-assertSameValue(result, true, "result");
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 2, "next calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/some/fn-throws-close-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: closed, value: 0 }; },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.some(function () { throw new TestError(); });
-}, TestError, "callback throws");
-assertSameValue(closed, true, "callback throw closes");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/some/next-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { throw new TestError(); },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.some(function () { return false; });
-}, TestError, "next throws");
-assertSameValue(closed, false, "next throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/some/value-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: false,
-      get value() {
-        throw new TestError();
-      },
-    };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.some(function () { return false; });
-}, TestError, "value throws");
-assertSameValue(closed, false, "value throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        _ => None,
-    }
-}
-
-fn rewrite_iterator_find_case(path: &str) -> Option<String> {
-    match path {
-        "built-ins/Iterator/prototype/find/iterator-already-exhausted.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = (function* () {})();
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "next value");
-assertSameValue(nextResult.done, true, "next done");
-
-var result = iterator.find(function () {
-  return true;
-});
-assertSameValue(result, undefined, "truthy predicate result");
-
-result = iterator.find(function () {
-  return false;
-});
-assertSameValue(result, undefined, "falsey predicate result");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/find/iterator-has-no-return.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = [1, 2, 3, 4, 5][Symbol.iterator]();
-assertSameValue(iterator.return, undefined, "return");
-
-var ret = iterator.find(function (value) {
-  return value > 3;
-});
-assertSameValue(ret, 4, "find result");
-
-var nextResult = iterator.next();
-assertSameValue(nextResult.done, false, "remaining done");
-assertSameValue(nextResult.value, 5, "remaining value");
-
-nextResult = iterator.next();
-assertSameValue(nextResult.done, true, "final done");
-assertSameValue(nextResult.value, undefined, "final value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/find/predicate-returns-truthy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 0;
-  yield 1;
-  yield 2;
-}
-
-var iter = g();
-var predicateCalls = 0;
-var result = iter.find(function () {
-  predicateCalls = predicateCalls + 1;
-  return true;
-});
-
-assertSameValue(result, 0, "result");
-assertSameValue(predicateCalls, 1, "predicate calls");
-
-var nextResult = iter.next();
-assertSameValue(nextResult.done, true, "done");
-assertSameValue(nextResult.value, undefined, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/find/predicate-returns-falsey.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 0;
-  yield 1;
-  yield 2;
-  yield 3;
-}
-
-var result = g().find(function () {
-  return false;
-});
-assertSameValue(result, undefined, "result");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/find/predicate-returns-non-boolean.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var values = ["", null, undefined, 0, 1, 2, 3];
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    return {};
-  },
-};
-
-var predicateCalls = 0;
-var result = iterator.find(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value;
-});
-
-assertSameValue(result, 1, "result");
-assertSameValue(predicateCalls, 5, "predicate calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/find/error-from-correct-realm.js" => Some(
-            r#"
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var iter = [].values();
-assertThrowsTypeError(function () { iter.find(); }, "missing callback");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/find/check-fn-after-getting-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var returnCalls = 0;
-var nextGets = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () { return { done: true, value: undefined }; };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-assertThrowsTypeError(function () { iter.find(1); }, "non-callable callback");
-assertSameValue(nextGets, 0, "next not read");
-assertSameValue(returnCalls, 1, "return called");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/find/proxy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var nextGets = 0;
-var nextCalls = 0;
-var returnCalls = 0;
-var value = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (value < 2) {
-        var result = { done: false, value: value };
-        value = value + 1;
-        return result;
-      }
-      return { done: true, value: undefined };
-    };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-var result = iter.find(function (x) {
-  return x % 2 === 1;
-});
-assertSameValue(result, 1, "result");
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 2, "next calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/find/fn-throws-close-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: closed, value: 0 }; },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.find(function () { throw new TestError(); });
-}, TestError, "callback throws");
-assertSameValue(closed, true, "callback throw closes");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/find/next-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { throw new TestError(); },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.find(function (x) { return x; });
-}, TestError, "next throws");
-assertSameValue(closed, false, "next throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/find/value-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: false,
-      get value() {
-        throw new TestError();
-      },
-    };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.find(function (x) { return x; });
-}, TestError, "value throws");
-assertSameValue(closed, false, "value throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        _ => None,
-    }
-}
-
-fn rewrite_iterator_reduce_case(path: &str) -> Option<String> {
-    match path {
-        "built-ins/Iterator/prototype/reduce/iterator-already-exhausted-no-initial-value.js" => {
-            Some(
-                r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var iterator = (function* () {})();
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "next value");
-assertSameValue(nextResult.done, true, "next done");
-
-assertThrowsTypeError(function () {
-  iterator.reduce(function () {});
-}, "empty no initial");
-
-var result = iterator.reduce(function () {}, 0);
-assertSameValue(result, 0, "initial result");
-true;
-"#
-                .to_string(),
-            )
-        }
-        "built-ins/Iterator/prototype/reduce/iterator-already-exhausted-initial-value.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = (function* () {})();
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "next value");
-assertSameValue(nextResult.done, true, "next done");
-
-var initialValue = {};
-var result = iterator.reduce(function () {}, initialValue);
-assertSameValue(result, initialValue, "initial result");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/error-from-correct-realm.js" => Some(
-            r#"
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var iter = [].values();
-assertThrowsTypeError(function () { iter.reduce(); }, "missing reducer");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/check-fn-after-getting-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var returnCalls = 0;
-var nextGets = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () { return { done: true, value: undefined }; };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-assertThrowsTypeError(function () { iter.reduce(1); }, "non-callable reducer");
-assertSameValue(nextGets, 0, "next not read");
-assertSameValue(returnCalls, 1, "return called");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/proxy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var nextGets = 0;
-var nextCalls = 0;
-var returnCalls = 0;
-var value = 0;
-var iter = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (value < 2) {
-        var result = { done: false, value: value };
-        value = value + 1;
-        return result;
-      }
-      return { done: true, value: undefined };
-    };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-
-var result = iter.reduce(function (x, y) {
-  return x + y;
-});
-assertSameValue(result, 1, "result");
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 3, "next calls");
-assertSameValue(returnCalls, 0, "return calls");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/iterator-next-return-non-object-throws.js" => Some(
-            r#"
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function makeIterator(value) {
-  return {
-    __proto__: Iterator.prototype,
-    next: function () {
-      return value;
-    },
-  };
-}
-
-var sum = function (x, y) { return x + y; };
-assertThrowsTypeError(function () { makeIterator(undefined).reduce(sum); }, "undefined");
-assertThrowsTypeError(function () { makeIterator(null).reduce(sum); }, "null");
-assertThrowsTypeError(function () { makeIterator(0).reduce(sum); }, "number");
-assertThrowsTypeError(function () { makeIterator(false).reduce(sum); }, "boolean");
-assertThrowsTypeError(function () { makeIterator("").reduce(sum); }, "string");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/next-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () { throw new TestError(); },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.reduce(function (x, y) { return x + y; });
-}, TestError, "next throws");
-assertSameValue(closed, false, "next throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/reducer-throws-iterator-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: closed, value: 0 };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.reduce(function () { throw new TestError(); });
-}, TestError, "reducer throws");
-assertSameValue(closed, true, "reducer throw closes");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/reduce/value-throws-iterator-not-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function TestError() {}
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: false,
-      get value() {
-        throw new TestError();
-      },
-    };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertSameValue(closed, false, "starts unclosed");
-assertThrowsConstructor(function () {
-  iter.reduce(function (x, y) { return x + y; }, 0);
-}, TestError, "value throws");
-assertSameValue(closed, false, "value throw does not close");
-true;
-"#
-            .to_string(),
-        ),
-        _ => None,
-    }
-}
-
-fn iterator_map_rewrite(body: &str) -> String {
-    let mut source = r#"
-function assert(value, label) {
-  if (!value) {
-    throw label;
-  }
-}
-
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-function assertThrowsConstructor(callback, constructor, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof constructor;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-"#
-    .to_string();
-    source.push_str(body);
-    source
-}
-
-fn rewrite_iterator_map_case(path: &str) -> Option<String> {
-    match path {
-        "built-ins/Iterator/prototype/map/is-function.js" => Some(iterator_map_rewrite(
-            r#"
-assertSameValue(typeof Iterator.prototype.map, "function", "typeof map");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/proto.js" => Some(iterator_map_rewrite(
-            r#"
-assertSameValue(Object.getPrototypeOf(Iterator.prototype.map), Function.prototype, "prototype");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/callable.js" => Some(iterator_map_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-Iterator.prototype.map.call(iter, function () { return 0; });
-iter.map(function () { return 0; });
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/result-is-iterator.js" => Some(iterator_map_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-var helper = iter.map(function () { return 0; });
-assertSameValue(helper[Symbol.iterator](), helper, "helper identity iterator");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/non-constructible.js" => Some(iterator_map_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-assertThrowsTypeError(function () {
-  new iter.map();
-}, "new iter.map no args");
-assertThrowsTypeError(function () {
-  new iter.map(function () { return 0; });
-}, "new iter.map");
-assertThrowsTypeError(function () {
-  new Iterator.prototype.map(function () { return 0; });
-}, "new prototype map");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/this-non-object.js" => Some(iterator_map_rewrite(
-            r#"
-assertThrowsTypeError(function () {
-  Iterator.prototype.map.call(null, function () { return 0; });
-}, "null receiver");
-assertThrowsTypeError(function () {
-  Iterator.prototype.map.call(0, function () { return 0; });
-}, "number receiver");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/argument-effect-order.js" => Some(iterator_map_rewrite(
-            r#"
-var effects = [];
-assertThrowsTypeError(function () {
-  Iterator.prototype.map.call(
-    {
-      get next() {
-        effects.push("get next");
-        return function () {
-          return { done: true, value: undefined };
-        };
-      },
-    },
-    {
-      valueOf: function () {
-        effects.push("valueOf mapper");
-        return function () { return []; };
-      },
-    }
-  );
-}, "non-callable mapper");
-assertSameValue(effects.length, 0, "effect count");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/argument-validation-failure-closes-underlying.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var closed = false;
-var closable = {
-  __proto__: Iterator.prototype,
-  get next() {
-    throw "next should not be read";
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-
-assertThrowsTypeError(function () {
-  closable.map();
-}, "missing mapper");
-assertSameValue(closed, true, "missing closes");
-
-closed = false;
-assertThrowsTypeError(function () {
-  closable.map({});
-}, "object mapper");
-assertSameValue(closed, true, "object closes");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/non-callable-mapper.js" => Some(iterator_map_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-assertThrowsTypeError(function () {
-  iterator.map({});
-}, "non-callable mapper");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/this-non-callable-next.js" => Some(iterator_map_rewrite(
-            r#"
-var helper = Iterator.prototype.map.call({ next: 0 }, function (value) {
-  return value;
-});
-assertThrowsTypeError(function () {
-  helper.next();
-}, "non-callable next");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/get-next-method-throws.js" => Some(iterator_map_rewrite(
-            r#"
-function NextSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    throw new NextSentinel();
-  },
-};
-assertThrowsConstructor(function () {
-  iterator.map(function () { return 0; });
-}, NextSentinel, "next getter throws");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/get-next-method-only-once.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var nextGets = 0;
-var nextCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    var index = 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (index < 5) {
-        var value = index;
-        index = index + 1;
-        return { done: false, value: value };
-      }
-      return { done: true, value: undefined };
-    };
-  },
-};
-
-var helper = iterator.map(function () { return 0; });
-assertSameValue(nextGets, 1, "next gets after map");
-assertSameValue(nextCalls, 0, "next calls after map");
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 5, "next calls");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/next-method-throws.js" => Some(iterator_map_rewrite(
-            r#"
-function NextSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    throw new NextSentinel();
-  },
-};
-var helper = iterator.map(function () { return 0; });
-assertThrowsConstructor(function () {
-  helper.next();
-}, NextSentinel, "next throws");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/next-method-returns-non-object.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return null;
-  },
-};
-var helper = iterator.map(function () { return 0; });
-assertThrowsTypeError(function () {
-  helper.next();
-}, "next result non-object");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/next-method-returns-throwing-done.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function DoneSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      get done() {
-        throw new DoneSentinel();
-      },
-      value: 1,
-    };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.map(function () { return 0; });
-assertThrowsConstructor(function () {
-  helper.next();
-}, DoneSentinel, "done getter throws");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/next-method-returns-throwing-value.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function ValueSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: false,
-      get value() {
-        throw new ValueSentinel();
-      },
-    };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.map(function () { return 0; });
-assertThrowsConstructor(function () {
-  helper.next();
-}, ValueSentinel, "value getter throws");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/next-method-returns-throwing-value-done.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: true,
-      get value() {
-        throw "value should not be read";
-      },
-    };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.map(function () { return 0; });
-var step = helper.next();
-assertSameValue(step.done, true, "done");
-assertSameValue(step.value, undefined, "value");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/mapper-args.js" => Some(iterator_map_rewrite(
-            r#"
-var values = ["a", "b", "c", "d", "e"];
-var index = 0;
-var assertionCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.map(function (value, count) {
-  if (value === "a") assertSameValue(count, 0, "a count");
-  if (value === "b") assertSameValue(count, 1, "b count");
-  if (value === "c") assertSameValue(count, 2, "c count");
-  if (value === "d") assertSameValue(count, 3, "d count");
-  if (value === "e") assertSameValue(count, 4, "e count");
-  assertionCount = assertionCount + 1;
-  return count;
-});
-assertSameValue(assertionCount, 0, "lazy");
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-assertSameValue(assertionCount, 5, "assertions");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/mapper-this.js" => Some(iterator_map_rewrite(
-            r#"
-var called = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: called > 0, value: 0 };
-  },
-};
-var helper = iterator.map(function (value, count) {
-  "use strict";
-  assertSameValue(this, undefined, "mapper this");
-  called = called + 1;
-  return value;
-});
-helper.next();
-assertSameValue(called, 1, "called");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/mapper-throws.js" => Some(iterator_map_rewrite(
-            r#"
-function MapperSentinel() {}
-var callbackCalls = 0;
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-var helper = iterator.map(function () {
-  callbackCalls = callbackCalls + 1;
-  throw new MapperSentinel();
-});
-assertThrowsConstructor(function () {
-  helper.next();
-}, MapperSentinel, "mapper throws");
-assertSameValue(callbackCalls, 1, "callback calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/mapper-throws-then-closing-iterator-also-throws.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function MapperSentinel() {}
-function ReturnSentinel() {}
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    throw new ReturnSentinel();
-  },
-};
-var helper = iterator.map(function () {
-  throw new MapperSentinel();
-});
-assertSameValue(returnCalls, 0, "return before next");
-assertThrowsConstructor(function () {
-  helper.next();
-}, MapperSentinel, "mapper throw preserved");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/returned-iterator-yields-mapper-return-values.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function makeRange() {
-  var index = 0;
-  return {
-    __proto__: Iterator.prototype,
-    next: function () {
-      if (index >= 5) {
-        return { done: true, value: undefined };
-      }
-      var value = index;
-      index = index + 1;
-      return { done: false, value: value };
-    },
-  };
-}
-
-var helper = makeRange().map(function (value) { return value; });
-assertSameValue(helper.next().value, 0, "identity 0");
-assertSameValue(helper.next().value, 1, "identity 1");
-assertSameValue(helper.next().value, 2, "identity 2");
-assertSameValue(helper.next().value, 3, "identity 3");
-assertSameValue(helper.next().value, 4, "identity 4");
-assertSameValue(helper.next().done, true, "identity done");
-
-helper = makeRange().map(function () { return 0; });
-assertSameValue(helper.next().value, 0, "zero 0");
-assertSameValue(helper.next().value, 0, "zero 1");
-
-helper = makeRange()
-  .map(function () { return 0; })
-  .map(function (value, count) { return count; });
-assertSameValue(helper.next().value, 0, "count 0");
-assertSameValue(helper.next().value, 1, "count 1");
-assertSameValue(helper.next().value, 2, "count 2");
-
-helper = makeRange().map(function (value) { return value * 2; });
-assertSameValue(helper.next().value, 0, "double 0");
-assertSameValue(helper.next().value, 2, "double 1");
-assertSameValue(helper.next().value, 4, "double 2");
-
-var obj = {};
-helper = makeRange().map(function () { return obj; });
-assertSameValue(helper.next().value, obj, "object 0");
-assertSameValue(helper.next().value, obj, "object 1");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/return-is-forwarded-to-underlying-iterator.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var returnCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    returnCount = returnCount + 1;
-    return {};
-  },
-};
-var helper = iterator.map(function () { return 0; });
-assertSameValue(returnCount, 0, "before return");
-helper.return();
-assertSameValue(returnCount, 1, "first return");
-helper.return();
-assertSameValue(returnCount, 1, "second return");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/iterator-return-method-throws.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function ReturnSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 0 };
-  },
-  return: function () {
-    throw new ReturnSentinel();
-  },
-};
-var helper = iterator.map(function () { return 0; });
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "return throws");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/get-return-method-throws.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function ReturnSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  get return() {
-    throw new ReturnSentinel();
-  },
-};
-var helper = iterator.map(function () { return 0; });
-helper.next();
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "return getter throws");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/return-is-not-forwarded-after-exhaustion.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function ReturnSentinel() {}
-function makeDoneIterator() {
-  return {
-    __proto__: Iterator.prototype,
-    next: function () {
-      return { done: true, value: undefined };
-    },
-    return: function () {
-      throw new ReturnSentinel();
-    },
-  };
-}
-
-var helper = makeDoneIterator().map(function () { return 0; });
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "return before exhaustion");
-helper.next();
-helper.return();
-
-helper = makeDoneIterator().map(function () { return 0; });
-helper.next();
-helper.return();
-
-helper = makeDoneIterator()
-  .map(function (value) { return value; })
-  .map(function (value) { return value; })
-  .map(function (value) { return value; });
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "chain return before exhaustion");
-helper.next();
-helper.return();
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/exhaustion-does-not-call-return.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 3) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.map(function () { return 0; });
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/iterator-already-exhausted.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-var step = iterator.next();
-assertSameValue(step.value, undefined, "base value");
-assertSameValue(step.done, true, "base done");
-var helper = iterator.map(function () { return 0; });
-step = helper.next();
-assertSameValue(step.value, undefined, "helper value");
-assertSameValue(step.done, true, "helper done");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/this-plain-iterator.js" => Some(iterator_map_rewrite(
-            r#"
-var count = 3;
-var iter = {
-  next: function () {
-    count = count - 1;
-    if (count >= 0) {
-      return { done: false, value: count };
-    }
-    return { done: true, value: undefined };
-  },
-};
-
-var mapperCalls = 0;
-var helper = Iterator.prototype.map.call(iter, function (value) {
-  mapperCalls = mapperCalls + 1;
-  return value;
-});
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-assertSameValue(mapperCalls, 3, "mapper calls");
-true;
-"#,
-        )),
-        "built-ins/Iterator/prototype/map/throws-typeerror-when-generator-is-running.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var loopCount = 0;
-var enterCount = 0;
-var iter;
-var source = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    loopCount = loopCount + 1;
-    return { done: false, value: undefined };
-  },
-  return: function () {
-    return {};
-  },
-};
-function mapper() {
-  enterCount = enterCount + 1;
-  iter.next();
-}
-iter = source.map(mapper);
-assertThrowsTypeError(function () {
-  iter.next();
-}, "reentrant next");
-assertSameValue(loopCount, 1, "loop count");
-assertSameValue(enterCount, 1, "enter count");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/underlying-iterator-advanced-in-parallel.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 5) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var mapped = iterator.map(function (value) { return value; });
-var step = iterator.next();
-assertSameValue(step.value, 0, "direct value");
-assertSameValue(step.done, false, "direct done");
-iterator.next();
-iterator.next();
-step = mapped.next();
-assertSameValue(step.value, 3, "mapped value 3");
-assertSameValue(step.done, false, "mapped done 3");
-step = mapped.next();
-assertSameValue(step.value, 4, "mapped value 4");
-assertSameValue(step.done, false, "mapped done 4");
-step = mapped.next();
-assertSameValue(step.value, undefined, "mapped value done");
-assertSameValue(step.done, true, "mapped done");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/underlying-iterator-closed-in-parallel.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var closed = false;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-var mapped = iterator.map(function () { return 0; });
-iterator.return();
-var step = mapped.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-            ))
-        }
-        "built-ins/Iterator/prototype/map/underlying-iterator-closed.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var closed = false;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-iterator.return();
-var mapped = iterator.map(function () { return 0; });
-var step = mapped.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-            ))
-        }
-        "staging/sm/Iterator/prototype/map/clobber-symbol.js" => Some(iterator_map_rewrite(
-            r#"
-Symbol = undefined;
-var iterator = [0].values();
-var helper = iterator.map(function (value) {
-  return value + 1;
-});
-var step = helper.next();
-assertSameValue(step.value, 1, "mapped value");
-assertSameValue(step.done, false, "mapped done");
-true;
-"#,
-        )),
-        "staging/sm/Iterator/prototype/map/proxy-abrupt-completion-in-iteratorValue.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function TestError() {}
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    throw new TestError();
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-var helper = iterator.map(function (value) {
-  return value;
-});
-assertThrowsConstructor(function () {
-  helper.next();
-}, TestError, "next throws");
-assertSameValue(returnCalls, 0, "next throw does not close");
-true;
-"#,
-            ))
-        }
-        "staging/sm/Iterator/prototype/map/proxy-abrupt-completion.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-function TestError() {}
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 0 };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-var helper = iterator.map(function () {
-  throw new TestError();
-});
-assertThrowsConstructor(function () {
-  helper.next();
-}, TestError, "mapper throws");
-assertSameValue(returnCalls, 1, "mapper throw closes");
-true;
-"#,
-            ))
-        }
-        "staging/sm/Iterator/prototype/map/proxy-abrupt-completion-in-yield.js" => {
-            Some(iterator_map_rewrite(
-                r#"
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 0 };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-var helper = iterator.map(function (value) {
-  return value;
-});
-var step = helper.next();
-assertSameValue(step.done, false, "first done");
-assertSameValue(step.value, 0, "first value");
-step = helper.return();
-assertSameValue(step.done, true, "return done");
-assertSameValue(returnCalls, 1, "return closes iterator");
-step = helper.next();
-assertSameValue(step.done, true, "after return done");
-assertSameValue(returnCalls, 1, "after return no extra close");
-true;
-"#,
-            ))
-        }
-        "staging/sm/Iterator/prototype/map/proxy-accesses.js" => Some(iterator_map_rewrite(
-            r#"
-var nextGets = 0;
-var nextCalls = 0;
-var returnCalls = 0;
-var value = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (value < 3) {
-        var current = value;
-        value = value + 1;
-        return { done: false, value: current };
-      }
-      return { done: true, value: undefined };
-    };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-var helper = iterator.map(function (x) {
-  return x;
-});
-assertSameValue(helper.next().value, 0, "value 0");
-assertSameValue(helper.next().value, 1, "value 1");
-assertSameValue(helper.next().value, 2, "value 2");
-assertSameValue(helper.next().done, true, "done");
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 4, "next calls");
-assertSameValue(returnCalls, 0, "return calls");
-true;
-"#,
-        )),
-        _ => None,
-    }
-}
-
-fn iterator_filter_rewrite(body: &str) -> String {
-    iterator_map_rewrite(body)
-}
-
-fn rewrite_iterator_filter_case(path: &str) -> Option<String> {
-    let leaf = path.strip_prefix("built-ins/Iterator/prototype/filter/")?;
-    match leaf {
-        "is-function.js" => Some(iterator_filter_rewrite(
-            r#"
-assertSameValue(typeof Iterator.prototype.filter, "function", "typeof filter");
-true;
-"#,
-        )),
-        "proto.js" => Some(iterator_filter_rewrite(
-            r#"
-assertSameValue(Object.getPrototypeOf(Iterator.prototype.filter), Function.prototype, "prototype");
-true;
-"#,
-        )),
-        "callable.js" => Some(iterator_filter_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-Iterator.prototype.filter.call(iter, function () { return true; });
-iter.filter(function () { return true; });
-true;
-"#,
-        )),
-        "result-is-iterator.js" => Some(iterator_filter_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-var helper = iter.filter(function () { return true; });
-assertSameValue(helper[Symbol.iterator](), helper, "helper identity iterator");
-true;
-"#,
-        )),
-        "non-constructible.js" => Some(iterator_filter_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-assertThrowsTypeError(function () {
-  new iter.filter();
-}, "new iter.filter no args");
-assertThrowsTypeError(function () {
-  new iter.filter(function () { return true; });
-}, "new iter.filter");
-assertThrowsTypeError(function () {
-  new Iterator.prototype.filter(function () { return true; });
-}, "new prototype filter");
-true;
-"#,
-        )),
-        "this-non-object.js" => Some(iterator_filter_rewrite(
-            r#"
-assertThrowsTypeError(function () {
-  Iterator.prototype.filter.call(null, function () { return true; });
-}, "null receiver");
-assertThrowsTypeError(function () {
-  Iterator.prototype.filter.call(0, function () { return true; });
-}, "number receiver");
-true;
-"#,
-        )),
-        "argument-effect-order.js" => Some(iterator_filter_rewrite(
-            r#"
-var effects = [];
-assertThrowsTypeError(function () {
-  Iterator.prototype.filter.call(
-    {
-      get next() {
-        effects.push("get next");
-        return function () {
-          return { done: true, value: undefined };
-        };
-      },
-    },
-    {
-      valueOf: function () {
-        effects.push("valueOf predicate");
-        return function () { return true; };
-      },
-    }
-  );
-}, "non-callable predicate");
-assertSameValue(effects.length, 0, "effect count");
-true;
-"#,
-        )),
-        "argument-validation-failure-closes-underlying.js" => Some(iterator_filter_rewrite(
-            r#"
-var closed = false;
-var closable = {
-  __proto__: Iterator.prototype,
-  get next() {
-    throw "next should not be read";
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-
-assertThrowsTypeError(function () {
-  closable.filter();
-}, "missing predicate");
-assertSameValue(closed, true, "missing closes");
-
-closed = false;
-assertThrowsTypeError(function () {
-  closable.filter({});
-}, "object predicate");
-assertSameValue(closed, true, "object closes");
-true;
-"#,
-        )),
-        "non-callable-predicate.js" => Some(iterator_filter_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-assertThrowsTypeError(function () {
-  iterator.filter({});
-}, "non-callable predicate");
-true;
-"#,
-        )),
-        "this-non-callable-next.js" => Some(iterator_filter_rewrite(
-            r#"
-var helper = Iterator.prototype.filter.call({ next: 0 }, function () {
-  return true;
-});
-assertThrowsTypeError(function () {
-  helper.next();
-}, "non-callable next");
-true;
-"#,
-        )),
-        "get-next-method-throws.js" => Some(iterator_filter_rewrite(
-            r#"
-function NextSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    throw new NextSentinel();
-  },
-};
-assertThrowsConstructor(function () {
-  iterator.filter(function () { return true; });
-}, NextSentinel, "next getter throws");
-true;
-"#,
-        )),
-        "get-next-method-only-once.js" => Some(iterator_filter_rewrite(
-            r#"
-var nextGets = 0;
-var nextCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    var index = 1;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (index < 5) {
-        var value = index;
-        index = index + 1;
-        return { done: false, value: value };
-      }
-      return { done: true, value: undefined };
-    };
-  },
-};
-
-var helper = iterator.filter(function () { return true; });
-assertSameValue(nextGets, 1, "next gets after filter");
-assertSameValue(nextCalls, 0, "next calls after filter");
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 5, "next calls");
-true;
-"#,
-        )),
-        "next-method-throws.js" => Some(iterator_filter_rewrite(
-            r#"
-function NextSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    throw new NextSentinel();
-  },
-};
-var helper = iterator.filter(function () { return true; });
-assertThrowsConstructor(function () {
-  helper.next();
-}, NextSentinel, "next throws");
-true;
-"#,
-        )),
-        "next-method-returns-non-object.js" => Some(iterator_filter_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return null;
-  },
-};
-var helper = iterator.filter(function () { return true; });
-assertThrowsTypeError(function () {
-  helper.next();
-}, "next result non-object");
-true;
-"#,
-        )),
-        "next-method-returns-throwing-done.js" => Some(iterator_filter_rewrite(
-            r#"
-function DoneSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      get done() {
-        throw new DoneSentinel();
-      },
-      value: 1,
-    };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.filter(function () { return true; });
-assertThrowsConstructor(function () {
-  helper.next();
-}, DoneSentinel, "done getter throws");
-true;
-"#,
-        )),
-        "next-method-returns-throwing-value.js" => Some(iterator_filter_rewrite(
-            r#"
-function ValueSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: false,
-      get value() {
-        throw new ValueSentinel();
-      },
-    };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.filter(function () { return true; });
-assertThrowsConstructor(function () {
-  helper.next();
-}, ValueSentinel, "value getter throws");
-true;
-"#,
-        )),
-        "next-method-returns-throwing-value-done.js" => Some(iterator_filter_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return {
-      done: true,
-      get value() {
-        throw "value should not be read";
-      },
-    };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.filter(function () { return true; });
-var step = helper.next();
-assertSameValue(step.done, true, "done");
-assertSameValue(step.value, undefined, "value");
-true;
-"#,
-        )),
-        "predicate-args.js" => Some(iterator_filter_rewrite(
-            r#"
-var values = ["a", "b", "c", "d", "e"];
-var index = 0;
-var assertionCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.filter(function (value, count) {
-  if (value === "a") assertSameValue(count, 0, "a count");
-  if (value === "b") assertSameValue(count, 1, "b count");
-  if (value === "c") assertSameValue(count, 2, "c count");
-  if (value === "d") assertSameValue(count, 3, "d count");
-  if (value === "e") assertSameValue(count, 4, "e count");
-  assertionCount = assertionCount + 1;
-  return count % 2 === 0;
-});
-assertSameValue(assertionCount, 0, "lazy");
-assertSameValue(helper.next().value, "a", "first kept");
-assertSameValue(helper.next().value, "c", "second kept");
-assertSameValue(helper.next().value, "e", "third kept");
-assertSameValue(helper.next().done, true, "done");
-assertSameValue(assertionCount, 5, "assertions");
-true;
-"#,
-        )),
-        "predicate-this.js" => Some(iterator_filter_rewrite(
-            r#"
-var called = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: called > 0, value: 0 };
-  },
-};
-var helper = iterator.filter(function (value, count) {
-  "use strict";
-  assertSameValue(this, undefined, "predicate this");
-  called = called + 1;
-  return true;
-});
-helper.next();
-assertSameValue(called, 1, "called");
-true;
-"#,
-        )),
-        "predicate-throws.js" => Some(iterator_filter_rewrite(
-            r#"
-function PredicateSentinel() {}
-var callbackCalls = 0;
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    return {};
-  },
-};
-var helper = iterator.filter(function () {
-  callbackCalls = callbackCalls + 1;
-  throw new PredicateSentinel();
-});
-assertThrowsConstructor(function () {
-  helper.next();
-}, PredicateSentinel, "predicate throws");
-assertSameValue(callbackCalls, 1, "callback calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-        )),
-        "predicate-throws-then-closing-iterator-also-throws.js" => Some(iterator_filter_rewrite(
-            r#"
-function PredicateSentinel() {}
-function ReturnSentinel() {}
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    returnCalls = returnCalls + 1;
-    throw new ReturnSentinel();
-  },
-};
-var helper = iterator.filter(function () {
-  throw new PredicateSentinel();
-});
-assertSameValue(returnCalls, 0, "return before next");
-assertThrowsConstructor(function () {
-  helper.next();
-}, PredicateSentinel, "predicate throw preserved");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-        )),
-        "predicate-filters.js" => Some(iterator_filter_rewrite(
-            r#"
-var values = [1, 0, 2, 0, 3, 0, 4];
-var index = 0;
-var predicateCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.filter(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value !== 0;
-});
-assertSameValue(predicateCalls, 0, "lazy");
-assertSameValue(helper.next().value, 1, "value 1");
-assertSameValue(helper.next().value, 2, "value 2");
-assertSameValue(helper.next().value, 3, "value 3");
-assertSameValue(helper.next().value, 4, "value 4");
-assertSameValue(helper.next().done, true, "done");
-assertSameValue(predicateCalls, 7, "predicate calls");
-true;
-"#,
-        )),
-        "predicate-returns-non-boolean.js" => Some(iterator_filter_rewrite(
-            r#"
-var values = [0, 0, 0, 1];
-var index = 0;
-var predicateCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) {
-      return { done: true, value: undefined };
-    }
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.filter(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value;
-});
-assertSameValue(predicateCalls, 0, "lazy");
-var step = helper.next();
-assertSameValue(step.value, 1, "truthy value");
-assertSameValue(step.done, false, "truthy done");
-assertSameValue(predicateCalls, 4, "scanned to truthy");
-step = helper.next();
-assertSameValue(step.done, true, "done");
-assertSameValue(predicateCalls, 4, "no predicate after exhaustion");
-true;
-"#,
-        )),
-        "return-is-forwarded.js" => Some(iterator_filter_rewrite(
-            r#"
-var returnCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    returnCount = returnCount + 1;
-    return {};
-  },
-};
-var helper = iterator.filter(function () { return true; });
-assertSameValue(returnCount, 0, "before return");
-helper.return();
-assertSameValue(returnCount, 1, "first return");
-helper.return();
-assertSameValue(returnCount, 1, "second return");
-true;
-"#,
-        )),
-        "iterator-return-method-throws.js" => Some(iterator_filter_rewrite(
-            r#"
-function ReturnSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 0 };
-  },
-  return: function () {
-    throw new ReturnSentinel();
-  },
-};
-var helper = iterator.filter(function () { return true; });
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "return throws");
-true;
-"#,
-        )),
-        "get-return-method-throws.js" => Some(iterator_filter_rewrite(
-            r#"
-function ReturnSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  get return() {
-    throw new ReturnSentinel();
-  },
-};
-var helper = iterator.filter(function () { return true; });
-helper.next();
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "return getter throws");
-true;
-"#,
-        )),
-        "return-is-not-forwarded-after-exhaustion.js" => Some(iterator_filter_rewrite(
-            r#"
-function ReturnSentinel() {}
-function makeDoneIterator() {
-  return {
-    __proto__: Iterator.prototype,
-    next: function () {
-      return { done: true, value: undefined };
-    },
-    return: function () {
-      throw new ReturnSentinel();
-    },
-  };
-}
-
-var helper = makeDoneIterator().filter(function () { return true; });
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "return before exhaustion");
-helper.next();
-helper.return();
-
-helper = makeDoneIterator().filter(function () { return true; });
-helper.next();
-helper.return();
-
-helper = makeDoneIterator()
-  .filter(function (value) { return true; })
-  .filter(function (value) { return true; })
-  .filter(function (value) { return true; });
-assertThrowsConstructor(function () {
-  helper.return();
-}, ReturnSentinel, "chain return before exhaustion");
-helper.next();
-helper.return();
-true;
-"#,
-        )),
-        "exhaustion-does-not-call-return.js" => Some(iterator_filter_rewrite(
-            r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 3) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    throw "return should not run";
-  },
-};
-var helper = iterator.filter(function () { return true; });
-helper.next();
-helper.next();
-helper.next();
-helper.next();
-true;
-"#,
-        )),
-        "iterator-already-exhausted.js" => Some(iterator_filter_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-var step = iterator.next();
-assertSameValue(step.value, undefined, "base value");
-assertSameValue(step.done, true, "base done");
-var helper = iterator.filter(function () { return true; });
-step = helper.next();
-assertSameValue(step.value, undefined, "helper value");
-assertSameValue(step.done, true, "helper done");
-true;
-"#,
-        )),
-        "this-plain-iterator.js" => Some(iterator_filter_rewrite(
-            r#"
-var count = 3;
-var iter = {
-  next: function () {
-    count = count - 1;
-    if (count >= 0) {
-      return { done: false, value: count };
-    }
-    return { done: true, value: undefined };
-  },
-};
-
-var predicateCalls = 0;
-var helper = Iterator.prototype.filter.call(iter, function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value !== 1;
-});
-assertSameValue(helper.next().value, 2, "value 2");
-assertSameValue(helper.next().value, 0, "value 0");
-assertSameValue(helper.next().done, true, "done");
-assertSameValue(predicateCalls, 3, "predicate calls");
-true;
-"#,
-        )),
-        "throws-typeerror-when-generator-is-running.js" => Some(iterator_filter_rewrite(
-            r#"
-var loopCount = 0;
-var enterCount = 0;
-var iter;
-var source = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    loopCount = loopCount + 1;
-    return { done: false, value: undefined };
-  },
-  return: function () {
-    return {};
-  },
-};
-function predicate() {
-  enterCount = enterCount + 1;
-  iter.next();
-  return true;
-}
-iter = source.filter(predicate);
-assertThrowsTypeError(function () {
-  iter.next();
-}, "reentrant next");
-assertSameValue(loopCount, 1, "loop count");
-assertSameValue(enterCount, 1, "enter count");
-true;
-"#,
-        )),
-        "underlying-iterator-advanced-in-parallel.js" => Some(iterator_filter_rewrite(
-            r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 5) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var filtered = iterator.filter(function (value) { return true; });
-var step = iterator.next();
-assertSameValue(step.value, 0, "direct value");
-assertSameValue(step.done, false, "direct done");
-iterator.next();
-iterator.next();
-step = filtered.next();
-assertSameValue(step.value, 3, "filtered value 3");
-assertSameValue(step.done, false, "filtered done 3");
-step = filtered.next();
-assertSameValue(step.value, 4, "filtered value 4");
-assertSameValue(step.done, false, "filtered done 4");
-step = filtered.next();
-assertSameValue(step.value, undefined, "filtered value done");
-assertSameValue(step.done, true, "filtered done");
-true;
-"#,
-        )),
-        "underlying-iterator-closed-in-parallel.js" => Some(iterator_filter_rewrite(
-            r#"
-var closed = false;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-var filtered = iterator.filter(function () { return true; });
-iterator.return();
-var step = filtered.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-        )),
-        "underlying-iterator-closed.js" => Some(iterator_filter_rewrite(
-            r#"
-var closed = false;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-iterator.return();
-var filtered = iterator.filter(function () { return true; });
-var step = filtered.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-        )),
-        _ => None,
-    }
-}
-
-fn iterator_flat_map_rewrite(body: &str) -> String {
-    iterator_map_rewrite(body)
-}
-
-fn rewrite_iterator_flat_map_case(path: &str) -> Option<String> {
-    let leaf = path.strip_prefix("built-ins/Iterator/prototype/flatMap/")?;
-    match leaf {
-        "is-function.js" => Some(iterator_flat_map_rewrite(
-            r#"
-assertSameValue(typeof Iterator.prototype.flatMap, "function", "typeof flatMap");
-true;
-"#,
-        )),
-        "proto.js" => Some(iterator_flat_map_rewrite(
-            r#"
-assertSameValue(Object.getPrototypeOf(Iterator.prototype.flatMap), Function.prototype, "prototype");
-true;
-"#,
-        )),
-        "callable.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-Iterator.prototype.flatMap.call(iter, function () { return []; });
-iter.flatMap(function () { return []; });
-true;
-"#,
-        )),
-        "result-is-iterator.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-var helper = iter.flatMap(function () { return []; });
-assertSameValue(helper[Symbol.iterator](), helper, "helper identity iterator");
-true;
-"#,
-        )),
-        "non-constructible.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-assertThrowsTypeError(function () {
-  new iter.flatMap();
-}, "new iter.flatMap no args");
-assertThrowsTypeError(function () {
-  new iter.flatMap(function () { return []; });
-}, "new iter.flatMap");
-assertThrowsTypeError(function () {
-  new Iterator.prototype.flatMap(function () { return []; });
-}, "new prototype flatMap");
-true;
-"#,
-        )),
-        "this-non-object.js" => Some(iterator_flat_map_rewrite(
-            r#"
-assertThrowsTypeError(function () {
-  Iterator.prototype.flatMap.call(null, function () { return []; });
-}, "null receiver");
-assertThrowsTypeError(function () {
-  Iterator.prototype.flatMap.call(0, function () { return []; });
-}, "number receiver");
-true;
-"#,
-        )),
-        "argument-effect-order.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var effects = [];
-assertThrowsTypeError(function () {
-  Iterator.prototype.flatMap.call(
-    {
-      get next() {
-        effects.push("get next");
-        return function () {
-          return { done: true, value: undefined };
-        };
-      },
-    },
-    {
-      valueOf: function () {
-        effects.push("valueOf mapper");
-        return function () { return []; };
-      },
-    }
-  );
-}, "non-callable mapper");
-assertSameValue(effects.length, 0, "effect count");
-true;
-"#,
-        )),
-        "argument-validation-failure-closes-underlying.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var closed = false;
-var closable = {
-  __proto__: Iterator.prototype,
-  get next() {
-    throw "next should not be read";
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-assertThrowsTypeError(function () { closable.flatMap(); }, "missing mapper");
-assertSameValue(closed, true, "missing closes");
-closed = false;
-assertThrowsTypeError(function () { closable.flatMap({}); }, "object mapper");
-assertSameValue(closed, true, "object closes");
-true;
-"#,
-        )),
-        "non-callable-mapper.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, value: undefined };
-  },
-};
-assertThrowsTypeError(function () { iterator.flatMap({}); }, "non-callable mapper");
-true;
-"#,
-        )),
-        "this-non-callable-next.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var helper = Iterator.prototype.flatMap.call({ next: 0 }, function () { return []; });
-assertThrowsTypeError(function () { helper.next(); }, "non-callable next");
-true;
-"#,
-        )),
-        "get-next-method-throws.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function NextSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    throw new NextSentinel();
-  },
-};
-assertThrowsConstructor(function () {
-  iterator.flatMap(function () { return []; });
-}, NextSentinel, "next getter throws");
-true;
-"#,
-        )),
-        "get-next-method-only-once.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var nextGets = 0;
-var nextCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  get next() {
-    nextGets = nextGets + 1;
-    var index = 0;
-    return function () {
-      nextCalls = nextCalls + 1;
-      if (index < 4) {
-        index = index + 1;
-        return { done: false, value: index };
-      }
-      return { done: true, value: undefined };
-    };
-  },
-};
-var helper = iterator.flatMap(function (value) { return [value]; });
-assertSameValue(nextGets, 1, "next gets after flatMap");
-assertSameValue(nextCalls, 0, "next calls after flatMap");
-helper.next(); helper.next(); helper.next(); helper.next(); helper.next();
-assertSameValue(nextGets, 1, "next gets");
-assertSameValue(nextCalls, 5, "next calls");
-true;
-"#,
-        )),
-        "next-method-throws.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function NextSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { throw new NextSentinel(); },
-};
-var helper = iterator.flatMap(function () { return []; });
-assertThrowsConstructor(function () { helper.next(); }, NextSentinel, "next throws");
-true;
-"#,
-        )),
-        "next-method-returns-non-object.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return null; },
-};
-var helper = iterator.flatMap(function () { return []; });
-assertThrowsTypeError(function () { helper.next(); }, "next result non-object");
-true;
-"#,
-        )),
-        "next-method-returns-throwing-done.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function DoneSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { get done() { throw new DoneSentinel(); }, value: 1 };
-  },
-  return: function () { throw "return should not run"; },
-};
-var helper = iterator.flatMap(function () { return []; });
-assertThrowsConstructor(function () { helper.next(); }, DoneSentinel, "done getter throws");
-true;
-"#,
-        )),
-        "next-method-returns-throwing-value.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function ValueSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, get value() { throw new ValueSentinel(); } };
-  },
-  return: function () { throw "return should not run"; },
-};
-var helper = iterator.flatMap(function () { return []; });
-assertThrowsConstructor(function () { helper.next(); }, ValueSentinel, "value getter throws");
-true;
-"#,
-        )),
-        "next-method-returns-throwing-value-done.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: true, get value() { throw "value should not be read"; } };
-  },
-  return: function () { throw "return should not run"; },
-};
-var helper = iterator.flatMap(function () { return []; });
-var step = helper.next();
-assertSameValue(step.done, true, "done");
-assertSameValue(step.value, undefined, "value");
-true;
-"#,
-        )),
-        "mapper-args.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var values = ["a", "b", "c", "d", "e"];
-var index = 0;
-var assertionCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= values.length) return { done: true, value: undefined };
-    var value = values[index];
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.flatMap(function (value, count) {
-  if (value === "a") assertSameValue(count, 0, "a count");
-  if (value === "b") assertSameValue(count, 1, "b count");
-  if (value === "c") assertSameValue(count, 2, "c count");
-  if (value === "d") assertSameValue(count, 3, "d count");
-  if (value === "e") assertSameValue(count, 4, "e count");
-  assertionCount = assertionCount + 1;
-  return [count];
-});
-assertSameValue(assertionCount, 0, "lazy");
-assertSameValue(helper.next().value, 0, "first");
-assertSameValue(helper.next().value, 1, "second");
-assertSameValue(helper.next().value, 2, "third");
-assertSameValue(helper.next().value, 3, "fourth");
-assertSameValue(helper.next().value, 4, "fifth");
-assertSameValue(helper.next().done, true, "done");
-assertSameValue(assertionCount, 5, "assertions");
-true;
-"#,
-        )),
-        "mapper-this.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var called = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: called > 0, value: 0 };
-  },
-};
-var helper = iterator.flatMap(function (value, count) {
-  "use strict";
-  assertSameValue(this, undefined, "mapper this");
-  called = called + 1;
-  return [value];
-});
-helper.next();
-assertSameValue(called, 1, "called");
-true;
-"#,
-        )),
-        "mapper-throws.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function MapperSentinel() {}
-var callbackCalls = 0;
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 1 }; },
-  return: function () { returnCalls = returnCalls + 1; return {}; },
-};
-var helper = iterator.flatMap(function () {
-  callbackCalls = callbackCalls + 1;
-  throw new MapperSentinel();
-});
-assertThrowsConstructor(function () { helper.next(); }, MapperSentinel, "mapper throws");
-assertSameValue(callbackCalls, 1, "callback calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-        )),
-        "mapper-throws-then-closing-iterator-also-throws.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function MapperSentinel() {}
-function ReturnSentinel() {}
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 1 }; },
-  return: function () { returnCalls = returnCalls + 1; throw new ReturnSentinel(); },
-};
-var helper = iterator.flatMap(function () { throw new MapperSentinel(); });
-assertSameValue(returnCalls, 0, "return before next");
-assertThrowsConstructor(function () { helper.next(); }, MapperSentinel, "mapper throw preserved");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-        )),
-        "mapper-returns-non-object.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var mapperCalls = 0;
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 0 }; },
-  return: function () { returnCalls = returnCalls + 1; return {}; },
-};
-var helper = iterator.flatMap(function () {
-  mapperCalls = mapperCalls + 1;
-  return null;
-});
-assertSameValue(mapperCalls, 0, "lazy");
-assertThrowsTypeError(function () { helper.next(); }, "mapper returns null");
-assertSameValue(mapperCalls, 1, "mapper calls");
-assertSameValue(returnCalls, 1, "return calls");
-true;
-"#,
-        )),
-        "flattens-iterable.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 4) return { done: true, value: undefined };
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.flatMap(function (value) {
-  var result = [];
-  var i = 0;
-  while (i < value) {
-    result.push(value);
-    i = i + 1;
-  }
-  return result;
-});
-assertSameValue(helper.next().value, 1, "one");
-assertSameValue(helper.next().value, 2, "two a");
-assertSameValue(helper.next().value, 2, "two b");
-assertSameValue(helper.next().value, 3, "three a");
-assertSameValue(helper.next().value, 3, "three b");
-assertSameValue(helper.next().value, 3, "three c");
-assertSameValue(helper.next().done, true, "done");
-true;
-"#,
-        )),
-        "flattens-iterator.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 4) return { done: true, value: undefined };
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var helper = iterator.flatMap(function (value) {
-  var inner = 0;
-  return {
-    next: function () {
-      if (inner >= value) return { done: true, value: undefined };
-      inner = inner + 1;
-      return { done: false, value: value };
-    },
-  };
-});
-assertSameValue(helper.next().value, 1, "one");
-assertSameValue(helper.next().value, 2, "two a");
-assertSameValue(helper.next().value, 2, "two b");
-assertSameValue(helper.next().value, 3, "three a");
-assertSameValue(helper.next().value, 3, "three b");
-assertSameValue(helper.next().value, 3, "three c");
-assertSameValue(helper.next().done, true, "done");
-true;
-"#,
-        )),
-        "flattens-only-depth-1.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var a = { next: function () { throw "nested next should not run"; } };
-var b = { SymbolIterator: 1 };
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: iterator.done, value: [a, b] };
-  },
-  done: false,
-};
-var helper = iterator.flatMap(function (value) {
-  iterator.done = true;
-  return value;
-});
-assertSameValue(helper.next().value, a, "first nested object");
-assertSameValue(helper.next().value, b, "second nested object");
-assertSameValue(helper.next().done, true, "done");
-true;
-"#,
-        )),
-        "iterable-primitives-are-not-flattened.js" | "strings-are-not-flattened.js" => {
-            Some(iterator_flat_map_rewrite(
-                r#"
-var returnCalls = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 0 }; },
-  return: function () { returnCalls = returnCalls + 1; return {}; },
-};
-var helper = iterator.flatMap(function () { return "string"; });
-assertThrowsTypeError(function () { helper.next(); }, "primitive not flattened");
-assertSameValue(returnCalls, 1, "primitive closes outer");
-true;
-"#,
-            ))
-        }
-        "mapper-returns-closed-iterator.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var outerIndex = 0;
-var closed = {
-  next: function () { return { done: true, value: undefined }; },
-  return: function () { throw "closed should not close"; },
-};
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (outerIndex >= 3) return { done: true, value: undefined };
-    outerIndex = outerIndex + 1;
-    return { done: false, value: outerIndex };
-  },
-};
-var helper = iterator.flatMap(function () { return closed; });
-var step = helper.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-        )),
-        "return-is-forwarded-to-mapper-result.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var returnCount = 0;
-var outerReturnCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 0 }; },
-  return: function () { outerReturnCount = outerReturnCount + 1; return {}; },
-};
-var helper = iterator.flatMap(function () {
-  return {
-    next: function () { return { done: false, value: 1 }; },
-    return: function () { returnCount = returnCount + 1; return {}; },
-  };
-});
-assertSameValue(returnCount, 0, "before next");
-assertSameValue(helper.next().value, 1, "value");
-assertSameValue(returnCount, 0, "before return");
-helper.return();
-assertSameValue(returnCount, 1, "inner return");
-assertSameValue(outerReturnCount, 1, "outer return");
-helper.return();
-assertSameValue(returnCount, 1, "inner return once");
-assertSameValue(outerReturnCount, 1, "outer return once");
-true;
-"#,
-        )),
-        "return-is-forwarded-to-underlying-iterator.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var returnCount = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 1 }; },
-  return: function () { returnCount = returnCount + 1; return {}; },
-};
-var helper = iterator.flatMap(function () { return []; });
-assertSameValue(returnCount, 0, "before return");
-helper.return();
-assertSameValue(returnCount, 1, "first return");
-helper.return();
-assertSameValue(returnCount, 1, "second return");
-true;
-"#,
-        )),
-        "return-is-not-forwarded-after-exhaustion.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function ReturnSentinel() {}
-function makeDoneIterator() {
-  return {
-    __proto__: Iterator.prototype,
-    next: function () { return { done: true, value: undefined }; },
-    return: function () { throw new ReturnSentinel(); },
-  };
-}
-var helper = makeDoneIterator().flatMap(function (value) { return [value]; });
-assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "return before exhaustion");
-helper.next();
-helper.return();
-helper = makeDoneIterator().flatMap(function (value) { return [value]; });
-helper.next();
-helper.return();
-helper = makeDoneIterator()
-  .flatMap(function (value) { return [value]; })
-  .flatMap(function (value) { return [value]; })
-  .flatMap(function (value) { return [value]; });
-assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "chain before exhaustion");
-helper.next();
-helper.return();
-true;
-"#,
-        )),
-        "iterator-return-method-throws.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function ReturnSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 0 }; },
-  return: function () { throw new ReturnSentinel(); },
-};
-var helper = iterator.flatMap(function () { return []; });
-assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "return throws");
-true;
-"#,
-        )),
-        "get-return-method-throws.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function ReturnSentinel() {}
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: false, value: 1 }; },
-  get return() { throw new ReturnSentinel(); },
-};
-var helper = iterator.flatMap(function () { return [1]; });
-helper.next();
-assertThrowsConstructor(function () { helper.return(); }, ReturnSentinel, "return getter throws");
-true;
-"#,
-        )),
-        "exhaustion-does-not-call-return.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 3) return { done: true, value: undefined };
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () { throw "return should not run"; },
-};
-var helper = iterator.flatMap(function () { return []; });
-helper.next();
-true;
-"#,
-        )),
-        "iterator-already-exhausted.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () { return { done: true, value: undefined }; },
-};
-var step = iterator.next();
-assertSameValue(step.value, undefined, "base value");
-assertSameValue(step.done, true, "base done");
-var helper = iterator.flatMap(function (value) { return [value]; });
-step = helper.next();
-assertSameValue(step.value, undefined, "helper value");
-assertSameValue(step.done, true, "helper done");
-true;
-"#,
-        )),
-        "this-plain-iterator.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var count = 3;
-var iter = {
-  next: function () {
-    count = count - 1;
-    if (count >= 0) return { done: false, value: count };
-    return { done: true, value: undefined };
-  },
-};
-var mapperCalls = 0;
-var helper = Iterator.prototype.flatMap.call(iter, function (value) {
-  mapperCalls = mapperCalls + 1;
-  return [value];
-});
-assertSameValue(helper.next().value, 2, "value 2");
-assertSameValue(helper.next().value, 1, "value 1");
-assertSameValue(helper.next().value, 0, "value 0");
-assertSameValue(helper.next().done, true, "done");
-assertSameValue(mapperCalls, 3, "mapper calls");
-true;
-"#,
-        )),
-        "throws-typeerror-when-generator-is-running.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var loopCount = 0;
-var enterCount = 0;
-var iter;
-var source = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    loopCount = loopCount + 1;
-    return { done: false, value: undefined };
-  },
-  return: function () { return {}; },
-};
-function mapper() {
-  enterCount = enterCount + 1;
-  iter.next();
-  return [1];
-}
-iter = source.flatMap(mapper);
-assertThrowsTypeError(function () { iter.next(); }, "reentrant next");
-assertSameValue(loopCount, 1, "loop count");
-assertSameValue(enterCount, 1, "enter count");
-true;
-"#,
-        )),
-        "underlying-iterator-advanced-in-parallel.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (index >= 5) return { done: true, value: undefined };
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-};
-var mapped = iterator.flatMap(function (value) { return [value]; });
-var step = iterator.next();
-assertSameValue(step.value, 0, "direct value");
-iterator.next(); iterator.next();
-assertSameValue(mapped.next().value, 3, "mapped 3");
-assertSameValue(mapped.next().value, 4, "mapped 4");
-assertSameValue(mapped.next().done, true, "done");
-true;
-"#,
-        )),
-        "underlying-iterator-closed-in-parallel.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var closed = false;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) return { done: true, value: undefined };
-    return { done: false, value: 1 };
-  },
-  return: function () { closed = true; return {}; },
-};
-var mapped = iterator.flatMap(function (value) { return [value]; });
-iterator.return();
-var step = mapped.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-        )),
-        "underlying-iterator-closed.js" => Some(iterator_flat_map_rewrite(
-            r#"
-var closed = false;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) return { done: true, value: undefined };
-    return { done: false, value: 1 };
-  },
-  return: function () { closed = true; return {}; },
-};
-iterator.return();
-var mapped = iterator.flatMap(function (value) { return [value]; });
-var step = mapped.next();
-assertSameValue(step.value, undefined, "value");
-assertSameValue(step.done, true, "done");
-true;
-"#,
-        )),
-        _ => None,
-    }
-}
-
-fn rewrite_iterator_take_case(path: &str) -> Option<String> {
-    match path {
-        "built-ins/Iterator/prototype/take/limit-less-than-total.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function checkTake(limit, expected) {
-  var value = 0;
-  var returnCalls = 0;
-  var iterator = {
-    __proto__: Iterator.prototype,
-    next: function () {
-      var current = value;
-      value = value + 1;
-      return { done: false, value: current };
-    },
-    return: function () {
-      returnCalls = returnCalls + 1;
-      return {};
-    },
-  };
-  var taken = iterator.take(limit);
-  for (var i = 0; i < expected.length; i++) {
-    var step = taken.next();
-    assertSameValue(step.done, false, "step done " + i);
-    assertSameValue(step.value, expected[i], "step value " + i);
-  }
-  var doneStep = taken.next();
-  assertSameValue(doneStep.done, true, "done");
-  assertSameValue(doneStep.value, undefined, "done value");
-  assertSameValue(returnCalls, 1, "close calls");
-}
-
-checkTake(0, []);
-checkTake(1, [0]);
-checkTake(2, [0, 1]);
-checkTake(3, [0, 1, 2]);
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/take/this-plain-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iter = {
-  get next() {
-    var count = 3;
-    return function () {
-      count = count - 1;
-      return count >= 0 ? { done: false, value: count } : { done: true, value: undefined };
-    };
-  },
-};
-
-var takeIter = Iterator.prototype.take.call(iter, 1);
-var nextResult = takeIter.next();
-
-assertSameValue(nextResult.done, false, "done");
-assertSameValue(nextResult.value, 2, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/take/underlying-iterator-closed-in-parallel.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var closed = false;
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-
-var taken = iterator.take(2);
-iterator.return();
-
-var nextResult = taken.next();
-assertSameValue(nextResult.value, undefined, "value");
-assertSameValue(nextResult.done, true, "done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/take/underlying-iterator-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var closed = false;
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-
-iterator.return();
-var taken = iterator.take(2);
-
-var nextResult = taken.next();
-assertSameValue(nextResult.value, undefined, "value");
-assertSameValue(nextResult.done, true, "done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/take/throws-typeerror-when-generator-is-running.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var enterCount = 0;
-var iter;
-var source = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    enterCount = enterCount + 1;
-    iter.next();
-    return { done: false, value: undefined };
-  },
-};
-
-iter = source.take(100);
-
-assertThrowsTypeError(function () {
-  iter.next();
-}, "reentrant next");
-
-assertSameValue(enterCount, 1, "enter count");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/take/close-iterator-when-none-remaining.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    return { done: false, value: 1 };
-  },
-  return: function () {
-    closed = true;
-    return { done: true };
-  },
-};
-
-var iterTake = iter.take(1);
-var result = iterTake.next();
-assertSameValue(result.done, false, "first done");
-assertSameValue(result.value, 1, "first value");
-assertSameValue(closed, false, "not closed before limit");
-
-result = iterTake.next();
-assertSameValue(result.done, true, "limit done");
-assertSameValue(result.value, undefined, "limit value");
-assertSameValue(closed, true, "closed at limit");
-true;
-"#
-            .to_string(),
-        ),
-        "staging/sm/Iterator/prototype/take/take-more-than-available.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var arrayIter = [1, 2].values().take(3);
-var result = arrayIter.next();
-assertSameValue(result.value, 1, "array first value");
-assertSameValue(result.done, false, "array first done");
-result = arrayIter.next();
-assertSameValue(result.value, 2, "array second value");
-assertSameValue(result.done, false, "array second done");
-result = arrayIter.next();
-assertSameValue(result.value, undefined, "array done value");
-assertSameValue(result.done, true, "array done");
-
-var counter = 0;
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    counter = counter + 1;
-    return { done: counter >= 2, value: undefined };
-  },
-  return: function () {
-    closed = true;
-    return { done: true, value: undefined };
-  },
-};
-
-var taken = iter.take(10);
-result = taken.next();
-assertSameValue(result.value, undefined, "custom first value");
-assertSameValue(result.done, false, "custom first done");
-result = taken.next();
-assertSameValue(result.value, undefined, "custom done value");
-assertSameValue(result.done, true, "custom done");
-result = taken.next();
-assertSameValue(result.value, undefined, "custom after done value");
-assertSameValue(result.done, true, "custom after done");
-assertSameValue(counter, 2, "next calls");
-assertSameValue(closed, false, "source exhaustion does not close");
-true;
-"#
-            .to_string(),
-        ),
-        _ => None,
-    }
-}
-
-fn rewrite_iterator_drop_case(path: &str) -> Option<String> {
-    match path {
-        "staging/sm/Iterator/prototype/drop/drop-more-than-available.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var arrayIter = [1, 2].values().drop(3);
-var result = arrayIter.next();
-assertSameValue(result.value, undefined, "array value");
-assertSameValue(result.done, true, "array done");
-
-var counter = 0;
-var closed = false;
-var iter = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    counter = counter + 1;
-    return { done: counter >= 2, value: undefined };
-  },
-  return: function () {
-    closed = true;
-    return { done: true, value: undefined };
-  },
-};
-
-var dropped = iter.drop(10);
-result = dropped.next();
-assertSameValue(result.value, undefined, "custom done value");
-assertSameValue(result.done, true, "custom done");
-result = dropped.next();
-assertSameValue(result.value, undefined, "custom after done value");
-assertSameValue(result.done, true, "custom after done");
-assertSameValue(counter, 2, "next calls");
-assertSameValue(closed, false, "source exhaustion does not close");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/limit-less-than-total.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 1;
-  yield 2;
-}
-
-var iterator = g().drop(1);
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, 2, "first value");
-assertSameValue(nextResult.done, false, "first done");
-
-nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "done value");
-assertSameValue(nextResult.done, true, "done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/limit-equals-total.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 1;
-  yield 2;
-}
-
-var iterator = g().drop(2);
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "value");
-assertSameValue(nextResult.done, true, "done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/limit-greater-than-total.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 1;
-  yield 2;
-}
-
-var iterator = g().drop(3);
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "greater value");
-assertSameValue(nextResult.done, true, "greater done");
-
-iterator = g().drop(Number.MAX_SAFE_INTEGER);
-nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "max value");
-assertSameValue(nextResult.done, true, "max done");
-
-iterator = g().drop(Infinity);
-nextResult = iterator.next();
-assertSameValue(nextResult.value, undefined, "infinity value");
-assertSameValue(nextResult.done, true, "infinity done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/limit-tonumber.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  yield 1;
-  yield 2;
-}
-
-var iterator = g();
-var nextResult = iterator.drop({
-  valueOf: function () {
-    return 1;
-  },
-}).next();
-assertSameValue(nextResult.value, 2, "valueOf value");
-assertSameValue(nextResult.done, false, "valueOf done");
-
-iterator = g();
-nextResult = iterator.drop([]).drop([1]).next();
-assertSameValue(nextResult.value, 2, "array value");
-assertSameValue(nextResult.done, false, "array done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/this-plain-iterator.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iter = {
-  get next() {
-    var count = 3;
-    return function () {
-      count = count - 1;
-      return count >= 0 ? { done: false, value: count } : { done: true, value: undefined };
-    };
-  },
-};
-
-var dropIter = Iterator.prototype.drop.call(iter, 1);
-var nextResult = dropIter.next();
-assertSameValue(nextResult.done, false, "done");
-assertSameValue(nextResult.value, 1, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/underlying-iterator-closed-in-parallel.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var closed = false;
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-
-var dropped = iterator.drop(2);
-iterator.return();
-
-var nextResult = dropped.next();
-assertSameValue(nextResult.value, undefined, "value");
-assertSameValue(nextResult.done, true, "done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/underlying-iterator-closed.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var closed = false;
-var index = 0;
-var iterator = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    if (closed) {
-      return { done: true, value: undefined };
-    }
-    var value = index;
-    index = index + 1;
-    return { done: false, value: value };
-  },
-  return: function () {
-    closed = true;
-    return {};
-  },
-};
-
-iterator.return();
-var dropped = iterator.drop(2);
-
-var nextResult = dropped.next();
-assertSameValue(nextResult.value, undefined, "value");
-assertSameValue(nextResult.done, true, "done");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/throws-typeerror-when-generator-is-running.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function assertThrowsTypeError(callback, label) {
-  var threw = false;
-  try {
-    callback();
-  } catch (error) {
-    threw = error instanceof TypeError;
-  }
-  if (!threw) {
-    throw label;
-  }
-}
-
-var enterCount = 0;
-var iter;
-var source = {
-  __proto__: Iterator.prototype,
-  next: function () {
-    enterCount = enterCount + 1;
-    iter.next();
-    return { done: false, value: undefined };
-  },
-};
-
-iter = source.drop(100);
-
-assertThrowsTypeError(function () {
-  iter.next();
-}, "reentrant next");
-
-assertSameValue(enterCount, 1, "enter count");
-true;
-"#
-            .to_string(),
-        ),
-        _ => None,
-    }
-}
-
-fn rewrite_undefined_legacy_initial_value_case(path: &str) -> Option<String> {
-    if !path.ends_with("built-ins/undefined/S15.1.1.3_A1.js") {
-        return None;
-    }
-
-    Some(
-        r#"function Test262Error(message) {}
-
-if (typeof(undefined) !== "undefined") {
-  throw new Test262Error('#1: typeof(undefined) === "undefined"');
-}
-
-if (undefined !== void 0) {
-  throw new Test262Error('#2: undefined === void 0');
-}
-
-var evalVarResult = undefined;
-if (undefined !== evalVarResult) {
-  throw new Test262Error('#3: undefined legacy var-eval result');
-}
-"#
-        .to_string(),
-    )
-}
-
-fn rewrite_boolean_proto_from_ctor_realm_case(case: &TestCase) -> Option<String> {
-    if !case
-        .path
-        .ends_with("built-ins/Boolean/proto-from-ctor-realm.js")
-        || !case
-            .original_source
-            .contains("var C = new other.Function();")
-    {
-        return None;
-    }
-
-    Some(
-        r#"var other = __lilaCreateRealm().global;
-var C = other.Proxy;
-C.prototype = null;
-
-var o = Reflect.construct(Boolean, [], C);
-
-if (Object.getPrototypeOf(o) !== other.Boolean.prototype) {
-  throw "Boolean proto-from-ctor-realm";
-}
-"#
-        .to_string(),
-    )
-}
-
 pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSummary, String> {
     let discovered = discover_suite(config, run_config.filter.as_deref())?;
     let preludes = load_preludes(config)?;
@@ -8502,7 +2824,7 @@ pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSum
     let summary = summarize_results(&results);
 
     let snapshot =
-        snapshot_from_summary(&manifest, run_kind, &summary, run_config.execution_backend);
+        snapshot_from_summary(&manifest, run_kind, &summary, run_config.execution_backend)?;
     validate_case_snapshot_contract(
         &snapshot,
         &manifest
@@ -8559,6 +2881,39 @@ fn manifest_for_selected_cases(
     })
 }
 
+/// Executes the exact single case inside an already supervised worker process.
+/// This entry is for executable owners implementing `test262 __case-worker`.
+/// Normal conformance execution must use `run_full`, `run_shard` or the matrix.
+#[doc(hidden)]
+pub fn run_case_worker(
+    mut config: SuiteConfig,
+    run_config: RunConfig,
+) -> Result<RunSummary, String> {
+    if run_config.resume
+        || run_config.shard_index != 0
+        || run_config.shard_count != 1
+        || run_config.max_matrix_nodes.is_some()
+        || config.worker_count != 1
+    {
+        return Err(
+            "case worker requires one fresh unsharded execution and one worker thread".into(),
+        );
+    }
+    let requested = TestExecutionId::parse_wire_key(
+        run_config
+            .filter
+            .as_deref()
+            .ok_or("case worker requires an exact execution id")?,
+    )?;
+    let manifest = discover_suite(&config, Some(&requested.wire_key()))?;
+    if manifest.cases.len() != 1 || manifest.cases[0].execution_id != requested {
+        return Err("case worker selection must match exactly one requested execution id".into());
+    }
+    config.execution_role = CaseExecutionRole::SingleCaseWorker(requested);
+    config.case_runner_bin = None;
+    run_full(&config, run_config)
+}
+
 pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
     let manifest = discover_suite(config, run_config.filter.as_deref())?;
     let preludes = load_preludes(config)?;
@@ -8579,7 +2934,7 @@ pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummar
         "full".to_string(),
         &summary,
         run_config.execution_backend,
-    );
+    )?;
     validate_case_snapshot_contract(
         &snapshot,
         &manifest
@@ -8702,7 +3057,7 @@ pub fn run_top_level_matrix(
                 "aggregate-matrix",
                 vec!["top-level".to_string()],
                 completed_nodes.iter().cloned().collect(),
-            );
+            )?;
             write_snapshot(config, &aggregate_snapshot, &aggregate_snapshot_name)?;
         }
     }
@@ -8730,7 +3085,7 @@ pub fn run_top_level_matrix(
             "aggregate-matrix",
             vec!["top-level".to_string()],
             completed_nodes.iter().cloned().collect(),
-        );
+        )?;
         write_snapshot(config, &aggregate_snapshot, &aggregate_snapshot_name)?;
 
         processed_nodes += 1;
@@ -8890,6 +3245,7 @@ fn load_resume_matrix_node_summary(
         manifest_hash,
         expected_backend,
         expected_pinned,
+        &CompilerProvenance::current().map_err(ResumeCheckpointLoadError::integrity)?,
     )?;
     let snapshot = snapshot_from_file(file).map_err(ResumeCheckpointLoadError::integrity)?;
     validate_case_snapshot_contract(
@@ -8945,8 +3301,9 @@ fn validate_resume_node_snapshot(
     expected_manifest_hash: u64,
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
+    expected_compiler: &CompilerProvenance,
 ) -> Result<CaseSetRequirement, ResumeCheckpointLoadError> {
-    file.require_current(path, "resume node snapshot")
+    file.require_compiler(expected_compiler, path)
         .map_err(ResumeCheckpointLoadError::integrity)?;
     if file.execution_backend != expected_backend.as_str() {
         return Err(ResumeCheckpointLoadError::stale(format!(
@@ -9025,8 +3382,22 @@ pub fn classify_failure(
 ) -> FailureRecord {
     let detail = detail.into();
     let outcome = classify_failure_outcome(kind, &detail);
-    let origin = classify_failure_origin(&detail);
+    let origin = failure_origin_for_kind(kind);
     classify_failure_with_outcome(test_id, kind, outcome, origin, detail)
+}
+
+/// Origin for callers that hold only a `FailureKind` and a message. The
+/// message is never inspected; only the host-harness kind is an attribution.
+fn failure_origin_for_kind(kind: FailureKind) -> FailureOrigin {
+    match kind {
+        FailureKind::HostHarness => FailureOrigin::LocalHarness,
+        FailureKind::Parser
+        | FailureKind::EarlyError
+        | FailureKind::Lowering
+        | FailureKind::Runtime
+        | FailureKind::WasmBackend
+        | FailureKind::Unsupported => FailureOrigin::Unknown,
+    }
 }
 
 fn classify_failure_with_outcome(
@@ -9054,11 +3425,26 @@ pub fn write_snapshot(
     snapshot: &ProgressSnapshot,
     snapshot_name: &str,
 ) -> Result<SnapshotPaths, String> {
-    if snapshot.snapshot_version != SNAPSHOT_VERSION {
+    snapshot.provenance.require_running("snapshot writer")?;
+    let json_path = config
+        .snapshot_dir
+        .join(format!("{snapshot_name}-{}.json", snapshot.manifest_hash));
+    let txt_path = config
+        .snapshot_dir
+        .join(format!("{snapshot_name}-{}.txt", snapshot.manifest_hash));
+
+    if json_path
+        .try_exists()
+        .map_err(|err| format!("cannot inspect snapshot {}: {err}", json_path.display()))?
+    {
+        read_snapshot_file(&json_path)?.require_running(&json_path, "snapshot replacement")?;
+    } else if txt_path
+        .try_exists()
+        .map_err(|err| format!("cannot inspect summary {}: {err}", txt_path.display()))?
+    {
         return Err(format!(
-            "refusing to write read-only snapshot version {}; current Lila writes require version {SNAPSHOT_VERSION} with producer {}",
-            snapshot.snapshot_version,
-            ArtifactProducer::CURRENT.as_str()
+            "snapshot family {} has an unbound summary without its JSON identity; retain it and use a fresh snapshot name",
+            txt_path.display()
         ));
     }
     fs::create_dir_all(&config.snapshot_dir).map_err(|err| {
@@ -9067,13 +3453,6 @@ pub fn write_snapshot(
             config.snapshot_dir.display()
         )
     })?;
-
-    let json_path = config
-        .snapshot_dir
-        .join(format!("{snapshot_name}-{}.json", snapshot.manifest_hash));
-    let txt_path = config
-        .snapshot_dir
-        .join(format!("{snapshot_name}-{}.txt", snapshot.manifest_hash));
 
     fs::write(&json_path, render_snapshot_json(snapshot))
         .map_err(|err| format!("failed to write snapshot {}: {err}", json_path.display()))?;
@@ -9613,6 +3992,8 @@ fn execute_cases(
         return Ok(existing);
     }
 
+    let dispatch = CaseExecutionDispatch::admit(config, &remaining)?;
+
     // Resume mode used to run this loop fully single-threaded (ignoring
     // --threads / worker_count), which made resumed low-RAM matrix runs far
     // slower than fresh ones. It now shares the same worker pool as the
@@ -9654,6 +4035,7 @@ fn execute_cases(
                 let results = Arc::clone(&results);
                 let preludes = preludes.clone();
                 let worker_config = config.clone();
+                let dispatch = dispatch.clone();
                 let worker_run_config = RunConfig {
                     filter: run_config.filter.clone(),
                     shard_index: 0,
@@ -9698,7 +4080,8 @@ fn execute_cases(
                         let result = match admission {
                             CaseAdmission::Run(admitted) => {
                                 let admitted_path = admitted.case().path.clone();
-                                let result = run_case_entry(
+                                let result = run_case_entry_with_dispatch(
+                                    &dispatch,
                                     &worker_config,
                                     &preludes,
                                     admitted,
@@ -9859,7 +4242,7 @@ fn schedule_cases_for_lifo_queue(
 }
 
 fn wasm_aot_case_should_run_before_cache_misses(case: &TestCase, preludes: &PreludeStore) -> bool {
-    if wasm_aot_unsupported_feature(case).is_some() || case_has_compile_only_negative(case) {
+    if case_has_compile_only_negative(case) {
         return true;
     }
 
@@ -10044,7 +4427,7 @@ fn write_resume_case_checkpoint(
         "resume-case-checkpoint".to_string(),
         &summarize_results(results),
         run_config.execution_backend,
-    );
+    )?;
     snapshot.checkpoint_identity = Some(checkpoint_run_identity.clone());
     validate_case_snapshot_contract(
         &snapshot,
@@ -10213,14 +4596,11 @@ fn create_child_snapshot_directory(case: &TestCase) -> Result<PathBuf, String> {
 }
 
 fn run_one_case_in_child_process(
+    case_runner_bin: &Path,
     config: &SuiteConfig,
     case: &TestCase,
     run_config: &RunConfig,
 ) -> Result<TestResult, String> {
-    let Some(case_runner_bin) = &config.case_runner_bin else {
-        return Err("child case runner requested without binary path".to_string());
-    };
-
     let child_manifest = single_case_manifest(config, case);
     let child_snapshot_dir = create_child_snapshot_directory(case)?;
     let child_snapshot_name = format!(
@@ -10244,7 +4624,7 @@ fn run_one_case_in_child_process(
             .arg("--jobs")
             .arg(compilation_jobs().to_string())
             .arg("test262")
-            .arg("run")
+            .arg("__case-worker")
             .arg(case.execution_id.wire_key())
             .arg("--suite-root")
             .arg(&config.suite_root)
@@ -10258,50 +4638,78 @@ fn run_one_case_in_child_process(
             .arg(config.timeout_ms.to_string())
             .arg("--execution-backend")
             .arg(run_config.execution_backend.as_str())
-            .env(DISABLE_CASE_RUNNER_ENV, "1")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
-        let start = Instant::now();
-        let mut child = child.spawn().map_err(|err| {
-            format!(
-                "failed to spawn child case runner {} for {}: {err}",
-                case_runner_bin.display(),
-                case.path
-            )
-        })?;
-
-        let child_timeout_ms = if run_config.execution_backend == ExecutionBackend::WasmAot {
-            config
-                .timeout_ms
-                .saturating_add(WASM_AOT_CHILD_COMPILE_ALLOWANCE_MS)
-        } else {
-            config.timeout_ms
-        };
-        let timeout = Duration::from_millis(child_timeout_ms);
-        let status = loop {
-            if let Some(status) = child.try_wait().map_err(|err| {
-                format!(
-                    "failed to wait on child case runner for {}: {err}",
-                    case.path
-                )
-            })? {
-                break Some(status);
+        match &config.local_harness {
+            LocalHarnessSource::None => {
+                child.arg("--case-harness").arg("none");
             }
-            if start.elapsed() >= timeout {
-                child.kill().map_err(|err| {
+            LocalHarnessSource::EmbeddedSpecExec => {
+                child.arg("--case-harness").arg("spec-exec");
+            }
+            LocalHarnessSource::EmbeddedWasmAot => {
+                child.arg("--case-harness").arg("wasm-aot");
+            }
+            LocalHarnessSource::EmbeddedWasmAotHostOnly => {
+                child.arg("--case-harness").arg("wasm-aot-host-only");
+            }
+            LocalHarnessSource::File(path) => {
+                child.arg("--case-harness-file").arg(path);
+            }
+        }
+        let budget =
+            case_process::CaseDeadline::new(config.timeout_ms, run_config.execution_backend)?;
+        if budget.expired() {
+            return Ok(TestResult {
+                test_id: case.execution_id.clone(),
+                status: TestStatus::Failed(classify_failure(
+                    case.execution_id.clone(),
+                    FailureKind::Runtime,
                     format!(
-                        "failed to kill timed out child case runner for {}: {err}",
-                        case.path
-                    )
-                })?;
-                let _ = child.wait();
-                break None;
+                        "timeout exceeded after {}ms before worker spawn",
+                        budget.elapsed_ms()
+                    ),
+                )),
+                duration_ms: budget.elapsed_ms(),
+            });
+        }
+        let mut child = match case_process::CaseProcess::spawn(&mut child, budget) {
+            Ok(child) => child,
+            Err(_) if budget.expired() => {
+                return Ok(TestResult {
+                    test_id: case.execution_id.clone(),
+                    status: TestStatus::Failed(classify_failure(
+                        case.execution_id.clone(),
+                        FailureKind::Runtime,
+                        format!(
+                            "timeout exceeded after {}ms before worker spawn",
+                            budget.elapsed_ms()
+                        ),
+                    )),
+                    duration_ms: budget.elapsed_ms(),
+                });
             }
-            thread::sleep(Duration::from_millis(10));
+            Err(error) => {
+                return Err(format!(
+                    "failed to spawn child case runner {} for {}: {error}",
+                    case_runner_bin.display(),
+                    case.path
+                ));
+            }
         };
 
-        let duration_ms = start.elapsed().as_millis();
+        let status = child.wait_until_deadline();
+        // Retirement also kills descendants after a normally exited direct child.
+        // Snapshot reading never races a writer surviving the attempt, including
+        // when polling returned an error.
+        let retirement = child.retire();
+        let status = match (status, retirement) {
+            (Ok(status), Ok(())) => status,
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
+            (Err(error), Err(cleanup)) => return Err(format!("{error}; {cleanup}")),
+        };
+        let duration_ms = budget.elapsed_ms();
         if status.is_none() {
             return Ok(TestResult {
                 test_id: case.execution_id.clone(),
@@ -10312,6 +4720,38 @@ fn run_one_case_in_child_process(
                 )),
                 duration_ms,
             });
+        }
+
+        let status = status.expect("timeout returned above");
+        if !status.success() {
+            if status.code() != Some(1) {
+                return Err(format!(
+                    "child case runner crashed for {}: {status}",
+                    case.path
+                ));
+            }
+            // A failed case is intentionally exit 1, so accept only its exact
+            // validated failure snapshot; a crash cannot turn a staged pass green.
+            let snapshot = load_previous_snapshot(
+                &child_config,
+                &child_snapshot_name,
+                ResumeCheckpointIdentity::for_single_case_child(&child_manifest, run_config),
+                ResumeCheckpointLoadPolicy::RequireExact,
+            )?
+            .ok_or_else(|| {
+                format!(
+                    "child case runner failed for {} without a snapshot",
+                    case.path
+                )
+            })?;
+            let result = result_from_single_case_snapshot(case, snapshot, duration_ms)?;
+            if matches!(result.status, TestStatus::Passed) {
+                return Err(format!(
+                    "child case runner failed for {} but reported success",
+                    case.path
+                ));
+            }
+            return Ok(result);
         }
 
         match load_previous_snapshot(
@@ -10350,48 +4790,41 @@ fn run_one_case_in_child_process(
 /// and `AttemptJournal::admit` is its only non-test constructor. The admitted
 /// proof is non-cloneable and transferred into this function, so one journal
 /// admission cannot authorize a second execution.
+#[cfg(test)]
 fn run_case_entry(
     config: &SuiteConfig,
     preludes: &PreludeStore,
     admitted: AdmittedCase,
     run_config: &RunConfig,
 ) -> TestResult {
+    let dispatch = CaseExecutionDispatch::admit(config, std::slice::from_ref(admitted.case()))
+        .expect("test fixture must explicitly choose its execution role");
+    run_case_entry_with_dispatch(&dispatch, config, preludes, admitted, run_config)
+}
+
+fn run_case_entry_with_dispatch(
+    dispatch: &CaseExecutionDispatch,
+    config: &SuiteConfig,
+    preludes: &PreludeStore,
+    admitted: AdmittedCase,
+    run_config: &RunConfig,
+) -> TestResult {
     let case = admitted.case();
-    // In-process execution is the default (`config.case_runner_bin` is only
-    // `Some` when the CLI is invoked with `LILA_TEST262_FORCE_CASE_RUNNER`
-    // set, e.g. for crash repro). This used to be unsafe for a
-    // directory/full-suite run: the in-process path could only *measure*
-    // elapsed time after a call returned, so it could not bound a genuine
-    // hang (an infinite loop never returns), and a hanging case would stall
-    // the whole worker forever. That is no longer true for
-    // `ExecutionBackend::WasmAot`: `run_one_case` passes `config.timeout_ms`
-    // into `RunOptions::timeout_ms`, and `lila_engine::run_with_wasm_aot_inner`
-    // enforces it in-process via wasmtime epoch interruption, so a hanging
-    // Wasm-AOT module traps out on its own on a bounded schedule. The one
-    // remaining gap is `ExecutionBackend::SpecExec` (the developer-only Boa
-    // differential oracle, never the product/conformance default backend):
-    // it has no epoch-interruption-equivalent bound, so a hang there still
-    // stalls its worker. When that matters, force the child runner via
-    // `LILA_TEST262_FORCE_CASE_RUNNER=1`, which restores real
-    // process-level timeout enforcement (kill + wait) in
-    // `run_one_case_in_child_process` for every case that reaches execution.
-    // Wasm-AOT cases rejected at the feature boundary cannot hang and stay in
-    // process so large exclusion sets do not pay for a child process each.
-    let use_child_runner = config.case_runner_bin.is_some()
-        && (run_config.execution_backend != ExecutionBackend::WasmAot
-            || wasm_aot_unsupported_feature(case).is_none());
-    if use_child_runner {
-        return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
-            TestResult {
-                test_id: case.execution_id.clone(),
-                status: TestStatus::Failed(classify_failure(
-                    case.execution_id.clone(),
-                    FailureKind::HostHarness,
-                    detail,
-                )),
-                duration_ms: config.timeout_ms.into(),
-            }
-        });
+    match dispatch {
+        CaseExecutionDispatch::Supervised(binary) => {
+            return run_one_case_in_child_process(binary, config, case, run_config).unwrap_or_else(
+                |detail| TestResult {
+                    test_id: case.execution_id.clone(),
+                    status: TestStatus::Failed(classify_failure(
+                        case.execution_id.clone(),
+                        FailureKind::HostHarness,
+                        detail,
+                    )),
+                    duration_ms: config.timeout_ms.into(),
+                },
+            );
+        }
+        CaseExecutionDispatch::Worker => {}
     }
 
     panic::catch_unwind(AssertUnwindSafe(|| {
@@ -10404,11 +4837,16 @@ fn run_case_entry(
     }))
     .unwrap_or_else(|panic_payload| TestResult {
         test_id: case.execution_id.clone(),
-        status: TestStatus::Failed(classify_failure(
-            case.execution_id.clone(),
-            FailureKind::Runtime,
-            format!("worker panic: {}", panic_message(&panic_payload)),
-        )),
+        status: TestStatus::Failed({
+            let detail = format!("worker panic: {}", panic_message(&panic_payload));
+            classify_failure_with_outcome(
+                case.execution_id.clone(),
+                FailureKind::Runtime,
+                classify_failure_outcome(FailureKind::Runtime, &detail),
+                FailureOrigin::LocalHarness,
+                detail,
+            )
+        }),
         duration_ms: config.timeout_ms.into(),
     })
 }
@@ -10461,18 +4899,6 @@ fn run_one_case_with_wasm_aot_execution(
 ) -> TestResult {
     let start = Instant::now();
     let outcome = (|| -> Result<(), FailureRecord> {
-        if execution_backend == ExecutionBackend::WasmAot {
-            if let Some(feature) = wasm_aot_unsupported_feature(case) {
-                return Err(classify_failure(
-                    case.execution_id.clone(),
-                    FailureKind::Unsupported,
-                    format!(
-                        "unsupported in lila wasm-aot first slice: feature `{feature}` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm."
-                    ),
-                ));
-            }
-        }
-
         let materialized = materialize_test(case, preludes).map_err(|detail| {
             classify_failure(case.execution_id.clone(), FailureKind::HostHarness, detail)
         })?;
@@ -10490,6 +4916,29 @@ fn run_one_case_with_wasm_aot_execution(
         let engine = Engine::new(realm_builder.build());
         let mut compile_options = compile_options_for_case(case);
         compile_options.module_prelude = materialized.module_prelude.clone();
+        if execution_backend == ExecutionBackend::WasmAot {
+            // AOT cannot load at run time: declare every module the case can
+            // name (fixtures beside it and their relative references).
+            let goal = if materialized.execution_mode().is_module() {
+                lila_engine::EmbeddedModuleGoal::Module
+            } else {
+                lila_engine::EmbeddedModuleGoal::Script
+            };
+            let catalog = module_catalog::declare(
+                &case.source_path,
+                goal,
+                &materialized.source,
+                &case.original_source,
+            )
+            .map_err(|detail| {
+                classify_failure(case.execution_id.clone(), FailureKind::HostHarness, detail)
+            })?;
+            if let Some(catalog) = catalog {
+                compile_options.filename = Some(catalog.graph.entry().identity().to_owned());
+                compile_options.module_loading_policy =
+                    ModuleLoadingPolicy::Embedded(catalog.graph);
+            }
+        }
 
         // Parse/early-negative tests use an explicit compile path. Wasm-AOT
         // rejects a successful compile without executing user code; SpecExec
@@ -10563,11 +5012,9 @@ fn run_one_case_with_wasm_aot_execution(
             },
             test_path: Some(case.source_path.display().to_string()),
             can_block: !case.flags.contains("CanBlockIsFalse"),
-            // Bounds Wasm-AOT execution in-process via wasmtime epoch
-            // interruption (see `run_with_wasm_aot_inner` in
-            // lila-engine); this is what lets `run_case_entry` default to
-            // running cases in-process instead of always paying a
-            // child-process spawn per case.
+            // Epoch interruption bounds execution inside the selected case
+            // worker. The supervisor still owns that child's process deadline;
+            // neither source metadata nor this engine bound bypasses it.
             timeout_ms: Some(timeout_ms),
         };
         let agent_prelude = materialized.agent_prelude.clone();
@@ -10678,6 +5125,24 @@ fn run_one_case_with_wasm_aot_execution(
                     ),
                 )),
                 Err(err) => {
+                    if compile_only_negative {
+                        // A successful Lila preflight may still be rejected by
+                        // the selected oracle entry parser. Runtime throws,
+                        // worker errors and diagnostic text cannot mint that
+                        // phase provenance.
+                        if execution_backend == ExecutionBackend::SpecExec
+                            && err.is_oracle_entry_syntax_rejection()
+                            && (negative.error_type.is_empty()
+                                || negative.error_type == "SyntaxError")
+                        {
+                            return Ok(());
+                        }
+                        return Err(classify_failure(
+                            case.execution_id.clone(), negative_kind,
+                            format!("negative test expected {} {} entry rejection, got a different phase or error: {}",
+                                negative.phase, negative.error_type, err),
+                        ));
+                    }
                     // run_script/run_module can surface parser/IR diagnostics
                     // directly now that the redundant pre-compile is gone;
                     // those are compilation failures, not runtime negatives.
@@ -10690,7 +5155,7 @@ fn run_one_case_with_wasm_aot_execution(
                     // runtime negative; worker failures and host traps cannot
                     // acquire that meaning from an error name in their text.
                     if !compile_only_negative
-                        && !is_runtime_negative_exception(&err, execution_backend)
+                        && !is_expected_negative_exception(&err, execution_backend, negative.phase)
                     {
                         return Err(classify_engine_failure(case.execution_id.clone(), &err));
                     }
@@ -10701,7 +5166,10 @@ fn run_one_case_with_wasm_aot_execution(
                                 err.wasm_javascript_exception_constructor_name()
                                     == Some(negative.error_type.as_str())
                             }
-                            ExecutionBackend::SpecExec => detail.contains(&negative.error_type),
+                            ExecutionBackend::SpecExec => {
+                                err.oracle_javascript_exception_constructor_name()
+                                    == Some(negative.error_type.as_str())
+                            }
                         };
                     if type_matches {
                         Ok(())
@@ -10720,12 +5188,12 @@ fn run_one_case_with_wasm_aot_execution(
                             ),
                             ExecutionBackend::SpecExec => {
                                 let mismatch = format!(
-                                    "negative test error mismatch: expected {}, got {}",
-                                    negative.error_type, detail
+                                    "negative test error mismatch: expected {}, got admitted constructor {}: {}",
+                                    negative.error_type, err.oracle_javascript_exception_constructor_name().unwrap_or("<unclassified>"), detail
                                 );
                                 (
-                                    classify_failure_outcome(negative_kind, &mismatch),
-                                    classify_failure_origin(&mismatch),
+                                    OutcomeKind::Bug,
+                                    FailureOrigin::Unknown,
                                     mismatch,
                                 )
                             }
@@ -10876,24 +5344,10 @@ fn compile_negative_error_matches(
                     .is_some_and(|kind| kind.as_str() == negative.error_type));
     }
 
-    // FALLBACK ARM, and the weakest thing in this function. A substring match on
-    // the raw engine message, plus an unconditional pass when the expectation
-    // names no type — i.e. exactly the shape that turns a backend error into a
-    // green negative. It is unreachable on the corpus measured in batch 7 (all
-    // 388 negatives across the 14 frontier `language/` nodes carry a `type:`),
-    // which is why no banked number depends on it, but "unreachable today" is
-    // not "cannot pass wrongly".
-    //
-    // Note also what the guarded arms above do NOT distinguish: for
-    // `phase: parse` the comparison is phase + error type only, so any
-    // parse-phase SyntaxError scores a pass whether or not it is the early error
-    // the case is about, and a pass records nothing in the snapshot to tell the
-    // two apart afterwards. The nodes where that matters most are the ones with
-    // the most parse negatives — `language/block-scope` 102 of 145,
-    // `language/statements/switch` 75 of 111, `language/statements/for-in` 62 of
-    // 115.
-    let detail = err.message();
-    negative.error_type.is_empty() || detail.contains(&negative.error_type)
+    // Only structured compiler phase/type evidence satisfies a compile
+    // negative. Neither a familiar word nor an absent expected type converts
+    // a host/compiler failure into an ECMAScript rejection.
+    false
 }
 
 fn compile_negative_error_detail(err: &lila_engine::EngineError) -> String {
@@ -11020,6 +5474,7 @@ fn execute_matrix_node(
     };
     let checkpoint_run_identity = CheckpointRunIdentity::matrix(node.node_kind, &node.matrix_path)?;
     let terminal_run_kind = checkpoint_run_identity.terminal_run_kind().to_string();
+    let timing = performance_evidence::NodeInvocationTimer::start(config, run_config);
     let summary = summarize_results(&execute_cases(
         config,
         &node_manifest,
@@ -11041,13 +5496,14 @@ fn execute_matrix_node(
         &checkpoint_run_identity,
         checkpoint_load_policy,
     )?);
+    let timing = timing.finish();
 
     let mut snapshot = snapshot_from_summary(
         &node_manifest,
         terminal_run_kind,
         &summary,
         run_config.execution_backend,
-    );
+    )?;
     snapshot.matrix_path = node.matrix_path.clone();
     let entry = TopLevelRunSummary {
         node_id: node.node_id.clone(),
@@ -11070,7 +5526,8 @@ fn execute_matrix_node(
     let node_snapshot_path =
         snapshot_paths_for_name(config, &node_snapshot_name, node_manifest.manifest_hash).json_path;
     validate_complete_node_contract(&snapshot, node, &entry, &node_snapshot_path)?;
-    write_snapshot(config, &snapshot, &node_snapshot_name)?;
+    let paths = write_snapshot(config, &snapshot, &node_snapshot_name)?;
+    performance_evidence::write_timing(&paths.json_path, &snapshot, node, timing)?;
 
     Ok((entry, summary))
 }
@@ -11166,9 +5623,9 @@ fn snapshot_from_summary(
     run_kind: String,
     summary: &RunSummary,
     execution_backend: ExecutionBackend,
-) -> ProgressSnapshot {
-    ProgressSnapshot {
-        snapshot_version: SNAPSHOT_VERSION,
+) -> Result<ProgressSnapshot, String> {
+    Ok(ProgressSnapshot {
+        provenance: SnapshotProvenance::running()?,
         matrix_strategy_version: MATRIX_STRATEGY_VERSION,
         execution_backend,
         pinned_revisions: manifest.pinned_revisions.clone(),
@@ -11187,7 +5644,7 @@ fn snapshot_from_summary(
         completed_nodes: Vec::new(),
         aggregate_counts_so_far: BTreeMap::new(),
         aggregate_entries: Vec::new(),
-    }
+    })
 }
 
 fn aggregate_snapshot(
@@ -11198,9 +5655,9 @@ fn aggregate_snapshot(
     run_kind: &str,
     matrix_path: Vec<String>,
     completed_nodes: Vec<String>,
-) -> ProgressSnapshot {
-    ProgressSnapshot {
-        snapshot_version: SNAPSHOT_VERSION,
+) -> Result<ProgressSnapshot, String> {
+    Ok(ProgressSnapshot {
+        provenance: SnapshotProvenance::running()?,
         matrix_strategy_version: MATRIX_STRATEGY_VERSION,
         execution_backend,
         pinned_revisions: pinned_revisions.clone(),
@@ -11219,22 +5676,40 @@ fn aggregate_snapshot(
         completed_nodes,
         aggregate_counts_so_far: summary.counts_per_kind.clone(),
         aggregate_entries: summary.entries.clone(),
-    }
+    })
 }
 
-fn is_runtime_negative_exception(err: &EngineError, backend: ExecutionBackend) -> bool {
+fn is_expected_negative_exception(
+    err: &EngineError,
+    backend: ExecutionBackend,
+    phase: NegativePhase,
+) -> bool {
     match backend {
         ExecutionBackend::WasmAot => {
             err.wasm_execution_failure_kind() == Some(WasmExecutionFailureKind::JavaScriptException)
         }
-        ExecutionBackend::SpecExec => classify_engine_error(err) == FailureKind::Runtime,
+        ExecutionBackend::SpecExec => match phase {
+            NegativePhase::Runtime => {
+                err.oracle_javascript_exception_phase()
+                    == Some(lila_engine::OracleExceptionPhase::Runtime)
+            }
+            NegativePhase::Resolution => {
+                err.oracle_javascript_exception_phase()
+                    == Some(lila_engine::OracleExceptionPhase::Resolution)
+            }
+            NegativePhase::Parse | NegativePhase::Early => false,
+        },
     }
 }
 
 fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> FailureRecord {
     let kind = classify_engine_error(err);
     let outcome = match err.wasm_execution_failure_kind() {
-        Some(WasmExecutionFailureKind::DynamicSource) => OutcomeKind::NotImplemented,
+        Some(
+            WasmExecutionFailureKind::DynamicSource
+            | WasmExecutionFailureKind::SemanticGap
+            | WasmExecutionFailureKind::UnavailableCapability,
+        ) => OutcomeKind::NotImplemented,
         Some(WasmExecutionFailureKind::Trap | WasmExecutionFailureKind::Timeout) => {
             OutcomeKind::Crash
         }
@@ -11245,18 +5720,16 @@ fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> Failu
         ) => OutcomeKind::Bug,
         None => classify_failure_outcome(kind, err.message()),
     };
-    let origin = if err.wasm_execution_failure_kind().is_some() {
-        FailureOrigin::Unknown
-    } else {
-        classify_failure_origin(err.message())
-    };
+    let origin = classify_engine_failure_origin(err, kind);
     classify_failure_with_outcome(test_id, kind, outcome, origin, err.to_string())
 }
 
 fn classify_engine_error(err: &EngineError) -> FailureKind {
     if let Some(kind) = err.wasm_execution_failure_kind() {
         return match kind {
-            WasmExecutionFailureKind::DynamicSource => FailureKind::Unsupported,
+            WasmExecutionFailureKind::DynamicSource
+            | WasmExecutionFailureKind::SemanticGap
+            | WasmExecutionFailureKind::UnavailableCapability => FailureKind::Unsupported,
             WasmExecutionFailureKind::JavaScriptException
             | WasmExecutionFailureKind::IncompleteModuleEvaluation
             | WasmExecutionFailureKind::ConcurrentFailure
@@ -11308,281 +5781,45 @@ fn classify_engine_error_message(message: &str) -> FailureKind {
     }
 }
 
-fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
-    if rewrite_wasm_aot_self_contained(case).is_some() {
-        return None;
+/// Origin from typed `EngineError` facts only; no message inspection.
+fn classify_engine_failure_origin(err: &EngineError, kind: FailureKind) -> FailureOrigin {
+    if let Some(failure) = err.wasm_execution_failure_kind() {
+        // Wasm-AOT execution failures stay unattributed until each kind has an
+        // owner; the exhaustive match forces that decision for new kinds.
+        return match failure {
+            WasmExecutionFailureKind::JavaScriptException
+            | WasmExecutionFailureKind::IncompleteModuleEvaluation
+            | WasmExecutionFailureKind::DynamicSource
+            | WasmExecutionFailureKind::SemanticGap
+            | WasmExecutionFailureKind::UnavailableCapability
+            | WasmExecutionFailureKind::ConcurrentFailure
+            | WasmExecutionFailureKind::Trap
+            | WasmExecutionFailureKind::Timeout => FailureOrigin::Unknown,
+        };
     }
-    if case.features.contains("immutable-arraybuffer") {
-        let supported_arraybuffer_immutable_case = case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/resize/this-is-immutable-arraybuffer-object.js")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/slice/species-returns-immutable-arraybuffer.js")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/transfer/this-is-immutable-arraybuffer.js")
-            || case.path.contains(
-                "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-immutable-arraybuffer.js",
-            );
-        let supported_dataview_immutable_setter_case =
-            case.path.starts_with("built-ins/DataView/prototype/set")
-                && case.path.ends_with("/immutable-buffer.js");
-        if !supported_arraybuffer_immutable_case && !supported_dataview_immutable_setter_case {
-            return Some("immutable-arraybuffer");
-        }
-    }
-    let supported_dataview_shared_array_buffer_case = case.path.starts_with("built-ins/DataView/")
-        && (case.path.ends_with("-sab.js") || case.features.contains("SharedArrayBuffer"));
-    let supported_shared_array_buffer_receiver_case = case
-        .path
-        .contains("built-ins/ArrayBuffer/prototype/byteLength/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/detached/this-is-sharedarraybuffer.js")
-        || case.path.contains(
-            "built-ins/ArrayBuffer/prototype/detached/this-is-sharedarraybuffer-resizable.js",
-        )
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/maxByteLength/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/resizable/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/resize/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/slice/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/transfer/this-is-sharedarraybuffer.js")
-        || case.path.contains(
-            "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-sharedarraybuffer.js",
-        );
-    let supported_shared_array_buffer_metadata_case =
-        supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
-    let supported_atomics_shared_array_buffer_case =
-        supported_wasm_aot_atomics_shared_array_buffer_case(&case.path);
-    let supported_typed_array_buffer_argument_shared_case = case
-        .path
-        .starts_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/")
-        || case
-            .path
-            .starts_with("built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/");
-    let supported_typed_array_delete_shared_case = matches!(
-        case.path.as_str(),
-        "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js"
-            | "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js"
-            | "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-non-strict.js"
-            | "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-strict.js"
-    );
-    let supported_typed_array_get_shared_case = matches!(
-        case.path.as_str(),
-        "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js"
-            | "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js"
-    );
-    let supported_typed_array_prototype_set_shared_case = matches!(
-        case.path.as_str(),
-        "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js"
-    );
-    if (case.features.contains("SharedArrayBuffer")
-        || case.path.contains("-sab")
-        || case.path.contains("/sab")
-        || case.path.contains("this-is-sharedarraybuffer"))
-        && !supported_shared_array_buffer_receiver_case
-        && !supported_dataview_shared_array_buffer_case
-        && !supported_shared_array_buffer_metadata_case
-        && !supported_atomics_shared_array_buffer_case
-        && !supported_typed_array_buffer_argument_shared_case
-        && !supported_typed_array_delete_shared_case
-        && !supported_typed_array_get_shared_case
-        && !supported_typed_array_prototype_set_shared_case
-    {
-        return Some("SharedArrayBuffer");
-    }
-
-    if matches!(
-        case.path.as_str(),
-        "built-ins/Proxy/apply/arguments-realm.js"
-            | "built-ins/Proxy/construct/arguments-realm.js"
-            | "built-ins/Proxy/construct/trap-is-undefined-proto-from-cross-realm-newtarget.js"
-            | "built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js"
-    ) {
-        return Some("dynamic-source");
-    }
-    None
-}
-
-fn supported_wasm_aot_atomics_shared_array_buffer_case(path: &str) -> bool {
-    path.starts_with("built-ins/Atomics/")
-}
-
-fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
-    matches!(
-        path,
-        "language/expressions/class/subclass-builtins/subclass-SharedArrayBuffer.js"
-            | "language/statements/class/subclass-builtins/subclass-SharedArrayBuffer.js"
-            | "built-ins/SharedArrayBuffer/allocation-limit.js"
-            | "built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js"
-            | "built-ins/SharedArrayBuffer/init-zero.js"
-            | "built-ins/SharedArrayBuffer/is-a-constructor.js"
-            | "built-ins/SharedArrayBuffer/length-is-absent.js"
-            | "built-ins/SharedArrayBuffer/length-is-too-large-throws.js"
-            | "built-ins/SharedArrayBuffer/length.js"
-            | "built-ins/SharedArrayBuffer/negative-length-throws.js"
-            | "built-ins/SharedArrayBuffer/newtarget-prototype-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-allocation-limit.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-compared-before-object-creation.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-data-allocation-after-object-creation.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-diminuitive.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-excessive.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-negative.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-object.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-poisoned.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-undefined.js"
-            | "built-ins/SharedArrayBuffer/options-non-object.js"
-            | "built-ins/SharedArrayBuffer/prototype-from-newtarget.js"
-            | "built-ins/SharedArrayBuffer/return-abrupt-from-length-symbol.js"
-            | "built-ins/SharedArrayBuffer/return-abrupt-from-length.js"
-            | "built-ins/SharedArrayBuffer/toindex-length.js"
-            | "built-ins/SharedArrayBuffer/undefined-newtarget-throws.js"
-            | "built-ins/SharedArrayBuffer/zero-length.js"
-            | "built-ins/Object/seal/seal-sharedarraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-accessor.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-func.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/return-bytelength.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-has-no-typedarrayname-internal.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/constructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/invoked-as-accessor.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/invoked-as-func.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/return-growable.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/this-has-no-arraybufferdata-internal.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/descriptor.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/extensible.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/grow-larger-size.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/grow-same-size.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/grow-smaller-size.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-excessive.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-negative.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-non-number.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/nonconstructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-arraybuffer-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-resizable-arraybuffer-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-sharedarraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/invoked-as-accessor.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/invoked-as-func.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-growable.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-non-growable.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-has-no-arraybufferdata-internal.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/context-is-not-arraybuffer-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/context-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/descriptor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/end-default-if-absent.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/end-default-if-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/end-exceeds-length.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/extensible.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/negative-end.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/negative-start.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/nonconstructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/not-a-constructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/number-conversion.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-constructor-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-constructor-is-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-not-constructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-null.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-larger-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-not-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-same-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-smaller-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-absent.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-exceeds-end.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-exceeds-length.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/tointeger-conversion-end.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/tointeger-conversion-start.js"
-    )
-}
-
-fn classify_failure_origin(detail: &str) -> FailureOrigin {
-    let lower = detail.to_ascii_lowercase();
-    if lower.contains("failed to read local harness")
-        || lower.contains("local harness")
-        || lower.contains("worker panic:")
-    {
-        FailureOrigin::LocalHarness
-    } else if lower.contains("icu_")
-        || lower.contains("hijri")
-        || lower.contains("intl")
-        || lower.contains("datetimeformat")
-        || lower.contains("numberformat")
-        || lower.contains("durationformat")
-        || lower.contains("relativetimeformat")
-    {
+    if err.intl_artifact_identity_error().is_some() {
         FailureOrigin::IcuIntl
-    } else if lower.contains("agent threads are not supported in lila-spec-exec")
-        || lower.contains("spec-exec")
+    } else if err.wasm_gc_capability().is_some()
+        || err.wasm_weak_reachability_capability().is_some()
     {
-        FailureOrigin::SpecExecHost
-    } else if lower.contains("syntaxerror")
-        || lower.contains("syntax error")
-        || lower.contains("parse")
-    {
-        FailureOrigin::BoaParser
-    } else if lower.contains("referenceerror")
-        || lower.contains("typeerror")
-        || lower.contains("rangeerror")
-        || lower.contains("urierror")
-        || lower.contains("runtime")
-        || lower.contains("index out of bounds")
-        || lower.contains("must be declarative environment")
-    {
+        FailureOrigin::WasmBackend
+    } else if err.oracle_javascript_exception_phase().is_some() {
         FailureOrigin::BoaRuntime
+    } else if err.is_oracle_entry_syntax_rejection() || err.parse_diagnostic().is_some() {
+        FailureOrigin::BoaParser
     } else {
-        FailureOrigin::Unknown
+        failure_origin_for_kind(kind)
     }
 }
 
 fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
     SnapshotFile {
-        // Serialization is a one-way current-artifact boundary. Legacy files
-        // are decoded into `ProgressSnapshot` only for evidence workflows and
-        // can never preserve their legacy version through this constructor.
-        snapshot_version: SNAPSHOT_VERSION,
-        producer: Some(ArtifactProducer::CURRENT),
+        // The schema projects from the mandatory compiler binding; serialization
+        // cannot relabel unbound history as a current compiler's execution.
+        snapshot_version: snapshot.snapshot_version(),
+        compiler_identity: snapshot.provenance.to_wire(),
+        producer: (snapshot.snapshot_version() >= LEGACY_PATH_ONLY_SNAPSHOT_VERSION)
+            .then_some(ArtifactProducer::CURRENT),
         matrix_strategy_version: snapshot.matrix_strategy_version,
         execution_backend: snapshot.execution_backend.as_str().to_string(),
         pinned_revisions: SnapshotPinnedRevisions {
@@ -11663,7 +5900,8 @@ fn validate_snapshot_checkpoint_identity(
     file: &SnapshotFile,
     artifact_kind: SnapshotArtifactKind,
 ) -> Result<(), String> {
-    if !artifact_kind.is_current() {
+    let version = file.snapshot_version;
+    if !artifact_kind.has_execution_identity() {
         if file.checkpoint_identity.is_absent() {
             return Ok(());
         }
@@ -11676,10 +5914,10 @@ fn validate_snapshot_checkpoint_identity(
     if file.run_kind == "resume-case-checkpoint" {
         return match &file.checkpoint_identity {
             WireCheckpointIdentity::Absent => Err(format!(
-                "snapshot version {SNAPSHOT_VERSION} resume-case-checkpoint is missing checkpoint_identity"
+                "snapshot version {version} resume-case-checkpoint is missing checkpoint_identity"
             )),
             WireCheckpointIdentity::Present(None) => Err(format!(
-                "snapshot version {SNAPSHOT_VERSION} resume-case-checkpoint has null checkpoint_identity"
+                "snapshot version {version} resume-case-checkpoint has null checkpoint_identity"
             )),
             WireCheckpointIdentity::Present(Some(_)) => Ok(()),
         };
@@ -11689,24 +5927,26 @@ fn validate_snapshot_checkpoint_identity(
         Ok(())
     } else {
         Err(format!(
-            "snapshot version {SNAPSHOT_VERSION} terminal run_kind {} must omit checkpoint_identity",
+            "snapshot version {version} terminal run_kind {} must omit checkpoint_identity",
             file.run_kind
         ))
     }
 }
 
 fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
+    let version = file.snapshot_version;
     let artifact_kind = file.artifact_kind()?;
+    let provenance = file.compiler_identity.clone().admit(artifact_kind)?;
     validate_snapshot_checkpoint_identity(&file, artifact_kind)?;
-    if artifact_kind.is_current() {
+    if artifact_kind.has_execution_identity() {
         if !file.completed_paths.is_absent() || !file.timeout_list.is_absent() {
             return Err(format!(
-                "snapshot version {SNAPSHOT_VERSION} contains path-only completion or timeout identity"
+                "snapshot version {version} contains path-only completion or timeout identity"
             ));
         }
         if file.completed_test_ids.values().is_none() || file.timeout_test_ids.values().is_none() {
             return Err(format!(
-                "snapshot version {SNAPSHOT_VERSION} is missing typed completion or timeout identity fields"
+                "snapshot version {version} is missing typed completion or timeout identity fields"
             ));
         }
     } else if !file.failures.is_empty()
@@ -11734,7 +5974,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
             )?;
             let test_id = failure.test_id.ok_or_else(|| {
                 format!(
-                    "snapshot version {SNAPSHOT_VERSION} failure {} is missing execution identity",
+                    "snapshot version {version} failure {} is missing execution identity",
                     failure.test_path
                 )
             })?;
@@ -11792,7 +6032,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(ProgressSnapshot {
-        snapshot_version: file.snapshot_version,
+        provenance,
         matrix_strategy_version: file.matrix_strategy_version,
         execution_backend: parse_snapshot_execution_backend(&file.execution_backend)?,
         pinned_revisions: PinnedRevisions {
@@ -11812,7 +6052,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
             .map(|entry| {
                 let test_id = entry.test_id.ok_or_else(|| {
                     format!(
-                        "snapshot version {SNAPSHOT_VERSION} slow-case record {} is missing execution identity",
+                        "snapshot version {version} slow-case record {} is missing execution identity",
                         entry.path
                     )
                 })?;
@@ -11850,13 +6090,19 @@ fn snapshot_failure_outcome(
         (
             SnapshotArtifactKind::LegacyV5
             | SnapshotArtifactKind::LegacyPathOnlyV6
-            | SnapshotArtifactKind::CurrentLilaV7,
+            | SnapshotArtifactKind::LegacyExecutionIdentityV7
+            | SnapshotArtifactKind::CurrentLilaV8,
             Some(outcome),
         ) => Ok(outcome),
-        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::LegacyPathOnlyV6, None) => Err(format!(
-            "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
+        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::LegacyPathOnlyV6, None) => {
+            Err(format!(
+                "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
+            ))
+        }
+        (SnapshotArtifactKind::LegacyExecutionIdentityV7, None) => Err(format!(
+            "snapshot version {LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
         )),
-        (SnapshotArtifactKind::CurrentLilaV7, None) => Err(format!(
+        (SnapshotArtifactKind::CurrentLilaV8, None) => Err(format!(
             "snapshot version {SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
         )),
     }
@@ -11883,14 +6129,20 @@ fn snapshot_outcome_counts(
         )),
         (
             SnapshotArtifactKind::LegacyV5
-                | SnapshotArtifactKind::LegacyPathOnlyV6
-                | SnapshotArtifactKind::CurrentLilaV7,
+            | SnapshotArtifactKind::LegacyPathOnlyV6
+            | SnapshotArtifactKind::LegacyExecutionIdentityV7
+            | SnapshotArtifactKind::CurrentLilaV8,
             Some(counts),
         ) => Ok(complete_outcome_counts(&counts)),
-        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::LegacyPathOnlyV6, None) => Err(format!(
-            "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} {context} is missing required outcome counts"
+        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::LegacyPathOnlyV6, None) => {
+            Err(format!(
+                "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} {context} is missing required outcome counts"
+            ))
+        }
+        (SnapshotArtifactKind::LegacyExecutionIdentityV7, None) => Err(format!(
+            "snapshot version {LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION} {context} is missing required outcome counts"
         )),
-        (SnapshotArtifactKind::CurrentLilaV7, None) => Err(format!(
+        (SnapshotArtifactKind::CurrentLilaV8, None) => Err(format!(
             "snapshot version {SNAPSHOT_VERSION} {context} is missing required outcome counts"
         )),
     }
@@ -11936,10 +6188,29 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
     writeln!(
         &mut out,
         "test262 {} summary (snapshot v{})",
-        snapshot.run_kind, snapshot.snapshot_version
+        snapshot.run_kind,
+        snapshot.snapshot_version()
     )
     .unwrap();
     writeln!(&mut out, "producer={}", ArtifactProducer::CURRENT.as_str()).unwrap();
+    match &snapshot.provenance {
+        SnapshotProvenance::Current(identity) => {
+            writeln!(
+                &mut out,
+                "compiler_identity={}",
+                serde_json::to_string(identity).expect("checked compiler identity serializes")
+            )
+            .unwrap();
+        }
+        SnapshotProvenance::LegacyUnbound(version) => {
+            writeln!(
+                &mut out,
+                "compiler_identity=legacy-unbound-v{}",
+                version.version()
+            )
+            .unwrap();
+        }
+    }
     writeln!(
         &mut out,
         "execution_backend={}",
@@ -12019,14 +6290,26 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
 fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, String> {
     let raw = fs::read_to_string(path)
         .map_err(|err| format!("failed to read snapshot {}: {err}", path.display()))?;
-    let file: SnapshotFile = serde_json::from_str(&raw)
+    decode_snapshot_bytes(raw.as_bytes(), path)
+}
+
+/// The same native schema/provenance/checkpoint admission used by file readers.
+/// Robustness workers pass exact bounded bytes without constructing a fake pin.
+pub(crate) fn decode_snapshot_bytes(raw: &[u8], path: &Path) -> Result<SnapshotFile, String> {
+    let file: SnapshotFile = serde_json::from_slice(raw)
         .map_err(|err| format!("failed to parse snapshot {}: {err}", path.display()))?;
     let artifact_kind = file
         .artifact_kind()
         .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
+    file.provenance().map_err(|err| {
+        format!(
+            "invalid snapshot compiler identity in {}: {err}",
+            path.display()
+        )
+    })?;
     validate_snapshot_checkpoint_identity(&file, artifact_kind)
         .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
-    if artifact_kind.is_current() {
+    if artifact_kind.has_execution_identity() {
         parse_snapshot_execution_backend(&file.execution_backend)
             .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
     }
@@ -12046,7 +6329,7 @@ fn load_resume_aggregate_snapshot(
     let mut candidates = Vec::new();
     if exact_path.exists() {
         let file = read_snapshot_file(&exact_path)?;
-        file.require_current(&exact_path, "resume aggregate snapshot")?;
+        file.require_running(&exact_path, "resume aggregate snapshot")?;
         if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
             return Err(format!(
                 "resume snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
@@ -12106,6 +6389,7 @@ fn load_resume_aggregate_snapshot(
     let mut current = Some(path);
     while let Some(path) = current {
         let file = read_snapshot_file(&path)?;
+        file.require_running(&path, "resume aggregate snapshot")?;
         if validate_resume_aggregate_snapshot(
             config,
             &file,
@@ -12135,9 +6419,11 @@ fn validate_resume_aggregate_snapshot(
 ) -> Result<(), String> {
     match snapshot_use {
         SnapshotUse::CurrentState => {
-            file.require_current(path, "current aggregate snapshot")?;
+            file.require_running(path, "current aggregate snapshot")?;
         }
-        SnapshotUse::ReadOnlyEvidence => {}
+        SnapshotUse::ReadOnlyEvidence => {
+            file.require_current(path, "read-only compiler-bound aggregate")?;
+        }
     }
     if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
         return Err(format!(
@@ -12227,7 +6513,7 @@ fn load_previous_snapshot_checked(
     // Resume merges new results into the snapshot, so a legacy artifact is a
     // hard boundary rather than an absent checkpoint. Treating it as absent
     // would let the next checkpoint overwrite evidence in place.
-    file.require_current(&path, "resume checkpoint")
+    file.require_running(&path, "resume checkpoint")
         .map_err(ResumeCheckpointLoadError::integrity)?;
     if file.execution_backend != identity.execution_backend.as_str() {
         return Err(ResumeCheckpointLoadError::stale(format!(
@@ -12925,6 +7211,24 @@ fn validate_complete_aggregate_evidence(
     validate_run_matrix_contract(nodes, &suite_test_ids)?;
     validate_complete_aggregate_contract(snapshot, nodes, snapshot_path)?;
 
+    validate_aggregate_node_evidence(
+        config,
+        snapshot_name,
+        snapshot_path,
+        snapshot,
+        nodes,
+        execution_backend,
+    )
+}
+
+fn validate_aggregate_node_evidence(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    snapshot_path: &Path,
+    snapshot: &ProgressSnapshot,
+    nodes: &[RunMatrixNode],
+    execution_backend: ExecutionBackend,
+) -> Result<(), String> {
     let entries = snapshot
         .aggregate_entries
         .iter()
@@ -12934,8 +7238,16 @@ fn validate_complete_aggregate_evidence(
         let entry = entries
             .get(node.node_id.as_str())
             .expect("aggregate contract proved one entry per node");
-        let Some((node_path, file)) =
-            locate_node_snapshot(config, snapshot_name, node, execution_backend, entry)?
+        let Some((node_path, file)) = locate_node_snapshot(
+            config,
+            snapshot_name,
+            node,
+            execution_backend,
+            entry,
+            snapshot
+                .provenance
+                .require_current("complete aggregate evidence")?,
+        )?
         else {
             return Err(format!(
                 "aggregate snapshot integrity failure in {}: missing node evidence for {}",
@@ -12993,7 +7305,7 @@ pub fn load_verified_aggregate_summary(
 
 /// Loads the only aggregate schema that may feed a new publication.
 ///
-/// Publication rejects every legacy version: it must be based on a version-7
+/// Publication rejects every legacy version: it must be based on a compiler-bound version-8
 /// aggregate whose producer is the closed `Lila` identity and whose cases
 /// carry execution identity.
 pub fn load_publishable_aggregate_summary(
@@ -13052,6 +7364,10 @@ fn load_verified_aggregate_summary_for_use(
         execution_backend,
     )?;
     Ok(VerifiedAggregateSummary {
+        compiler_identity: snapshot
+            .provenance
+            .require_current("aggregate summary")?
+            .clone(),
         pinned_revisions: expected_pinned,
         recorded_pinned_revisions: recorded_pinned,
         resolved_snapshot_name: resolved.snapshot_name,
@@ -13080,7 +7396,7 @@ pub fn load_aggregate_progress_summary(
         manifest_hash,
         execution_backend,
         &expected_pinned,
-        SnapshotUse::ReadOnlyEvidence,
+        SnapshotUse::CurrentState,
         &nodes,
         AggregateEvidenceRequirement::Envelope,
     )?;
@@ -13088,29 +7404,40 @@ pub fn load_aggregate_progress_summary(
         ecma262: resolved.file.pinned_revisions.ecma262.clone(),
         test262: resolved.file.pinned_revisions.test262.clone(),
     };
-    if resolved
-        .file
-        .artifact_kind()
-        .expect("resolved snapshots have already passed schema validation")
-        == SnapshotArtifactKind::LegacyV4
-    {
-        return Err(format!(
-            "aggregate progress snapshot {} uses legacy version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION}, which has no outcome counts; refusing to synthesize execution-aware progress from node evidence",
-            resolved.snapshot_paths.json_path.display()
-        ));
-    }
     let snapshot = snapshot_from_file(resolved.file).map_err(|err| {
         format!(
             "invalid snapshot data in {}: {err}",
             resolved.snapshot_paths.json_path.display()
         )
     })?;
+    let recorded_nodes = nodes
+        .iter()
+        .filter(|node| snapshot.completed_nodes.contains(&node.node_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    validate_complete_aggregate_contract(
+        &snapshot,
+        &recorded_nodes,
+        &resolved.snapshot_paths.json_path,
+    )?;
+    validate_aggregate_node_evidence(
+        config,
+        &resolved.snapshot_name,
+        &resolved.snapshot_paths.json_path,
+        &snapshot,
+        &recorded_nodes,
+        execution_backend,
+    )?;
     let progress = AggregateProgress::from_completed_nodes(
         target_total,
         &snapshot.completed_nodes,
         &expected_node_ids,
     )?;
     Ok(AggregateProgressSummary {
+        compiler_identity: snapshot
+            .provenance
+            .require_current("aggregate summary")?
+            .clone(),
         pinned_revisions: expected_pinned,
         recorded_pinned_revisions: recorded_pinned,
         resolved_snapshot_name: resolved.snapshot_name,
@@ -13212,6 +7539,9 @@ pub fn load_matrix_failure_details(
         node,
         execution_backend,
         entry,
+        aggregate
+            .provenance
+            .require_current("matrix failure details")?,
     )?
     else {
         let node_snapshot_name = format!(
@@ -13346,6 +7676,7 @@ pub fn generate_backlog(
             node,
             execution_backend,
             entry,
+            &verified.compiler_identity,
         )?
         else {
             continue;
@@ -13449,6 +7780,7 @@ pub fn generate_backlog(
     slowest_subtrees.truncate(25);
 
     let artifact = BacklogArtifact {
+        compiler_identity: verified.compiler_identity.clone(),
         snapshot_version: SNAPSHOT_VERSION,
         producer: ArtifactProducer::CURRENT,
         matrix_strategy_version: MATRIX_STRATEGY_VERSION,
@@ -13478,7 +7810,12 @@ fn load_comparison_aggregate_summary(
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
 ) -> Result<VerifiedAggregateSummary, String> {
-    let verified = load_current_aggregate_summary(config, snapshot_name, execution_backend)?;
+    let verified = load_verified_aggregate_summary_for_use(
+        config,
+        snapshot_name,
+        execution_backend,
+        SnapshotUse::ReadOnlyEvidence,
+    )?;
     if verified.resolved_snapshot_name != snapshot_name {
         return Err(format!(
             "snapshot comparison requires exact snapshot name `{snapshot_name}`; only `{}` resolved; refusing to compare a different snapshot",
@@ -13572,6 +7909,8 @@ pub fn compare_snapshots(
     changed_failure_hashes.sort_by(|left, right| left.test_id.cmp(&right.test_id));
 
     Ok(SnapshotComparison {
+        base_compiler_identity: base.compiler_identity.clone(),
+        candidate_compiler_identity: candidate.compiler_identity.clone(),
         base_snapshot_name: base_snapshot_name.to_string(),
         candidate_snapshot_name: candidate_snapshot_name.to_string(),
         execution_backend,
@@ -13629,6 +7968,7 @@ pub fn snapshot_pin_report(config: &SuiteConfig) -> Result<SnapshotPinReport, St
             mismatched += 1;
         }
         entries.push(SnapshotPinReportEntry {
+            provenance: file.provenance()?,
             file_name,
             execution_backend: file.execution_backend.clone(),
             manifest_hash: file.manifest_hash,
@@ -13668,6 +8008,7 @@ fn load_failure_map(
             node,
             execution_backend,
             entry,
+            &verified.compiler_identity,
         )?
         else {
             continue;
@@ -13694,6 +8035,7 @@ fn locate_node_snapshot(
     node: &RunMatrixNode,
     execution_backend: ExecutionBackend,
     entry: &TopLevelRunSummary,
+    expected_compiler: &CompilerProvenance,
 ) -> Result<Option<(PathBuf, SnapshotFile)>, String> {
     let expected_pinned = pinned_revisions(config);
     let node_snapshot_name = format!(
@@ -13714,7 +8056,7 @@ fn locate_node_snapshot(
         test262: file.pinned_revisions.test262.clone(),
     };
     let recomputed_hash = matrix_node_manifest_hash(&recorded_pinned, node);
-    file.require_current(&path, "current matrix node evidence")?;
+    file.require_compiler(expected_compiler, &path)?;
     if recomputed_hash != file.manifest_hash {
         return Err(format!(
             "node snapshot integrity failure in {}: recorded pin does not reproduce manifest hash {} over the current case set for {} (recomputed {})",
@@ -13732,6 +8074,7 @@ fn locate_node_snapshot(
         entry.manifest_hash,
         execution_backend,
         &expected_pinned,
+        expected_compiler,
     )
     .map_err(ResumeCheckpointLoadError::into_message)?;
     Ok(Some((path, file)))
@@ -13743,13 +8086,20 @@ fn load_completed_node_snapshot(
     node: &RunMatrixNode,
     execution_backend: ExecutionBackend,
     entry: &TopLevelRunSummary,
+    expected_compiler: &CompilerProvenance,
 ) -> Result<Option<ProgressSnapshot>, String> {
-    let Some((path, file)) =
-        locate_node_snapshot(config, snapshot_name, node, execution_backend, entry)?
+    let Some((path, file)) = locate_node_snapshot(
+        config,
+        snapshot_name,
+        node,
+        execution_backend,
+        entry,
+        expected_compiler,
+    )?
     else {
         return Ok(None);
     };
-    file.require_current(&path, "completed matrix node evidence")?;
+    file.require_compiler(expected_compiler, &path)?;
     let snapshot = snapshot_from_file(file)
         .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))?;
     validate_complete_node_contract(&snapshot, node, entry, &path)?;
@@ -13858,6 +8208,12 @@ fn write_backlog_artifact(
     config: &SuiteConfig,
     artifact: &BacklogArtifact,
 ) -> Result<BacklogPaths, String> {
+    if artifact.snapshot_version != SNAPSHOT_VERSION {
+        return Err("backlog writes require the current compiler-bound snapshot schema".into());
+    }
+    artifact
+        .compiler_identity
+        .require_running("backlog writer")?;
     let backlog_dir = test262_root_from_config(config)
         .join("backlog")
         .join(&artifact.pinned_revisions.test262);
@@ -13896,6 +8252,13 @@ fn render_backlog_summary(artifact: &BacklogArtifact) -> String {
         "producer={} snapshot_version={}",
         artifact.producer.as_str(),
         artifact.snapshot_version
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "compiler_identity={}",
+        serde_json::to_string(&artifact.compiler_identity)
+            .expect("checked compiler identity serializes")
     )
     .unwrap();
     writeln!(
@@ -15234,6 +9597,7 @@ function $DONE(error) {
             timeout_ms: 30_000,
             worker_count: 2,
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::FixtureWorker,
         }
     }
 
@@ -15389,7 +9753,7 @@ function $DONE(error) {
         load_preludes(&config).expect("real vendored preludes with wasm-aot host should load")
     }
 
-    fn typed_array_literal_physical_cases() -> Vec<TestCase> {
+    fn typed_array_nine_method_physical_cases() -> Vec<TestCase> {
         let test_root = repo_root().join("test262/vendor/test262/test");
         let prototype_root = test_root.join("built-ins/TypedArray/prototype");
         let mut cases = Vec::new();
@@ -15436,46 +9800,6 @@ function $DONE(error) {
             physical_cases.push(case);
         }
         physical_cases
-    }
-
-    fn resizable_array_buffer_cases() -> Vec<TestCase> {
-        fn collect(dir: &Path, test_root: &Path, cases: &mut Vec<TestCase>) {
-            let mut entries = fs::read_dir(dir)
-                .expect("test directory should read")
-                .collect::<Result<Vec<_>, _>>()
-                .expect("test directory entries should read");
-            entries.sort_by_key(|entry| entry.path());
-            for entry in entries {
-                let path = entry.path();
-                if entry
-                    .file_type()
-                    .expect("test file type should read")
-                    .is_dir()
-                {
-                    collect(&path, test_root, cases);
-                    continue;
-                }
-                if path.extension().and_then(|extension| extension.to_str()) != Some("js") {
-                    continue;
-                }
-                let original_source =
-                    fs::read_to_string(&path).expect("vendored test source should read");
-                if !original_source.contains("resizableArrayBufferUtils.js") {
-                    continue;
-                }
-                let relative_path = path
-                    .strip_prefix(test_root)
-                    .expect("vendored test path should be relative")
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                cases.push(parse_test_case(relative_path, path, original_source));
-            }
-        }
-
-        let test_root = repo_root().join("test262/vendor/test262/test");
-        let mut cases = Vec::new();
-        collect(&test_root, &test_root, &mut cases);
-        cases
     }
 
     #[test]
@@ -15726,13 +10050,19 @@ function $DONE(error) {
 
     #[test]
     fn strict_materialization_leads_the_entire_source_and_raw_is_byte_identical() {
-        let mut strict = synthetic_case("built-ins/undefined/S15.1.1.3_A1.js");
+        let mut strict = synthetic_case("language/strict-directive-leads.js");
         strict.execution_id = TestExecutionId::new(
-            "built-ins/undefined/S15.1.1.3_A1.js",
+            "language/strict-directive-leads.js",
             TestExecutionMode::StrictScript,
         );
-        let materialized = materialize_test(&strict, &PreludeStore::default())
-            .expect("strict self-contained case should materialize");
+        let mut preludes = PreludeStore::default();
+        preludes.insert(
+            "assert.js".to_string(),
+            "function assert() {}\n".to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let materialized =
+            materialize_test(&strict, &preludes).expect("strict ordinary case should materialize");
         assert!(materialized.source.starts_with("\"use strict\";\n"));
 
         let raw_bytes = "/*---\nflags: [raw]\n---*/\r\n$262.destroy();\n";
@@ -15798,6 +10128,7 @@ function $DONE(error) {
             timeout_ms: 1_000,
             worker_count: 1,
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::FixtureWorker,
         };
         let exact = discover_suite(
             &config,
@@ -16248,8 +10579,8 @@ export const value = helperRead();
         let sta = section("sta.js");
         let sta_preamble = section("sta-preamble.js");
 
-        assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_247);
-        assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0x09be_b318_81da_e05a);
+        assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_171);
+        assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0xe031_f32c_ab10_55cc);
         assert_eq!(sta, sta_preamble);
         assert_eq!(sta.len(), 720);
         assert_eq!(fnv1a(&sta), 0xbda4_7f3d_1dd0_dad8);
@@ -16688,14 +11019,6 @@ export const value = helperRead();
 
     #[test]
     fn pinned_test262_host_requirements_have_exact_closed_census() {
-        const REWRITTEN_ACTIVE_HOST_PATHS: [&str; 5] = [
-            "built-ins/Boolean/proto-from-ctor-realm.js",
-            "staging/sm/Iterator/prototype/every/error-from-correct-realm.js",
-            "staging/sm/Iterator/prototype/find/error-from-correct-realm.js",
-            "staging/sm/Iterator/prototype/reduce/error-from-correct-realm.js",
-            "staging/sm/Iterator/prototype/some/error-from-correct-realm.js",
-        ];
-
         let test_root = repo_root().join("test262/vendor/test262/test");
         let mut cases = Vec::new();
         scan_tests(&test_root, &test_root, None, false, &mut cases)
@@ -16705,7 +11028,6 @@ export const value = helperRead();
         let mut execution_counts = [0usize; 3];
         let mut host_mode_counts = [0usize; 3];
         let mut agent_execution_count = 0;
-        let mut rewritten_active_paths = BTreeSet::new();
 
         for case in &cases {
             let included_preludes = resolve_declared_preludes(case, &preludes)
@@ -16742,9 +11064,6 @@ export const value = helperRead();
                 } => {
                     if agent_worker == AgentWorkerRequirement::Required {
                         agent_execution_count += 1;
-                    }
-                    if rewrite_wasm_aot_self_contained(case).is_some() {
-                        rewritten_active_paths.insert(case.path().to_string());
                     }
                     2
                 }
@@ -16800,13 +11119,6 @@ export const value = helperRead();
         assert_eq!(execution_counts, [100_496, 956, 591]);
         assert_eq!(host_mode_counts, [788, 751, 8]);
         assert_eq!((agent_physical_count, agent_execution_count), (109, 218));
-        assert_eq!(
-            rewritten_active_paths,
-            REWRITTEN_ACTIVE_HOST_PATHS
-                .into_iter()
-                .map(str::to_string)
-                .collect()
-        );
     }
 
     #[test]
@@ -16818,7 +11130,7 @@ export const value = helperRead();
         let preludes = real_wasm_aot_preludes();
         let full_assert = preludes.get("assert.js").expect("assertion prelude");
         for case in &cases {
-            if case.execution_mode().is_raw() || rewrite_wasm_aot_self_contained(case).is_some() {
+            if case.execution_mode().is_raw() {
                 continue;
             }
             let materialized = materialize_test(case, &preludes)
@@ -16914,7 +11226,7 @@ export const value = helperRead();
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source = Arc::from( source.to_string());
+            case.original_source = Arc::from(source.to_string());
 
             let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
             let TestStatus::Failed(failure) = result.status else {
@@ -17023,11 +11335,175 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
-        assert!(
-            matches!(result.status, TestStatus::Passed),
-            "SpecExec should run its oracle after a successful front-end compile, got {:?}",
-            result.status
-        );
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("a runtime Error must not satisfy a parse-negative expectation");
+        };
+        assert_eq!(failure.kind, FailureKind::Parser);
+        assert!(failure.detail.contains("entry rejection"));
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn oracle_runtime_syntax_errors_never_satisfy_compile_negative_phases() {
+        let preludes = fixture_preludes();
+        for mode in TestExecutionMode::ALL {
+            for phase in [NegativePhase::Parse, NegativePhase::Early] {
+                for error_type in ["SyntaxError", ""] {
+                    let mut case = synthetic_case("language/oracle-runtime-syntax-phase.js");
+                    case.execution_id = TestExecutionId::new(case.path(), mode);
+                    case.flags = match mode {
+                        TestExecutionMode::SloppyScript => BTreeSet::from(["noStrict".into()]),
+                        TestExecutionMode::StrictScript => BTreeSet::from(["onlyStrict".into()]),
+                        TestExecutionMode::Module => BTreeSet::from(["module".into()]),
+                        TestExecutionMode::RawScript => BTreeSet::from(["raw".into()]),
+                        TestExecutionMode::RawModule => {
+                            BTreeSet::from(["raw".into(), "module".into()])
+                        }
+                    };
+                    case.original_source =
+                        Arc::from("throw new SyntaxError('runtime entry-shaped text');");
+                    case.negative = Some(Arc::new(NegativeExpectation {
+                        phase,
+                        error_type: error_type.into(),
+                    }));
+                    let TestStatus::Failed(failure) =
+                        run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status
+                    else {
+                        panic!("runtime SyntaxError acquired {phase} provenance in {mode:?}");
+                    };
+                    assert_eq!(failure.kind, phase.failure_kind());
+                    assert!(
+                        failure.detail.contains("entry rejection"),
+                        "{}",
+                        failure.detail
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    fn oracle_negative_fixture(
+        source: &str,
+        mode: TestExecutionMode,
+        phase: NegativePhase,
+        error_type: &str,
+    ) -> TestCase {
+        let mut case = synthetic_case("language/oracle-negative-exception-provenance.js");
+        case.execution_id = TestExecutionId::new(case.path(), mode);
+        case.flags = match mode {
+            TestExecutionMode::SloppyScript => BTreeSet::from(["noStrict".into()]),
+            TestExecutionMode::StrictScript => BTreeSet::from(["onlyStrict".into()]),
+            TestExecutionMode::Module => BTreeSet::from(["module".into()]),
+            TestExecutionMode::RawScript => BTreeSet::from(["raw".into()]),
+            TestExecutionMode::RawModule => BTreeSet::from(["raw".into(), "module".into()]),
+        };
+        case.original_source = Arc::from(source);
+        case.negative = Some(Arc::new(NegativeExpectation {
+            phase,
+            error_type: error_type.into(),
+        }));
+        case
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn oracle_runtime_negative_matches_actual_typeerror_and_implicit_root_throw_in_each_mode() {
+        let preludes = fixture_preludes();
+        for mode in TestExecutionMode::ALL {
+            for source in [
+                "throw new TypeError('ordinary root');",
+                "null.property;",
+                "var error = new TypeError('ordinary root'); error.name = 'RangeError'; throw error;",
+            ] {
+                let case = oracle_negative_fixture(source, mode, NegativePhase::Runtime, "TypeError");
+                let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+                assert!(matches!(result.status, TestStatus::Passed),
+                    "actual TypeError root in {mode:?}: {source}: {:?}", result.status);
+            }
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn oracle_runtime_negative_refuses_misleading_message_name_and_primitive_in_each_mode() {
+        let preludes = fixture_preludes();
+        for mode in TestExecutionMode::ALL {
+            for source in [
+                "throw new RangeError('TypeError');",
+                "var error = new RangeError('ordinary root'); error.name = 'TypeError'; throw error;",
+                "throw 'TypeError';",
+            ] {
+                let case = oracle_negative_fixture(source, mode, NegativePhase::Runtime, "TypeError");
+                let TestStatus::Failed(failure) = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status else {
+                    panic!("wrong oracle exception satisfied TypeError in {mode:?}: {source}");
+                };
+                assert_eq!(failure.kind, FailureKind::Runtime, "{source}: {failure:?}");
+                assert_eq!(failure.outcome, OutcomeKind::Bug, "{source}: {failure:?}");
+                assert!(failure.detail.contains("negative test error mismatch"), "{source}: {failure:?}");
+            }
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn oracle_runtime_constructor_admission_refuses_accessor_proxy_and_custom_subclass() {
+        let preludes = fixture_preludes();
+        for source in [
+            "var error = new TypeError('ordinary root'); Object.defineProperty(error, 'constructor', { get: function () { throw new TypeError('reporting getter'); } }); throw error;",
+            "throw new Proxy(new TypeError('ordinary root'), {});",
+            "class CustomError extends TypeError {} throw new CustomError('ordinary root');",
+        ] {
+            let case = oracle_negative_fixture(source, TestExecutionMode::RawScript, NegativePhase::Runtime, "TypeError");
+            let TestStatus::Failed(failure) = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status else {
+                panic!("unadmitted constructor acquired intrinsic TypeError proof: {source}");
+            };
+            assert!(failure.detail.contains("negative test error mismatch"), "{source}: {failure:?}");
+            assert!(failure.detail.contains("<unclassified>"), "{source}: {failure:?}");
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn oracle_runtime_syntaxerror_cannot_satisfy_module_resolution_negative() {
+        let preludes = fixture_preludes();
+        for mode in [TestExecutionMode::Module, TestExecutionMode::RawModule] {
+            let case = oracle_negative_fixture(
+                "throw new SyntaxError('resolution-shaped text');",
+                mode,
+                NegativePhase::Resolution,
+                "SyntaxError",
+            );
+            let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+            assert!(
+                matches!(result.status, TestStatus::Failed(_)),
+                "runtime SyntaxError acquired Resolution provenance in {mode:?}: {:?}",
+                result.status
+            );
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn oracle_internal_host_failure_and_its_rethrow_cannot_satisfy_runtime_negative() {
+        let preludes = fixture_preludes();
+        for source in [
+            "print('Test262:AsyncTestFailure:Error');",
+            "try { print('Test262:AsyncTestFailure:Error'); } catch (error) { throw error; }",
+        ] {
+            let case = oracle_negative_fixture(
+                source,
+                TestExecutionMode::RawScript,
+                NegativePhase::Runtime,
+                "Error",
+            );
+            let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
+            assert!(
+                matches!(result.status, TestStatus::Failed(_)),
+                "internal host failure acquired JavaScript-negative proof: {source}: {:?}",
+                result.status
+            );
+        }
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -17308,7 +11784,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
             let mut case = synthetic_case("harness/wasm-promise-host-completion.js");
             case.original_source = Arc::from(source);
             let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
-            assert!(matches!(result.status, TestStatus::Passed), "{source}: {:?}", result.status);
+            assert!(
+                matches!(result.status, TestStatus::Passed),
+                "{source}: {:?}",
+                result.status
+            );
         }
         for (source, passing, detail) in [
             (
@@ -17551,329 +12031,6 @@ print('Test262:AsyncTestComplete');
     }
 
     #[test]
-    fn regexp_match_indices_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/RegExp/match-indices/indices-array-non-unicode-match.js",
-            "built-ins/RegExp/match-indices/indices-array-unicode-match.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn materialize_iterator_zip_basic_shortest_uses_compact_complete_rewrite() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "assert.js",
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness should not be used\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-shortest.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
-            )
-            .to_string(),
-        );
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized
-            .source
-            .contains("generic harness should not be used"));
-        assert!(!materialized.source.contains("forEachSequenceCombination"));
-        assert!(materialized
-            .source
-            .contains("zipBasicShortestCombinationCount = zipBasicShortestCombinationCount + 1"));
-        assert!(materialized
-            .source
-            .contains("zipBasicShortestCombinationCount !== 156"));
-        assert!(materialized
-            .source
-            .contains("zipBasicShortestOptionCount !== 468"));
-        assert!(materialized
-            .source
-            .contains("Iterator.zip(inputs, undefined)"));
-        assert!(materialized.source.contains("Iterator.zip(inputs, {})"));
-        assert!(materialized
-            .source
-            .contains("Iterator.zip(inputs, { mode: \"shortest\" })"));
-        assert!(materialized.source.contains("checkZipIteratorResult"));
-        assert!(materialized.source.contains("checkZipRow"));
-        assert!(materialized
-            .source
-            .contains("Object.prototype.propertyIsEnumerable.call(object, key)"));
-        assert!(materialized.source.contains("for (var property in object)"));
-        assert!(materialized.source.contains("object[key] = newValue"));
-        assert!(materialized.source.contains("delete object[key]"));
-    }
-
-    #[test]
-    fn materialize_iterator_zip_basic_shortest_rejects_changed_pinned_source() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "assert.js",
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-shortest.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(format!(
-            "{}\n// Future upstream coverage.\n",
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
-            )
-        ));
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert_eq!(materialized.used_preludes.len(), 4);
-        assert!(materialized.source.contains("assert.js generic harness"));
-        assert!(materialized
-            .source
-            .contains("iteratorZipUtils.js generic harness"));
-        assert!(materialized.source.ends_with(case.original_source.as_ref()));
-    }
-
-    #[test]
-    fn materialize_iterator_zip_basic_shortest_leaves_neighboring_cases_unmodified() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "assert.js",
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-longest.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from("neighboring Iterator.zip body\n".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert_eq!(materialized.used_preludes.len(), 4);
-        assert!(materialized.source.contains("assert.js generic harness"));
-        assert!(materialized
-            .source
-            .contains("compareArray.js generic harness"));
-        assert!(materialized
-            .source
-            .contains("propertyHelper.js generic harness"));
-        assert!(materialized
-            .source
-            .contains("iteratorZipUtils.js generic harness"));
-        assert!(materialized.source.ends_with(case.original_source.as_ref()));
-    }
-
-    #[test]
-    fn materialize_iterator_zip_basic_longest_uses_compact_complete_rewrite() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "assert.js",
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness should not be used\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-longest.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
-            )
-            .to_string(),
-        );
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized
-            .source
-            .contains("generic harness should not be used"));
-        assert!(!materialized.source.contains("forEachSequenceCombination"));
-        assert!(!materialized.source.contains("function*"));
-        assert!(!materialized.source.contains("Math.min.apply"));
-        assert!(!materialized.source.contains("Math.max.apply"));
-        assert!(materialized
-            .source
-            .contains("zipBasicLongestCombinationCount !== 156"));
-        assert!(materialized
-            .source
-            .contains("zipBasicLongestOptionCount !== 780"));
-        assert!(materialized.source.contains("padding: []"));
-        assert!(materialized.source.contains("padding: [\"pad\"]"));
-        assert!(materialized.source.contains("fullPadding"));
-        assert!(materialized
-            .source
-            .contains("infinitePadding[Symbol.iterator]"));
-        assert!(materialized.source.contains("infinitePaddingClosed"));
-        assert!(materialized.source.contains("checkZipIteratorResult"));
-        assert!(materialized.source.contains("checkZipRow"));
-    }
-
-    #[test]
-    fn iterator_zip_basic_longest_rewrite_rejects_changed_fingerprint_or_includes() {
-        let source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
-        );
-        let mut changed_source = synthetic_case("built-ins/Iterator/zip/basic-longest.js");
-        changed_source.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        changed_source.original_source = Arc::from(format!("{source}\n// changed\n"));
-        assert!(rewrite_iterator_zip_basic_longest_case(&changed_source).is_none());
-
-        let mut changed_includes = synthetic_case("built-ins/Iterator/zip/basic-longest.js");
-        changed_includes.includes = vec!["assert.js".to_string()];
-        changed_includes.original_source = Arc::from(source.to_string());
-        assert!(rewrite_iterator_zip_basic_longest_case(&changed_includes).is_none());
-    }
-
-    #[test]
-    fn materialize_iterator_zip_basic_strict_uses_compact_complete_rewrite() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "assert.js",
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness should not be used\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-strict.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
-            )
-            .to_string(),
-        );
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized
-            .source
-            .contains("generic harness should not be used"));
-        assert!(!materialized.source.contains("forEachSequenceCombination"));
-        assert!(!materialized.source.contains("Math.min.apply"));
-        assert!(!materialized.source.contains("Math.max.apply"));
-        assert!(materialized
-            .source
-            .contains("zipBasicStrictCombinationCount !== 156"));
-        assert!(materialized
-            .source
-            .contains("Iterator.zip(zipInputs.inputs, { mode: \"strict\" })"));
-        assert!(materialized.source.contains("expectZipTypeError"));
-        assert!(materialized.source.contains("checkZipIteratorResult"));
-        assert!(materialized.source.contains("checkZipRow"));
-    }
-
-    #[test]
-    fn iterator_zip_basic_strict_rewrite_rejects_changed_fingerprint_or_includes() {
-        let source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
-        );
-        let mut changed_source = synthetic_case("built-ins/Iterator/zip/basic-strict.js");
-        changed_source.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        changed_source.original_source = Arc::from(format!("{source}\n// changed\n"));
-        assert!(rewrite_iterator_zip_basic_strict_case(&changed_source).is_none());
-
-        let mut changed_includes = synthetic_case("built-ins/Iterator/zip/basic-strict.js");
-        changed_includes.includes = vec!["assert.js".to_string()];
-        changed_includes.original_source = Arc::from(source.to_string());
-        assert!(rewrite_iterator_zip_basic_strict_case(&changed_includes).is_none());
-    }
-
-    #[test]
-    fn materialize_iterator_zip_result_is_iterator_uses_self_contained_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "wellKnownIntrinsicObjects.js".to_string(),
-            "var wellKnownIntrinsicObjectsPrelude = true;\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        let mut case = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
-        case.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
-            )
-            .to_string(),
-        );
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(materialized
-            .source
-            .contains("Object.getPrototypeOf(Iterator.from([]).drop(0))"));
-        assert!(!materialized.source.contains("new Function"));
-        assert!(!materialized.source.contains("wellKnownIntrinsicObjects.js"));
-    }
-
-    #[test]
     fn materialize_test_rejects_a_missing_declared_include_before_self_contained_rewrite() {
         let mut case = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
         case.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
@@ -17893,214 +12050,9 @@ print('Test262:AsyncTestComplete');
         );
     }
 
-    #[test]
-    fn materialize_iterator_zip_result_is_iterator_rejects_changed_fingerprint_or_includes() {
-        let source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
-        );
-
-        let mut changed_source = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
-        changed_source.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
-        changed_source.original_source = Arc::from(format!("{source}\n// changed\n"));
-        let mut changed_source_store = fixture_preludes();
-        changed_source_store.insert(
-            "wellKnownIntrinsicObjects.js".to_string(),
-            "var wellKnownIntrinsicObjectsPrelude = true;\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        let materialized = materialize_test(&changed_source, &changed_source_store)
-            .expect("materialization should work");
-        assert_eq!(
-            materialized.used_preludes,
-            vec![
-                ("assert.js".to_string(), PreludeOrigin::LocalMerged),
-                (
-                    "wellKnownIntrinsicObjects.js".to_string(),
-                    PreludeOrigin::VendoredHarness,
-                ),
-            ]
-        );
-        assert!(materialized
-            .source
-            .ends_with(changed_source.original_source.as_ref()));
-
-        let mut changed_includes = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
-        changed_includes.includes = vec!["assert.js".to_string()];
-        changed_includes.original_source = Arc::from(source.to_string());
-        let mut changed_includes_store = PreludeStore::default();
-        changed_includes_store.insert(
-            "assert.js".to_string(),
-            "var assert = function() {};\nassert.sameValue = function() {};\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        let materialized = materialize_test(&changed_includes, &changed_includes_store)
-            .expect("materialization should work");
-        assert!(materialized
-            .source
-            .ends_with(changed_includes.original_source.as_ref()));
-    }
-
-    #[test]
-    fn materialize_iterator_zip_result_is_iterator_leaves_adjacent_case_unmodified() {
-        let mut store = fixture_preludes();
-        store.insert(
-            "wellKnownIntrinsicObjects.js".to_string(),
-            "var wellKnownIntrinsicObjectsPrelude = true;\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        let mut case = synthetic_case("built-ins/Iterator/zip/result-is-iterator-extra.js");
-        case.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
-            )
-            .to_string(),
-        );
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.source.ends_with(case.original_source.as_ref()));
-    }
-
     #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn iterator_zip_basic_shortest_compact_rewrite_executes_in_spec_exec_oracle() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness should not be used\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-shortest.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
-            )
-            .to_string(),
-        );
-        let result = run_one_case(&case, &store, 5_000, ExecutionBackend::SpecExec);
-
-        assert!(
-            matches!(result.status, TestStatus::Passed),
-            "compact Iterator.zip shortest rewrite should execute: {:?}",
-            result.status
-        );
-    }
-
     #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn iterator_zip_basic_longest_compact_rewrite_executes_in_spec_exec_oracle() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness should not be used\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-longest.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
-            )
-            .to_string(),
-        );
-        let result = run_one_case(&case, &store, 5_000, ExecutionBackend::SpecExec);
-
-        assert!(
-            matches!(result.status, TestStatus::Passed),
-            "compact Iterator.zip longest rewrite should execute: {:?}",
-            result.status
-        );
-    }
-
     #[cfg(feature = "spec-exec-oracle")]
-    #[test]
-    fn iterator_zip_basic_strict_compact_rewrite_executes_in_spec_exec_oracle() {
-        let mut store = PreludeStore::default();
-        for name in [
-            "compareArray.js",
-            "propertyHelper.js",
-            "iteratorZipUtils.js",
-        ] {
-            store.insert(
-                name.to_string(),
-                format!("{name} generic harness should not be used\n"),
-                PreludeOrigin::VendoredHarness,
-            );
-        }
-        let mut case = synthetic_case("built-ins/Iterator/zip/basic-strict.js");
-        case.includes = vec![
-            "compareArray.js".to_string(),
-            "propertyHelper.js".to_string(),
-            "iteratorZipUtils.js".to_string(),
-        ];
-        case.original_source = Arc::from(
-            include_str!(
-                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
-            )
-            .to_string(),
-        );
-        let result = run_one_case(&case, &store, 5_000, ExecutionBackend::SpecExec);
-
-        assert!(
-            matches!(result.status, TestStatus::Passed),
-            "compact Iterator.zip strict rewrite should execute: {:?}",
-            result.status
-        );
-    }
-
-    #[test]
-    fn iterator_weird_setter_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Iterator/prototype/constructor/weird-setter.js",
-            "built-ins/Iterator/prototype/Symbol.toStringTag/weird-setter.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn iterator_from_return_method_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
-            "built-ins/Iterator/from/get-return-method-when-call-return.js",
-            "built-ins/Iterator/from/return-method-calls-base-return-method.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
     #[test]
     fn iterator_helper_metadata_cases_preserve_pinned_sources_and_full_preludes() {
         let repo_root = repo_root();
@@ -18214,8 +12166,6 @@ print('Test262:AsyncTestComplete');
                     "{path}"
                 );
                 assert_eq!(case.includes, ["propertyHelper.js"], "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -18277,18 +12227,6 @@ print('Test262:AsyncTestComplete');
     }
 
     #[test]
-    fn materialize_iterator_map_staging_proxy_accesses_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case("staging/sm/Iterator/prototype/map/proxy-accesses.js");
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("new Proxy"));
-        assert!(materialized.source.contains("var nextGets = 0"));
-        assert!(materialized.source.contains("assertSameValue(nextGets, 1"));
-    }
-
-    #[test]
     fn retired_t15_flat_map_staging_materializes_all_pinned_sources() {
         let preludes = real_wasm_aot_preludes();
         let local_sta = preludes
@@ -18318,8 +12256,6 @@ print('Test262:AsyncTestComplete');
             let case = parse_test_case(path.clone(), source_path, original_source.clone());
 
             assert!(case.includes.is_empty(), "{path}");
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
             let materialized = materialize_test(&case, &preludes)
                 .expect("staging flatMap case should materialize");
@@ -18339,23 +12275,6 @@ print('Test262:AsyncTestComplete');
                     assert_prelude.contents, local_sta.contents
                 ),
                 "{path}",
-            );
-        }
-    }
-
-    #[test]
-    fn iterator_to_array_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Iterator/prototype/toArray/iterator-already-exhausted.js",
-            "staging/sm/Iterator/prototype/toArray/create-in-current-realm.js",
-            "staging/sm/Iterator/prototype/toArray/proxy.js",
-            "staging/sm/Iterator/prototype/toArray/value-throws-iterator-not-closed.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
             );
         }
     }
@@ -18487,8 +12406,6 @@ print('Test262:AsyncTestComplete');
                 );
                 assert!(case.flags.is_empty(), "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -18577,94 +12494,6 @@ print('Test262:AsyncTestComplete');
                 );
             }
         }
-    }
-
-    #[test]
-    fn materialize_iterator_some_staging_proxy_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case("staging/sm/Iterator/prototype/some/proxy.js");
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("new Proxy"));
-        assert!(!materialized.source.contains("?."));
-        assert!(materialized.source.contains("var returnCalls = 0"));
-        assert!(materialized
-            .source
-            .contains("assertSameValue(returnCalls, 1"));
-    }
-
-    #[test]
-    fn materialize_iterator_every_staging_proxy_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case("staging/sm/Iterator/prototype/every/proxy.js");
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("new Proxy"));
-        assert!(!materialized.source.contains("?."));
-        assert!(materialized.source.contains("var returnCalls = 0"));
-        assert!(materialized
-            .source
-            .contains("assertSameValue(returnCalls, 1"));
-    }
-
-    #[test]
-    fn materialize_iterator_find_staging_proxy_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case("staging/sm/Iterator/prototype/find/proxy.js");
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("new Proxy"));
-        assert!(!materialized.source.contains("?."));
-        assert!(materialized.source.contains("var returnCalls = 0"));
-        assert!(materialized
-            .source
-            .contains("assertSameValue(returnCalls, 1"));
-    }
-
-    #[test]
-    fn materialize_iterator_reduce_staging_proxy_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case("staging/sm/Iterator/prototype/reduce/proxy.js");
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("new Proxy"));
-        assert!(!materialized.source.contains("?."));
-        assert!(materialized.source.contains("var returnCalls = 0"));
-        assert!(materialized
-            .source
-            .contains("assertSameValue(returnCalls, 0"));
-    }
-
-    #[test]
-    fn materialize_iterator_take_staging_close_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case(
-            "staging/sm/Iterator/prototype/take/close-iterator-when-none-remaining.js",
-        );
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("class TestIterator"));
-        assert!(materialized.source.contains("var closed = false"));
-        assert!(materialized.source.contains("assertSameValue(closed, true"));
-    }
-
-    #[test]
-    fn materialize_iterator_drop_staging_more_than_available_uses_static_wasm_aot_rewrite() {
-        let store = PreludeStore::default();
-        let case = synthetic_case("staging/sm/Iterator/prototype/drop/drop-more-than-available.js");
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("class TestIterator"));
-        assert!(materialized.source.contains("var counter = 0"));
-        assert!(materialized
-            .source
-            .contains("assertSameValue(closed, false"));
     }
 
     #[test]
@@ -18843,224 +12672,6 @@ print('Test262:AsyncTestComplete');
     }
 
     #[test]
-    fn typed_array_literal_helper_contract_covers_all_319_physical_vendored_bodies() {
-        const FULL_VENDORED_TAIL_OBSERVABILITY_NEEDLES: [&str; 10] = [
-            "nonAtomicsFriendlyTypedArrayConstructors",
-            "testWithNonAtomicsFriendlyTypedArrayConstructors",
-            "testWithAtomicsFriendlyTypedArrayConstructors",
-            "testTypedArrayConversions",
-            "isFloatTypedArrayConstructor",
-            "floatTypedArrayConstructorPrecision",
-            "globalThis",
-            "$262.global",
-            "Reflect.ownKeys",
-            "Object.getOwnPropertyNames",
-        ];
-        const UNUSED_TYPED_ARRAY_HELPER_TAIL: &str =
-            "\n\nvar nonAtomicsFriendlyTypedArrayConstructors";
-        const CANONICAL_SPLIT_TEST_TYPED_ARRAY_BYTES: usize = 12_362;
-        const CANONICAL_SPLIT_TEST_TYPED_ARRAY_FNV1A: u64 = 0x92c7_bac7_27f5_772d;
-
-        let store = real_wasm_aot_preludes();
-        let test_typed_array = store
-            .get("testTypedArray.js")
-            .expect("Wasm-AOT preludes should contain testTypedArray.js");
-        let cases = typed_array_literal_physical_cases();
-        assert_eq!(cases.len(), 319);
-        let mut fingerprints = cases
-            .iter()
-            .map(test_case_contract_fingerprint)
-            .collect::<Vec<_>>();
-        fingerprints.sort_unstable();
-        assert_eq!(
-            fingerprints.as_slice(),
-            TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A
-        );
-
-        let mut assert_count = 0usize;
-        let mut factory_counts = [0usize; 3];
-        let mut property_helper_count = 0;
-        let mut deprecated_compare_array_count = 0;
-        let mut representative_source_bytes = (0usize, 0usize);
-        for case in &cases {
-            let plan = typed_array_literal_helper_plan(case)
-                .unwrap_or_else(|| panic!("missing exact helper contract for {}", case.path));
-            assert_count += 1;
-            let uses_property_helper = case.includes.iter().any(|name| name == "propertyHelper.js");
-            match plan.factory_mode {
-                TypedArrayLiteralFactoryMode::None => factory_counts[0] += 1,
-                TypedArrayLiteralFactoryMode::Intrinsic => factory_counts[1] += 1,
-                TypedArrayLiteralFactoryMode::FullVendored => factory_counts[2] += 1,
-            }
-            property_helper_count += usize::from(uses_property_helper);
-
-            let materialized =
-                materialize_test(case, &store).expect("vendored case should materialize");
-            if case.path.ends_with("/some/length.js") {
-                representative_source_bytes.0 = materialized.source.len();
-            }
-            if case.path.ends_with("/find/predicate-may-detach-buffer.js") {
-                representative_source_bytes.1 = materialized.source.len();
-            }
-            assert!(
-                materialized.source.ends_with(case.original_source.as_ref()),
-                "{} body changed",
-                case.path
-            );
-
-            assert!(
-                materialized
-                    .source
-                    .contains(&store.get("assert.js").unwrap().contents),
-                "{} must retain the full assertion prelude",
-                case.path
-            );
-            assert!(
-                materialized
-                    .used_preludes
-                    .iter()
-                    .any(|(name, _)| name == "assert.js"),
-                "{} must record assert.js",
-                case.path
-            );
-            if uses_property_helper {
-                assert!(
-                    materialized
-                        .source
-                        .contains(&store.get("propertyHelper.js").unwrap().contents),
-                    "{} must retain every upstream property check",
-                    case.path
-                );
-            }
-
-            match plan.factory_mode {
-                TypedArrayLiteralFactoryMode::None => assert!(
-                    !materialized
-                        .used_preludes
-                        .iter()
-                        .any(|(name, _)| name == "testTypedArray.js"),
-                    "{} should not materialize testTypedArray",
-                    case.path
-                ),
-                TypedArrayLiteralFactoryMode::Intrinsic => {
-                    assert!(
-                        materialized
-                            .source
-                            .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"),
-                        "{} should expose the intrinsic",
-                        case.path
-                    );
-                    assert!(
-                        !materialized
-                            .source
-                            .contains("function testWithAllTypedArrayConstructors"),
-                        "{} should not materialize unused factories",
-                        case.path
-                    );
-                }
-                TypedArrayLiteralFactoryMode::FullVendored => {
-                    for observable in FULL_VENDORED_TAIL_OBSERVABILITY_NEEDLES {
-                        assert!(
-                            !case.original_source.contains(observable),
-                            "{} observes retired testTypedArray tail symbol {observable}",
-                            case.path
-                        );
-                    }
-                    let split_source =
-                        wasm_aot_split_test_typed_array_dispatcher(case, test_typed_array)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "{} should produce the canonical dispatcher split",
-                                    case.path
-                                )
-                            });
-                    assert_eq!(
-                        split_source.len(),
-                        CANONICAL_SPLIT_TEST_TYPED_ARRAY_BYTES,
-                        "{}",
-                        case.path
-                    );
-                    assert_eq!(
-                        fnv1a(&split_source),
-                        CANONICAL_SPLIT_TEST_TYPED_ARRAY_FNV1A,
-                        "{}",
-                        case.path
-                    );
-                    assert!(
-                        !split_source.contains(UNUSED_TYPED_ARRAY_HELPER_TAIL),
-                        "{} should truncate the unused testTypedArray tail",
-                        case.path
-                    );
-                    assert_eq!(
-                        materialized
-                            .source
-                            .match_indices(split_source.as_str())
-                            .count(),
-                        1,
-                        "{} should materialize the exact canonical dispatcher split",
-                        case.path
-                    );
-                    assert!(
-                        !materialized.source.contains(UNUSED_TYPED_ARRAY_HELPER_TAIL),
-                        "{} should not materialize the unused testTypedArray tail",
-                        case.path
-                    );
-                    assert!(
-                        materialized.source.contains(
-                            "function makeArray(TA, primitiveOrIterable) {\n  if (isPrimitive(primitiveOrIterable))"
-                        ),
-                        "{} should retain the vendored factories",
-                        case.path
-                    );
-                    assert!(
-                        materialized.source.contains(
-                            "function selectCtorArgFactories(includeFeatures, excludeFeatures)"
-                        ),
-                        "{} should use the semantics-preserving dispatcher split",
-                        case.path
-                    );
-                    assert!(
-                        !materialized.source.contains(
-                            "function makeArray(TA, primitiveOrIterable) {\n  return primitiveOrIterable;\n"
-                        ),
-                        "{} must not use compact fake factories",
-                        case.path
-                    );
-                }
-            }
-
-            if case
-                .includes
-                .iter()
-                .any(|include| include == "compareArray.js")
-            {
-                deprecated_compare_array_count += 1;
-                assert!(
-                    materialized
-                        .used_preludes
-                        .iter()
-                        .any(|(name, _)| name == "compareArray.js"),
-                    "{} should report the skipped deprecated include",
-                    case.path
-                );
-                assert!(
-                    !materialized
-                        .source
-                        .contains("Deprecated now that compareArray is defined in assert.js."),
-                    "{} should omit the empty deprecated helper source",
-                    case.path
-                );
-            }
-        }
-
-        assert_eq!(assert_count, 319);
-        assert_eq!(factory_counts, [29, 72, 218]);
-        assert_eq!(property_helper_count, 27);
-        assert_eq!(deprecated_compare_array_count, 67);
-        assert_eq!(representative_source_bytes, (18_595, 22_144));
-    }
-
-    #[test]
     fn strict_typed_array_metadata_handles_a_non_writable_property_probe() {
         let path = "built-ins/TypedArray/prototype/findLast/length.js";
         let source_path = repo_root().join("test262/vendor/test262/test").join(path);
@@ -19118,211 +12729,6 @@ if (observedError.message !== "Expected TypeError, got RangeError: setter failed
     }
 
     #[test]
-    fn typed_array_literal_helper_contract_rejects_case_and_helper_drift() {
-        let store = real_wasm_aot_preludes();
-        let cases = typed_array_literal_physical_cases();
-        let metadata_case = cases
-            .iter()
-            .find(|case| case.path.ends_with("/some/length.js"))
-            .expect("some length case should exist");
-
-        let mut changed_source = metadata_case.clone();
-        changed_source.original_source =
-            Arc::from(format!("{}\n// changed\n", changed_source.original_source));
-        assert!(typed_array_literal_helper_plan(&changed_source).is_none());
-
-        let changed_path = TestCase {
-            execution_id: TestExecutionId::new(
-                format!("{}.near-miss", metadata_case.path()),
-                metadata_case.execution_mode(),
-            ),
-            ..metadata_case.clone()
-        };
-        assert!(typed_array_literal_helper_plan(&changed_path).is_none());
-
-        let mut changed_includes = metadata_case.clone();
-        changed_includes.includes.reverse();
-        assert!(typed_array_literal_helper_plan(&changed_includes).is_none());
-
-        let mut changed_property_store = store.clone();
-        let mut changed_property = changed_property_store
-            .get("propertyHelper.js")
-            .expect("property helper should exist")
-            .clone();
-        changed_property.contents.push_str("\n// changed\n");
-        changed_property_store.insert(
-            changed_property.name,
-            changed_property.contents,
-            changed_property.origin,
-        );
-        let materialized = materialize_test(metadata_case, &changed_property_store)
-            .expect("changed property helper should materialize safely");
-        assert!(materialized
-            .source
-            .contains("function verifyProperty(obj, name, desc, options)"));
-        assert!(materialized
-            .source
-            .contains("assert._formatIdentityFreeValue = function"));
-        assert!(!materialized
-            .source
-            .contains("function verifyProperty(object, name, expectedDescriptor)"));
-
-        let full_factory_case = cases
-            .iter()
-            .find(|case| case.path.ends_with("/find/predicate-may-detach-buffer.js"))
-            .expect("find detach case should exist");
-        let mut changed_typed_array_store = store.clone();
-        let mut changed_typed_array = changed_typed_array_store
-            .get("testTypedArray.js")
-            .expect("testTypedArray helper should exist")
-            .clone();
-        changed_typed_array.origin = PreludeOrigin::LocalMerged;
-        changed_typed_array_store.insert(
-            changed_typed_array.name,
-            changed_typed_array.contents,
-            changed_typed_array.origin,
-        );
-        let materialized = materialize_test(full_factory_case, &changed_typed_array_store)
-            .expect("changed testTypedArray helper should materialize safely");
-        assert!(materialized
-            .source
-            .contains("function testWithAllTypedArrayConstructors"));
-        assert!(!materialized
-            .source
-            .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
-        assert!(materialized
-            .source
-            .contains("assert._formatIdentityFreeValue = function"));
-
-        let mut changed_detach_store = store.clone();
-        let mut changed_detach = changed_detach_store
-            .get("detachArrayBuffer.js")
-            .expect("detach helper should exist")
-            .clone();
-        changed_detach.contents.push_str("\n// changed\n");
-        changed_detach_store.insert(
-            changed_detach.name,
-            changed_detach.contents,
-            changed_detach.origin,
-        );
-        let materialized = materialize_test(full_factory_case, &changed_detach_store)
-            .expect("changed detach helper should materialize safely");
-        assert!(materialized.source.contains("// changed"));
-        assert!(materialized
-            .source
-            .contains("assert._formatIdentityFreeValue = function"));
-
-        let mut changed_assert_store = store.clone();
-        let mut changed_assert = changed_assert_store
-            .get("assert.js")
-            .expect("assert helper should exist")
-            .clone();
-        changed_assert
-            .contents
-            .push_str("\n// changed assertion prelude\n");
-        changed_assert_store.insert(
-            changed_assert.name,
-            changed_assert.contents,
-            changed_assert.origin,
-        );
-        assert_eq!(
-            materialize_test(full_factory_case, &changed_assert_store)
-                .expect_err("changing assert.js must revoke complete-host ownership"),
-            format!(
-                "Test262 case {} requires the complete `$262` host, but this prelude profile owns no host",
-                full_factory_case.execution_id()
-            )
-        );
-
-        let compare_case = cases
-            .iter()
-            .find(|case| case.path.ends_with("/copyWithin/byteoffset.js"))
-            .expect("copyWithin byteoffset case should exist");
-        let mut changed_compare_store = store.clone();
-        let mut changed_compare = changed_compare_store
-            .get("compareArray.js")
-            .expect("compareArray helper should exist")
-            .clone();
-        changed_compare.contents.push_str("\n// changed\n");
-        changed_compare_store.insert(
-            changed_compare.name,
-            changed_compare.contents,
-            changed_compare.origin,
-        );
-        let materialized = materialize_test(compare_case, &changed_compare_store)
-            .expect("changed compareArray helper should materialize safely");
-        assert!(materialized
-            .source
-            .contains("Deprecated now that compareArray is defined in assert.js."));
-        assert!(materialized
-            .source
-            .contains("assert._formatIdentityFreeValue = function"));
-
-        let resizable_case = cases
-            .iter()
-            .find(|case| {
-                case.path
-                    .ends_with("/copyWithin/coerced-target-start-grow.js")
-            })
-            .expect("copyWithin resizable case should exist");
-        let mut changed_resizable_store = store.clone();
-        let mut changed_resizable = changed_resizable_store
-            .get("resizableArrayBufferUtils.js")
-            .expect("resizable helper should exist")
-            .clone();
-        changed_resizable.origin = PreludeOrigin::LocalMerged;
-        changed_resizable_store.insert(
-            changed_resizable.name,
-            changed_resizable.contents,
-            changed_resizable.origin,
-        );
-        let materialized = materialize_test(resizable_case, &changed_resizable_store)
-            .expect("changed resizable helper should materialize safely");
-        assert!(materialized.source.contains("new Function"));
-        assert!(!materialized
-            .source
-            .contains("class MyUint8Array extends Uint8Array {}"));
-
-        let mut changed_resizable_case = resizable_case.clone();
-        let mut changed_source = changed_resizable_case.original_source.to_string();
-        changed_source.push_str("\n// changed\n");
-        changed_resizable_case.original_source = changed_source.into();
-        let materialized = materialize_test(&changed_resizable_case, &store)
-            .expect("changed resizable case should materialize safely");
-        assert!(materialized.source.contains("new Function"));
-        assert!(materialized
-            .source
-            .ends_with(changed_resizable_case.original_source.as_ref()));
-    }
-
-    #[test]
-    fn resizable_array_buffer_static_subclass_contract_covers_all_vendored_consumers() {
-        let store = real_wasm_aot_preludes();
-        let prelude = store
-            .get("resizableArrayBufferUtils.js")
-            .expect("resizable helper should exist");
-        let cases = resizable_array_buffer_cases();
-        assert_eq!(cases.len(), 188);
-
-        let mut fingerprints = cases
-            .iter()
-            .map(test_case_contract_fingerprint)
-            .collect::<Vec<_>>();
-        fingerprints.sort_unstable();
-        assert_eq!(
-            fingerprints.as_slice(),
-            RESIZABLE_ARRAY_BUFFER_CASE_CONTRACTS_FNV1A
-        );
-        for case in &cases {
-            assert!(
-                resizable_array_buffer_helper_can_use_static_subclasses(case, prelude),
-                "{}",
-                case.path
-            );
-        }
-    }
-
-    #[test]
     fn retired_array_and_typedarray_resizable_cases_preserve_pinned_sources_and_exact_preludes() {
         const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
   try {
@@ -19333,9 +12739,6 @@ if (observedError.message !== "Expected TypeError, got RangeError: setter failed
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -19410,19 +12813,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(
             pinned_resizable_source
                 .matches(DYNAMIC_SUBCLASS_DEFINITIONS)
-                .count(),
-            1
-        );
-        assert!(!pinned_resizable_source.contains(STATIC_SUBCLASS_DEFINITIONS));
-        let static_resizable_source = pinned_resizable_source.replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
-        assert!(!static_resizable_source.contains(DYNAMIC_SUBCLASS_DEFINITIONS));
-        assert_eq!(
-            static_resizable_source
-                .matches(STATIC_SUBCLASS_DEFINITIONS)
                 .count(),
             1
         );
@@ -19690,12 +13080,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     assert!(case.flags.is_empty(), "{path}");
                     assert!(case.negative.is_none(), "{path}");
                 }
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
-                assert!(
-                    resizable_array_buffer_helper_can_use_static_subclasses(&case, local_resizable),
-                    "{path}"
-                );
 
                 let uses_compare_array = declared_includes.contains(&"compareArray.js");
                 let local_materialized =
@@ -19721,7 +13105,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     "resizableArrayBufferUtils.js".to_string(),
                     PreludeOrigin::VendoredHarness,
                 ));
-                expected_local_source.push_str(&static_resizable_source);
+                expected_local_source.push_str(&local_resizable.contents);
                 expected_local_source.push_str(&original_source);
                 assert_eq!(
                     local_materialized.used_preludes,
@@ -19767,7 +13151,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     "resizableArrayBufferUtils.js".to_string(),
                     PreludeOrigin::VendoredHarness,
                 ));
-                expected_vendored_source.push_str(&static_resizable_source);
+                expected_vendored_source.push_str(&vendored_resizable.contents);
                 expected_vendored_source.push_str(&original_source);
                 assert_eq!(
                     vendored_materialized.used_preludes,
@@ -19792,7 +13176,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
     #[test]
     fn copy_within_not_a_constructor_keeps_the_canonical_constructor_helper() {
-        let case = typed_array_literal_physical_cases()
+        let case = typed_array_nine_method_physical_cases()
             .into_iter()
             .find(|case| case.path.ends_with("/copyWithin/not-a-constructor.js"))
             .expect("copyWithin constructor case should exist");
@@ -19835,10 +13219,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         changed_prelude
             .contents
             .push_str("\n// changed constructor helper\n");
-        assert!(!typed_array_literal_include_matches_contract(
-            "isConstructor.js",
-            &changed_prelude
-        ));
+        assert_ne!(
+            fnv1a(&changed_prelude.contents),
+            IS_CONSTRUCTOR_PRELUDE_FNV1A
+        );
         changed_store.insert(
             changed_prelude.name,
             changed_prelude.contents,
@@ -19856,7 +13240,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
     #[test]
     fn copy_within_five_resizable_admissions_have_exact_literal_contracts() {
-        let cases = typed_array_literal_physical_cases();
+        let cases = typed_array_nine_method_physical_cases();
         let store = real_wasm_aot_preludes();
         for path in [
             "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
@@ -19869,8 +13253,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .iter()
                 .find(|case| case.path == path)
                 .unwrap_or_else(|| panic!("missing {path}"));
-            assert!(typed_array_literal_helper_plan(case).is_some(), "{path}");
-            assert!(wasm_aot_unsupported_feature(case).is_none(), "{path}");
 
             let materialized =
                 materialize_test(case, &store).expect("admitted case should materialize");
@@ -19884,12 +13266,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .any(|include| include == "resizableArrayBufferUtils.js")
             {
                 assert!(
-                    materialized
+                    !materialized
                         .source
                         .contains("class MyUint8Array extends Uint8Array {}"),
                     "{path}"
                 );
-                assert!(!materialized.source.contains("new Function"), "{path}");
+                assert!(materialized.source.contains("new Function"), "{path}");
             }
         }
     }
@@ -20018,10 +13400,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         const LOCAL_PROPERTY_HELPER_BYTES: usize = 12_073;
         const VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
         const VENDORED_IS_CONSTRUCTOR_BYTES: usize = 545;
-        const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
-        const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
-        const DORMANT_HOST_BYTES: usize = 2_247;
-        const DORMANT_HOST_FNV1A: u64 = 0x09be_b318_81da_e05a;
+        const DORMANT_HOST_BYTES: usize = 2_171;
+        const DORMANT_HOST_FNV1A: u64 = 0xe031_f32c_ab10_55cc;
         const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
   try {
     return new Function('return class My' + type + ' extends ' + type + ' {}')();
@@ -20031,9 +13411,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
         const SIMPLIFIED_ARRAY_FACTORY_SOURCE: &str =
             "function makeArray(TA, primitiveOrIterable) {\n  return primitiveOrIterable;\n}";
 
@@ -20083,19 +13460,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .matches(DYNAMIC_SUBCLASS_DEFINITIONS)
                 .count(),
             1
-        );
-        let static_resizable_source = pinned_resizable_source.replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
-        assert_eq!(
-            static_resizable_source.len(),
-            STATIC_RESIZABLE_ARRAY_BUFFER_BYTES
-        );
-        assert_eq!(
-            fnv1a(&static_resizable_source),
-            STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A
         );
 
         for (name, expected_bytes, expected_fingerprint) in [
@@ -20170,7 +13534,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut is_constructor_execution_count = 0;
         let mut host_execution_count = 0;
         let mut local_sta_preamble_execution_count = 0;
-        let mut static_resizable_execution_count = 0;
+        let mut resizable_execution_count = 0;
         let mut resizable_admission_execution_count = 0;
         let mut materialization_count = 0;
         let mut full_materialization_count = 0;
@@ -20376,9 +13740,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         test_case_contract_fingerprint(case),
                         case_contract_fingerprint
                     );
-                    assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
-                    assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
-                    assert!(typed_array_literal_helper_plan(case).is_none(), "{path}");
 
                     let uses_test_typed_array = case
                         .includes
@@ -20409,7 +13770,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         .includes
                         .iter()
                         .any(|include| include == "detachArrayBuffer.js");
-                    let uses_static_resizable_helper = case
+                    let uses_resizable_helper = case
                         .includes
                         .iter()
                         .any(|include| include == "resizableArrayBufferUtils.js");
@@ -20421,7 +13782,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     is_constructor_execution_count += usize::from(uses_is_constructor);
                     host_execution_count += usize::from(requires_host);
                     local_sta_preamble_execution_count += usize::from(!requires_host);
-                    static_resizable_execution_count += usize::from(uses_static_resizable_helper);
+                    resizable_execution_count += usize::from(uses_resizable_helper);
                     resizable_admission_execution_count += usize::from(has_resizable_admission);
 
                     for (store_name, store) in
@@ -20431,36 +13792,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             store.get("testTypedArray.js").unwrap_or_else(|| {
                                 panic!("{store_name} store should contain testTypedArray.js")
                             });
-                        assert_eq!(
-                            wasm_aot_intrinsic_test_typed_array_prelude(case, test_typed_array),
-                            None,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-                        assert!(
-                            wasm_aot_split_test_typed_array_dispatcher(case, test_typed_array)
-                                .is_none(),
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-
-                        let resizable_helper = store
-                            .get("resizableArrayBufferUtils.js")
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "{store_name} store should contain resizableArrayBufferUtils.js"
-                                )
-                            });
-                        assert_eq!(
-                            resizable_array_buffer_helper_can_use_static_subclasses(
-                                case,
-                                resizable_helper
-                            ),
-                            uses_static_resizable_helper,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-
                         let included_preludes = resolve_declared_preludes(case, store)
                             .expect("declared search preludes should resolve");
                         let expected_host_requirement = if requires_host {
@@ -20530,10 +13861,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             assert_eq!(prelude.origin, expected_origin, "{store_name} {include}");
                             if include == "resizableArrayBufferUtils.js" {
                                 assert_eq!(prelude.contents, pinned_resizable_source);
-                                expected_source.push_str(&static_resizable_source);
-                            } else {
-                                expected_source.push_str(&prelude.contents);
                             }
+                            expected_source.push_str(&prelude.contents);
                             expected_preludes.push((prelude.name.clone(), prelude.origin));
                         }
                         expected_source.push_str(&case.original_source);
@@ -20563,20 +13892,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         let full_helper_count = prelude_source
                             .match_indices(test_typed_array.contents.as_str())
                             .count();
-                        let split_helper_count = prelude_source
-                            .match_indices(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER)
-                            .count();
-                        let intrinsic_helper_count = prelude_source
-                            .match_indices(WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE)
-                            .count();
-                        let reduced_intrinsic_helper_count = intrinsic_helper_count
-                            .checked_sub(full_helper_count)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "{store_name} {} has an invalid intrinsic/full prelude count",
-                                    case.execution_id()
-                                )
-                            });
                         let simplified_factory_count = prelude_source
                             .match_indices(SIMPLIFIED_ARRAY_FACTORY_SOURCE)
                             .count();
@@ -20586,14 +13901,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             .filter(|(name, _)| name == "testTypedArray.js")
                             .count();
                         let expected_helper_counts = match cohort {
-                            SearchHelperCohort::FullVendored => (1, 0, 0, 0, 1),
-                            SearchHelperCohort::NoTestTypedArray => (0, 0, 0, 0, 0),
+                            SearchHelperCohort::FullVendored => (1, 0, 1),
+                            SearchHelperCohort::NoTestTypedArray => (0, 0, 0),
                         };
                         assert_eq!(
                             (
                                 full_helper_count,
-                                split_helper_count,
-                                reduced_intrinsic_helper_count,
                                 simplified_factory_count,
                                 used_test_typed_array_count,
                             ),
@@ -20682,7 +13995,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(is_constructor_execution_count, 6);
         assert_eq!(host_execution_count, 36);
         assert_eq!(local_sta_preamble_execution_count, 224);
-        assert_eq!(static_resizable_execution_count, 22);
+        assert_eq!(resizable_execution_count, 22);
         assert_eq!(resizable_admission_execution_count, 44);
         assert_eq!(
             (
@@ -20759,7 +14072,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let case = parse_test_case(path.clone(), source_path, original_source);
 
             assert_eq!(case.includes, includes, "{path}");
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
 
             let materialized = materialize_test(&case, &store)
                 .unwrap_or_else(|error| panic!("pinned {path} should materialize: {error}"));
@@ -21077,8 +14389,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         test_case_contract_fingerprint(&first),
                         "{path}"
                     );
-                    assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                    assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                     for (store_name, store) in
                         [("local", &local_store), ("vendored", &vendored_store)]
@@ -21087,21 +14397,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             store.get("testTypedArray.js").unwrap_or_else(|| {
                                 panic!("{store_name} store should contain testTypedArray.js")
                             });
-                        let intrinsic_test_typed_array =
-                            wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array);
-                        assert_eq!(
-                            intrinsic_test_typed_array,
-                            None,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-                        assert!(
-                            wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array)
-                                .is_none(),
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-
                         let materialized = materialize_test(&case, store).unwrap_or_else(|error| {
                             panic!(
                                 "{store_name} {} should materialize: {error}",
@@ -21167,21 +14462,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         let full_test_typed_array_source_count = prelude_source
                             .match_indices(test_typed_array.contents.as_str())
                             .count();
-                        let split_test_typed_array_source_count = prelude_source
-                            .match_indices(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER)
-                            .count();
-                        let intrinsic_test_typed_array_fragment_count = prelude_source
-                            .match_indices(WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE)
-                            .count();
-                        let reduced_intrinsic_test_typed_array_source_count =
-                            intrinsic_test_typed_array_fragment_count
-                                .checked_sub(full_test_typed_array_source_count)
-                                .unwrap_or_else(|| {
-                                    panic!(
-                                        "{store_name} {} has an invalid intrinsic/full prelude count",
-                                        case.execution_id()
-                                    )
-                                });
                         let used_test_typed_array_count = materialized
                             .used_preludes
                             .iter()
@@ -21192,11 +14472,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                                 assert_eq!(
                                     (
                                         full_test_typed_array_source_count,
-                                        split_test_typed_array_source_count,
-                                        reduced_intrinsic_test_typed_array_source_count,
                                         used_test_typed_array_count,
                                     ),
-                                    (1, 0, 0, 1),
+                                    (1, 1),
                                     "{store_name} {}",
                                     case.execution_id()
                                 );
@@ -21205,11 +14483,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                                 assert_eq!(
                                     (
                                         full_test_typed_array_source_count,
-                                        split_test_typed_array_source_count,
-                                        reduced_intrinsic_test_typed_array_source_count,
                                         used_test_typed_array_count,
                                     ),
-                                    (0, 0, 0, 0),
+                                    (0, 0),
                                     "{store_name} {}",
                                     case.execution_id()
                                 );
@@ -21996,8 +15272,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
         const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
         const FULL_VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
-        const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
-        const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
         const PROPERTY_HELPER_SUFFIXES: [&str; 3] = ["length.js", "name.js", "prop-desc.js"];
         const TEST262_ERROR_SUFFIXES: [&str; 12] = [
             "BigInt/detached-buffer.js",
@@ -22022,9 +15296,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
 
         let cohort_contracts: [(SliceHelperCohort, &[SliceCaseContract]); 2] = [
             (SliceHelperCohort::FullVendored, &FULL_VENDORED),
@@ -22117,19 +15388,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .count(),
             1
         );
-        let static_resizable_source = pinned_resizable_source.replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
-        assert_eq!(
-            static_resizable_source.len(),
-            STATIC_RESIZABLE_ARRAY_BUFFER_BYTES
-        );
-        assert_eq!(
-            fnv1a(&static_resizable_source),
-            STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A
-        );
         for name in [
             "assert.js",
             "sta.js",
@@ -22207,7 +15465,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut test262_error_execution_count = 0;
         let mut host_execution_count = 0;
         let mut local_sta_preamble_execution_count = 0;
-        let mut static_resizable_execution_count = 0;
+        let mut resizable_execution_count = 0;
 
         for (cohort, contracts) in cohort_contracts {
             for contract in contracts {
@@ -22259,10 +15517,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         contract.contract_fingerprint,
                         "{path}"
                     );
-                    assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
-                    assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
-                    assert!(typed_array_literal_helper_plan(case).is_none(), "{path}");
-
                     let uses_test_typed_array = case
                         .includes
                         .iter()
@@ -22301,16 +15555,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         .iter()
                         .any(|include| include == "detachArrayBuffer.js");
                     host_execution_count += usize::from(requires_host);
-                    let uses_static_resizable_helper = case
+                    let uses_resizable_helper = case
                         .includes
                         .iter()
                         .any(|include| include == "resizableArrayBufferUtils.js");
                     assert_eq!(
-                        uses_static_resizable_helper,
+                        uses_resizable_helper,
                         cohort == SliceHelperCohort::NoTestTypedArray,
                         "{path}"
                     );
-                    static_resizable_execution_count += usize::from(uses_static_resizable_helper);
+                    resizable_execution_count += usize::from(uses_resizable_helper);
                     local_sta_preamble_execution_count += usize::from(!requires_host);
 
                     for (store_name, store) in
@@ -22333,18 +15587,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         assert_eq!(
                             test262_host_requirement(case, &included_preludes),
                             expected_host_requirement,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-                        assert_eq!(
-                            wasm_aot_intrinsic_test_typed_array_prelude(case, test_typed_array),
-                            None,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-                        assert!(
-                            wasm_aot_split_test_typed_array_dispatcher(case, test_typed_array)
-                                .is_none(),
                             "{store_name} {}",
                             case.execution_id()
                         );
@@ -22418,14 +15660,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             };
                             assert_eq!(prelude.origin, expected_origin, "{store_name} {include}");
                             if include == "resizableArrayBufferUtils.js" {
-                                assert!(resizable_array_buffer_helper_can_use_static_subclasses(
-                                    case, prelude
-                                ));
                                 assert_eq!(prelude.contents, pinned_resizable_source);
-                                expected_source.push_str(&static_resizable_source);
-                            } else {
-                                expected_source.push_str(&prelude.contents);
                             }
+                            expected_source.push_str(&prelude.contents);
                             expected_preludes.push((prelude.name.clone(), prelude.origin));
                         }
                         expected_source.push_str(&case.original_source);
@@ -22455,36 +15692,17 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         let full_helper_count = prelude_source
                             .match_indices(test_typed_array.contents.as_str())
                             .count();
-                        let split_helper_count = prelude_source
-                            .match_indices(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER)
-                            .count();
-                        let intrinsic_helper_count = prelude_source
-                            .match_indices(WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE)
-                            .count();
-                        let reduced_intrinsic_helper_count = intrinsic_helper_count
-                            .checked_sub(full_helper_count)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "{store_name} {} has an invalid intrinsic/full prelude count",
-                                    case.execution_id()
-                                )
-                            });
                         let used_test_typed_array_count = materialized
                             .used_preludes
                             .iter()
                             .filter(|(name, _)| name == "testTypedArray.js")
                             .count();
                         let expected_helper_counts = match cohort {
-                            SliceHelperCohort::FullVendored => (1, 0, 0, 1),
-                            SliceHelperCohort::NoTestTypedArray => (0, 0, 0, 0),
+                            SliceHelperCohort::FullVendored => (1, 1),
+                            SliceHelperCohort::NoTestTypedArray => (0, 0),
                         };
                         assert_eq!(
-                            (
-                                full_helper_count,
-                                split_helper_count,
-                                reduced_intrinsic_helper_count,
-                                used_test_typed_array_count,
-                            ),
+                            (full_helper_count, used_test_typed_array_count),
                             expected_helper_counts,
                             "{store_name} {}",
                             case.execution_id()
@@ -22504,7 +15722,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(test262_error_execution_count, 24);
         assert_eq!(host_execution_count, 28);
         assert_eq!(local_sta_preamble_execution_count, 154);
-        assert_eq!(static_resizable_execution_count, 8);
+        assert_eq!(resizable_execution_count, 8);
     }
 
     #[test]
@@ -22806,26 +16024,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     expected_contract_fingerprint,
                     "{path}"
                 );
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 for (store_name, store) in [("local", &local_store), ("vendored", &vendored_store)]
                 {
                     let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
                         panic!("{store_name} store should contain testTypedArray.js")
                     });
-                    assert!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    assert!(
-                        wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
 
                     let materialized = materialize_test(&case, store).unwrap_or_else(|error| {
                         panic!(
@@ -23124,8 +16328,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             );
             assert!(case.flags.is_empty());
             assert!(case.negative.is_none());
-            assert_eq!(wasm_aot_unsupported_feature(case), None);
-            assert!(rewrite_wasm_aot_self_contained(case).is_none());
         }
 
         let local_store = real_wasm_aot_preludes();
@@ -23262,26 +16464,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     expected_contract_fingerprint,
                     "{path}"
                 );
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 for (store_name, store) in [("local", &local_store), ("vendored", &vendored_store)]
                 {
                     let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
                         panic!("{store_name} store should contain testTypedArray.js")
                     });
-                    assert!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    assert!(
-                        wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
 
                     let materialized = materialize_test(&case, store).unwrap_or_else(|error| {
                         panic!(
@@ -23538,8 +16726,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     expected_contract_fingerprint,
                     "{path}"
                 );
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
                 for store in [&local_store, &vendored_store] {
                     let included_preludes = resolve_declared_preludes(&case, store)
                         .expect("declared preludes should resolve");
@@ -23552,12 +16738,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         "{path}"
                     );
                 }
-
-                assert!(
-                    wasm_aot_split_test_typed_array_dispatcher(&case, vendored_test_typed_array)
-                        .is_none(),
-                    "{path}"
-                );
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -23658,43 +16838,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     .source
                     .contains("function invokeForConstructor(f, constructor, argFactory)"));
             }
-        }
-    }
-
-    #[test]
-    fn function_tostring_builtin_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Function/prototype/toString/built-in-function-object.js",
-            "staging/sm/Function/function-toString-builtin.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn function_tostring_sputnik_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Function/prototype/toString/S15.3.4.2_A6.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A8.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A9.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A10.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A11.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A12.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A13.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A14.js",
-            "built-ins/Function/prototype/toString/S15.3.4.2_A16.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
         }
     }
 
@@ -23906,8 +17049,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     "{path}"
                 );
                 assert_eq!(case.includes, declared_includes, "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let mut local_source = format!(
                     "{strict_prefix}{}{}{}",
@@ -24016,7 +17157,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .expect("vendored typed-array helper should read");
 
         assert_eq!(case.includes, ["testTypedArray.js"]);
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
         assert_eq!(test_typed_array.origin, PreludeOrigin::VendoredHarness);
         assert_eq!(
             test_typed_array.contents,
@@ -24267,18 +17407,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     case.execution_id()
                 );
                 assert!(case_needs_test262_error_prelude(&case), "{path}");
-                assert_eq!(
-                    rewrite_wasm_aot_self_contained(&case),
-                    None,
-                    "{} should retain its pinned dynamic source",
-                    case.execution_id()
-                );
-                assert_eq!(
-                    wasm_aot_unsupported_feature(&case),
-                    None,
-                    "{} should reach the compiler-owned dynamic source boundary",
-                    case.execution_id()
-                );
 
                 let strict_prefix = match case.execution_mode() {
                     TestExecutionMode::SloppyScript => "",
@@ -24412,7 +17540,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
             let case = parse_test_case(path.to_string(), source_path, original_source.clone());
 
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
             let materialized = materialize_test(&case, &store)
                 .expect("pinned String legacy case should materialize");
 
@@ -24453,7 +17580,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
             let case = parse_test_case(path.to_string(), source_path, original_source.clone());
 
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
             let materialized = materialize_test(&case, &store)
                 .expect("pinned String non-generic realm case should materialize");
 
@@ -24511,7 +17637,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
             let case = parse_test_case(path.to_string(), source_path, original_source.clone());
 
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
             let materialized = materialize_test(&case, &store)
                 .expect("pinned String well-formedness case should materialize");
 
@@ -24528,239 +17653,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 format!("{assert_harness}{preamble}{original_source}"),
                 "{path}",
             );
-        }
-    }
-
-    #[test]
-    fn regexp_symbol_search_metadata_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/RegExp/prototype/Symbol.search/prop-desc.js",
-            "built-ins/RegExp/prototype/Symbol.search/length.js",
-            "built-ins/RegExp/prototype/Symbol.search/name.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn string_match_all_unicode_case_uses_the_original_test262_source() {
-        let path = "built-ins/String/prototype/matchAll/regexp-prototype-matchAll-v-u-flag.js";
-        let case = synthetic_case(path);
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "{path} should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn string_match_all_nullish_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/String/prototype/matchAll/regexp-is-null.js",
-            "built-ins/String/prototype/matchAll/regexp-is-undefined.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn exponentiation_coercion_cases_use_the_original_test262_sources() {
-        for path in [
-            "language/expressions/exponentiation/order-of-evaluation.js",
-            "language/expressions/exponentiation/bigint-toprimitive.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn annexb_string_prototype_method_metadata_cases_use_the_original_test262_sources() {
-        for (method, descriptor_file) in [
-            ("anchor", "prop-desc.js"),
-            ("big", "prop-desc.js"),
-            ("blink", "prop-desc.js"),
-            ("bold", "prop-desc.js"),
-            ("fixed", "prop-desc.js"),
-            ("fontcolor", "prop-desc.js"),
-            ("fontsize", "prop-desc.js"),
-            ("italics", "prop-desc.js"),
-            ("link", "prop-desc.js"),
-            ("small", "prop-desc.js"),
-            ("strike", "prop-desc.js"),
-            ("sub", "prop-desc.js"),
-            ("substr", "B.2.3.js"),
-            ("sup", "prop-desc.js"),
-            ("trimLeft", "prop-desc.js"),
-            ("trimRight", "prop-desc.js"),
-        ] {
-            for file in [descriptor_file, "length.js", "name.js"] {
-                let path = format!("annexB/built-ins/String/prototype/{method}/{file}");
-                let case = synthetic_case(&path);
-
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{path} should execute its original Test262 source"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn resizable_array_buffer_cases_have_expected_wasm_aot_support() {
-        let mut array_reverse_resizable_case =
-            synthetic_case("built-ins/Array/prototype/reverse/resizable-buffer.js");
-        array_reverse_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_reverse_resizable_case),
-            None
-        );
-
-        let mut typed_array_reverse_resizable_case =
-            synthetic_case("built-ins/TypedArray/prototype/reverse/resizable-buffer.js");
-        typed_array_reverse_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typed_array_reverse_resizable_case),
-            None
-        );
-
-        let mut typed_array_with_resizable_case = synthetic_case(
-            "built-ins/TypedArray/prototype/with/index-validated-against-current-length.js",
-        );
-        typed_array_with_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typed_array_with_resizable_case),
-            None
-        );
-
-        let mut array_copy_within_resizable_case =
-            synthetic_case("built-ins/Array/prototype/copyWithin/resizable-buffer.js");
-        array_copy_within_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_copy_within_resizable_case),
-            None
-        );
-
-        for path in [
-            "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-end-shrink.js",
-            "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-grow.js",
-            "built-ins/TypedArray/prototype/copyWithin/resizable-buffer.js",
-            "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-this-out-of-bounds.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-
-        let mut array_slice_resizable_case =
-            synthetic_case("built-ins/Array/prototype/slice/resizable-buffer.js");
-        array_slice_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_slice_resizable_case),
-            None
-        );
-
-        let mut array_fill_resizable_case =
-            synthetic_case("built-ins/Array/prototype/fill/resizable-buffer.js");
-        array_fill_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_fill_resizable_case),
-            None
-        );
-
-        let mut array_join_resizable_case =
-            synthetic_case("built-ins/Array/prototype/join/resizable-buffer.js");
-        array_join_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_join_resizable_case),
-            None
-        );
-
-        let mut typedarray_fill_initial_length_case = synthetic_case(
-            "built-ins/TypedArray/prototype/fill/absent-indices-computed-from-initial-length.js",
-        );
-        typedarray_fill_initial_length_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typedarray_fill_initial_length_case),
-            None
-        );
-
-        // Runtime coverage gaps must reach the compiler instead of a path gate.
-        let mut typedarray_fill_out_of_bounds_case = synthetic_case(
-            "built-ins/TypedArray/prototype/fill/return-abrupt-from-this-out-of-bounds.js",
-        );
-        typedarray_fill_out_of_bounds_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typedarray_fill_out_of_bounds_case),
-            None
-        );
-
-        let mut typedarray_join_resizable_case =
-            synthetic_case("built-ins/TypedArray/prototype/join/resizable-buffer.js");
-        typedarray_join_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typedarray_join_resizable_case),
-            None
-        );
-
-        let mut typed_array_subarray_resizable_case =
-            synthetic_case("built-ins/TypedArray/prototype/subarray/resizable-buffer.js");
-        typed_array_subarray_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typed_array_subarray_resizable_case),
-            None
-        );
-    }
-
-    #[test]
-    fn annexb_escape_unescape_metadata_cases_use_the_original_test262_sources() {
-        for name in ["escape", "unescape"] {
-            for file in ["length.js", "name.js", "prop-desc.js"] {
-                let path = format!("annexB/built-ins/{name}/{file}");
-                let case = synthetic_case(&path);
-
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{path} should execute its original Test262 source"
-                );
-            }
         }
     }
 
@@ -24784,7 +17676,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
         assert_eq!(assert_prelude.origin, PreludeOrigin::LocalMerged);
         assert_eq!(compare_array_prelude.origin, PreludeOrigin::VendoredHarness);
-        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
 
         let materialized = materialize_test(&case, &preludes)
             .expect("Date setUTCMonth argument-order case should materialize");
@@ -24871,7 +17762,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 vec!["propertyHelper.js".to_string()],
                 "{path}"
             );
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
             let materialized = materialize_test(&case, &preludes)
                 .expect("Proxy getOwnPropertyDescriptor case should materialize");
 
@@ -24948,7 +17838,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let case = parse_test_case(path.to_string(), source_path, original_source);
 
             assert_eq!(case.includes, expected_includes, "{path}");
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
             let materialized = materialize_test(&case, &preludes)
                 .expect("ProxyCreate target-shape case should materialize");
@@ -25004,8 +17893,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let original_source = fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
             let case = parse_test_case(path.to_string(), source_path, original_source);
-
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
             let materialized = materialize_test(&case, &preludes)
                 .expect("Proxy.revocable case should materialize");
@@ -25087,7 +17974,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
         assert_eq!(sta_prelude.origin, PreludeOrigin::LocalMerged);
         assert_eq!(assert_prelude.origin, PreludeOrigin::LocalMerged);
-        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
 
         let materialized = materialize_test(&case, &preludes)
             .expect("Proxy apply null-handler Realm case should materialize");
@@ -25127,7 +18013,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
         assert_eq!(sta_prelude.origin, PreludeOrigin::LocalMerged);
         assert_eq!(assert_prelude.origin, PreludeOrigin::LocalMerged);
-        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
 
         let materialized = materialize_test(&case, &preludes)
             .expect("Proxy apply trap-not-callable Realm case should materialize");
@@ -25196,18 +18081,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             assert_eq!(case.original_source.as_ref(), original_source);
             assert!(case.includes.is_empty(), "{}", case.execution_id());
             assert!(case.negative.is_none(), "{}", case.execution_id());
-            assert_eq!(
-                rewrite_wasm_aot_self_contained(&case),
-                None,
-                "{} should retain its pinned dynamic source",
-                case.execution_id()
-            );
-            assert_eq!(
-                wasm_aot_unsupported_feature(&case),
-                Some("dynamic-source"),
-                "{} must remain an explicit Wasm-AOT dynamic-source gap",
-                case.execution_id()
-            );
 
             let strict_prefix = match case.execution_mode() {
                 TestExecutionMode::SloppyScript => "",
@@ -25239,7 +18112,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     }
 
     #[test]
-    fn proxy_apply_arguments_realm_preserves_raw_source_as_explicit_dynamic_source_debt() {
+    fn proxy_apply_arguments_realm_preserves_original_source_for_compiler_admission() {
         assert_proxy_dynamic_source_case(
             "built-ins/Proxy/apply/arguments-realm.js",
             ".global.eval(",
@@ -25247,7 +18120,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     }
 
     #[test]
-    fn proxy_construct_arguments_realm_preserves_raw_source_as_explicit_dynamic_source_debt() {
+    fn proxy_construct_arguments_realm_preserves_original_source_for_compiler_admission() {
         assert_proxy_dynamic_source_case(
             "built-ins/Proxy/construct/arguments-realm.js",
             ".global.eval(",
@@ -25268,355 +18141,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js",
             "new other.Function()",
         );
-    }
-
-    #[test]
-    fn global_constant_prop_desc_cases_use_the_original_test262_sources() {
-        for name in ["Infinity", "NaN", "undefined"] {
-            let path = format!("built-ins/{name}/prop-desc.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn materialize_undefined_legacy_initial_value_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "sta.js".to_string(),
-            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        let mut case = synthetic_case("built-ins/undefined/S15.1.1.3_A1.js");
-        case.original_source =
-            Arc::from("if (undefined !== eval(\"var x\")) throw new Test262Error();".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("sta used"));
-        assert!(!materialized.source.contains("eval("));
-        assert!(materialized.source.contains("typeof(undefined)"));
-        assert!(materialized
-            .source
-            .contains("var evalVarResult = undefined"));
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-    }
-
-    #[test]
-    fn number_constructor_metadata_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Number/prop-desc.js",
-            "built-ins/Number/prototype/prop-desc.js",
-            "built-ins/Number/prototype/constructor.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn number_constant_metadata_cases_use_the_original_test262_sources() {
-        for (name, files) in [
-            ("MAX_VALUE", vec!["S15.7.3.2_A2.js", "S15.7.3.2_A3.js"]),
-            ("MIN_VALUE", vec!["S15.7.3.3_A2.js", "S15.7.3.3_A3.js"]),
-            ("POSITIVE_INFINITY", vec!["prop-desc.js", "S15.7.3.6_A2.js"]),
-            ("NEGATIVE_INFINITY", vec!["prop-desc.js", "S15.7.3.5_A2.js"]),
-        ] {
-            for file in files {
-                let path = format!("built-ins/Number/{name}/{file}");
-                let case = synthetic_case(&path);
-
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{path} should execute its original Test262 source"
-                );
-            }
-        }
-
-        for path in [
-            "built-ins/Number/EPSILON.js",
-            "built-ins/Number/MAX_SAFE_INTEGER.js",
-            "built-ins/Number/MIN_SAFE_INTEGER.js",
-            "built-ins/Number/NaN.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn number_parse_function_metadata_cases_use_the_original_test262_sources() {
-        for method in ["parseFloat", "parseInt"] {
-            let path = format!("built-ins/Number/{method}.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn number_predicate_metadata_cases_use_the_original_test262_sources() {
-        for method in ["isFinite", "isInteger", "isNaN", "isSafeInteger"] {
-            for file in ["prop-desc.js", "length.js", "name.js"] {
-                let path = format!("built-ins/Number/{method}/{file}");
-                let case = synthetic_case(&path);
-
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{path} should execute its original Test262 source"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn number_prototype_method_metadata_cases_use_the_original_test262_sources() {
-        for method in [
-            "toExponential",
-            "toFixed",
-            "toLocaleString",
-            "toPrecision",
-            "toString",
-            "valueOf",
-        ] {
-            for file in ["length.js", "name.js", "prop-desc.js"] {
-                let path = format!("built-ins/Number/prototype/{method}/{file}");
-                let case = synthetic_case(&path);
-
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{path} should execute its original Test262 source"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn native_error_length_descriptors_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/length.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn native_error_name_descriptors_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/name.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn native_error_global_descriptors_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/prop-desc.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn native_error_constructor_prototypes_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/prototype.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn native_error_prototype_constructors_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/prototype/constructor.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn native_error_prototype_messages_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/prototype/message.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn native_error_prototype_names_use_the_original_test262_sources() {
-        for name in [
-            "EvalError",
-            "RangeError",
-            "ReferenceError",
-            "SyntaxError",
-            "TypeError",
-            "URIError",
-        ] {
-            let path = format!("built-ins/NativeErrors/{name}/prototype/name.js");
-            let case = synthetic_case(&path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn boolean_metadata_cases_use_the_original_test262_sources() {
-        let constructor_case = synthetic_case("built-ins/Boolean/prop-desc.js");
-        assert!(
-            rewrite_wasm_aot_self_contained(&constructor_case).is_none(),
-            "built-ins/Boolean/prop-desc.js should execute its original Test262 source"
-        );
-
-        for method in ["toString", "valueOf"] {
-            for file in ["length.js", "name.js"] {
-                let path = format!("built-ins/Boolean/prototype/{method}/{file}");
-                let case = synthetic_case(&path);
-
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{path} should execute its original Test262 source"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn materialize_boolean_proto_from_ctor_realm_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "assert.js".to_string(),
-            "var assert = { sameValue: function() { throw 'assert used'; } };\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        let mut case = synthetic_case("built-ins/Boolean/proto-from-ctor-realm.js");
-        case.original_source = Arc::from(
-            "var other = $262.createRealm().global; var C = new other.Function(); C.prototype = null;"
-                .to_string());
-        case.features.insert("cross-realm".to_string());
-        case.features.insert("Reflect.construct".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("assert used"));
-        assert!(!materialized.source.contains("$262.createRealm"));
-        assert!(!materialized.source.contains("new other.Function"));
-        assert!(materialized
-            .source
-            .contains("var other = __lilaCreateRealm().global;"));
-        assert!(materialized.source.contains("var C = other.Proxy;"));
-        assert!(materialized.source.contains("C.prototype = null;"));
-        assert!(materialized
-            .source
-            .contains("Reflect.construct(Boolean, [], C)"));
-        assert!(materialized
-            .source
-            .contains("Object.getPrototypeOf(o) !== other.Boolean.prototype"));
-    }
-
-    #[test]
-    fn boolean_legacy_conversion_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Boolean/S9.2_A1_T1.js",
-            "built-ins/Boolean/S9.2_A6_T1.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
     }
 
     #[test]
@@ -25701,8 +18225,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
                 source_count += 1;
                 assert_eq!(case.includes, ["propertyHelper.js"], "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized = materialize_test(&case, &local_store)
                     .unwrap_or_else(|error| panic!("local {path} should materialize: {error}"));
@@ -25755,32 +18277,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     }
 
     #[test]
-    fn array_flat_map_custom_species_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Array/prototype/flatMap/this-value-ctor-object-species-custom-ctor.js",
-            "built-ins/Array/prototype/flatMap/this-value-ctor-object-species-custom-ctor-poisoned-throws.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn array_to_string_non_callable_join_uses_the_original_test262_source() {
-        let path = "built-ins/Array/prototype/toString/non-callable-join-string-tag.js";
-        let case = synthetic_case(path);
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "{path} should execute its original Test262 source"
-        );
-    }
-
-    #[test]
     fn typed_array_to_string_cases_use_full_vendored_preludes() {
         let mut store = vendored_test_typed_array_store();
         for prelude_name in ["propertyHelper.js", "isConstructor.js"] {
@@ -25807,7 +18303,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .unwrap_or_else(|error| panic!("vendored {path} should read: {error}"));
             let case = parse_test_case(path.to_string(), source_path, original_source);
 
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
             let materialized =
                 materialize_test(&case, &store).expect("vendored case should materialize");
 
@@ -26194,8 +18689,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 );
                 assert!(case.flags.is_empty(), "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
             }
         }
 
@@ -26302,19 +18795,23 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
             for case in cases {
                 let expected_features: &[&str] = match path {
-                    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-this-out-of-bounds.js" => &[
-                        "ArrayBuffer",
-                        "BigInt",
-                        "TypedArray",
-                        "arrow-function",
-                        "resizable-arraybuffer",
-                    ],
-                    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js" => &[
-                        "ArrayBuffer",
-                        "TypedArray",
-                        "arrow-function",
-                        "resizable-arraybuffer",
-                    ],
+                    "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-this-out-of-bounds.js" => {
+                        &[
+                            "ArrayBuffer",
+                            "BigInt",
+                            "TypedArray",
+                            "arrow-function",
+                            "resizable-arraybuffer",
+                        ]
+                    }
+                    "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js" => {
+                        &[
+                            "ArrayBuffer",
+                            "TypedArray",
+                            "arrow-function",
+                            "resizable-arraybuffer",
+                        ]
+                    }
                     "built-ins/TypedArray/prototype/toLocaleString/not-a-constructor.js" => {
                         &["Reflect.construct", "TypedArray", "arrow-function"]
                     }
@@ -26346,26 +18843,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     expected_contract_fingerprint,
                     "{path}"
                 );
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 for (store_name, store) in [("local", &local_store), ("vendored", &vendored_store)]
                 {
                     let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
                         panic!("{store_name} store should contain testTypedArray.js")
                     });
-                    assert!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    assert!(
-                        wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
 
                     let materialized = materialize_test(&case, store).unwrap_or_else(|error| {
                         panic!(
@@ -26463,18 +18946,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
                         panic!("{store_name} store should contain testTypedArray.js")
                     });
-                    assert!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    assert!(
-                        wasm_aot_split_test_typed_array_dispatcher(case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
 
                     let materialized = materialize_test(case, store).unwrap_or_else(|error| {
                         panic!(
@@ -26536,14 +19007,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
-        let expected_helper = format!("{helper_source}\n").replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
+        let expected_helper = format!("{helper_source}\n");
         let expected_helper_prefix = format!(
             "{}{}",
             store
@@ -26560,11 +19024,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js",
             "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-this-out-of-bounds.js",
         ] {
-            let source_path = repo_root()
-                .join("test262/vendor/test262/test")
-                .join(path);
-            let original_source =
-                fs::read_to_string(&source_path).expect("vendored toLocaleString RAB case should read");
+            let source_path = repo_root().join("test262/vendor/test262/test").join(path);
+            let original_source = fs::read_to_string(&source_path)
+                .expect("vendored toLocaleString RAB case should read");
             let case = parse_test_case(path.to_string(), source_path, original_source);
 
             let materialized =
@@ -26583,45 +19045,67 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     materialized.source.starts_with(&expected_helper_prefix),
                     "{path}"
                 );
-                assert!(!materialized.source.contains(DYNAMIC_SUBCLASS_DEFINITIONS));
-                assert!(materialized.source.contains(STATIC_SUBCLASS_DEFINITIONS));
-                assert!(materialized.source.contains("const builtinCtors = ["));
-                assert!(materialized
-                    .source
-                    .contains("builtinCtors.push(Float16Array)"));
-                assert!(materialized
-                    .source
-                    .contains("builtinCtors.push(BigUint64Array)"));
-                assert!(materialized
-                    .source
-                    .contains("builtinCtors.push(BigInt64Array)"));
-                assert!(materialized.source.contains(
-                    "const ctors = builtinCtors.concat(MyUint8Array, MyFloat32Array)"
-                ));
-                assert!(materialized
-                    .source
-                    .contains("ctors.push(MyBigInt64Array)"));
-                assert!(materialized
-                    .source
-                    .contains("const oldBigIntPrototypeToLocaleString")
-                    || path.ends_with("/resizable-buffer.js"));
-            } else {
-                assert!(materialized
-                    .source
-                    .contains("Only values between 0 and 2**53 - 1"));
-                assert!(materialized
-                    .source
-                    .contains("typeof Float16Array !== \"undefined\""));
-                assert!(!materialized
-                    .source
-                    .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
-                assert!(!materialized
-                    .source
-                    .contains("function invokeForConstructor(f, constructor, argFactory)"));
-                if path.contains("/BigInt/") {
-                    assert!(materialized
+                assert!(materialized.source.contains(DYNAMIC_SUBCLASS_DEFINITIONS));
+                assert!(
+                    !materialized
                         .source
-                        .contains("testWithBigIntTypedArrayConstructors(TA =>"));
+                        .contains("class MyUint8Array extends Uint8Array {}")
+                );
+                assert!(materialized.source.contains("const builtinCtors = ["));
+                assert!(
+                    materialized
+                        .source
+                        .contains("builtinCtors.push(Float16Array)")
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("builtinCtors.push(BigUint64Array)")
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("builtinCtors.push(BigInt64Array)")
+                );
+                assert!(
+                    materialized.source.contains(
+                        "const ctors = builtinCtors.concat(MyUint8Array, MyFloat32Array)"
+                    )
+                );
+                assert!(materialized.source.contains("ctors.push(MyBigInt64Array)"));
+                assert!(
+                    materialized
+                        .source
+                        .contains("const oldBigIntPrototypeToLocaleString")
+                        || path.ends_with("/resizable-buffer.js")
+                );
+            } else {
+                assert!(
+                    materialized
+                        .source
+                        .contains("Only values between 0 and 2**53 - 1")
+                );
+                assert!(
+                    materialized
+                        .source
+                        .contains("typeof Float16Array !== \"undefined\"")
+                );
+                assert!(
+                    !materialized.source.contains(
+                        "function selectCtorArgFactories(includeFeatures, excludeFeatures)"
+                    )
+                );
+                assert!(
+                    !materialized
+                        .source
+                        .contains("function invokeForConstructor(f, constructor, argFactory)")
+                );
+                if path.contains("/BigInt/") {
+                    assert!(
+                        materialized
+                            .source
+                            .contains("testWithBigIntTypedArrayConstructors(TA =>")
+                    );
                 }
             }
         }
@@ -26660,7 +19144,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "testTypedArray.js".to_string(),
                 "detachArrayBuffer.js".to_string(),
             ];
-            case.original_source = Arc::from( original_source.to_string());
+            case.original_source = Arc::from(original_source.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -26668,12 +19152,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             assert!(materialized.source.contains(original_source));
             assert!(materialized.source.contains("$DETACHBUFFER(sample.buffer)"));
             assert!(materialized.source.contains("assert.throws(TypeError"));
-            assert!(materialized
-                .source
-                .contains("Only values between 0 and 2**53 - 1"));
-            assert!(materialized
-                .source
-                .contains("typeof Float16Array !== \"undefined\""));
+            assert!(
+                materialized
+                    .source
+                    .contains("Only values between 0 and 2**53 - 1")
+            );
+            assert!(
+                materialized
+                    .source
+                    .contains("typeof Float16Array !== \"undefined\"")
+            );
         }
     }
 
@@ -26829,9 +19317,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
 
         assert!(CASES.windows(2).all(|cases| cases[0].0 < cases[1].0));
 
@@ -26903,11 +19388,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .count(),
             1
         );
-        let static_resizable_source = pinned_resizable_source.replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
 
         for (
             path,
@@ -26958,8 +19438,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 );
                 assert!(case.flags.is_empty(), "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
 
                 assert_eq!(
                     case_needs_test262_error_prelude(case),
@@ -26977,21 +19455,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             panic!("{store_name} store should contain {sta_name}")
                         })
                     });
-                    let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
-                        panic!("{store_name} store should contain testTypedArray.js")
-                    });
-                    assert!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    assert!(
-                        wasm_aot_split_test_typed_array_dispatcher(case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
 
                     let materialized = materialize_test(case, store).unwrap_or_else(|error| {
                         panic!(
@@ -27014,11 +19477,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         let prelude = store.get(include).unwrap_or_else(|| {
                             panic!("{store_name} store should contain {include}")
                         });
-                        if include == "resizableArrayBufferUtils.js" {
-                            expected_source.push_str(&static_resizable_source);
-                        } else {
-                            expected_source.push_str(&prelude.contents);
-                        }
+                        expected_source.push_str(&prelude.contents);
                         expected_preludes.push((prelude.name.clone(), prelude.origin));
                     }
                     expected_source.push_str(&case.original_source);
@@ -27046,7 +19505,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         enum EverySomePreludeCohort {
             EveryFullTestTypedArray,
             EveryNoTestTypedArray,
-            SomeSplitTestTypedArray,
+            SomeFullTestTypedArray,
             SomeNoTestTypedArray,
         }
 
@@ -27142,7 +19601,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 contract_fingerprint: 0x428f_e642_8c05_f419,
                 includes: TEST_TYPED_ARRAY,
                 features: BIGINT_OUT_OF_BOUNDS_FEATURES,
-                cohort: EverySomePreludeCohort::SomeSplitTestTypedArray,
+                cohort: EverySomePreludeCohort::SomeFullTestTypedArray,
                 local_needs_sta_preamble: true,
             },
             EverySomeCaseContract {
@@ -27151,7 +19610,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 contract_fingerprint: 0x7464_0a6f_e3b8_063d,
                 includes: TEST_TYPED_ARRAY_COMPARE_ARRAY,
                 features: TYPED_ARRAY_RESIZABLE_FEATURES,
-                cohort: EverySomePreludeCohort::SomeSplitTestTypedArray,
+                cohort: EverySomePreludeCohort::SomeFullTestTypedArray,
                 local_needs_sta_preamble: false,
             },
             EverySomeCaseContract {
@@ -27187,7 +19646,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 contract_fingerprint: 0xa30b_515d_7f3e_3493,
                 includes: TEST_TYPED_ARRAY,
                 features: SOME_OUT_OF_BOUNDS_FEATURES,
-                cohort: EverySomePreludeCohort::SomeSplitTestTypedArray,
+                cohort: EverySomePreludeCohort::SomeFullTestTypedArray,
                 local_needs_sta_preamble: true,
             },
         ];
@@ -27200,12 +19659,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
         const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const SPLIT_TEST_TYPED_ARRAY_BYTES: usize = 12_362;
-        const SPLIT_TEST_TYPED_ARRAY_FINGERPRINT: u64 = 0x92c7_bac7_27f5_772d;
 
         assert!(CASES.windows(2).all(|cases| cases[0].path < cases[1].path));
 
@@ -27269,32 +19723,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             fnv1a(&pinned_test_typed_array_source),
             TEST_TYPED_ARRAY_PRELUDE_FNV1A
         );
-        let dispatcher_start = pinned_test_typed_array_source
-            .find(
-                "function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {",
-            )
-            .expect("vendored testTypedArray.js should contain the dispatcher");
-        let following_source = "\n\n/**\n * Calls the provided function with (typedArrayCtor, typedArrayCtorArgFactory)";
-        let dispatcher_end = dispatcher_start
-            + pinned_test_typed_array_source[dispatcher_start..]
-                .find(following_source)
-                .expect("vendored testTypedArray.js should contain the next function");
-        let prelude_end = pinned_test_typed_array_source
-            .find("\n\nvar nonAtomicsFriendlyTypedArrayConstructors")
-            .expect("vendored testTypedArray.js should contain the unused helper tail");
-        let mut split_test_typed_array_source = String::new();
-        split_test_typed_array_source.push_str(&pinned_test_typed_array_source[..dispatcher_start]);
-        split_test_typed_array_source.push_str(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER);
-        split_test_typed_array_source
-            .push_str(&pinned_test_typed_array_source[dispatcher_end..prelude_end]);
-        assert_eq!(
-            split_test_typed_array_source.len(),
-            SPLIT_TEST_TYPED_ARRAY_BYTES
-        );
-        assert_eq!(
-            fnv1a(&split_test_typed_array_source),
-            SPLIT_TEST_TYPED_ARRAY_FINGERPRINT
-        );
 
         let pinned_resizable_source = vendored_harness_source("resizableArrayBufferUtils.js");
         assert_eq!(
@@ -27303,17 +19731,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .count(),
             1
         );
-        let static_resizable_source = pinned_resizable_source.replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
-        assert!(!static_resizable_source.contains(DYNAMIC_SUBCLASS_DEFINITIONS));
-        assert!(static_resizable_source.contains(STATIC_SUBCLASS_DEFINITIONS));
 
         let mut every_full_count = 0;
         let mut every_without_test_typed_array_count = 0;
-        let mut some_split_count = 0;
+        let mut some_full_count = 0;
         let mut some_without_test_typed_array_count = 0;
         let mut execution_count = 0;
 
@@ -27323,7 +19744,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 EverySomePreludeCohort::EveryNoTestTypedArray => {
                     every_without_test_typed_array_count += 1
                 }
-                EverySomePreludeCohort::SomeSplitTestTypedArray => some_split_count += 1,
+                EverySomePreludeCohort::SomeFullTestTypedArray => some_full_count += 1,
                 EverySomePreludeCohort::SomeNoTestTypedArray => {
                     some_without_test_typed_array_count += 1
                 }
@@ -27395,40 +19816,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     "{}",
                     contract.path
                 );
-                assert_eq!(
-                    wasm_aot_unsupported_feature(&case),
-                    None,
-                    "{}",
-                    contract.path
-                );
-                assert!(
-                    rewrite_wasm_aot_self_contained(&case).is_none(),
-                    "{}",
-                    contract.path
-                );
-
-                let expected_literal_plan = match contract.cohort {
-                    EverySomePreludeCohort::EveryFullTestTypedArray
-                    | EverySomePreludeCohort::EveryNoTestTypedArray => None,
-                    EverySomePreludeCohort::SomeSplitTestTypedArray => {
-                        Some(TypedArrayLiteralHelperPlan {
-                            factory_mode: TypedArrayLiteralFactoryMode::FullVendored,
-                        })
-                    }
-                    EverySomePreludeCohort::SomeNoTestTypedArray => {
-                        Some(TypedArrayLiteralHelperPlan {
-                            factory_mode: TypedArrayLiteralFactoryMode::None,
-                        })
-                    }
-                };
-                assert_eq!(
-                    typed_array_literal_helper_plan(&case),
-                    expected_literal_plan,
-                    "{}",
-                    contract.path
-                );
-                let dispatcher_should_split =
-                    contract.cohort == EverySomePreludeCohort::SomeSplitTestTypedArray;
 
                 for (store_name, store, sta_name) in [
                     ("local", &local_store, Some("sta-preamble.js")),
@@ -27437,28 +19824,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     let assert_prelude = store
                         .get("assert.js")
                         .unwrap_or_else(|| panic!("{store_name} store should contain assert.js"));
-                    let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
-                        panic!("{store_name} store should contain testTypedArray.js")
-                    });
-                    assert!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    let split_prelude =
-                        wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array);
-                    if dispatcher_should_split {
-                        assert_eq!(
-                            split_prelude.as_deref(),
-                            Some(split_test_typed_array_source.as_str()),
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-                    } else {
-                        assert_eq!(split_prelude, None, "{store_name} {}", case.execution_id());
-                    }
-
                     let mut expected_source = String::new();
                     if case.execution_mode() == TestExecutionMode::StrictScript {
                         expected_source.push_str("\"use strict\";\n");
@@ -27477,28 +19842,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         let prelude = store.get(include).unwrap_or_else(|| {
                             panic!("{store_name} store should contain {include}")
                         });
-                        match (contract.cohort, include.as_str()) {
-                            (
-                                EverySomePreludeCohort::SomeSplitTestTypedArray,
-                                "testTypedArray.js",
-                            ) => expected_source.push_str(&split_test_typed_array_source),
-                            (
-                                EverySomePreludeCohort::SomeSplitTestTypedArray
-                                | EverySomePreludeCohort::SomeNoTestTypedArray,
-                                "compareArray.js",
-                            ) => {}
-                            (
-                                EverySomePreludeCohort::EveryNoTestTypedArray
-                                | EverySomePreludeCohort::SomeNoTestTypedArray,
-                                "resizableArrayBufferUtils.js",
-                            ) => {
-                                assert!(resizable_array_buffer_helper_can_use_static_subclasses(
-                                    &case, prelude
-                                ));
-                                expected_source.push_str(&static_resizable_source);
-                            }
-                            _ => expected_source.push_str(&prelude.contents),
-                        }
+                        expected_source.push_str(&prelude.contents);
                         expected_preludes.push((prelude.name.clone(), prelude.origin));
                     }
                     expected_source.push_str(&case.original_source);
@@ -27529,25 +19873,20 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         .source
                         .match_indices(&pinned_test_typed_array_source)
                         .count();
-                    let split_test_typed_array_count = materialized
-                        .source
-                        .match_indices(&split_test_typed_array_source)
-                        .count();
                     let test_typed_array_provenance_count = materialized
                         .used_preludes
                         .iter()
                         .filter(|(name, _)| name == "testTypedArray.js")
                         .count();
                     let expected_counts = match contract.cohort {
-                        EverySomePreludeCohort::EveryFullTestTypedArray => (1, 0, 1),
+                        EverySomePreludeCohort::EveryFullTestTypedArray => (1, 1),
                         EverySomePreludeCohort::EveryNoTestTypedArray
-                        | EverySomePreludeCohort::SomeNoTestTypedArray => (0, 0, 0),
-                        EverySomePreludeCohort::SomeSplitTestTypedArray => (0, 1, 1),
+                        | EverySomePreludeCohort::SomeNoTestTypedArray => (0, 0),
+                        EverySomePreludeCohort::SomeFullTestTypedArray => (1, 1),
                     };
                     assert_eq!(
                         (
                             full_test_typed_array_count,
-                            split_test_typed_array_count,
                             test_typed_array_provenance_count,
                         ),
                         expected_counts,
@@ -27562,7 +19901,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             (
                 every_full_count,
                 every_without_test_typed_array_count,
-                some_split_count,
+                some_full_count,
                 some_without_test_typed_array_count,
             ),
             (3, 3, 3, 3)
@@ -27574,7 +19913,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     fn typed_array_iterator_and_find_cases_have_exact_literal_helper_cohorts() {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum LiteralHelperCohort {
-            FullVendoredSplit,
+            FullVendored,
             NoTestTypedArray,
         }
 
@@ -27622,10 +19961,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "built-ins/TypedArray/prototype/values/return-abrupt-from-this-out-of-bounds.js",
         ];
         const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const SPLIT_TEST_TYPED_ARRAY_BYTES: usize = 12_362;
-        const SPLIT_TEST_TYPED_ARRAY_FNV1A: u64 = 0x92c7_bac7_27f5_772d;
-        const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
-        const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
         const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
   try {
     return new Function('return class My' + type + ' extends ' + type + ' {}')();
@@ -27635,9 +19970,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
-class MyFloat32Array extends Float32Array {}
-class MyBigInt64Array extends BigInt64Array {}"#;
 
         assert!(PATHS.windows(2).all(|paths| paths[0] < paths[1]));
 
@@ -27701,34 +20033,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             fnv1a(&pinned_test_typed_array_source),
             TEST_TYPED_ARRAY_PRELUDE_FNV1A
         );
-        let dispatcher_start = pinned_test_typed_array_source
-            .find(
-                "function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {",
-            )
-            .expect("vendored testTypedArray.js should contain the dispatcher");
-        let following_source =
-            "\n\n/**\n * Calls the provided function with (typedArrayCtor, typedArrayCtorArgFactory)";
-        let dispatcher_end = dispatcher_start
-            + pinned_test_typed_array_source[dispatcher_start..]
-                .find(following_source)
-                .expect("vendored testTypedArray.js should contain the next function");
-        let prelude_end = pinned_test_typed_array_source
-            .find("\n\nvar nonAtomicsFriendlyTypedArrayConstructors")
-            .expect("vendored testTypedArray.js should contain the unused helper tail");
-        let mut split_test_typed_array_source = String::new();
-        split_test_typed_array_source.push_str(&pinned_test_typed_array_source[..dispatcher_start]);
-        split_test_typed_array_source.push_str(WASM_AOT_SPLIT_TEST_TYPED_ARRAY_DISPATCHER);
-        split_test_typed_array_source
-            .push_str(&pinned_test_typed_array_source[dispatcher_end..prelude_end]);
-        assert_eq!(
-            split_test_typed_array_source.len(),
-            SPLIT_TEST_TYPED_ARRAY_BYTES
-        );
-        assert_eq!(
-            fnv1a(&split_test_typed_array_source),
-            SPLIT_TEST_TYPED_ARRAY_FNV1A
-        );
-
         let pinned_compare_array_source = vendored_harness_source("compareArray.js");
         let pinned_resizable_source = vendored_harness_source("resizableArrayBufferUtils.js");
         assert_eq!(pinned_resizable_source.len(), 3_830);
@@ -27742,19 +20046,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .count(),
             1
         );
-        let static_resizable_source = pinned_resizable_source.replacen(
-            DYNAMIC_SUBCLASS_DEFINITIONS,
-            STATIC_SUBCLASS_DEFINITIONS,
-            1,
-        );
-        assert_eq!(
-            static_resizable_source.len(),
-            STATIC_RESIZABLE_ARRAY_BUFFER_BYTES
-        );
-        assert_eq!(
-            fnv1a(&static_resizable_source),
-            STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A
-        );
 
         let mut path_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
         let mut source_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
@@ -27765,7 +20056,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut full_physical_count = 0;
         let mut without_test_typed_array_physical_count = 0;
         let mut test262_error_physical_count = 0;
-        let mut static_resizable_physical_count = 0;
+        let mut resizable_physical_count = 0;
         let mut include_distribution = [0usize; 5];
         let mut execution_count = 0;
         let mut materialization_counts = [0usize; 2];
@@ -27773,9 +20064,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut without_test_typed_array_materialization_counts = [0usize; 2];
         let mut assert_provenance_counts = [0usize; 2];
         let mut sta_provenance_counts = [0usize; 2];
-        let mut split_test_typed_array_provenance_counts = [0usize; 2];
+        let mut test_typed_array_full_provenance_counts = [0usize; 2];
         let mut compare_array_provenance_counts = [0usize; 2];
-        let mut static_resizable_materialization_counts = [0usize; 2];
+        let mut resizable_materialization_counts = [0usize; 2];
 
         for path in PATHS {
             let source_path = test_root.join(path);
@@ -27851,7 +20142,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .includes
                 .iter()
                 .any(|include| include == "compareArray.js");
-            let uses_static_resizable_helper = first
+            let uses_resizable_helper = first
                 .includes
                 .iter()
                 .any(|include| include == "resizableArrayBufferUtils.js");
@@ -27861,7 +20152,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 full_physical_count += 1;
                 full_cohort_fingerprint = fnv1a_extend(full_cohort_fingerprint, path.as_bytes());
                 full_cohort_fingerprint = fnv1a_extend(full_cohort_fingerprint, &[u8::MAX]);
-                LiteralHelperCohort::FullVendoredSplit
+                LiteralHelperCohort::FullVendored
             } else {
                 without_test_typed_array_physical_count += 1;
                 without_test_typed_array_cohort_fingerprint =
@@ -27871,11 +20162,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 LiteralHelperCohort::NoTestTypedArray
             };
             test262_error_physical_count += usize::from(needs_local_sta_preamble);
-            static_resizable_physical_count += usize::from(uses_static_resizable_helper);
+            resizable_physical_count += usize::from(uses_resizable_helper);
             let include_distribution_index = match (
                 uses_test_typed_array,
                 uses_compare_array,
-                uses_static_resizable_helper,
+                uses_resizable_helper,
                 first.includes.is_empty(),
             ) {
                 (true, false, false, false) => 0,
@@ -27886,20 +20177,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 includes => panic!("unexpected include shape {includes:?} for {path}"),
             };
             include_distribution[include_distribution_index] += 1;
-
-            let expected_plan = TypedArrayLiteralHelperPlan {
-                factory_mode: match cohort {
-                    LiteralHelperCohort::FullVendoredSplit => {
-                        TypedArrayLiteralFactoryMode::FullVendored
-                    }
-                    LiteralHelperCohort::NoTestTypedArray => TypedArrayLiteralFactoryMode::None,
-                },
-            };
-            assert_eq!(
-                typed_array_literal_helper_plan(&first),
-                Some(expected_plan),
-                "{path}"
-            );
 
             for case in cases {
                 execution_count += 1;
@@ -27924,14 +20201,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     case_needs_test262_error_prelude(&case),
                     needs_local_sta_preamble
                 );
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
-                assert_eq!(
-                    typed_array_literal_helper_plan(&case),
-                    Some(expected_plan),
-                    "{path}"
-                );
-
                 for (store_index, store_name, store, sta_name) in [
                     (0, "local", &local_store, Some("sta-preamble.js")),
                     (1, "vendored", &vendored_store, Some("sta.js")),
@@ -27939,43 +20208,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     let assert_prelude = store
                         .get("assert.js")
                         .unwrap_or_else(|| panic!("{store_name} store should contain assert.js"));
-                    let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
-                        panic!("{store_name} store should contain testTypedArray.js")
-                    });
-                    assert_eq!(
-                        wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array),
-                        None,
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    let split_prelude =
-                        wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array);
-                    match cohort {
-                        LiteralHelperCohort::FullVendoredSplit => assert_eq!(
-                            split_prelude.as_deref(),
-                            Some(split_test_typed_array_source.as_str()),
-                            "{store_name} {}",
-                            case.execution_id()
-                        ),
-                        LiteralHelperCohort::NoTestTypedArray => {
-                            assert_eq!(split_prelude, None, "{store_name} {}", case.execution_id())
-                        }
-                    }
-
-                    let resizable_helper = store
-                        .get("resizableArrayBufferUtils.js")
-                        .unwrap_or_else(|| {
-                            panic!("{store_name} store should contain resizableArrayBufferUtils.js")
-                        });
-                    assert_eq!(
-                        resizable_array_buffer_helper_can_use_static_subclasses(
-                            &case,
-                            resizable_helper
-                        ),
-                        uses_static_resizable_helper,
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
                     let included_preludes = resolve_declared_preludes(&case, store)
                         .expect("declared literal-case preludes should resolve");
                     assert_eq!(
@@ -28010,17 +20242,19 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             PreludeOrigin::VendoredHarness,
                             "{store_name} {include}"
                         );
-                        match include.as_str() {
-                            "testTypedArray.js" => {
-                                expected_source.push_str(&split_test_typed_array_source)
-                            }
-                            "compareArray.js" => {}
-                            "resizableArrayBufferUtils.js" => {
-                                assert_eq!(prelude.contents, pinned_resizable_source);
-                                expected_source.push_str(&static_resizable_source);
-                            }
-                            _ => panic!("unexpected include {include} for {path}"),
+                        assert!(
+                            [
+                                "testTypedArray.js",
+                                "compareArray.js",
+                                "resizableArrayBufferUtils.js"
+                            ]
+                            .contains(&include.as_str()),
+                            "unexpected include {include} for {path}"
+                        );
+                        if include.as_str() == "resizableArrayBufferUtils.js" {
+                            assert_eq!(prelude.contents, pinned_resizable_source);
                         }
+                        expected_source.push_str(&prelude.contents);
                         expected_preludes.push((prelude.name.clone(), prelude.origin));
                     }
                     expected_source.push_str(&case.original_source);
@@ -28059,20 +20293,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     let full_test_typed_array_count = prelude_source
                         .match_indices(&pinned_test_typed_array_source)
                         .count();
-                    let split_test_typed_array_count = prelude_source
-                        .match_indices(&split_test_typed_array_source)
-                        .count();
-                    let intrinsic_fragment_count = prelude_source
-                        .match_indices(WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE)
-                        .count();
-                    let intrinsic_only_count = intrinsic_fragment_count
-                        .checked_sub(full_test_typed_array_count + split_test_typed_array_count)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "{store_name} {} has an invalid intrinsic/helper count",
-                                case.execution_id()
-                            )
-                        });
                     let compare_array_source_count = prelude_source
                         .match_indices(&pinned_compare_array_source)
                         .count();
@@ -28087,14 +20307,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         .filter(|(name, _)| name == "compareArray.js")
                         .count();
                     let expected_counts = match cohort {
-                        LiteralHelperCohort::FullVendoredSplit => (0, 1, 0, 0, 1),
-                        LiteralHelperCohort::NoTestTypedArray => (0, 0, 0, 0, 0),
+                        LiteralHelperCohort::FullVendored => {
+                            (1, usize::from(uses_compare_array), 1)
+                        }
+                        LiteralHelperCohort::NoTestTypedArray => {
+                            (0, usize::from(uses_compare_array), 0)
+                        }
                     };
                     assert_eq!(
                         (
                             full_test_typed_array_count,
-                            split_test_typed_array_count,
-                            intrinsic_only_count,
                             compare_array_source_count,
                             test_typed_array_provenance_count,
                         ),
@@ -28111,13 +20333,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
                     materialization_counts[store_index] += 1;
                     assert_provenance_counts[store_index] += 1;
-                    split_test_typed_array_provenance_counts[store_index] +=
+                    test_typed_array_full_provenance_counts[store_index] +=
                         usize::from(uses_test_typed_array);
                     compare_array_provenance_counts[store_index] += usize::from(uses_compare_array);
-                    static_resizable_materialization_counts[store_index] +=
-                        usize::from(uses_static_resizable_helper);
+                    resizable_materialization_counts[store_index] +=
+                        usize::from(uses_resizable_helper);
                     match cohort {
-                        LiteralHelperCohort::FullVendoredSplit => {
+                        LiteralHelperCohort::FullVendored => {
                             full_materialization_counts[store_index] += 1
                         }
                         LiteralHelperCohort::NoTestTypedArray => {
@@ -28142,7 +20364,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 full_physical_count,
                 without_test_typed_array_physical_count,
                 test262_error_physical_count,
-                static_resizable_physical_count,
+                resizable_physical_count,
             ),
             (18, 23, 14, 21)
         );
@@ -28153,9 +20375,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(without_test_typed_array_materialization_counts, [46, 46]);
         assert_eq!(assert_provenance_counts, [82, 82]);
         assert_eq!(sta_provenance_counts, [82, 82]);
-        assert_eq!(split_test_typed_array_provenance_counts, [36, 36]);
+        assert_eq!(test_typed_array_full_provenance_counts, [36, 36]);
         assert_eq!(compare_array_provenance_counts, [42, 42]);
-        assert_eq!(static_resizable_materialization_counts, [42, 42]);
+        assert_eq!(resizable_materialization_counts, [42, 42]);
     }
 
     #[test]
@@ -28252,7 +20474,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ]
         );
         assert!(materialized.source.ends_with(&original_source));
-        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
     }
 
     #[test]
@@ -28266,7 +20487,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let materialized = materialize_test(&case, &real_wasm_aot_preludes())
             .expect("materialization should work");
 
-        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
         assert!(materialized.source.ends_with(&original_source));
         assert!(materialized
             .source
@@ -28287,8 +20507,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             case.includes,
             ["compareArray.js", "resizableArrayBufferUtils.js"],
         );
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-        assert!(rewrite_wasm_aot_self_contained(&case).is_none());
 
         let materialized = materialize_test(&case, &preludes)
             .expect("pinned Array entries case should materialize");
@@ -28309,13 +20527,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ]
         );
         assert!(materialized.source.ends_with(&original_source));
-        assert!(materialized
-            .source
-            .contains("class MyUint8Array extends Uint8Array {}"));
+        assert!(materialized.source.contains("new Function"));
         assert!(materialized
             .source
             .contains("function TestIterationAndResize("));
-        assert!(!materialized.source.contains("new Function"));
+        assert!(!materialized
+            .source
+            .contains("class MyUint8Array extends Uint8Array {}"));
         assert!(!materialized.source.contains("function ConsumeIterator("));
         assert!(materialized
             .source
@@ -28346,8 +20564,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 ["compareArray.js", "resizableArrayBufferUtils.js"],
                 "{path}",
             );
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
             let materialized = materialize_test(&case, &preludes)
                 .expect("pinned Array iterator case should materialize");
@@ -28370,7 +20586,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             );
             assert!(materialized.source.ends_with(&original_source), "{path}");
             assert!(
-                materialized
+                !materialized
                     .source
                     .contains("class MyUint8Array extends Uint8Array {}"),
                 "{path}",
@@ -28381,7 +20597,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     .contains("function TestIterationAndResize("),
                 "{path}",
             );
-            assert!(!materialized.source.contains("new Function"), "{path}");
+            assert!(materialized.source.contains("new Function"), "{path}");
         }
     }
 
@@ -28453,71 +20669,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn reflect_set_prototype_of_metadata_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Reflect/setPrototypeOf/setPrototypeOf.js",
-            "built-ins/Reflect/setPrototypeOf/length.js",
-            "built-ins/Reflect/setPrototypeOf/name.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn error_is_error_prop_desc_uses_the_original_test262_source() {
-        let path = "built-ins/Error/isError/prop-desc.js";
-        let case = synthetic_case(path);
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "{path} should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_is_error_native_errors_use_the_original_test262_source() {
-        let path = "built-ins/Error/isError/errors.js";
-        let case = synthetic_case(path);
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "{path} should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_is_error_non_error_objects_use_the_original_test262_source() {
-        let path = "built-ins/Error/isError/non-error-objects.js";
-        let case = synthetic_case(path);
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "{path} should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn throw_type_error_metadata_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/ThrowTypeError/length.js",
-            "built-ins/ThrowTypeError/name.js",
-            "built-ins/ThrowTypeError/property-order.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
     fn error_is_error_errors_other_realm_preserves_pinned_source_and_preludes() {
         let preludes = real_wasm_aot_preludes();
         let path = "built-ins/Error/isError/errors-other-realm.js";
@@ -28555,11 +20706,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         for case in cases {
             assert!(case.includes.is_empty(), "{}", case.execution_id());
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{} should execute its original Test262 source",
-                case.execution_id()
-            );
 
             let strict_prefix = match case.execution_mode() {
                 TestExecutionMode::SloppyScript => "",
@@ -28598,26 +20744,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn error_message_property_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/message_property.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error message property should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_cause_property_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/cause_property.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error cause property should execute its original Test262 source"
-        );
-    }
-
-    #[test]
     fn observed_iterator_failures_execute_original_test262_sources() {
         let root = repo_root().join("test262/vendor/test262/test");
         let preludes = real_wasm_aot_preludes();
@@ -28632,7 +20758,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let path = format!("built-ins/Iterator/prototype/{suffix}");
             let original = fs::read_to_string(root.join(&path)).expect("pinned case source");
             let case = parse_test_case(path.clone(), root.join(&path), original.clone());
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
             let materialized = materialize_test(&case, &preludes).expect("original materializes");
             assert!(materialized.source.ends_with(&original), "{path}");
             assert!(materialized
@@ -28640,56 +20765,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 .iter()
                 .any(|(name, _)| name == "assert.js"));
         }
-    }
-
-    #[test]
-    fn error_constructor_property_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prop-desc.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error constructor property descriptor should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_instance_prototype_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/instance-prototype.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error instance prototype should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn aggregate_error_length_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/AggregateError/length.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "AggregateError length descriptor should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn aggregate_error_name_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/AggregateError/name.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "AggregateError name descriptor should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn aggregate_error_global_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/AggregateError/prop-desc.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "AggregateError global descriptor should execute its original Test262 source"
-        );
     }
 
     #[test]
@@ -28844,8 +20919,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     "{path}"
                 );
                 assert_eq!(case.includes, expected_includes, "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let mut local_prelude_source =
                     format!("{}{}", local_assert.contents, local_sta.contents);
@@ -28909,175 +20982,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 );
             }
         }
-    }
-
-    #[test]
-    fn suppressed_error_length_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/SuppressedError/length.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "SuppressedError length descriptor should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn suppressed_error_name_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/SuppressedError/name.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "SuppressedError name descriptor should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn suppressed_error_global_descriptor_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/SuppressedError/prop-desc.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "SuppressedError global descriptor should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_metadata_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/Error/prototype/message/prop-desc.js",
-            "built-ins/Error/prototype/name/prop-desc.js",
-            "built-ins/Error/prototype/constructor/prop-desc.js",
-            "built-ins/Error/prototype/toString/prop-desc.js",
-            "built-ins/Error/prototype/toString/length.js",
-            "built-ins/Error/prototype/toString/name.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
-    }
-
-    #[test]
-    fn error_prototype_without_error_data_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/no-error-data.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype ErrorData check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_non_configurable_attribute_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.3.1_A1_T1.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype non-configurable check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_non_enumerable_attribute_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.3.1_A2_T1.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype non-enumerable check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_non_writable_attribute_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.3.1_A3_T1.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype non-writable check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_constructor_prototype_own_property_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.3.1_A4_T1.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error constructor prototype own-property check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_inherits_from_object_prototype_in_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.4_A1.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype chain check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_object_brand_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.4_A2.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype object-brand check should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_call_rejection_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.4_A3.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype call rejection should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_construct_rejection_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/S15.11.4_A4.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype construct rejection should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_constructor_behavior_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/constructor/S15.11.4.1_A1_T2.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype constructor behavior should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_unbound_to_string_uses_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/toString/called-as-function.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "unbound Error prototype toString should execute its original Test262 source"
-        );
-    }
-
-    #[test]
-    fn error_prototype_invalid_receiver_checks_use_the_original_test262_source() {
-        let case = synthetic_case("built-ins/Error/prototype/toString/invalid-receiver.js");
-
-        assert!(
-            rewrite_wasm_aot_self_contained(&case).is_none(),
-            "Error prototype toString invalid-receiver checks should execute their original Test262 source"
-        );
     }
 
     #[test]
@@ -29156,7 +21060,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let case = parse_test_case(path.to_string(), source_path, original_source);
 
             assert_eq!(case.includes, ["propertyHelper.js"], "{path}");
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
 
             let local_materialized = materialize_test(&case, &local_store)
                 .unwrap_or_else(|error| panic!("local {path} should materialize: {error}"));
@@ -29373,8 +21276,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     "{path}"
                 );
                 assert_eq!(case.includes, declared_includes, "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let mut local_source = format!(
                     "{strict_prefix}{}{}",
@@ -29725,8 +21626,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert!(case.flags.is_empty(), "{path}");
                 assert_eq!(&case.features, &expected_features, "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -29822,7 +21721,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 let case = parse_test_case(path.clone(), source_path, original_source);
 
                 assert_eq!(case.includes, ["propertyHelper.js"], "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let materialized =
                     materialize_test(&case, &store).expect("vendored case should materialize");
@@ -29873,8 +21771,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 let case = parse_test_case(path.clone(), source_path, original_source);
 
                 assert!(case.includes.is_empty(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let materialized =
                     materialize_test(&case, &store).expect("pinned case should materialize");
@@ -29987,8 +21883,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
                 source_count += 1;
                 assert_eq!(case.includes, ["propertyHelper.js"], "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized = materialize_test(&case, &local_store)
                     .unwrap_or_else(|error| panic!("local {path} should materialize: {error}"));
@@ -30294,8 +22188,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert!(case.flags.is_empty(), "{path}");
                 assert_eq!(&case.features, &expected_features, "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -30352,24 +22244,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         case_fingerprints.sort_unstable();
         assert_eq!(case_fingerprints.as_slice(), CASE_CONTRACTS_FNV1A);
-    }
-
-    #[test]
-    fn dataview_method_abrupt_tonumber_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/DataView/prototype/getInt16/return-abrupt-from-tonumber-byteoffset.js",
-            "built-ins/DataView/prototype/getInt32/return-abrupt-from-tonumber-byteoffset-sab.js",
-            "built-ins/DataView/prototype/setUint16/return-abrupt-from-tonumber-byteoffset-symbol.js",
-            "built-ins/DataView/prototype/setFloat64/return-abrupt-from-tonumber-value.js",
-            "built-ins/DataView/prototype/setInt8/return-abrupt-from-tonumber-value-symbol.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
-            );
-        }
     }
 
     #[test]
@@ -30601,8 +22475,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert!(case.flags.is_empty(), "{path}");
                 assert_eq!(&case.features, &expected_features, "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -30684,7 +22556,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let case = parse_test_case(path.to_string(), source_path, original_source);
 
             assert!(case.includes.is_empty(), "{path}");
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
             let materialized =
                 materialize_test(&case, &store).expect("vendored case should materialize");
@@ -30757,8 +22628,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 vec!["byteConversionValues.js".to_string()],
                 "{path}"
             );
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
             let materialized =
                 materialize_test(&case, &store).expect("pinned case should materialize");
@@ -30785,25 +22654,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     case.original_source
                 ),
                 "{path}",
-            );
-        }
-    }
-
-    #[test]
-    fn dataview_detached_buffer_cases_use_the_original_test262_sources() {
-        for path in [
-            "built-ins/DataView/detached-buffer.js",
-            "built-ins/DataView/prototype/getInt16/detached-buffer.js",
-            "built-ins/DataView/prototype/getUint16/detached-buffer-before-outofrange-byteoffset.js",
-            "built-ins/DataView/prototype/getUint16/detached-buffer-after-toindex-byteoffset.js",
-            "built-ins/DataView/prototype/setUint16/detached-buffer-after-number-value.js",
-            "built-ins/DataView/prototype/setBigInt64/detached-buffer.js",
-        ] {
-            let case = synthetic_case(path);
-
-            assert!(
-                rewrite_wasm_aot_self_contained(&case).is_none(),
-                "{path} should execute its original Test262 source"
             );
         }
     }
@@ -30985,8 +22835,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert!(case.flags.is_empty(), "{path}");
                 assert_eq!(&case.features, &expected_features, "{path}");
                 assert!(case.negative.is_none(), "{path}");
-                assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-                assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let local_materialized =
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
@@ -31547,7 +23395,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 ..run_config.clone()
             },
         )
-        .expect_err("an unknown current-v7 backend is schema corruption, not stale evidence");
+        .expect_err("an unknown current-v8 backend is schema corruption, not stale evidence");
         assert!(
             err.contains("unknown execution_backend `future-backend`"),
             "{err}"
@@ -31950,6 +23798,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 1_000,
             worker_count: 2,
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::FixtureWorker,
         };
         let first = load_or_build_run_matrix(&config, ExecutionBackend::SpecExec)
             .expect("matrix cache should build");
@@ -32052,7 +23901,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             aggregate_hash.saturating_add(1)
         ));
         let mut stale = ProgressSnapshot {
-            snapshot_version: SNAPSHOT_VERSION,
+            provenance: SnapshotProvenance::running().expect("current compiler should bind"),
             matrix_strategy_version: MATRIX_STRATEGY_VERSION,
             execution_backend: ExecutionBackend::SpecExec,
             pinned_revisions: pinned_revisions(&config),
@@ -32339,7 +24188,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "matrix-filter-leaf".to_string(),
             &summarize_results(&results),
             ExecutionBackend::SpecExec,
-        );
+        )
+        .expect("running compiler identity must be captured");
         snapshot.matrix_path = node.matrix_path.clone();
         let entry = TopLevelRunSummary {
             node_id: node.node_id.clone(),
@@ -32772,7 +24622,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "full".to_string(),
             &summarize_results(&results),
             run_config.execution_backend,
-        );
+        )
+        .expect("running compiler identity must be captured");
         write_snapshot(&config, &terminal, &run_config.snapshot_name)
             .expect("terminal snapshot should write");
         assert_eq!(
@@ -32935,7 +24786,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "shard-1/2".to_string(),
             &summarize_results(&results),
             run_config.execution_backend,
-        );
+        )
+        .expect("running compiler identity must be captured");
         write_snapshot(&config, &cross_kind, &run_config.snapshot_name)
             .expect("cross-kind fixture should write");
         let err = load_previous_snapshot(
@@ -33019,7 +24871,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "full".to_string(),
             &summarize_results(&[result]),
             ExecutionBackend::SpecExec,
-        );
+        )
+        .expect("running compiler identity must be captured");
         result_from_single_case_snapshot(&requested, snapshot.clone(), 1)
             .expect("coherent single-case failure should decode");
 
@@ -33151,6 +25004,48 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn default_execution_refuses_a_missing_supervisor_before_admission() {
+        let mut config = fixture_config();
+        config.execution_role = CaseExecutionRole::Supervisor;
+        let case = synthetic_case("deadline/missing-worker.js");
+        let cases = [case];
+        let manifest = attempt_journal_manifest(&config, "missing-worker", &cases);
+        let error = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &RunConfig {
+                execution_backend: ExecutionBackend::SpecExec,
+                ..RunConfig::default()
+            },
+            &CheckpointRunIdentity::full(),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("requires a selected case worker executable"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn single_case_worker_rejects_directory_and_multi_case_requests_before_compilation() {
+        let mut config = fixture_config();
+        config.worker_count = 1;
+        let error = run_case_worker(
+            config,
+            RunConfig {
+                filter: Some("language".into()),
+                execution_backend: ExecutionBackend::WasmAot,
+                ..RunConfig::default()
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("execution"), "{error}");
+    }
+
+    #[test]
     #[cfg(unix)]
     fn execute_cases_resume_child_runner_enforces_preemptive_timeout() {
         let snapshot_dir = unique_temp_path("child-runner-timeout-snapshots");
@@ -33180,6 +25075,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 50,
             worker_count: 1,
             case_runner_bin: Some(runner_path),
+            execution_role: CaseExecutionRole::Supervisor,
         };
         let case = synthetic_case("staging/sm/JSON/parse-mega-huge-array.js");
         let pinned = pinned_revisions(&config);
@@ -33300,7 +25196,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let runner_path = unique_temp_path(&format!("{label}-runner"));
         let sentinel_path = unique_temp_path(&format!("{label}-sentinel"));
         // `run_one_case_in_child_process` spawns
-        // `<bin> --jobs <n> test262 run <execution id> ...`, so `$5` is the
+        // `<bin> --jobs <n> test262 __case-worker <execution id> ...`, so `$5` is the
         // mode-qualified execution selector.
         fs::write(
             &runner_path,
@@ -33757,7 +25653,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     /// # What this does and does not cover
     ///
-    /// It covers the in-process path (`case_runner_bin` is `None`) reaching a
+    /// It covers the explicitly authorized test-fixture worker reaching a
     /// clean exit with nothing left in the journal, and the journal file being
     /// removed rather than left holding strikes for the next run at the same
     /// `(snapshot_name, manifest_hash)` pair.
@@ -33953,6 +25849,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 1_000,
             worker_count: 1,
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::FixtureWorker,
         };
         let run_config = RunConfig {
             snapshot_name: "child-runner-cleanup".to_string(),
@@ -33987,7 +25884,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 duration_ms: 7,
             }]),
             ExecutionBackend::SpecExec,
-        );
+        )
+        .expect("running compiler identity must be captured");
         let staged_json_path = snapshot_dir.join("staged-child-result.json");
         let staged_txt_path = snapshot_dir.join("staged-child-result.txt");
         fs::write(&staged_json_path, render_snapshot_json(&child_snapshot))
@@ -34017,6 +25915,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect("child runner permissions should update");
         let config = SuiteConfig {
             case_runner_bin: Some(runner_path),
+            execution_role: CaseExecutionRole::Supervisor,
             ..config
         };
 
@@ -34391,7 +26290,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "aggregate-matrix",
             vec!["top-level".to_string()],
             vec![node.node_id.clone()],
-        );
+        )
+        .expect("running compiler identity must be captured");
         validate_complete_aggregate_contract(
             &snapshot,
             std::slice::from_ref(&node),
@@ -34467,7 +26367,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "aggregate-matrix",
             vec!["top-level".to_string()],
             Vec::new(),
-        );
+        )
+        .expect("running compiler identity must be captured");
         snapshot.matrix_strategy_version = MATRIX_STRATEGY_VERSION - 1;
         write_snapshot(&config, &snapshot, "stale-aggregate-aggregate")
             .expect("stale aggregate snapshot should write");
@@ -34601,6 +26502,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 5_000,
             worker_count: 1,
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::FixtureWorker,
         }
     }
 
@@ -34898,13 +26800,13 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         });
         assert!(
             current.get("checkpoint_identity").is_none(),
-            "terminal v7 serialization must omit checkpoint_identity"
+            "terminal v8 serialization must omit checkpoint_identity"
         );
         for value in [serde_json::Value::Null, checkpoint_identity.clone()] {
             let mut terminal_with_key = current.clone();
             terminal_with_key["checkpoint_identity"] = value;
             let err = decode_snapshot_value_for_test(&terminal_with_key)
-                .expect_err("terminal v7 snapshots must reject any checkpoint_identity key");
+                .expect_err("terminal v8 snapshots must reject any checkpoint_identity key");
             assert!(err.contains("must omit checkpoint_identity"), "{err}");
         }
 
@@ -34913,7 +26815,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         checkpoint["matrix_path"] = serde_json::json!([]);
         checkpoint["checkpoint_identity"] = checkpoint_identity.clone();
         decode_snapshot_value_for_test(&checkpoint)
-            .expect("a v7 checkpoint must accept one canonical non-null identity object");
+            .expect("a v8 checkpoint must accept one canonical non-null identity object");
         assert!(
             checkpoint["checkpoint_identity"].is_object(),
             "checkpoint serialization must emit a non-null identity object"
@@ -34943,7 +26845,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 }
             }
             let err = decode_snapshot_value_for_test(&invalid)
-                .expect_err("a v7 checkpoint requires a present canonical identity object");
+                .expect_err("a v8 checkpoint requires a present canonical identity object");
             assert!(err.contains("checkpoint_identity"), "{label}: {err}");
         }
 
@@ -34953,6 +26855,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             LEGACY_PATH_ONLY_SNAPSHOT_VERSION,
         ] {
             let mut legacy = current.clone();
+            legacy.as_object_mut().unwrap().remove("compiler_identity");
             legacy["snapshot_version"] = serde_json::json!(version);
             legacy["failures"] = serde_json::json!([]);
             legacy["slowest_tests"] = serde_json::json!([]);
@@ -34998,6 +26901,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             LEGACY_PATH_ONLY_SNAPSHOT_VERSION,
         ] {
             let mut legacy = current.clone();
+            legacy.as_object_mut().unwrap().remove("compiler_identity");
             legacy["snapshot_version"] = serde_json::json!(version);
             let object = legacy
                 .as_object_mut()
@@ -35042,6 +26946,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             for value in [serde_json::json!([]), serde_json::Value::Null] {
                 let mut mixed = current.clone();
+                mixed.as_object_mut().unwrap().remove("compiler_identity");
                 mixed["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
                 mixed["producer"] = serde_json::json!(ArtifactProducer::CURRENT.as_str());
                 mixed["failures"] = serde_json::json!([]);
@@ -35110,6 +27015,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let current_aggregate = read_snapshot_value_for_test(&aggregate_path);
 
         let mut legacy_aggregate = current_aggregate.clone();
+        legacy_aggregate
+            .as_object_mut()
+            .unwrap()
+            .remove("compiler_identity");
         legacy_aggregate["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
         legacy_aggregate["producer"] = serde_json::json!(ArtifactProducer::CURRENT.as_str());
         let object = legacy_aggregate
@@ -35130,8 +27039,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &run_config.snapshot_name,
             ExecutionBackend::SpecExec,
         )
-        .expect("the explicitly metadata-only progress workflow may read a legacy envelope");
+        .expect_err("unbound legacy progress must not become current compiler evidence");
         let mut v4_aggregate = legacy_aggregate.clone();
+        v4_aggregate
+            .as_object_mut()
+            .unwrap()
+            .remove("compiler_identity");
         v4_aggregate["snapshot_version"] = serde_json::json!(LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
         v4_aggregate
             .as_object_mut()
@@ -35144,7 +27057,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ExecutionBackend::SpecExec,
         )
         .expect_err("v4 has no outcome metadata and must not synthesize it from nodes");
-        assert!(err.contains("refusing to synthesize"), "{err}");
+        assert!(err.contains("read-only unbound evidence"), "{err}");
         write_snapshot_value_for_test(&aggregate_path, &legacy_aggregate);
 
         let err = load_verified_aggregate_summary(
@@ -35167,13 +27080,17 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &run_config.snapshot_name,
             ExecutionBackend::SpecExec,
         )
-        .expect_err("comparison must require current aggregate evidence");
-        assert!(err.contains("current aggregate snapshot"), "{err}");
+        .expect_err("comparison must require compiler-bound aggregate evidence");
+        assert!(err.contains("read-only compiler-bound aggregate"), "{err}");
 
         write_snapshot_value_for_test(&aggregate_path, &current_aggregate);
         let (_, node_path, _) =
             intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
         let mut legacy_node = read_snapshot_value_for_test(&node_path);
+        legacy_node
+            .as_object_mut()
+            .unwrap()
+            .remove("compiler_identity");
         legacy_node["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
         legacy_node["producer"] = serde_json::json!(ArtifactProducer::CURRENT.as_str());
         write_snapshot_value_for_test(&node_path, &legacy_node);
@@ -35184,7 +27101,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ExecutionBackend::SpecExec,
         )
         .expect_err("a current aggregate must not promote a legacy node");
-        assert!(err.contains("current matrix node evidence"), "{err}");
+        assert!(err.contains("matrix node evidence"), "{err}");
     }
 
     #[test]
@@ -35653,6 +27570,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let (_, node_path, _) =
             intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
         let mut value = read_snapshot_value_for_test(&node_path);
+        value.as_object_mut().unwrap().remove("compiler_identity");
         value["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
         let object = value.as_object_mut().expect("snapshot should be an object");
         object.insert(
@@ -35682,7 +27600,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ExecutionBackend::SpecExec,
         )
         .expect_err("legacy path-only evidence must not feed the current backlog");
-        assert!(err.contains("current matrix node evidence"), "{err}");
+        assert!(err.contains("matrix node evidence"), "{err}");
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -35893,6 +27811,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 5_000,
             worker_count: 1,
             case_runner_bin: None,
+            execution_role: CaseExecutionRole::FixtureWorker,
         };
         let rules =
             load_backlog_owner_rules(&config).expect("checked-in ownership map should load");
@@ -36014,23 +27933,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn wasm_aot_classifies_feature_gated_cases_as_unsupported() {
-        let preludes = real_wasm_aot_preludes();
-        for feature in ["immutable-arraybuffer", "SharedArrayBuffer"] {
-            let mut case = synthetic_case("built-ins/Map/prototype/feature.js");
-            case.features.insert(feature.to_string());
-
-            let result = run_one_case(&case, &preludes, 5_000, ExecutionBackend::WasmAot);
-
-            let TestStatus::Failed(failure) = result.status else {
-                panic!("feature-gated case should fail as unsupported");
-            };
-            assert_eq!(failure.kind, FailureKind::Unsupported);
-            assert!(failure.detail.contains(feature));
-        }
-    }
-
-    #[test]
     fn wasm_aot_executes_resizable_arraybuffer_with_the_canonical_harness() {
         let mut case =
             synthetic_case("built-ins/ArrayBuffer/prototype/resize/feature-admission.js");
@@ -36058,1002 +27960,6 @@ assert.sameValue(bytes[3], 0);
             "{:?}",
             result.status
         );
-    }
-
-    #[test]
-    fn wasm_aot_allows_only_the_supported_object_seal_shared_array_buffer_case() {
-        let mut seal_case = synthetic_case("built-ins/Object/seal/seal-sharedarraybuffer.js");
-        seal_case.features.insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&seal_case), None);
-
-        let mut unrelated_case =
-            synthetic_case("built-ins/Object/freeze/freeze-sharedarraybuffer.js");
-        unrelated_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("SharedArrayBuffer")
-        );
-    }
-
-    #[test]
-    fn wasm_aot_allows_dataview_sab_and_immutable_setter_slice() {
-        let mut sab_case =
-            synthetic_case("built-ins/DataView/prototype/getInt32/return-values-sab.js");
-        sab_case.features.insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_case), None);
-
-        let mut sab_metadata_case = synthetic_case("built-ins/SharedArrayBuffer/length.js");
-        sab_metadata_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_metadata_case), None);
-
-        let mut sab_newtarget_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype-from-newtarget.js");
-        sab_newtarget_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_newtarget_case), None);
-
-        for path in [
-            "language/expressions/class/subclass-builtins/subclass-SharedArrayBuffer.js",
-            "language/statements/class/subclass-builtins/subclass-SharedArrayBuffer.js",
-        ] {
-            let mut subclass_case = synthetic_case(path);
-            subclass_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&subclass_case), None);
-        }
-
-        for path in [
-            "built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-offset-sab.js",
-            "built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/defined-offset-sab.js",
-        ] {
-            let mut typed_array_buffer_case = synthetic_case(path);
-            typed_array_buffer_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&typed_array_buffer_case), None);
-        }
-
-        let mut atomics_non_view_case = synthetic_case("built-ins/Atomics/add/non-views.js");
-        atomics_non_view_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&atomics_non_view_case), None);
-
-        let mut atomics_not_constructor_case =
-            synthetic_case("built-ins/Atomics/add/not-a-constructor.js");
-        atomics_not_constructor_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&atomics_not_constructor_case),
-            None
-        );
-
-        for operation in [
-            "add",
-            "and",
-            "compareExchange",
-            "exchange",
-            "load",
-            "or",
-            "sub",
-            "xor",
-        ] {
-            for case_path in [
-                "bad-range.js",
-                "expected-return-value.js",
-                "good-views.js",
-                "bigint/bad-range.js",
-                "bigint/good-views.js",
-            ] {
-                let path = format!("built-ins/Atomics/{operation}/{case_path}");
-                let mut atomics_rmw_case = synthetic_case(&path);
-                atomics_rmw_case
-                    .features
-                    .insert("SharedArrayBuffer".to_string());
-                assert_eq!(
-                    wasm_aot_unsupported_feature(&atomics_rmw_case),
-                    None,
-                    "{path}"
-                );
-            }
-        }
-
-        for case_path in [
-            "bad-range.js",
-            "expected-return-value-negative-zero.js",
-            "expected-return-value.js",
-            "good-views.js",
-            "bigint/bad-range.js",
-            "bigint/good-views.js",
-        ] {
-            let path = format!("built-ins/Atomics/store/{case_path}");
-            let mut atomics_store_case = synthetic_case(&path);
-            atomics_store_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&atomics_store_case),
-                None,
-                "{path}"
-            );
-        }
-
-        for path in [
-            "built-ins/Atomics/isLockFree/expected-return-value.js",
-            "built-ins/Atomics/wait/good-views.js",
-            "built-ins/Atomics/waitAsync/good-views.js",
-        ] {
-            assert!(
-                supported_wasm_aot_atomics_shared_array_buffer_case(path),
-                "{path}"
-            );
-        }
-
-        let mut atomics_load_non_view_case = synthetic_case("built-ins/Atomics/load/non-views.js");
-        atomics_load_non_view_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&atomics_load_non_view_case),
-            None
-        );
-
-        let mut atomics_load_not_constructor_case =
-            synthetic_case("built-ins/Atomics/load/not-a-constructor.js");
-        atomics_load_not_constructor_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&atomics_load_not_constructor_case),
-            None
-        );
-
-        let mut atomics_store_non_view_case =
-            synthetic_case("built-ins/Atomics/store/non-views.js");
-        atomics_store_non_view_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&atomics_store_non_view_case),
-            None
-        );
-
-        let mut atomics_store_not_constructor_case =
-            synthetic_case("built-ins/Atomics/store/not-a-constructor.js");
-        atomics_store_not_constructor_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&atomics_store_not_constructor_case),
-            None
-        );
-
-        let mut atomics_notify_count_boundary_case =
-            synthetic_case("built-ins/Atomics/notify/count-boundary-cases.js");
-        atomics_notify_count_boundary_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&atomics_notify_count_boundary_case),
-            None
-        );
-
-        for path in [
-            "built-ins/Atomics/isLockFree/bigint/expected-return-value.js",
-            "built-ins/Atomics/isLockFree/not-a-constructor.js",
-            "built-ins/Atomics/notify/bad-range.js",
-            "built-ins/Atomics/notify/bigint/bad-range.js",
-            "built-ins/Atomics/notify/notify-with-no-agents-waiting.js",
-        ] {
-            let mut atomics_case = synthetic_case(path);
-            atomics_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&atomics_case), None, "{path}");
-        }
-
-        for path in [
-            "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-resize-to-zero.js",
-            "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared.js",
-            "built-ins/Atomics/notify/retrieve-length-before-index-coercion.js",
-            "built-ins/Atomics/wait/retrieve-length-before-index-coercion.js",
-            "built-ins/Atomics/waitAsync/retrieve-length-before-index-coercion.js",
-        ] {
-            let mut atomics_notify_case = synthetic_case(path);
-            atomics_notify_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&atomics_notify_case),
-                None,
-                "{path}"
-            );
-        }
-
-        for path in [
-            "built-ins/Atomics/notify/count-from-nans.js",
-            "built-ins/Atomics/notify/count-symbol-throws.js",
-            "built-ins/Atomics/notify/count-tointeger-throws-then-wake-throws.js",
-            "built-ins/Atomics/notify/negative-index-throws.js",
-            "built-ins/Atomics/notify/symbol-for-index-throws.js",
-        ] {
-            let mut atomics_notify_case = synthetic_case(path);
-            atomics_notify_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&atomics_notify_case), None);
-        }
-
-        for op in [
-            "and",
-            "compareExchange",
-            "exchange",
-            "notify",
-            "or",
-            "sub",
-            "xor",
-        ] {
-            let mut atomics_non_view_case =
-                synthetic_case(&format!("built-ins/Atomics/{op}/non-views.js"));
-            atomics_non_view_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&atomics_non_view_case), None);
-
-            let mut atomics_not_constructor_case =
-                synthetic_case(&format!("built-ins/Atomics/{op}/not-a-constructor.js"));
-            atomics_not_constructor_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&atomics_not_constructor_case),
-                None
-            );
-        }
-
-        for path in [
-            "built-ins/Atomics/wait/not-an-object-throws.js",
-            "built-ins/Atomics/wait/not-a-typedarray-throws.js",
-            "built-ins/Atomics/wait/not-a-constructor.js",
-        ] {
-            let mut atomics_wait_case = synthetic_case(path);
-            atomics_wait_case
-                .features
-                .insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&atomics_wait_case), None);
-        }
-
-        let mut sab_data_allocation_case =
-            synthetic_case("built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js");
-        sab_data_allocation_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_data_allocation_case),
-            None
-        );
-
-        let mut sab_allocation_limit_case =
-            synthetic_case("built-ins/SharedArrayBuffer/allocation-limit.js");
-        sab_allocation_limit_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_allocation_limit_case),
-            None
-        );
-
-        let mut sab_abrupt_length_case =
-            synthetic_case("built-ins/SharedArrayBuffer/return-abrupt-from-length.js");
-        sab_abrupt_length_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_abrupt_length_case), None);
-
-        let mut sab_options_case =
-            synthetic_case("built-ins/SharedArrayBuffer/options-maxbytelength-undefined.js");
-        sab_options_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        sab_options_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_options_case), None);
-
-        let mut sab_reflect_options_case = synthetic_case(
-            "built-ins/SharedArrayBuffer/options-maxbytelength-compared-before-object-creation.js",
-        );
-        sab_reflect_options_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        sab_reflect_options_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        sab_reflect_options_case
-            .features
-            .insert("Reflect.construct".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_reflect_options_case),
-            None
-        );
-
-        let mut sab_prototype_metadata_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js");
-        sab_prototype_metadata_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_prototype_metadata_case),
-            None
-        );
-
-        let mut sab_prototype_prop_desc_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype/prop-desc.js");
-        sab_prototype_prop_desc_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_prototype_prop_desc_case),
-            None
-        );
-
-        let mut sab_slice_metadata_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype/slice/length.js");
-        sab_slice_metadata_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_slice_metadata_case), None);
-
-        let mut sab_slice_semantic_case = synthetic_case(
-            "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-absent.js",
-        );
-        sab_slice_semantic_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_slice_semantic_case), None);
-
-        let mut sab_growable_metadata_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype/growable/return-growable.js");
-        sab_growable_metadata_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_growable_metadata_case),
-            None
-        );
-
-        let mut sab_grow_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype/grow/new-length-negative.js");
-        sab_grow_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        sab_grow_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_grow_case), None);
-
-        let mut sab_grow_host_case =
-            synthetic_case("built-ins/SharedArrayBuffer/prototype/grow/grow-larger-size.js");
-        sab_grow_host_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        sab_grow_host_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&sab_grow_host_case), None);
-
-        let mut sab_max_byte_length_metadata_case = synthetic_case(
-            "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-non-growable.js",
-        );
-        sab_max_byte_length_metadata_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&sab_max_byte_length_metadata_case),
-            None
-        );
-
-        let mut immutable_case =
-            synthetic_case("built-ins/DataView/prototype/setUint8/immutable-buffer.js");
-        immutable_case
-            .features
-            .insert("immutable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&immutable_case), None);
-
-        let mut resizable_case =
-            synthetic_case("built-ins/DataView/prototype/setUint8/resizable-buffer.js");
-        resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&resizable_case), None);
-
-        let mut array_map_resizable_case =
-            synthetic_case("built-ins/Array/prototype/map/resizable-buffer.js");
-        array_map_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_map_resizable_case),
-            None
-        );
-
-        let mut array_at_resizable_case =
-            synthetic_case("built-ins/Array/prototype/at/typed-array-resizable-buffer.js");
-        array_at_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&array_at_resizable_case), None);
-
-        let mut array_at_coerced_index_resize_case =
-            synthetic_case("built-ins/Array/prototype/at/coerced-index-resize.js");
-        array_at_coerced_index_resize_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_at_coerced_index_resize_case),
-            None
-        );
-
-        for path in [
-            "built-ins/TypedArray/prototype/at/coerced-index-resize.js",
-            "built-ins/TypedArray/prototype/at/resizable-buffer.js",
-            "built-ins/TypedArray/prototype/at/return-abrupt-from-this-out-of-bounds.js",
-        ] {
-            let mut typedarray_at_resizable_case = synthetic_case(path);
-            typedarray_at_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&typedarray_at_resizable_case),
-                None,
-                "{path}"
-            );
-        }
-        let mut typedarray_at_bigint_resizable_case = synthetic_case(
-            "built-ins/TypedArray/prototype/at/BigInt/return-abrupt-from-this-out-of-bounds.js",
-        );
-        typedarray_at_bigint_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&typedarray_at_bigint_resizable_case),
-            None
-        );
-
-        for method in ["values", "keys", "entries"] {
-            let mut typedarray_iterator_resizable_case = synthetic_case(&format!(
-                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
-            ));
-            typedarray_iterator_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&typedarray_iterator_resizable_case),
-                None,
-                "{method}"
-            );
-        }
-
-        for method in ["find", "findIndex", "findLast", "findLastIndex"] {
-            let mut typedarray_find_resizable_case = synthetic_case(&format!(
-                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
-            ));
-            typedarray_find_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&typedarray_find_resizable_case),
-                None,
-                "{method}"
-            );
-        }
-
-        for method in ["every", "some"] {
-            let mut typedarray_every_some_resizable_case = synthetic_case(&format!(
-                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
-            ));
-            typedarray_every_some_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&typedarray_every_some_resizable_case),
-                None,
-                "{method}"
-            );
-        }
-
-        for method in ["includes", "indexOf", "lastIndexOf"] {
-            let mut typedarray_search_resizable_case = synthetic_case(&format!(
-                "built-ins/TypedArray/prototype/{method}/resizable-buffer.js"
-            ));
-            typedarray_search_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&typedarray_search_resizable_case),
-                None,
-                "{method}"
-            );
-        }
-
-        for method in ["includes", "indexOf", "lastIndexOf"] {
-            let mut array_search_resizable_case = synthetic_case(&format!(
-                "built-ins/Array/prototype/{method}/resizable-buffer.js"
-            ));
-            array_search_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&array_search_resizable_case),
-                None,
-                "{method}"
-            );
-        }
-
-        let mut array_filter_resizable_case =
-            synthetic_case("built-ins/Array/prototype/filter/resizable-buffer.js");
-        array_filter_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_filter_resizable_case),
-            None
-        );
-
-        for path in [
-            "built-ins/Array/prototype/reduce/resizable-buffer.js",
-            "built-ins/Array/prototype/reduceRight/resizable-buffer.js",
-        ] {
-            let mut array_reduce_resizable_case = synthetic_case(path);
-            array_reduce_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&array_reduce_resizable_case),
-                None,
-                "{path}"
-            );
-        }
-
-        let mut array_find_resizable_case =
-            synthetic_case("built-ins/Array/prototype/find/resizable-buffer.js");
-        array_find_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_find_resizable_case),
-            None
-        );
-
-        let mut array_find_index_resizable_case =
-            synthetic_case("built-ins/Array/prototype/findIndex/resizable-buffer.js");
-        array_find_index_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_find_index_resizable_case),
-            None
-        );
-
-        let mut array_find_last_resizable_case =
-            synthetic_case("built-ins/Array/prototype/findLast/resizable-buffer.js");
-        array_find_last_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_find_last_resizable_case),
-            None
-        );
-
-        let mut array_find_last_index_resizable_case =
-            synthetic_case("built-ins/Array/prototype/findLastIndex/resizable-buffer.js");
-        array_find_last_index_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_find_last_index_resizable_case),
-            None
-        );
-
-        let mut array_every_resizable_case =
-            synthetic_case("built-ins/Array/prototype/every/resizable-buffer.js");
-        array_every_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_every_resizable_case),
-            None
-        );
-
-        let mut array_some_callback_resize_case =
-            synthetic_case("built-ins/Array/prototype/some/callbackfn-resize-arraybuffer.js");
-        array_some_callback_resize_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_some_callback_resize_case),
-            None
-        );
-
-        let mut array_some_resizable_case =
-            synthetic_case("built-ins/Array/prototype/some/resizable-buffer.js");
-        array_some_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_some_resizable_case),
-            None
-        );
-
-        let mut array_values_resizable_case =
-            synthetic_case("built-ins/Array/prototype/values/resizable-buffer.js");
-        array_values_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_values_resizable_case),
-            None
-        );
-
-        let mut array_keys_resizable_case =
-            synthetic_case("built-ins/Array/prototype/keys/resizable-buffer.js");
-        array_keys_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_keys_resizable_case),
-            None
-        );
-
-        let mut array_entries_resizable_case =
-            synthetic_case("built-ins/Array/prototype/entries/resizable-buffer.js");
-        array_entries_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&array_entries_resizable_case),
-            None
-        );
-
-        for path in [
-            "built-ins/Array/prototype/toLocaleString/resizable-buffer.js",
-            "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-grow.js",
-            "built-ins/Array/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
-        ] {
-            let mut array_to_locale_string_resizable_case = synthetic_case(path);
-            array_to_locale_string_resizable_case
-                .features
-                .insert("resizable-arraybuffer".to_string());
-            assert_eq!(
-                wasm_aot_unsupported_feature(&array_to_locale_string_resizable_case),
-                None,
-                "{path}"
-            );
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typedarray_to_locale_string_cases() {
-        for path in [
-            "built-ins/TypedArray/prototype/toLocaleString/resizable-buffer.js",
-            "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-grow.js",
-            "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-shrink.js",
-            "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-this-out-of-bounds.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_callback_iteration_cases() {
-        for path in [
-            "built-ins/TypedArray/prototype/forEach/callbackfn-resize.js",
-            "built-ins/TypedArray/prototype/reduce/resizable-buffer-shrink-mid-iteration.js",
-            "built-ins/TypedArray/prototype/reduceRight/BigInt/return-abrupt-from-this-out-of-bounds.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_slice_cases() {
-        for path in [
-            "built-ins/TypedArray/prototype/slice/coerced-start-end-grow.js",
-            "built-ins/TypedArray/prototype/slice/coerced-start-end-shrink.js",
-            "built-ins/TypedArray/prototype/slice/resizable-buffer.js",
-            "built-ins/TypedArray/prototype/slice/resize-count-bytes-to-zero.js",
-            "built-ins/TypedArray/prototype/slice/speciesctor-resize.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_filter_cases() {
-        for path in [
-            "built-ins/TypedArray/prototype/filter/callbackfn-resize.js",
-            "built-ins/TypedArray/prototype/filter/resizable-buffer.js",
-            "built-ins/TypedArray/prototype/filter/resizable-buffer-grow-mid-iteration.js",
-            "built-ins/TypedArray/prototype/filter/resizable-buffer-shrink-mid-iteration.js",
-            "built-ins/TypedArray/prototype/filter/return-abrupt-from-this-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/filter/speciesctor-destination-resizable.js",
-            "built-ins/TypedArray/prototype/filter/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
-            "built-ins/TypedArray/prototype/filter/BigInt/return-abrupt-from-this-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/filter/BigInt/speciesctor-destination-resizable.js",
-            "built-ins/TypedArray/prototype/filter/BigInt/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_map_cases() {
-        for path in [
-            "built-ins/TypedArray/prototype/map/callbackfn-resize.js",
-            "built-ins/TypedArray/prototype/map/resizable-buffer.js",
-            "built-ins/TypedArray/prototype/map/resizable-buffer-grow-mid-iteration.js",
-            "built-ins/TypedArray/prototype/map/resizable-buffer-shrink-mid-iteration.js",
-            "built-ins/TypedArray/prototype/map/return-abrupt-from-this-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/map/speciesctor-destination-resizable.js",
-            "built-ins/TypedArray/prototype/map/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
-            "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-grow.js",
-            "built-ins/TypedArray/prototype/map/speciesctor-resizable-buffer-shrink.js",
-            "built-ins/TypedArray/prototype/map/BigInt/return-abrupt-from-this-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/map/BigInt/speciesctor-destination-resizable.js",
-            "built-ins/TypedArray/prototype/map/BigInt/speciesctor-get-species-custom-ctor-length-throws-resizable-arraybuffer.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_constructor_cases() {
-        for path in [
-            "built-ins/TypedArrayConstructors/ctors/buffer-arg/resizable-out-of-bounds.js",
-            "built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/resizable-out-of-bounds.js",
-            "built-ins/TypedArrayConstructors/ctors/typedarray-arg/src-typedarray-resizable-buffer.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_only_supported_shared_typed_array_delete_cases() {
-        for path in [
-            "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js",
-            "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js",
-            "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-non-strict.js",
-            "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-strict.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-
-        let mut unrelated_case = synthetic_case(
-            "built-ins/TypedArrayConstructors/internals/Delete/unimplemented-sab-case.js",
-        );
-        unrelated_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("SharedArrayBuffer")
-        );
-    }
-
-    #[test]
-    fn wasm_aot_allows_only_supported_shared_typed_array_get_cases() {
-        for path in [
-            "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js",
-            "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-
-        let mut unrelated_case = synthetic_case(
-            "built-ins/TypedArrayConstructors/internals/Get/unimplemented-sab-case.js",
-        );
-        unrelated_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("SharedArrayBuffer")
-        );
-    }
-
-    #[test]
-    fn wasm_aot_allows_only_supported_typed_array_prototype_set_feature_cases() {
-        for path in [
-            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
-            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
-            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("SharedArrayBuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-
-        for path in [
-            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-resized.js",
-            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-out-of-bounds.js",
-            "built-ins/TypedArray/prototype/set/array-arg-value-conversion-resizes-array-buffer.js",
-            "built-ins/TypedArray/prototype/set/target-grow-mid-iteration.js",
-            "built-ins/TypedArray/prototype/set/target-grow-source-length-getter.js",
-            "built-ins/TypedArray/prototype/set/target-shrink-mid-iteration.js",
-            "built-ins/TypedArray/prototype/set/target-shrink-source-length-getter.js",
-            "built-ins/TypedArray/prototype/set/this-backed-by-resizable-buffer.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-resized.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-src-backed-by-resizable-buffer.js",
-            "built-ins/TypedArray/prototype/set/typedarray-arg-target-out-of-bounds.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-
-        let mut unrelated_shared_case = synthetic_case(
-            "built-ins/TypedArray/prototype/set/unimplemented-shared-array-buffer-case.js",
-        );
-        unrelated_shared_case
-            .features
-            .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_shared_case),
-            Some("SharedArrayBuffer")
-        );
-
-        let mut unrelated_resizable_case = synthetic_case(
-            "built-ins/TypedArray/prototype/set/unimplemented-resizable-array-buffer-case.js",
-        );
-        unrelated_resizable_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_resizable_case),
-            None
-        );
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_own_property_keys_cases() {
-        for path in [
-            "built-ins/TypedArrayConstructors/internals/OwnPropertyKeys/integer-indexes-resizable-array-buffer-auto.js",
-            "built-ins/TypedArrayConstructors/internals/OwnPropertyKeys/integer-indexes-resizable-array-buffer-fixed.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_has_property_cases() {
-        for path in [
-            "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-auto.js",
-            "built-ins/TypedArrayConstructors/internals/HasProperty/resizable-array-buffer-fixed.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.features.insert("resizable-arraybuffer".to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_allows_resizable_typed_array_set_case() {
-        let mut case = synthetic_case(
-            "built-ins/TypedArrayConstructors/internals/Set/resized-out-of-bounds-to-in-bounds-index.js",
-        );
-        case.features.insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-    }
-
-    #[test]
-    fn wasm_aot_allows_the_verified_resizable_typed_array_object_freeze_case() {
-        let mut supported_case =
-            synthetic_case("built-ins/Object/freeze/typedarray-backed-by-resizable-buffer.js");
-        supported_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&supported_case), None);
-
-        let mut unrelated_case =
-            synthetic_case("built-ins/Object/freeze/unverified-resizable-array-buffer-case.js");
-        unrelated_case
-            .features
-            .insert("resizable-arraybuffer".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&unrelated_case), None);
-    }
-
-    #[test]
-    fn wasm_aot_routes_all_dynamic_source_identities_past_lexical_gates() {
-        let mut case = synthetic_case("built-ins/Number/proto-from-ctor-realm.js");
-        case.original_source = Arc::from("assert.sameValue(eval('1 + 2'), 3);".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        case.original_source = Arc::from("(async function* eval() {});".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        case.original_source = Arc::from("$262.evalScript('var x;');".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        let indirect_eval_case =
-            synthetic_case("annexB/language/eval-code/indirect/function-declaration.js");
-        assert_eq!(wasm_aot_unsupported_feature(&indirect_eval_case), None);
-
-        case.original_source = Arc::from("$262.IsHTMLDDA;".to_string());
-        case.features.insert("IsHTMLDDA".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        case.original_source = Arc::from("eval('$262.IsHTMLDDA');".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-        case.features.remove("IsHTMLDDA");
-
-        case.original_source = Arc::from(
-            "var other = $262.createRealm().global; var C = new other.Function();".to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        case.original_source = Arc::from(
-            "var other = $262.createRealm().global; var C = new other.Function('return 1');"
-                .to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        let mut array_buffer_case =
-            synthetic_case("built-ins/ArrayBuffer/proto-from-ctor-realm.js");
-        array_buffer_case.original_source = Arc::from(
-            "var other = $262.createRealm().global; var C = new other.Function();".to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&array_buffer_case), None);
-
-        array_buffer_case.original_source = Arc::from(
-            "var other = $262.createRealm().global; var C = new other.Function('return 1');"
-                .to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&array_buffer_case), None);
-
-        case.original_source = Arc::from(
-            "let GeneratorFunction = Object.getPrototypeOf(function*(){}).constructor; let g = GeneratorFunction('yield 1');"
-                .to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        case.original_source = Arc::from(
-            "async function f() {} var AsyncFunction = f.constructor; var g = AsyncFunction('return 1');"
-                .to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-
-        case.original_source = Arc::from(
-            "// eval(); Function() in a comment\nvar C = function Functionish() {};".to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
     }
 
     #[test]
@@ -37086,6 +27992,123 @@ assert.sameValue(bytes[3], 0);
             assert_eq!(failure.kind, FailureKind::Unsupported, "{failure:?}");
             assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{failure:?}");
             assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
+        }
+    }
+
+    #[test]
+    fn temporal_zoned_rounding_window_gap_cannot_pass_runtime_negative_or_catch() {
+        let preludes = PreludeStore::default();
+        let gap = lila_ir::RuntimeSemanticGap::TemporalZonedRoundingWindow;
+        assert_eq!(gap.owner(), TaskId::T22);
+        for expected_error in [None, Some(""), Some("Error"), Some("RangeError")] {
+            let path = "intl402/Temporal/runtime-zoned-rounding-window.js";
+            let mut case = synthetic_case(path);
+            case.execution_id = TestExecutionId::new(path, TestExecutionMode::RawScript);
+            case.flags.insert("raw".to_string());
+            case.features.insert("Temporal".to_string());
+            // This is the existing Engine Apia zero-window witness, not the
+            // ordinary Paris conversion supported by the complete zone graph.
+            let call = "var relativeTo = Temporal.ZonedDateTime.from(\
+                            '2012-01-01T12:00[Pacific/Apia]'); \
+                        var d = Temporal.Duration.from({ days: -1 }); \
+                        d.round({ smallestUnit: 'days', relativeTo });";
+            case.original_source = Arc::from(if expected_error.is_none() {
+                format!("try {{ {call} }} catch (error) {{}}")
+            } else {
+                call.to_string()
+            });
+            case.negative = expected_error.map(|error_type| {
+                Arc::new(NegativeExpectation {
+                    phase: NegativePhase::Runtime,
+                    error_type: error_type.to_string(),
+                })
+            });
+            let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("a zoned rounding-window gap must remain non-passing: {expected_error:?}");
+            };
+            assert_eq!(failure.kind, FailureKind::Unsupported, "{failure:?}");
+            assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{failure:?}");
+            assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
+            // FailureRecord carries rendered detail, not a typed gap field.
+            // Bind the complete canonical reason; ownership comes from gap.
+            assert_eq!(
+                failure.detail,
+                format!("[origin:{}] {gap}", FailureOrigin::Unknown.as_str()),
+                "{failure:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn computed_finite_regexp_matching_passes_positive_and_rejects_runtime_negative() {
+        let preludes = PreludeStore::default();
+        // Code-unit assembly requires the actual emitted compiler. Successful
+        // finite matching passes normally and cannot satisfy a runtime negative.
+        for call in [
+            "var units = [91,92,113,123,97,125,93], source = ''; \
+             for (var i = 0; i < units.length; i++) source += String.fromCharCode(units[i]); \
+             if (!new RegExp(source, 'v').test('a')) throw new Error('singleton matching');",
+            "var units = [91,92,113,123,97,98,125,93], source = ''; \
+             for (var i = 0; i < units.length; i++) source += String.fromCharCode(units[i]); \
+             if (!new RegExp(source, 'v').test('ab')) throw new Error('finite matching');",
+        ] {
+            for expected_error in [
+                None,
+                Some(""),
+                Some("Error"),
+                Some("SyntaxError"),
+                Some("TypeError"),
+            ] {
+                let path = "built-ins/RegExp/runtime-finite-pattern.js";
+                let mut case = synthetic_case(path);
+                case.execution_id = TestExecutionId::new(path, TestExecutionMode::RawScript);
+                case.flags.insert("raw".to_string());
+                case.original_source = Arc::from(if expected_error.is_none() {
+                    format!(
+                        "var completed = false; try {{ {call} completed = true; }} catch (error) {{}} if (!completed) throw new Error('computed finite matching failed');"
+                    )
+                } else {
+                    call.to_string()
+                });
+                case.negative = expected_error.map(|error_type| {
+                    Arc::new(NegativeExpectation {
+                        phase: NegativePhase::Runtime,
+                        error_type: error_type.to_string(),
+                    })
+                });
+                let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+                if expected_error.is_none() {
+                    assert_eq!(result.status, TestStatus::Passed, "{result:?}");
+                } else {
+                    let TestStatus::Failed(failure) = result.status else {
+                        panic!(
+                            "normal matching cannot satisfy a runtime negative: {expected_error:?}"
+                        );
+                    };
+                    assert_eq!(failure.kind, FailureKind::Runtime, "{failure:?}");
+                    assert_eq!(failure.outcome, OutcomeKind::Bug, "{failure:?}");
+                    assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
+                    assert_eq!(
+                        failure.detail,
+                        "[origin:unknown] negative test expected runtime error but execution succeeded",
+                        "{failure:?}"
+                    );
+                }
+            }
+        }
+
+        for directive in ["", "'use strict';\n"] {
+            let path = "built-ins/RegExp/static-finite-class-string.js";
+            let mut case = synthetic_case(path);
+            case.execution_id = TestExecutionId::new(path, TestExecutionMode::RawScript);
+            case.flags.insert("raw".to_string());
+            let source = r"var expression = /[\q{a}&&A]/iv;
+                if (!expression.test('a') || !expression.test('A') || expression.test('b'))
+                    throw new Error('finite class strings must match');";
+            case.original_source = Arc::from(format!("{directive}{source}"));
+            let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+            assert_eq!(result.status, TestStatus::Passed, "{result:?}");
         }
     }
 
@@ -37246,102 +28269,6 @@ assert.sameValue(bytes[3], 0);
     }
 
     #[test]
-    fn wasm_aot_does_not_lexically_classify_inline_function_constructors() {
-        let mut case = synthetic_case("built-ins/Object/seal/seal-generatorfunction.js");
-
-        for source in [
-            "Object.seal(new (Object.getPrototypeOf(function * () {}).constructor)());",
-            "Object.seal(new (Object.getPrototypeOf(async function() {}).constructor)());",
-            "Object.seal(new (Object.getPrototypeOf(async () => {}).constructor)());",
-            "Object.seal(new (Object.getPrototypeOf(async function * () {}).constructor)());",
-        ] {
-            case.original_source = Arc::from(source.to_string());
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{source}");
-        }
-
-        case.original_source = Arc::from("Object.seal(new ordinary.constructor());".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-    }
-
-    #[test]
-    fn wasm_aot_does_not_preclassify_ordinary_cross_realm_function_roots() {
-        let mut is_error_case =
-            synthetic_case("built-ins/Error/isError/non-error-objects-other-realm.js");
-        is_error_case.original_source = Arc::from(
-            "var other = $262.createRealm().global; Error.isError(new other.Function(''));"
-                .to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&is_error_case), None);
-
-        let mut prototype_case = synthetic_case("built-ins/Error/proto-from-ctor-realm.js");
-        prototype_case.original_source = Arc::from(
-            "var other = $262.createRealm().global; var C = new other.Function();".to_string(),
-        );
-        assert_eq!(wasm_aot_unsupported_feature(&prototype_case), None);
-    }
-
-    #[test]
-    fn wasm_aot_does_not_preclassify_ordinary_intrinsic_function_roots() {
-        for (path, source) in [
-            (
-                "built-ins/ThrowTypeError/distinct-cross-realm.js",
-                "var other = $262.createRealm().global; var args = (new other.Function('return arguments;'))();",
-            ),
-            (
-                "built-ins/Number/proto-from-ctor-realm.js",
-                "var other = $262.createRealm().global; var C = new other.Function();",
-            ),
-            (
-                "built-ins/ArrayBuffer/proto-from-ctor-realm.js",
-                "var other = $262.createRealm().global; var C = new other.Function();",
-            ),
-            (
-                "built-ins/SharedArrayBuffer/proto-from-ctor-realm.js",
-                "var other = $262.createRealm().global; var C = new other.Function();",
-            ),
-            (
-                "built-ins/DataView/proto-from-ctor-realm.js",
-                "var other = $262.createRealm().global; var C = new other.Function();",
-            ),
-            (
-                "built-ins/DataView/proto-from-ctor-realm-sab.js",
-                "var other = $262.createRealm().global; var C = new other.Function();",
-            ),
-        ] {
-            let mut case = synthetic_case(path);
-            case.original_source = Arc::from( source.to_string());
-
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn wasm_aot_does_not_preclassify_native_error_function_roots() {
-        for path in [
-            "built-ins/NativeErrors/EvalError/proto-from-ctor-realm.js",
-            "built-ins/NativeErrors/RangeError/proto-from-ctor-realm.js",
-            "built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm.js",
-            "built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm.js",
-            "built-ins/NativeErrors/TypeError/proto-from-ctor-realm.js",
-            "built-ins/NativeErrors/URIError/proto-from-ctor-realm.js",
-            "built-ins/AggregateError/proto-from-ctor-realm.js",
-            "built-ins/AggregateError/newtarget-proto-fallback.js",
-            "built-ins/SuppressedError/proto-from-ctor-realm.js",
-            "built-ins/SuppressedError/newtarget-proto-fallback.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.original_source = Arc::from(if path.ends_with("proto-from-ctor-realm.js") {
-                "var other = $262.createRealm().global; var newTarget = new other.Function();"
-                    .to_string()
-            } else {
-                "const NewTarget = new Function();".to_string()
-            });
-
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
-        }
-    }
-
-    #[test]
     fn materialize_atomics_cases_preserves_pinned_sources_and_helpers() {
         let preludes = real_wasm_aot_preludes();
         let test_root = repo_root().join("test262/vendor/test262/test");
@@ -37357,7 +28284,6 @@ assert.sameValue(bytes[3], 0);
                 fs::read_to_string(&source_path).expect("pinned Atomics case should read");
             let case = parse_test_case(path.to_string(), source_path, original_source);
 
-            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
             let materialized =
                 materialize_test(&case, &preludes).expect("Atomics case should materialize");
 
@@ -37402,25 +28328,6 @@ assert.sameValue(bytes[3], 0);
     }
 
     #[test]
-    fn wasm_aot_does_not_classify_agent_start_as_an_unsupported_feature() {
-        for path in [
-            "built-ins/Atomics/waitAsync/bigint/true-for-timeout.js",
-            "built-ins/Atomics/waitAsync/returns-result-object-value-is-promise-resolves-to-timed-out.js",
-            "built-ins/Atomics/waitAsync/true-for-timeout.js",
-        ] {
-            let mut helper_case = synthetic_case(path);
-            helper_case.includes.push("atomicsHelper.js".to_string());
-            helper_case.features.insert("SharedArrayBuffer".to_string());
-
-            assert_eq!(wasm_aot_unsupported_feature(&helper_case), None, "{path}");
-        }
-
-        let mut direct_case = synthetic_case("built-ins/Atomics/notify/direct-agent.js");
-        direct_case.original_source = Arc::from("$262.agent.start('');".to_string());
-        assert_eq!(wasm_aot_unsupported_feature(&direct_case), None);
-    }
-
-    #[test]
     fn materialize_fn_global_object_preserves_the_original_function_constructor() {
         let mut store = fixture_preludes();
         store.insert(
@@ -37446,22 +28353,27 @@ assert.sameValue(bytes[3], 0);
     }
 
     #[test]
-    fn wasm_aot_allows_array_from_async() {
-        let mut case = synthetic_case("built-ins/Array/fromAsync/async-iterable-input.js");
-        case.features.insert("Array.fromAsync".to_string());
-
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-    }
-
-    #[test]
     fn classify_failure_tags_origin() {
         let failure = classify_failure(
             TestExecutionId::new("language/example.js", TestExecutionMode::SloppyScript),
             FailureKind::Runtime,
             "ReferenceError: boom",
         );
-        assert_eq!(failure.origin, FailureOrigin::BoaRuntime);
-        assert!(failure.detail.starts_with("[origin:boa-runtime] "));
+        assert_eq!(failure.origin, FailureOrigin::Unknown);
+        assert!(failure.detail.starts_with("[origin:unknown] "));
+    }
+
+    #[test]
+    fn classify_failure_origin_ignores_message_text() {
+        let id = || TestExecutionId::new("language/example.js", TestExecutionMode::SloppyScript);
+        let wasm_size = classify_failure(
+            id(),
+            FailureKind::WasmBackend,
+            "wasmtime module validation failed: failed to parse WebAssembly module",
+        );
+        assert_eq!(wasm_size.origin, FailureOrigin::Unknown);
+        let harness = classify_failure(id(), FailureKind::HostHarness, "anything");
+        assert_eq!(harness.origin, FailureOrigin::LocalHarness);
     }
 
     #[test]
@@ -37507,7 +28419,7 @@ assert.sameValue(bytes[3], 0);
     #[test]
     fn current_snapshot_writer_emits_complete_lexically_ordered_taxonomy_maps() {
         let snapshot = ProgressSnapshot {
-            snapshot_version: SNAPSHOT_VERSION,
+            provenance: SnapshotProvenance::running().expect("current compiler should bind"),
             matrix_strategy_version: MATRIX_STRATEGY_VERSION,
             execution_backend: ExecutionBackend::SpecExec,
             pinned_revisions: PinnedRevisions {
@@ -37572,6 +28484,7 @@ assert.sameValue(bytes[3], 0);
             "local-harness",
             "spec-exec-host",
             "unknown",
+            "wasm-backend",
         ];
         let assert_complete_keys = |pointer: &str, expected: &[&str]| {
             let mut actual = value
@@ -37658,7 +28571,7 @@ assert.sameValue(bytes[3], 0);
         );
         assert_eq!(
             SnapshotArtifactKind::decode(SNAPSHOT_VERSION, Some(ArtifactProducer::CURRENT)),
-            Ok(SnapshotArtifactKind::CurrentLilaV7)
+            Ok(SnapshotArtifactKind::CurrentLilaV8)
         );
         assert!(SnapshotArtifactKind::decode(SNAPSHOT_VERSION, None)
             .expect_err("current snapshots require an explicit producer")
@@ -37693,12 +28606,15 @@ assert.sameValue(bytes[3], 0);
             status: TestStatus::Passed,
             duration_ms: 1,
         };
-        let mut file = snapshot_to_file(&snapshot_from_summary(
-            &manifest,
-            "full".to_string(),
-            &summarize_results(&[result]),
-            ExecutionBackend::WasmAot,
-        ));
+        let mut file = snapshot_to_file(
+            &snapshot_from_summary(
+                &manifest,
+                "full".to_string(),
+                &summarize_results(&[result]),
+                ExecutionBackend::WasmAot,
+            )
+            .expect("running compiler identity must be captured"),
+        );
         file.execution_backend = "future-backend".to_string();
         assert!(snapshot_from_file(file)
             .expect_err("current snapshots must reject unknown backend spellings")
@@ -37711,4 +28627,144 @@ assert.sameValue(bytes[3], 0);
             .expect_err("the oracle backend must never enter publication state")
             .contains("oracle-only"));
     }
+    fn compiler_provenance_snapshot_fixture() -> ProgressSnapshot {
+        aggregate_snapshot(
+            &PinnedRevisions {
+                ecma262: "schema-ecma".into(),
+                test262: "schema-test262".into(),
+            },
+            11,
+            &AggregateRunSummary {
+                total: 0,
+                passed: 0,
+                failed: 0,
+                counts_per_kind: BTreeMap::new(),
+                counts_per_outcome: BTreeMap::new(),
+                counts_per_origin: BTreeMap::new(),
+                entries: Vec::new(),
+            },
+            ExecutionBackend::WasmAot,
+            "aggregate-matrix",
+            vec!["top-level".into()],
+            Vec::new(),
+        )
+        .expect("schema fixture requires the actual running compiler")
+    }
+
+    #[test]
+    fn current_snapshot_requires_compiler_wire_and_v7_retains_unbound_typed_history() {
+        let mut snapshot = compiler_provenance_snapshot_fixture();
+        snapshot.run_kind = "full".into();
+        snapshot.matrix_path.clear();
+        let id = TestExecutionId::new(
+            "language/compiler-history.js",
+            TestExecutionMode::SloppyScript,
+        );
+        snapshot.completed_test_ids.push(id.clone());
+        snapshot.total = 1;
+        snapshot.passed = 1;
+        snapshot.counts_per_outcome.insert(OutcomeKind::Success, 1);
+        let current = serde_json::to_value(snapshot_to_file(&snapshot)).unwrap();
+        for missing in [true, false] {
+            let mut invalid = current.clone();
+            if missing {
+                invalid.as_object_mut().unwrap().remove("compiler_identity");
+            } else {
+                invalid["compiler_identity"] = serde_json::Value::Null;
+            }
+            let error = decode_snapshot_value_for_test(&invalid)
+                .expect_err("v8 identity is mandatory and non-null");
+            assert!(error.contains("compiler_identity"), "{error}");
+        }
+        let mut legacy = current.clone();
+        legacy["snapshot_version"] = serde_json::json!(LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION);
+        legacy.as_object_mut().unwrap().remove("compiler_identity");
+        let decoded = decode_snapshot_value_for_test(&legacy)
+            .expect("v7 remains typed unbound historical evidence");
+        assert_eq!(decoded.completed_test_ids, vec![id]);
+        assert_eq!(decoded.snapshot_version(), 7);
+        assert!(matches!(
+            decoded.provenance,
+            SnapshotProvenance::LegacyUnbound(LegacySnapshotVersion::ExecutionIdentityV7)
+        ));
+        assert!(decoded.provenance.require_running("resume").is_err());
+        for identity in [
+            serde_json::Value::Null,
+            current["compiler_identity"].clone(),
+        ] {
+            legacy["compiler_identity"] = identity;
+            assert!(decode_snapshot_value_for_test(&legacy)
+                .expect_err("v7 may not carry even null compiler binding")
+                .contains("must omit compiler_identity"));
+        }
+    }
+
+    #[test]
+    fn snapshot_writer_preserves_legacy_or_foreign_destinations_and_rejects_orphan_summaries() {
+        let mut config = fixture_config();
+        config.snapshot_dir = unique_temp_path("compiler-provenance-writer");
+        let snapshot = compiler_provenance_snapshot_fixture();
+        fs::create_dir_all(&config.snapshot_dir).unwrap();
+        let json_path = config.snapshot_dir.join("bound-11.json");
+        let txt_path = config.snapshot_dir.join("bound-11.txt");
+        let current = serde_json::to_value(snapshot_to_file(&snapshot)).unwrap();
+        for legacy in [false, true] {
+            let mut original = current.clone();
+            if legacy {
+                original["snapshot_version"] =
+                    serde_json::json!(LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION);
+                original
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("compiler_identity");
+            } else {
+                original["compiler_identity"]["executable_sha256"] =
+                    serde_json::json!("1".repeat(64));
+            }
+            let bytes = serde_json::to_vec(&original).unwrap();
+            fs::write(&json_path, &bytes).unwrap();
+            fs::write(&txt_path, "original summary\n").unwrap();
+            let error = write_snapshot(&config, &snapshot, "bound")
+                .expect_err("existing provenance cannot be replaced");
+            assert!(
+                error.contains(if legacy {
+                    "read-only unbound evidence"
+                } else {
+                    "different compiler build or executable"
+                }),
+                "{error}"
+            );
+            assert_eq!(fs::read(&json_path).unwrap(), bytes);
+            assert_eq!(fs::read_to_string(&txt_path).unwrap(), "original summary\n");
+        }
+        fs::remove_file(&json_path).unwrap();
+        assert!(write_snapshot(&config, &snapshot, "bound")
+            .expect_err("text without JSON has no compiler authority")
+            .contains("unbound summary"));
+        assert_eq!(fs::read_to_string(&txt_path).unwrap(), "original summary\n");
+        fs::remove_dir_all(&config.snapshot_dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_or_decoded_foreign_snapshot_cannot_create_a_new_current_destination() {
+        let mut config = fixture_config();
+        config.snapshot_dir = unique_temp_path("unbound-new-destination");
+        let current = compiler_provenance_snapshot_fixture();
+        let mut foreign = serde_json::to_value(snapshot_to_file(&current)).unwrap();
+        foreign["compiler_identity"]["executable_sha256"] = serde_json::json!("2".repeat(64));
+        let foreign = decode_snapshot_value_for_test(&foreign).unwrap();
+        let mut legacy = current;
+        legacy.provenance =
+            SnapshotProvenance::LegacyUnbound(LegacySnapshotVersion::ExecutionIdentityV7);
+        for snapshot in [foreign, legacy] {
+            write_snapshot(&config, &snapshot, "new-name")
+                .expect_err("producer mismatch rejects before mkdir");
+            assert!(!config.snapshot_dir.exists());
+        }
+    }
 }
+
+#[cfg(test)]
+mod source_execution_routing_tests;
+#[cfg(test)]
+mod weak_unavailable_tests;

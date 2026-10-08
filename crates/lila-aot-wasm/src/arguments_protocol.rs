@@ -1,6 +1,6 @@
 use lila_ir::{FunctionFlavor, FunctionIr, StatementIr};
 
-use crate::{EmitError, MappedSlot};
+use crate::EmitError;
 
 /// Whether this invocation owns an arguments object, and the only legal
 /// construction protocol when it does.
@@ -190,12 +190,12 @@ impl MappedArgumentsPlan {
 }
 
 impl MappedArgumentEntry {
-    pub(crate) const fn argument_index_i64(self) -> i64 {
-        self.argument.0 as i64
+    pub(crate) const fn argument_index(self) -> u32 {
+        self.argument.0
     }
 
-    pub(crate) const fn mapped_slot(self) -> MappedSlot {
-        MappedSlot::new(self.environment.0)
+    pub(crate) const fn environment_slot(self) -> u32 {
+        self.environment.0
     }
 }
 

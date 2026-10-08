@@ -1065,6 +1065,32 @@ fn run_wasm_backend_succeeds_for_created_realm_weak_collection_publication() {
 }
 
 #[test]
+fn run_wasm_backend_reports_uncatchable_created_realm_weak_capability() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_weak_reachability_unavailable.js"))
+        .output()
+        .expect("run command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "stdout={stdout} stderr={stderr}");
+    assert!(
+        stderr.contains("T05: weak references and ephemerons are unavailable"),
+        "{stderr}"
+    );
+    assert!(
+        !stdout.contains("capability rejection was caught"),
+        "{stdout}"
+    );
+    assert!(
+        !stdout.contains("capability rejection was ignored"),
+        "{stdout}"
+    );
+}
+
+#[test]
 fn run_wasm_backend_uses_builtin_realm_for_collection_algorithm_errors() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -1226,4 +1252,27 @@ fn run_wasm_backend_allocates_iterators_in_the_running_realm() {
         "{stdout}"
     );
     assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+/// Iterator helpers close the receiver through GetMethod when the callback is
+/// not callable: the `return` getter runs, the method is called, `next` never
+/// runs, and the TypeError still throws.
+#[test]
+fn run_wasm_backend_closes_iterator_via_get_method_on_noncallable_callback() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_iterator_helper_close_on_noncallable.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(15)"), "{stdout}");
 }

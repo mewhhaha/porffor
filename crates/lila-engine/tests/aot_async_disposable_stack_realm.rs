@@ -216,3 +216,61 @@ void 0;
         &["before,dispose,after", "before,dispose,after"],
     );
 }
+
+fn assert_gc_stack_fixture(source: &str, marker: &str) {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    for backend in [ExecutionBackend::SpecExec, ExecutionBackend::WasmAot] {
+        for directive in ["", "'use strict';\n"] {
+            let source = format!("{directive}{source}");
+            let observed = Engine::new(RealmBuilder::new().build())
+                .observe_script(
+                    &source,
+                    CompileOptions {
+                        host_surface_policy: HostSurfacePolicy::Test262,
+                        ..CompileOptions::default()
+                    },
+                    RunOptions {
+                        backend,
+                        timeout_ms: Some(30_000),
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("finite AsyncDisposableStack fixture executes through selected backend");
+            assert_eq!(observed.backend_used, backend);
+            assert_eq!(
+                observed.completion,
+                ObservedCompletion::Normal(lila_engine::ObservedJsValue::Number(
+                    lila_engine::ObservedNumber::from_f64(262.0)
+                )),
+                "{source}"
+            );
+            assert_eq!(
+                observed.output_events,
+                vec![HostOutputEvent::PrintLine(marker.into())],
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn async_stack_gc_registration_retains_reference_operands_and_list_identity() {
+    assert_gc_stack_fixture(
+        include_str!("fixtures/async_disposable_stack_gc/registrations_and_order.js"),
+        "async-stack-registrations:ok",
+    );
+}
+#[test]
+fn async_stack_gc_await_lifecycle_and_suppression_are_observable() {
+    assert_gc_stack_fixture(
+        include_str!("fixtures/async_disposable_stack_gc/await_and_suppression.js"),
+        "async-stack-await:ok",
+    );
+}
+#[test]
+fn async_stack_gc_saved_realms_and_complete_values_survive_suspension() {
+    assert_gc_stack_fixture(
+        include_str!("fixtures/async_disposable_stack_gc/realms_and_values.js"),
+        "async-stack-realms:ok",
+    );
+}

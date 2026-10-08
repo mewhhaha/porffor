@@ -9,32 +9,32 @@ impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_array_copy_within_traversal_start(
         &self,
         direction: ArrayCopyWithinDirection,
-        from_local: u32,
-        to_local: u32,
-        count_local: u32,
-        direction_local: u32,
+        from_local: I64Local,
+        to_local: I64Local,
+        count_local: I64Local,
+        direction_local: I64Local,
         function: &mut Function,
     ) {
         match direction {
             ArrayCopyWithinDirection::Forward => {
                 function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(direction_local));
+                direction_local.store(function);
             }
             ArrayCopyWithinDirection::Backward => {
-                function.instruction(&Instruction::LocalGet(from_local));
-                function.instruction(&Instruction::LocalGet(count_local));
+                from_local.load(function);
+                count_local.load(function);
                 function.instruction(&Instruction::I64Add);
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(from_local));
-                function.instruction(&Instruction::LocalGet(to_local));
-                function.instruction(&Instruction::LocalGet(count_local));
+                from_local.store(function);
+                to_local.load(function);
+                count_local.load(function);
                 function.instruction(&Instruction::I64Add);
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(to_local));
+                to_local.store(function);
                 function.instruction(&Instruction::I64Const(-1));
-                function.instruction(&Instruction::LocalSet(direction_local));
+                direction_local.store(function);
             }
         }
     }

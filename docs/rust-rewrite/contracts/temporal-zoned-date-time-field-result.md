@@ -40,8 +40,13 @@ self-written routes preserve the callee's complete result pair:
 
 The calendar projection accepts the private closed
 `ZonedDateTimeCalendarField` domain. Its exhaustive mapping names one shared
-PlainDate calculation for each numeric calendar accessor. Local date components
-are converted from Number payload bits to integer fields before that call.
+PlainDate calculation for each numeric calendar accessor. MonthCode has its
+own closed field arm: it borrows the complete local-date calendar projection
+and publishes the canonical String, retaining the existing WrittenByCallee
+route. Local date components are converted from Number payload bits to integer
+fields before projection. This Hebrew successor updates that arm's existing
+structural golden; its compilation and executable verification are pending,
+and the earlier six passing controls retain their historical source scope.
 
 The type does not prove that an arm selected the correct result variant. That
 mapping remains guarded structurally: the exact complete 21-arm block and the

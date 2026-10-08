@@ -1,3 +1,8 @@
+mod callable_flow;
+mod field_names;
+
+use self::callable_flow::ClassConstructorInvocationRole;
+use self::field_names::class_field_initializer_name;
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
@@ -11,7 +16,7 @@ impl<'a> ScriptLowerer<'a> {
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
         name_binding: Option<ClassNameBindingIr>,
-        inferred_name_binding: Option<String>,
+        name_inference: ClassNameInferenceIr,
     ) -> TypedExpr {
         let entry_state = self.class_evaluation_state();
         let (heritage_prefix, heritage) = match heritage {
@@ -41,13 +46,6 @@ impl<'a> ScriptLowerer<'a> {
                     self.invalidate_unknown_user_code_effects();
                 }
             }
-        }
-
-        #[derive(Clone, Copy)]
-        enum ClassConstructorInvocationRole {
-            Base,
-            ExplicitDerived,
-            SyntheticDerived,
         }
 
         let constructor_invocation_role = match (heritage_kind, constructor.is_some()) {
@@ -520,12 +518,16 @@ impl<'a> ScriptLowerer<'a> {
         let heritage_prototype = if heritage_kind == ClassHeritageKind::Constructable {
             heritage
                 .as_ref()
-                .and_then(|heritage| self.read_object_shape(heritage, "prototype"))
-                .and_then(|info| info.heap_shape)
+                .and_then(|heritage| self.read_current_object_shape_property(heritage, "prototype"))
+                .and_then(|property| match property {
+                    ObjectShapeProperty::Data(info) => info.heap_shape,
+                    ObjectShapeProperty::Accessor { .. } => None,
+                })
         } else {
             None
         };
         let mut prototype_shape = ObjectShape {
+            provenance: HeapShapeProvenance::Program,
             prototype: heritage_prototype.clone(),
             properties: BTreeMap::new(),
             private_brands: BTreeSet::new(),
@@ -675,6 +677,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
+                provenance: HeapShapeProvenance::Program,
                 prototype: heritage.as_ref().and_then(|info| info.heap_shape.clone()),
                 properties: class_properties,
                 private_brands: static_private_method_brands,
@@ -682,7 +685,7 @@ impl<'a> ScriptLowerer<'a> {
             }))),
             function_targets: FunctionTargetKnowledge::exact(constructor_id.clone()),
         };
-        if let Some(class_name) = &class_name {
+        if let (Some(class_name), Some(_)) = (&class_name, &name_binding) {
             self.set_binding_value_info(class_name, class_info.clone())
                 .expect("named class binding must remain in scope while its elements are lowered");
         }
@@ -690,7 +693,7 @@ impl<'a> ScriptLowerer<'a> {
         let heritage_prototype_shape = if heritage_kind == ClassHeritageKind::Constructable {
             heritage
                 .as_ref()
-                .and_then(|info| read_heap_shape_property(info.heap_shape.as_deref()?, "prototype"))
+                .and_then(|heritage| self.read_current_object_shape_property(heritage, "prototype"))
                 .and_then(|property| match property {
                     ObjectShapeProperty::Data(info) => info.heap_shape,
                     ObjectShapeProperty::Accessor { .. } => None,
@@ -717,6 +720,7 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                             CallableToStringRepresentation::NativeAnonymous,
                             field.initializer.expect("field initializer should exist"),
+                            class_field_initializer_name(&field.key, &private_name_ids),
                             class_info.clone(),
                             ClassElementExecutionKind::StaticFieldInitializer,
                             ClassLoweringContext {
@@ -760,6 +764,10 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                             CallableToStringRepresentation::NativeAnonymous,
                             field.initializer.expect("field initializer should exist"),
+                            class_field_initializer_name(
+                                &ClassFieldKeyIr::Private(field.private_name_id),
+                                &private_name_ids,
+                            ),
                             class_info.clone(),
                             ClassElementExecutionKind::StaticFieldInitializer,
                             ClassLoweringContext {
@@ -805,6 +813,7 @@ impl<'a> ScriptLowerer<'a> {
                             accessor
                                 .initializer
                                 .expect("accessor initializer should exist"),
+                            class_field_initializer_name(&accessor.key, &private_name_ids),
                             class_info.clone(),
                             ClassElementExecutionKind::StaticFieldInitializer,
                             ClassLoweringContext {
@@ -871,7 +880,7 @@ impl<'a> ScriptLowerer<'a> {
                     continue;
                 }
             }
-            if let Some(class_name) = &class_name {
+            if let (Some(class_name), Some(_)) = (&class_name, &name_binding) {
                 self.set_binding_value_info(class_name, class_info.clone())
                     .expect(
                         "named class binding must remain in scope while its elements are lowered",
@@ -896,6 +905,7 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                             CallableToStringRepresentation::NativeAnonymous,
                             field.initializer.expect("field initializer should exist"),
+                            class_field_initializer_name(&field.key, &private_name_ids),
                             instance_info.clone(),
                             ClassElementExecutionKind::InstanceFieldInitializer,
                             ClassLoweringContext {
@@ -944,6 +954,10 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                             CallableToStringRepresentation::NativeAnonymous,
                             field.initializer.expect("field initializer should exist"),
+                            class_field_initializer_name(
+                                &ClassFieldKeyIr::Private(field.private_name_id),
+                                &private_name_ids,
+                            ),
                             instance_info.clone(),
                             ClassElementExecutionKind::InstanceFieldInitializer,
                             ClassLoweringContext {
@@ -996,6 +1010,7 @@ impl<'a> ScriptLowerer<'a> {
                             accessor
                                 .initializer
                                 .expect("accessor initializer should exist"),
+                            class_field_initializer_name(&accessor.key, &private_name_ids),
                             instance_info.clone(),
                             ClassElementExecutionKind::InstanceFieldInitializer,
                             ClassLoweringContext {
@@ -1043,12 +1058,42 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
 
+        let mut callable_instance_info = instance_info.clone();
+        let mut callable_class_info = class_info.clone();
+        // A method can run after a sibling callable has changed any private
+        // field. Its receiver retains the class identities, but never a fresh
+        // constructor's mutable field values. Initializers keep the fresh facts.
+        for (private_name_id, placement) in private_fields
+            .iter()
+            .map(|field| (field.private_name_id, field.placement))
+            .chain(
+                auto_accessors
+                    .iter()
+                    .map(|accessor| (accessor.backing_name.private_name_id(), accessor.placement)),
+            )
+        {
+            let receiver = match placement {
+                ClassMethodPlacementIr::Instance => &mut callable_instance_info,
+                ClassMethodPlacementIr::Static => &mut callable_class_info,
+            };
+            let properties = match receiver.heap_shape.as_deref_mut() {
+                Some(HeapShape::Object(shape)) => &mut shape.properties,
+                Some(HeapShape::Array(array)) => &mut array.properties,
+                None => continue,
+            };
+            if let Some(ObjectShapeProperty::Data(value)) =
+                properties.get_mut(&private_data_key(private_name_id))
+            {
+                *value = unknown_runtime_value_info();
+            }
+        }
+
         for method in &public_methods {
             let is_static = method.placement == ClassMethodPlacementIr::Static;
             let this_info = if is_static {
-                class_info.clone()
+                callable_class_info.clone()
             } else {
-                instance_info.clone()
+                callable_instance_info.clone()
             };
             self.lower_generated_ast_function(
                 method.function_id.clone(),
@@ -1057,10 +1102,9 @@ impl<'a> ScriptLowerer<'a> {
                     class_name.clone().unwrap_or_else(|| "<class>".to_string()),
                     class_method_debug_key(&method.key)
                 ),
-                CallableToStringRepresentation::ExactSource(class_method_source_slice(
-                    method.method,
-                    self.source_text,
-                )),
+                self.analysis
+                    .module_execution
+                    .class_method_to_string_representation(method.method, self.source_text),
                 method.method.parameters(),
                 method.method.body(),
                 match method.kind {
@@ -1103,9 +1147,9 @@ impl<'a> ScriptLowerer<'a> {
         for method in &private_methods {
             let is_static = method.placement == ClassMethodPlacementIr::Static;
             let this_info = if is_static {
-                class_info.clone()
+                callable_class_info.clone()
             } else {
-                instance_info.clone()
+                callable_instance_info.clone()
             };
             let ClassElementName::PrivateName(private_name) = method.method.name() else {
                 unreachable!("private method plan must retain a private source name")
@@ -1119,10 +1163,9 @@ impl<'a> ScriptLowerer<'a> {
             self.lower_generated_ast_function(
                 method.function_id.clone(),
                 function_name,
-                CallableToStringRepresentation::ExactSource(class_method_source_slice(
-                    method.method,
-                    self.source_text,
-                )),
+                self.analysis
+                    .module_execution
+                    .class_method_to_string_representation(method.method, self.source_text),
                 method.method.parameters(),
                 method.method.body(),
                 match method.kind {
@@ -1165,9 +1208,9 @@ impl<'a> ScriptLowerer<'a> {
         for accessor in &auto_accessors {
             let is_static = accessor.placement == ClassMethodPlacementIr::Static;
             let this_info = if is_static {
-                class_info.clone()
+                callable_class_info.clone()
             } else {
-                instance_info.clone()
+                callable_instance_info.clone()
             };
             let exposed_name = match &accessor.key {
                 ClassFieldKeyIr::Public(name) => name.clone(),
@@ -1300,63 +1343,12 @@ impl<'a> ScriptLowerer<'a> {
             constructor_output
         };
 
-        for (function_id, prior_flow_effects) in prior_class_callable_flow_effects {
-            let signature = self
-                .function_signatures
-                .get_mut(&function_id)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "class callable signature `{function_id}` must exist after body lowering"
-                    )
-                });
-            signature.source_call_flow_effects = signature
-                .source_call_flow_effects
-                .merge_observation(prior_flow_effects);
-        }
-
-        let mut constructor_flow_effects = self
-            .function_signatures
-            .get(&constructor_id)
-            .unwrap_or_else(|| {
-                panic!("class constructor signature `{constructor_id}` must be lowered")
-            })
-            .source_call_flow_effects;
-        match constructor_invocation_role {
-            ClassConstructorInvocationRole::Base => {
-                if let Some(instance_element_plan) = &class_instance_element_plan {
-                    for element in &instance_element_plan.elements {
-                        let init_function_id = match element {
-                            ClassInstanceElementIr::Field(field) => &field.init_function_id,
-                            ClassInstanceElementIr::AutoAccessorBacking(accessor) => {
-                                &accessor.init_function_id
-                            }
-                        };
-                        let Some(init_function_id) = init_function_id else {
-                            continue;
-                        };
-                        let initializer_flow_effects = self
-                            .function_signatures
-                            .get(init_function_id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "class instance initializer signature `{init_function_id}` must exist before constructor finalization"
-                                )
-                            })
-                            .source_call_flow_effects;
-                        constructor_flow_effects =
-                            constructor_flow_effects.combine_caller_flow(initializer_flow_effects);
-                    }
-                }
-            }
-            ClassConstructorInvocationRole::ExplicitDerived => {}
-            ClassConstructorInvocationRole::SyntheticDerived => {
-                constructor_flow_effects = SourceCallFlowEffects::may_invalidate_caller_flow();
-            }
-        }
-        self.function_signatures
-            .get_mut(&constructor_id)
-            .expect("class constructor signature must remain present during finalization")
-            .source_call_flow_effects = constructor_flow_effects;
+        self.finalize_class_callable_flow(
+            prior_class_callable_flow_effects,
+            &constructor_id,
+            constructor_invocation_role,
+            class_instance_element_plan.as_ref(),
+        );
 
         if let Some(function_ir) = self
             .generated_functions
@@ -1442,7 +1434,7 @@ impl<'a> ScriptLowerer<'a> {
             ExprIr::ClassDefinition(Box::new(ClassDefinitionIr {
                 name: display_name.map(str::to_string),
                 name_binding,
-                inferred_name_binding,
+                name_inference,
                 constructor_function_id: constructor_id,
                 explicit_constructor: constructor.is_some(),
                 heritage_kind,

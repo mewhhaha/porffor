@@ -8,29 +8,201 @@
 //! Nothing here bakes in a test262 path. The runner supplies the root, exactly
 //! as any other embedder would.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use lila_front::{ParsedModule, ParsedScript};
+use lila_front::{ParseGoal, ParsedModule, ParsedScript, ParsedSource};
 use lila_ir::{ModuleGraphSources, ModuleSourceIr};
 pub use lila_ir::{ModuleKey, ModuleRequestKeyIr};
+use lila_runtime::{
+    EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleKind, EmbeddedModuleReferrer,
+};
 
 #[path = "module_paths.rs"]
 mod module_paths;
 use module_paths::normalize;
+
+/// Root source belongs to the declared entry. Agent source has no graph locator
+/// and can use only explicit Unlocated edges from that same immutable graph.
+#[derive(Clone, Copy)]
+pub(crate) enum EmbeddedSourceRole {
+    Entry,
+    UnlocatedScript,
+}
+
+impl EmbeddedSourceRole {
+    fn parse_filename(
+        self,
+        graph: &EmbeddedModuleGraph,
+        source: &str,
+        goal: ParseGoal,
+        filename: Option<&str>,
+    ) -> Result<Option<String>, ModuleLoadError> {
+        let valid = match self {
+            Self::Entry => {
+                let declared_goal = match graph.entry().goal() {
+                    EmbeddedModuleGoal::Script => ParseGoal::Script,
+                    EmbeddedModuleGoal::Module => ParseGoal::Module,
+                };
+                goal == declared_goal
+                    && source == graph.entry().source()
+                    && filename.is_none_or(|name| name == graph.entry().identity())
+            }
+            Self::UnlocatedScript => goal == ParseGoal::Script,
+        };
+        if !valid {
+            return Err(ModuleLoadError::Denied {
+                specifier: filename.unwrap_or("<entry>").to_owned(),
+                reason: "source, goal or identity differs from embedded entry authority".to_owned(),
+            });
+        }
+        Ok(match self {
+            Self::Entry => Some(graph.entry().identity().to_owned()),
+            Self::UnlocatedScript => None,
+        })
+    }
+}
+
+/// Admission and the one parse attempt mint the only entry the catalog
+/// builder accepts; source/goal/identity cannot be paired again at load time.
+pub(crate) struct ParsedEmbeddedEntry<'a> {
+    graph: &'a EmbeddedModuleGraph,
+    source: ParsedSource,
+    role: EmbeddedSourceRole,
+}
+
+#[derive(Debug)]
+pub(crate) enum EmbeddedEntryError {
+    Authority(ModuleLoadError),
+    Parse(lila_front::ParseError),
+}
+
+impl EmbeddedSourceRole {
+    pub(crate) fn parse_entry<'a>(
+        self,
+        graph: &'a EmbeddedModuleGraph,
+        source: &str,
+        goal: ParseGoal,
+        filename: Option<&str>,
+    ) -> Result<ParsedEmbeddedEntry<'a>, EmbeddedEntryError> {
+        let filename = self
+            .parse_filename(graph, source, goal, filename)
+            .map_err(EmbeddedEntryError::Authority)?;
+        let source = lila_front::parse(source, lila_front::ParseOptions { goal, filename })
+            .map_err(EmbeddedEntryError::Parse)?;
+        Ok(ParsedEmbeddedEntry {
+            graph,
+            source,
+            role: self,
+        })
+    }
+}
+
+impl ParsedEmbeddedEntry<'_> {
+    /// Consume all declared rows, including computed-only targets. Reuse this
+    /// exact entry parse and parse each canonical dependency only once.
+    pub(crate) fn into_graph(self) -> Result<(ParsedSource, ModuleGraphSources), ModuleLoadError> {
+        let Self {
+            graph,
+            source,
+            role,
+        } = self;
+        let sources = load_embedded_module_graph(graph, &source, role)?;
+        Ok((source, sources))
+    }
+}
+
+fn load_embedded_module_graph(
+    graph: &EmbeddedModuleGraph,
+    entry: &ParsedSource,
+    role: EmbeddedSourceRole,
+) -> Result<ModuleGraphSources, ModuleLoadError> {
+    let key = ModuleKey::from_host(match role {
+        EmbeddedSourceRole::Entry => graph.entry().identity(),
+        EmbeddedSourceRole::UnlocatedScript => "<unlocated-script>",
+    });
+    let entry_module = match entry {
+        ParsedSource::Script(source) => ModuleSourceIr::from_parsed_script(
+            key,
+            graph.entry().meta_url().to_owned(),
+            source.clone(),
+        ),
+        ParsedSource::Module(source) => {
+            ModuleSourceIr::from_parsed(key, graph.entry().meta_url().to_owned(), source.clone())
+        }
+    };
+    let entry_referrer = match role {
+        EmbeddedSourceRole::Entry => match graph.entry().goal() {
+            EmbeddedModuleGoal::Script => {
+                EmbeddedModuleReferrer::Script(graph.entry().identity().to_owned())
+            }
+            EmbeddedModuleGoal::Module => {
+                EmbeddedModuleReferrer::Module(graph.entry().identity().to_owned())
+            }
+        },
+        EmbeddedSourceRole::UnlocatedScript => EmbeddedModuleReferrer::Unlocated,
+    };
+    let mut indices = BTreeMap::from([(entry_referrer, 0u32)]);
+    let mut modules = vec![entry_module];
+    for module in graph.modules() {
+        let referrer = EmbeddedModuleReferrer::Module(module.identity().to_owned());
+        if indices.contains_key(&referrer) {
+            continue;
+        }
+        let index = u32::try_from(modules.len()).map_err(|_| ModuleLoadError::Denied {
+            specifier: module.identity().to_owned(),
+            reason: "embedded catalog exceeds module source index space".to_owned(),
+        })?;
+        indices.insert(referrer, index);
+        let key = ModuleKey::from_host(module.identity());
+        let source = module.source().to_owned();
+        let url = module.meta_url().to_owned();
+        modules.push(match module.kind() {
+            EmbeddedModuleKind::SourceText => ModuleSourceIr::new(key, source, url),
+            EmbeddedModuleKind::Json => ModuleSourceIr::json(key, source, url),
+        });
+    }
+    let mut resolutions = Vec::new();
+    let mut realm_requests = BTreeMap::new();
+    for resolution in graph.resolutions() {
+        let target = *indices
+            .get(&EmbeddedModuleReferrer::Module(
+                resolution.target().to_owned(),
+            ))
+            .expect("validated embedded target must retain a canonical Module row");
+        let request = ModuleRequestKeyIr::try_new(
+            resolution.request().specifier(),
+            resolution
+                .request()
+                .attributes()
+                .iter()
+                .map(|(key, value)| lila_ir::ImportAttributeIr {
+                    key: key.clone(),
+                    value: value.clone(),
+                }),
+        )
+        .expect("embedded request owner already validated unique attributes");
+        if resolution.referrer() == &EmbeddedModuleReferrer::Realm {
+            realm_requests.insert(request, lila_ir::RealmModuleResolutionIr::Loaded(target));
+        } else if let Some(&referrer) = indices.get(resolution.referrer()) {
+            resolutions.push((referrer, request, target));
+        }
+    }
+    Ok(ModuleGraphSources {
+        realm_requests,
+        modules,
+        entry: 0,
+        resolutions,
+    })
+}
 
 /// What a successful load produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadedModuleKind {
     /// A Source Text Module Record's source text.
     Source(String),
-    // No `Json` variant on purpose. A JSON module is `ParseJSONModule`'d, not
-    // parsed as ECMAScript, and resolves exactly one name (`default`). Until
-    // that record type exists, serving JSON text as a Source Text Module
-    // Record would either be a SyntaxError (`{"a": 1}` is not a module body)
-    // or, worse, parse as valid JS with zero exports (`[1, 2]`, `"s"`) and
-    // report a bogus `MissingExport`. `load` rejects `.json` instead, which
-    // leaves the request unresolved and produces one honest link error.
+    /// JSON grammar and a genuine default-only synthetic module record.
+    Json(String),
 }
 
 /// One loaded module.
@@ -242,11 +414,10 @@ impl HostModuleLoader for FilesystemModuleLoader {
         referrer: Option<&ModuleKey>,
         request: &ModuleRequestKeyIr,
     ) -> Result<ModuleKey, ModuleLoadError> {
-        // No import attribute is implemented, `type: "json"` included: see
-        // [`LoadedModuleKind`]. `AllImportAttributesSupported` failing is a
-        // resolution failure, which the caller turns into a link error rather
-        // than aborting the compile.
-        if let Some(attribute) = request.attributes().first() {
+        let json = matches!(request.attributes(), [attribute]
+            if attribute.key == "type" && attribute.value == "json");
+        if !request.attributes().is_empty() && !json {
+            let attribute = &request.attributes()[0];
             return Err(ModuleLoadError::UnsupportedAttribute {
                 key: attribute.key.clone(),
                 value: attribute.value.clone(),
@@ -275,6 +446,16 @@ impl HostModuleLoader for FilesystemModuleLoader {
                 referrer: referrer.cloned(),
             });
         }
+        if resolved
+            .extension()
+            .is_some_and(|extension| extension == "json")
+            != json
+        {
+            return Err(ModuleLoadError::UnsupportedAttribute {
+                key: "type".to_owned(),
+                value: if json { "json" } else { "missing JSON type" }.to_owned(),
+            });
+        }
         Ok(ModuleKey::from_host(
             resolved.to_string_lossy().into_owned(),
         ))
@@ -299,21 +480,17 @@ impl HostModuleLoader for FilesystemModuleLoader {
             key: key.clone(),
             message: error.to_string(),
         })?;
-        if path
+        let kind = if path
             .extension()
             .is_some_and(|extension| extension == "json")
         {
-            // A `.json` file is a JSON module whichever way it was imported —
-            // with the attribute (16.2.1.7 module-type check) or without it.
-            // Neither form is implemented; see [`LoadedModuleKind`].
-            return Err(ModuleLoadError::UnsupportedAttribute {
-                key: "type".to_string(),
-                value: "json".to_string(),
-            });
-        }
+            LoadedModuleKind::Json(text)
+        } else {
+            LoadedModuleKind::Source(text)
+        };
         Ok(LoadedModule {
             meta_url: format!("file://{}", path.display()),
-            kind: LoadedModuleKind::Source(text),
+            kind,
             key: key.clone(),
         })
     }
@@ -343,7 +520,7 @@ pub fn load_module_graph(
         ),
         ModuleEntry::HostLoad { .. } => {
             let loaded = loader.load(&entry_key)?;
-            ModuleSourceIr::new(loaded.key, module_text(loaded.kind), loaded.meta_url)
+            loaded_module_source(loaded)
         }
     };
 
@@ -351,7 +528,7 @@ pub fn load_module_graph(
 }
 
 /// [`load_module_graph`] with an entry already parsed by the compilation front
-/// end. Dependencies still enter through [`ModuleSourceIr::new`], while the
+/// end. Dependencies enter through their declared Source Text/JSON factory; the
 /// entry retains this exact syntax product instead of parsing its text again.
 pub(crate) fn load_module_graph_from_parsed(
     entry_locator: &str,
@@ -369,7 +546,7 @@ pub(crate) fn load_module_graph_from_parsed(
 
 /// Script-entry counterpart of [`load_module_graph_from_parsed`]. The entry
 /// keeps Script grammar and contributes only its `import()` requests; every
-/// loaded target is still parsed with Module grammar.
+/// loaded target retains its declared Source Text or JSON grammar.
 pub(crate) fn load_module_graph_from_parsed_script(
     entry_locator: &str,
     source: ParsedScript,
@@ -388,41 +565,156 @@ fn load_module_graph_from_entry(
     entry_module: ModuleSourceIr,
     loader: &dyn HostModuleLoader,
 ) -> Result<ModuleGraphSources, ModuleLoadError> {
-    let mut modules = vec![entry_module];
+    let mut graph = ModuleGraphSources {
+        modules: vec![entry_module],
+        entry: 0,
+        resolutions: Vec::new(),
+        realm_requests: BTreeMap::new(),
+    };
+    extend_module_graph_realm_requests(&mut graph, &[], loader)?;
+    Ok(graph)
+}
+
+/// Adds requests discovered while compiling retained finite source. Existing
+/// parsed records and host resolutions survive; each newly loaded record is
+/// parsed once by its ModuleSourceIr constructor.
+pub(crate) fn extend_module_graph_realm_requests(
+    graph: &mut ModuleGraphSources,
+    requests_to_add: &[ModuleRequestKeyIr],
+    loader: &dyn HostModuleLoader,
+) -> Result<(), ModuleLoadError> {
+    let entry = graph.entry as usize;
+    if entry >= graph.modules.len() {
+        return Err(ModuleLoadError::Denied {
+            specifier: String::new(),
+            reason: "module graph has no entry source".into(),
+        });
+    }
+    let modules = &mut graph.modules;
+    let resolutions = &mut graph.resolutions;
+    let realm_requests = &mut graph.realm_requests;
     // Both the key a request resolved to and the key its load reported map
     // here, so a loader that normalizes further on load still reads each
     // module once.
     let mut indices: BTreeMap<ModuleKey, u32> = BTreeMap::new();
-    indices.insert(modules[0].key().clone(), 0);
-    let mut resolutions = Vec::new();
-    let mut cursor = 0usize;
+    // A Script Record is not a member of the host module map. Importing its
+    // own URL loads that URL under Module grammar and owns a separate module
+    // environment, even when the bytes happen to be identical.
+    for (index, module) in modules.iter().enumerate() {
+        if module.goal() == ParseGoal::Module {
+            indices.insert(module.key().clone(), index as u32);
+        }
+    }
+    let mut pending = VecDeque::from([entry]);
+    let mut expanded = BTreeSet::new();
 
-    while cursor < modules.len() {
+    while let Some(cursor) = pending.pop_front() {
+        if !expanded.insert(cursor) {
+            continue;
+        }
         let referrer = u32::try_from(cursor).unwrap_or(u32::MAX);
         let key = modules[cursor].key().clone();
-        let requests = modules[cursor].module_requests();
-        cursor += 1;
+        let requests = modules[cursor].module_loading_requests();
 
         // A rejected module produces no requests; `lila-ir` reports the
         // retained parse failure itself without trying the parser again.
-        let Some(requests) = requests else {
-            continue;
-        };
-        for request in requests {
+        let requests = requests.unwrap_or_default();
+        let source_requests = requests
+            .into_iter()
+            .map(|request| (Some(referrer), request));
+        let mut realm_candidates = modules[cursor].realm_module_requests();
+        if cursor == entry {
+            realm_candidates.extend_from_slice(requests_to_add);
+        }
+        let realm_candidates = realm_candidates.into_iter().map(|request| {
+            (
+                None,
+                lila_ir::ModuleRequestIr::from_key(request, lila_ir::ImportPhaseIr::Evaluation),
+            )
+        });
+        for (origin, occurrence) in source_requests.chain(realm_candidates) {
+            let recursive = occurrence.phase().loads_dependencies();
+            let request = occurrence.key().clone();
+            if origin.is_none() && realm_requests.contains_key(&request) {
+                continue;
+            }
+            if let Some(owner) = origin {
+                if let Some((_, _, target)) = resolutions
+                    .iter()
+                    .find(|(referrer, key, _)| *referrer == owner && key == &request)
+                {
+                    if recursive {
+                        pending.push_back(*target as usize);
+                    }
+                    continue;
+                }
+            }
             // A request the loader rejects stays unresolved on purpose: the
             // link stage turns it into the SyntaxError the spec asks for,
             // instead of the whole compile failing here.
-            let Ok(target_key) = loader.resolve(Some(&key), &request) else {
-                continue;
+            let target_key = match loader.resolve(origin.map(|_| &key), &request) {
+                Ok(key) => key,
+                Err(error) => {
+                    if origin.is_none() {
+                        realm_requests.insert(
+                            request,
+                            lila_ir::RealmModuleResolutionIr::Rejected(error.to_string()),
+                        );
+                    }
+                    continue;
+                }
             };
             if let Some(index) = indices.get(&target_key).copied() {
-                resolutions.push((referrer, request, index));
+                if !modules[index as usize].kind().matches_request(&request) {
+                    if origin.is_none() {
+                        realm_requests.insert(
+                            request,
+                            lila_ir::RealmModuleResolutionIr::Rejected(
+                                "loaded module record kind does not match import attributes".into(),
+                            ),
+                        );
+                    }
+                    continue;
+                }
+                match origin {
+                    Some(referrer) => resolutions.push((referrer, request, index)),
+                    None => {
+                        realm_requests
+                            .insert(request, lila_ir::RealmModuleResolutionIr::Loaded(index));
+                    }
+                }
+                if recursive {
+                    pending.push_back(index as usize);
+                }
                 continue;
             }
-            let Ok(loaded) = loader.load(&target_key) else {
-                continue;
+            let loaded = match loader.load(&target_key) {
+                Ok(loaded) => loaded,
+                Err(error) => {
+                    if origin.is_none() {
+                        realm_requests.insert(
+                            request,
+                            lila_ir::RealmModuleResolutionIr::Rejected(error.to_string()),
+                        );
+                    }
+                    continue;
+                }
             };
-            let text = module_text(loaded.kind);
+            let (loaded_kind, loaded_text) = match &loaded.kind {
+                LoadedModuleKind::Source(text) => (lila_ir::ModuleKindIr::SourceText, text),
+                LoadedModuleKind::Json(text) => (lila_ir::ModuleKindIr::Json, text),
+            };
+            if !loaded_kind.matches_request(&request) {
+                if origin.is_none() {
+                    realm_requests.insert(
+                        request,
+                        lila_ir::RealmModuleResolutionIr::Rejected(
+                            "loaded module record kind does not match import attributes".into(),
+                        ),
+                    );
+                }
+                continue;
+            }
             // The load may report a key the graph already holds: module map
             // identity is keyed on the loaded key, not on the specifier that
             // reached it. Text that disagrees is pushed through as a duplicate
@@ -430,36 +722,46 @@ fn load_module_graph_from_entry(
             // silently running one of the two.
             let existing = indices.get(&loaded.key).copied();
             let target = match existing {
-                Some(index) if modules[index as usize].source_text() == text => index,
+                Some(index)
+                    if modules[index as usize].source_text() == loaded_text
+                        && modules[index as usize].kind() == loaded_kind =>
+                {
+                    index
+                }
                 _ => {
+                    let source = loaded_module_source(loaded);
                     let index = u32::try_from(modules.len()).unwrap_or(u32::MAX);
-                    modules.push(ModuleSourceIr::new(
-                        loaded.key.clone(),
-                        text,
-                        loaded.meta_url,
-                    ));
+                    let loaded_key = source.key().clone();
+                    modules.push(source);
                     if existing.is_none() {
-                        indices.insert(loaded.key, index);
+                        indices.insert(loaded_key, index);
                     }
                     index
                 }
             };
             indices.insert(target_key, target);
-            resolutions.push((referrer, request, target));
+            match origin {
+                Some(referrer) => resolutions.push((referrer, request, target)),
+                None => {
+                    realm_requests
+                        .insert(request, lila_ir::RealmModuleResolutionIr::Loaded(target));
+                }
+            }
+            // A source request loads/parses only this record. A later ordinary
+            // or deferred request expands the same cached record exactly once.
+            if recursive {
+                pending.push_back(target as usize);
+            }
         }
     }
 
-    Ok(ModuleGraphSources {
-        modules,
-        entry: 0,
-        resolutions,
-    })
+    Ok(())
 }
 
-/// Source text of a loaded module, whatever kind it is.
-fn module_text(kind: LoadedModuleKind) -> String {
-    match kind {
-        LoadedModuleKind::Source(text) => text,
+fn loaded_module_source(loaded: LoadedModule) -> ModuleSourceIr {
+    match loaded.kind {
+        LoadedModuleKind::Source(text) => ModuleSourceIr::new(loaded.key, text, loaded.meta_url),
+        LoadedModuleKind::Json(text) => ModuleSourceIr::json(loaded.key, text, loaded.meta_url),
     }
 }
 
@@ -519,6 +821,53 @@ mod tests {
     }
 
     #[test]
+    fn a_script_importing_its_url_loads_a_separate_module_record() {
+        let base = temp_base("script-module-same-url");
+        let root = base.join("root");
+        write_tree(
+            &root,
+            &[("entry.js", "import './entry.js'; export const value = 42;")],
+        );
+        let loader = loader_at(&root);
+        let lila_front::ParsedSource::Script(script) = lila_front::parse(
+            "import('./entry.js'); import('./entry.js');",
+            lila_front::ParseOptions::script(),
+        )
+        .unwrap() else {
+            panic!("Script fixture parses with Script grammar")
+        };
+        let sources = load_module_graph_from_parsed_script(
+            &root.join("entry.js").to_string_lossy(),
+            script,
+            &loader,
+        )
+        .unwrap();
+        assert_eq!(sources.modules.len(), 2);
+        assert_eq!(sources.modules[0].goal(), ParseGoal::Script);
+        assert_eq!(sources.modules[1].goal(), ParseGoal::Module);
+        assert_eq!(sources.modules[0].key(), sources.modules[1].key());
+        assert!(sources
+            .resolutions
+            .iter()
+            .all(|(_, _, target)| *target == 1));
+        assert!(sources
+            .resolutions
+            .iter()
+            .any(|(referrer, _, _)| *referrer == 0));
+        assert!(sources
+            .resolutions
+            .iter()
+            .any(|(referrer, _, _)| *referrer == 1));
+        let program = lila_ir::lower_script_graph(&sources);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let graph = program.modules.expect("distinct Script and Module units");
+        assert_eq!(graph.units.len(), 2);
+        assert_eq!(graph.entry, 0);
+        assert_eq!(graph.keys[sources.modules[1].key()], 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn an_in_memory_entry_does_not_ask_the_host_to_load_it() {
         let entry = ModuleEntry::InMemory {
             locator: "virtual/entry.js".to_string(),
@@ -546,6 +895,83 @@ mod tests {
             loader.load(&ModuleKey::from_host("ambient.js")),
             Err(ModuleLoadError::Denied { .. })
         ));
+    }
+
+    #[test]
+    fn discovered_realm_requests_keep_host_origin_and_closed_cached_outcomes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct RealmLoader {
+            loads: AtomicUsize,
+        }
+        impl HostModuleLoader for RealmLoader {
+            fn resolve(
+                &self,
+                referrer: Option<&ModuleKey>,
+                request: &ModuleRequestKeyIr,
+            ) -> Result<ModuleKey, ModuleLoadError> {
+                assert!(
+                    referrer.is_none(),
+                    "Realm requests do not borrow entry or caller source identity"
+                );
+                Ok(ModuleKey::from_host(request.specifier()))
+            }
+            fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError> {
+                self.loads.fetch_add(1, Ordering::SeqCst);
+                let kind = match key.as_str() {
+                    "value" => LoadedModuleKind::Source("export const value = 7;".into()),
+                    "json" => LoadedModuleKind::Json("7".into()),
+                    _ => {
+                        return Err(ModuleLoadError::Io {
+                            key: key.clone(),
+                            message: "original host failure".into(),
+                        })
+                    }
+                };
+                Ok(LoadedModule {
+                    key: key.clone(),
+                    kind,
+                    meta_url: format!("lila://{}", key.as_str()),
+                })
+            }
+        }
+        let ParsedSource::Script(parsed) =
+            lila_front::parse("0;", lila_front::ParseOptions::script()).unwrap()
+        else {
+            unreachable!()
+        };
+        let loader = RealmLoader {
+            loads: AtomicUsize::new(0),
+        };
+        let mut graph = load_module_graph_from_parsed_script("entry.js", parsed, &loader).unwrap();
+        let requests = ["value", "json", "absent"].map(ModuleRequestKeyIr::plain);
+        extend_module_graph_realm_requests(&mut graph, &requests, &loader).unwrap();
+        assert!(matches!(
+            graph.realm_requests[&requests[0]],
+            lila_ir::RealmModuleResolutionIr::Loaded(1)
+        ));
+        for request in &requests[1..] {
+            assert!(
+                matches!(&graph.realm_requests[request], lila_ir::RealmModuleResolutionIr::Rejected(message) if !message.is_empty())
+            );
+        }
+        assert!(
+            matches!(&graph.realm_requests[&requests[2]], lila_ir::RealmModuleResolutionIr::Rejected(message) if message.contains("original host failure"))
+        );
+        let retained = graph.modules.clone();
+        extend_module_graph_realm_requests(&mut graph, &requests, &loader).unwrap();
+        assert_eq!(
+            loader.loads.load(Ordering::SeqCst),
+            3,
+            "every request has a cached success or rejection"
+        );
+        assert_eq!(
+            graph.modules, retained,
+            "extension retains the original parsed records"
+        );
+        assert!(
+            graph.resolutions.is_empty(),
+            "Realm requests never manufacture source edges"
+        );
     }
 
     #[test]
@@ -675,6 +1101,68 @@ mod tests {
     }
 
     #[test]
+    fn source_loading_parses_one_record_without_loading_its_dependencies() {
+        let base = temp_base("source-single-record");
+        write_tree(
+            &base,
+            &[
+                ("entry.js", "import.source('./source.js');"),
+                (
+                    "source.js",
+                    "import './invalid.js'; export const value = 1;",
+                ),
+                ("invalid.js", "invalid syntax!"),
+            ],
+        );
+        let sources =
+            load_module_graph(&entry_at(&base.join("entry.js")), &loader_at(&base)).unwrap();
+        assert_eq!(sources.modules.len(), 2);
+        assert_eq!(sources.resolutions.len(), 1);
+        let program = lila_ir::lower_module_graph(&sources);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.as_ref().unwrap().units.len(), 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_later_non_source_request_expands_the_same_cached_record() {
+        for request in ["import('./source.js');", "import.defer('./source.js');"] {
+            let base = temp_base("source-promotion");
+            write_tree(
+                &base,
+                &[
+                    (
+                        "entry.js",
+                        "import.source('./source.js'); import './other.js';",
+                    ),
+                    (
+                        "source.js",
+                        "import './dependency.js'; export const value = 1;",
+                    ),
+                    ("other.js", request),
+                    ("dependency.js", "export const value = 2;"),
+                ],
+            );
+            let sources =
+                load_module_graph(&entry_at(&base.join("entry.js")), &loader_at(&base)).unwrap();
+            assert_eq!(sources.modules.len(), 4);
+            assert_eq!(
+                sources
+                    .modules
+                    .iter()
+                    .filter(|source| source.key().as_str().ends_with("source.js"))
+                    .count(),
+                1
+            );
+            assert!(sources
+                .resolutions
+                .iter()
+                .any(|(_, request, _)| request.specifier() == "./dependency.js"));
+            let _ = fs::remove_dir_all(&base);
+        }
+    }
+
+    #[test]
     fn an_entry_that_imports_itself_stays_one_module() {
         let base = temp_base("self-import");
         let root = base.join("root");
@@ -748,13 +1236,13 @@ mod tests {
     }
 
     #[test]
-    fn a_json_module_is_rejected_rather_than_parsed_as_ecmascript() {
+    fn a_json_module_is_loaded_as_a_checked_distinct_kind() {
         let base = temp_base("json");
         let root = base.join("root");
         write_tree(&root, &[("data.json", "{\"a\": 1}")]);
         let loader = loader_at(&root);
 
-        // With the attribute: `AllImportAttributesSupported` fails.
+        // JSON's declared type selects its own native parse owner.
         let request = ModuleRequestKeyIr::try_new(
             "./data.json",
             vec![ImportAttributeIr {
@@ -764,24 +1252,26 @@ mod tests {
         )
         .expect("the test attribute key is unique");
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
-        assert!(
-            matches!(
-                loader.resolve(Some(&referrer), &request),
-                Err(ModuleLoadError::UnsupportedAttribute { .. })
-            ),
-            "type=json must not resolve while JSON modules are unimplemented"
+        let key = loader.resolve(Some(&referrer), &request).unwrap();
+        let loaded = loader.load(&key).unwrap();
+        assert_eq!(loaded.kind, LoadedModuleKind::Json("{\"a\": 1}".to_owned()));
+        let source = loaded_module_source(loaded);
+        assert_eq!(source.kind(), lila_ir::ModuleKindIr::Json);
+        assert_eq!(source.module_requests(), Some(Vec::new()));
+        assert!(matches!(
+            loader.resolve(Some(&referrer), &ModuleRequestKeyIr::plain("./data.json")),
+            Err(ModuleLoadError::UnsupportedAttribute { .. })
+        ));
+        write_tree(
+            &root,
+            &[(
+                "entry.js",
+                "import value from './data.json' with { type: 'json' }; value;",
+            )],
         );
-
-        // Without it: the load refuses, so the JSON text never reaches the
-        // ECMAScript parser as a module body.
-        let key = ModuleKey::from_host(root.join("data.json").to_string_lossy().into_owned());
-        assert!(
-            matches!(
-                loader.load(&key),
-                Err(ModuleLoadError::UnsupportedAttribute { .. })
-            ),
-            "a .json file must not load as a Source Text Module Record"
-        );
+        let graph = load_module_graph(&entry_at(&root.join("entry.js")), &loader).unwrap();
+        assert_eq!(graph.modules[1].kind(), lila_ir::ModuleKindIr::Json);
+        assert!(lila_ir::lower_module_graph(&graph).is_wasm_supported());
         let _ = fs::remove_dir_all(&base);
     }
 

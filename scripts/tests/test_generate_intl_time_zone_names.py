@@ -32,13 +32,24 @@ class TimeZoneNameGenerationTests(unittest.TestCase):
         edit(root)
         self.rewrite_source(source, relative, ET.tostring(root, encoding="utf-8"))
 
-    def test_complete_pinned_domain_regenerates_identically(self):
-        generated, report = GENERATOR.generate(SOURCE)
-        self.assertEqual((SCRIPT.parent.parent / GENERATOR.OUTPUT_PATH).read_text(), generated)
+    def test_complete_native_domain_preserves_the_historical_primary_rows(self):
+        generated, report = GENERATOR.generate_image(SOURCE)
+        self.assertEqual((SCRIPT.parent.parent / GENERATOR.NATIVE_OUTPUT_PATH).read_text(), generated)
         report = json.loads(report)
         self.assertEqual((report["zones"], report["aliases"], report["metazones"], report["periods"]), (446, 600, 190, 669))
         self.assertEqual(report["supported_locales"], ["en", "en-US"])
-        self.assertEqual(report["consumed_icu_fields"], ["Names", "Regions:array"])
+        historical = json.loads((SOURCE / "generated-report.json").read_text())
+        self.assertEqual(report["normalized_rows_sha256"], historical["normalized_rows_sha256"])
+        self.assertEqual(report["source_manifest_sha256"], historical["source_manifest_sha256"])
+        self.assertEqual(hashlib.sha256((SCRIPT.parent.parent / GENERATOR.OUTPUT_PATH).read_bytes()).hexdigest(),
+                         historical["generated_sha256"])
+        payload = json.loads(generated)
+        _, _, rows = GENERATOR.extract(SOURCE)
+        # Every alias, preferred zone and UTC period is projected, not a sampled profile.
+        self.assertEqual(payload["rows"], json.loads(json.dumps(rows)))
+        zones = {zone["identifier"]: zone for zone in payload["rows"]["zones"]}
+        self.assertEqual(zones["Africa/Casablanca"]["periods"][-1][1], 1_540_692_000)
+        self.assertEqual(dict(payload["rows"]["aliases"])["Asia/Kolkata"], "Asia/Calcutta")
 
     def test_pinned_country_authority_is_independent_of_cldr_alias_grouping(self):
         countries = GENERATOR.icu_countries((SOURCE / "icu-77-1-zoneinfo64.icu").read_text(encoding="utf-8-sig"))

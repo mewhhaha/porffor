@@ -256,9 +256,57 @@ def outputs(root):
                         for name, primary in primaries.items()).encode()
     # The selector recipe includes the actual patched source and validation code.
     recipe_paths = [Path("scripts/generate-intl-named-time-zones.py"),
-                    Path("crates/lila-intl/src/provider/named_time_zones.rs")]
+                    Path("crates/lila-intl/src/provider/named_time_zones.rs"),
+                    Path("crates/lila-intl/src/time_zone/exact.rs"),
+                    Path("crates/lila-intl/src/time_zone/named_query.rs")]
     recipe_paths += sorted(path.relative_to(root) for path in (root / PROVIDER).glob("*.rs")
                            if path.name not in {"identity.rs", "tests.rs", "transition_tests.rs"})
+    # Selected IANA/country/Names consumers are source inputs. Never capture the
+    # downstream country kernel identity/manifest or this producer's own outputs.
+    recipe_paths += [Path(path) for path in [
+        'Cargo.toml',
+        'Cargo.lock',
+        'crates/lila-intl/Cargo.toml',
+        'crates/lila-intl/build.rs',
+        'crates/lila-intl/src/lib.rs',
+        'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs',
+        'crates/lila-intl/src/provider/conformance.rs',
+        'crates/lila-intl/src/service_selection.rs',
+        'crates/lila-intl/src/selection/manifest.rs',
+        'crates/lila-intl/src/selection/export.rs',
+        'crates/lila-intl/src/protocol.rs',
+        'crates/lila-intl/src/image.rs',
+        'crates/lila-intl/src/locale_image.rs',
+        'crates/lila-intl/src/image_build/locale.rs',
+        'crates/lila-intl/src/image_build/keyword.rs',
+        'crates/lila-intl/src/provider/language_domain.rs',
+        'crates/lila-intl/src/provider/keyword_aliases.rs',
+        'crates/lila-intl/src/provider/keyword_aliases/generated.rs',
+        'scripts/generate-intl-keyword-aliases.py',
+        'crates/lila-engine/src/intl_data_images.rs',
+        'crates/lila-engine/src/wasm_gc_intl_host.rs',
+        'crates/lila-aot-wasm/src/emit.rs',
+        'crates/lila-aot-wasm/src/emit/module_assembly.rs',
+        'crates/lila-intl/src/named_time_zone_image.rs',
+        'crates/lila-intl/src/image_build/named_time_zones.rs',
+        'crates/lila-intl/src/provider/locale_time_zones.rs',
+        'crates/lila-intl/data/locale-time-zones-iana2026a/zone.tab',
+        'crates/lila-intl/data/locale-time-zones-iana2026a/regions.tsv',
+        'crates/lila-intl/src/time_zone_names_image.rs',
+        'crates/lila-intl/src/provider/time_zone_names.rs',
+        'crates/lila-intl/src/provider/time_zone_names/raw.rs',
+        'crates/lila-intl/data/zone-names-cldr-47/native-profile.json',
+        'crates/lila-intl/data/zone-names-cldr-47/native-profile-manifest.json',
+        'crates/lila-intl/src/provider/time_zone_snapshot.rs',
+        'crates/lila-intl/src/time_zone.rs',
+        'crates/lila-intl/src/identifiers.rs',
+    ]]
+    # Bind actual selected transition/name admission helpers, retaining the
+    # same complete pinned catalogue producer and excluding control modules.
+    for owner in ("named_time_zone_image", "time_zone_names_image"):
+        recipe_paths += sorted(path.relative_to(root) for path in
+                               (root / "crates/lila-intl/src" / owner).rglob("*.rs")
+                               if path.name != "tests.rs" and "tests" not in path.parts)
     vendor_paths = sorted(path.relative_to(root) for path in
                           (root / "vendor/timezone_provider-0.1.2").rglob("*") if path.is_file())
     inputs = [record(DATA / name, (data / name).read_bytes()) for name in sorted(ARCHIVES)]

@@ -23,7 +23,7 @@ use crate::calendar_arithmetic::PrecomputedDataSource;
 use crate::calendar_arithmetic::{ArithmeticDate, CalendarArithmetic};
 use crate::error::{year_check, DateError};
 use crate::provider::hijri::PackedHijriYearInfo;
-use crate::provider::hijri::{CalendarHijriSimulatedMeccaV1, HijriData};
+use crate::provider::hijri::{CalendarHijriSimulatedMeccaV1, CalendarHijriUmmAlQuraV1, HijriData};
 use crate::types::EraYear;
 use crate::{types, Calendar, Date, DateDuration, DateDurationUnit};
 use crate::{AsCalendar, RangeError};
@@ -32,9 +32,8 @@ use calendrical_calculations::rata_die::RataDie;
 use icu_provider::marker::ErasedMarker;
 use icu_provider::prelude::*;
 use tinystr::tinystr;
-use ummalqura_data::{UMMALQURA_DATA, UMMALQURA_DATA_STARTING_YEAR};
-
-mod ummalqura_data;
+#[cfg(feature = "compiled_data")]
+pub(crate) mod ummalqura_data;
 
 fn era_year(year: i32) -> EraYear {
     if year > 0 {
@@ -95,9 +94,11 @@ impl HijriSimulatedLocation {
 ///
 /// This calendar is a pure lunar calendar with no leap months. It uses month codes
 /// `"M01" - "M12"`.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
-pub struct HijriUmmAlQura;
+pub struct HijriUmmAlQura {
+    data: DataPayload<CalendarHijriUmmAlQuraV1>,
+}
 
 /// The [tabular Hijri Calendar](https://en.wikipedia.org/wiki/Tabular_Islamic_calendar).
 ///
@@ -176,9 +177,26 @@ impl HijriSimulated {
 }
 
 impl HijriUmmAlQura {
-    /// Creates a new [`HijriUmmAlQura`].
+    /// Creates a new [`HijriUmmAlQura`] from the compiled immutable year table.
+    #[cfg(feature = "compiled_data")]
     pub const fn new() -> Self {
-        Self
+        Self {
+            data: DataPayload::from_static_ref(
+                crate::provider::Baked::SINGLETON_LILA_CALENDAR_HIJRI_UMMALQURA_V1,
+            ),
+        }
+    }
+
+    icu_provider::gen_buffer_data_constructors!(() -> error: DataError,
+        functions: [new: skip, try_new_with_buffer_provider, try_new_unstable, Self,]);
+
+    /// Retain the supplied immutable table; no process-global table is read.
+    pub fn try_new_unstable<P: DataProvider<CalendarHijriUmmAlQuraV1> + ?Sized>(
+        provider: &P,
+    ) -> Result<Self, DataError> {
+        let data = provider.load(Default::default())?.payload;
+        data.get().validate_ummalqura()?;
+        Ok(Self { data })
     }
 }
 
@@ -402,10 +420,10 @@ impl Calendar for HijriSimulated {
         // +1 because the epoch is new year of year 1
         // truncating instead of flooring does not matter, as this is well-defined for
         // positive years only
-        let mut extended_year = ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY)
-            as f64
-            / calendrical_calculations::islamic::MEAN_YEAR_LENGTH) as i32
-            + 1;
+        let mut extended_year =
+            ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY) as f64
+                / calendrical_calculations::islamic::MEAN_YEAR_LENGTH) as i32
+                + 1;
 
         let mut y = self.load_or_compute_info(extended_year);
         while rd < y.start_day && extended_year > i32::MIN {
@@ -686,10 +704,10 @@ impl Calendar for HijriUmmAlQura {
         // +1 because the epoch is new year of year 1
         // truncating instead of flooring does not matter, as this is well-defined for
         // positive years only
-        let mut extended_year = ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY)
-            as f64
-            / calendrical_calculations::islamic::MEAN_YEAR_LENGTH) as i32
-            + 1;
+        let mut extended_year =
+            ((rd - calendrical_calculations::islamic::ISLAMIC_EPOCH_FRIDAY) as f64
+                / calendrical_calculations::islamic::MEAN_YEAR_LENGTH) as i32
+                + 1;
 
         let mut y = self.load_or_compute_info(extended_year);
         while rd < y.start_day && extended_year > i32::MIN {
@@ -733,7 +751,7 @@ impl Calendar for HijriUmmAlQura {
     }
 
     fn offset_date(&self, date: &mut Self::DateInner, offset: DateDuration<Self>) {
-        date.0.offset_date(offset, &HijriUmmAlQura)
+        date.0.offset_date(offset, self)
     }
 
     fn until(
@@ -785,9 +803,11 @@ impl Calendar for HijriUmmAlQura {
 
 impl PrecomputedDataSource<HijriYearInfo> for HijriUmmAlQura {
     fn load_or_compute_info(&self, year: i32) -> HijriYearInfo {
-        if let Some(&packed) = usize::try_from(year - UMMALQURA_DATA_STARTING_YEAR)
-            .ok()
-            .and_then(|i| UMMALQURA_DATA.get(i))
+        let table = self.data.get();
+        if let Some(packed) =
+            usize::try_from(i64::from(year) - i64::from(table.first_extended_year))
+                .ok()
+                .and_then(|i| table.data.get(i))
         {
             HijriYearInfo::unpack(year, packed)
         } else {
@@ -825,15 +845,17 @@ impl Date<HijriUmmAlQura> {
     /// assert_eq!(date_hijri.month().ordinal, 4);
     /// assert_eq!(date_hijri.day_of_month().0, 25);
     /// ```
+    #[cfg(feature = "compiled_data")]
     pub fn try_new_ummalqura(
         year: i32,
         month: u8,
         day: u8,
     ) -> Result<Date<HijriUmmAlQura>, RangeError> {
-        let y = HijriUmmAlQura.load_or_compute_info(year);
+        let calendar = HijriUmmAlQura::new();
+        let y = calendar.load_or_compute_info(year);
         Ok(Date::from_raw(
             HijriUmmAlQuraDateInner(ArithmeticDate::new_from_ordinals(y, month, day)?),
-            HijriUmmAlQura,
+            calendar,
         ))
     }
 }
@@ -916,8 +938,12 @@ impl Calendar for HijriTabular {
         }
 
         while year < i32::MAX {
-            let next_new_year =
-                calendrical_calculations::islamic::fixed_from_tabular_islamic(year + 1, 1, 1, epoch);
+            let next_new_year = calendrical_calculations::islamic::fixed_from_tabular_islamic(
+                year + 1,
+                1,
+                1,
+                epoch,
+            );
             if rd < next_new_year {
                 break;
             }
@@ -1909,8 +1935,9 @@ mod test {
         // 1518 1 1 = 764588 (R.D Date)
         let sum_days_in_year: i64 = (START_YEAR..END_YEAR)
             .map(|year| {
-                HijriUmmAlQura::days_in_provided_year(HijriUmmAlQura.load_or_compute_info(year))
-                    as i64
+                HijriUmmAlQura::days_in_provided_year(
+                    HijriUmmAlQura::new().load_or_compute_info(year),
+                ) as i64
             })
             .sum();
         let expected_number_of_days = Date::try_new_ummalqura(END_YEAR, 1, 1)
@@ -2069,7 +2096,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let icu4x = (1300..=1600)
-            .map(|y| HijriUmmAlQura.load_or_compute_info(y))
+            .map(|y| HijriUmmAlQura::new().load_or_compute_info(y))
             .collect::<Vec<_>>();
 
         assert_eq!(icu4x, icu4c);

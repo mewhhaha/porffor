@@ -1,11 +1,11 @@
-# Global Object Environment eager compound assignment retains one Reference
+# Global Environment eager compound assignment retains one Reference
 
 ## Scope and exact cohort
 
 This contract covers eager compound assignments whose LeftHandSideExpression
-is an IdentifierReference, whose lexical ResolveBinding walk finds no
-declarative binding, and whose Global Environment Record selects a property
-through its Object Environment Record.
+is an IdentifierReference and whose ResolveBinding walk reaches the Global
+Environment Record. Its live delegate may be a lexical binding or an object
+property. The original pinned cohort exercises the Object Record delegate.
 
 The exact Test262 cohort is the eleven `noStrict` files below. Each enters a
 strict nested function, obtains `x` from an accessor installed directly on the
@@ -36,83 +36,75 @@ The producer's closed eager domain also includes `**=` because it shares the
 same Reference lifecycle. It is local invariant coverage, not a twelfth
 Test262 claim. Logical assignments, property References, declarative bindings,
 resumable functions, modules, and dynamic source generation are not claims of
-this batch. Existing proven declarative/global specializations remain outside
-this new dynamic path.
+this batch. Local declarative bindings retain their existing storage paths;
+all source-global eager assignments use the retained Global Record lifecycle.
 
 ## Normative lifecycle
 
 For an in-scope `x op= rhs`:
 
-1. ResolveBinding reaches the Global Environment Record after finding no
-   declarative binding. The Object Record performs HasBinding as one
-   HasProperty operation on the compiler-owned global object. This happens
-   before GetValue and before evaluating `rhs`.
-2. If that HasProperty is false, the Reference is unresolvable and GetValue
-   throws ReferenceError before evaluating `rhs`, in sloppy or strict code.
-3. If it is true, the resulting Reference retains that exact Object
-   Environment Record as `[[Base]]` and retains the strictness of the source
-   which created it.
-4. GetValue calls GetBindingValue on the same Object Record. GetBindingValue
-   independently performs HasProperty and then Get. A false recheck throws
-   ReferenceError for a strict Reference and yields `undefined` for a sloppy
-   Reference.
-5. Evaluate `rhs` exactly once after GetValue, then apply the selected closed
-   arithmetic or bitwise operation in ECMAScript coercion order.
-6. PutValue calls SetMutableBinding on the same Object Record selected in step
-   1. SetMutableBinding independently performs HasProperty after the getter,
-   RHS, and coercions. Resolution does not restart.
-7. If the write recheck is false and the retained Reference is strict, throw
-   ReferenceError without calling Set. In sloppy code the recheck remains
-   observable, then Set runs even when it answered false.
-8. Only after PutValue succeeds does the expression return the applied value.
+1. ResolveBinding reaches the Global Environment Record after the intervening
+   environments. Its HasBinding checks its declarative record before the
+   Object Record's HasProperty on the actual global object. This precedes
+   GetValue and RHS evaluation and never reads `Symbol.unscopables`.
+2. If no binding exists, GetValue throws ReferenceError before the RHS in
+   either strictness mode.
+3. Otherwise retain that exact **Global Environment Record** and strictness.
+   The selected declarative/object delegate is not the Reference base.
+4. GetBindingValue checks the same Global Record's current lexical table.
+   A lexical installed during resolution is now visible; otherwise the Object
+   Record independently performs HasProperty and Get, with its strict/sloppy
+   absence behavior.
+5. Evaluate the original RHS once, then apply the selected arithmetic/bitwise
+   operation in ECMAScript coercion order.
+6. PutValue retains the same Global Record without resolving again. Its
+   SetMutableBinding checks for a lexical installed by Get, RHS or coercion,
+   applying the lexical's const/TDZ rules when present.
+7. If the object delegate remains selected, its own HasProperty recheck and
+   strict/sloppy SetMutableBinding rules apply.
+8. Return the applied result only after successful PutValue.
 
-The three HasProperty operations are distinct observable specification
-operations: initial ResolveBinding, GetBindingValue, and SetMutableBinding.
-The exact witnesses delete `x` in the intervening Get, so replacing the
-lifecycle with a raw global read plus checked write is not the contract.
+When no lexical intervenes, the initial HasBinding, GetBindingValue and
+SetMutableBinding HasProperty calls are distinct observable operations. The
+exact witnesses delete `x` in Get, so a raw global read plus checked write does
+not implement this lifecycle.
 
 ## Rust invariant and IR composition
 
-`ObjectEnvironmentBindingObject` is the only object identity admitted by the
-shared Object Environment operations. Its constructors distinguish a
-materialized `with` object from the compiler-owned global object; callers
-cannot provide an arbitrary `TypedExpr`. HasProperty, GetBindingValue, and
-SetMutableBinding therefore read clones of one validated identity.
+`EnvironmentIdentifierIr::global` fixes the resolution start to the actual
+Global Environment. The closed `EagerCompound { operation, rhs }` form retains
+the original source RHS under the shared AOT Reference owner. Its existing
+emitter performs resolution, Get, RHS/coercion, Put and root release with one
+Reference; Get and Put recheck the live Global Record delegate. The exhaustive
+`EagerCompoundAssignmentOp::environment_operation` conversion admits the twelve
+eager operators and excludes logical assignment.
 
-`WithEnvironmentResolution` alone owns `Symbol.unscopables` selection.
-`GlobalObjectEnvironmentReferencePlan` owns exactly one global binding object,
-referenced name, and typed `Strictness`. The plan is neither `Clone` nor
-`Copy`, carries `#[must_use]`, and has one consuming eager compound-assignment
-operation. Consequently a caller cannot accidentally run with-environment
-selection for a global record, omit unscopables from a with record, or apply
-GetValue and PutValue to different bases.
+All source-global eager assignments use this form, including a Script `var`
+with declaration-publication storage and any global fallback after explicit
+With selection. Possible resolution/Get effects invalidate static facts before
+lowering the RHS; operator hooks invalidate facts after it. Candidate callable
+identities remain Open for source admission and native linkage. No object-only
+presence/value facts are published for a potentially lexical result.
 
-One opaque `EagerCompoundAssignmentBindings` allocator fixes old-value,
-result, and write-completion binding roles. Consuming it produces the only
-`EagerCompoundAssignment` accepted by either Reference plan. The lowerer maps
-the eager arithmetic and bitwise domains into `EagerCompoundAssignmentOp`
-exhaustively, obtains the old operand only from the role carrier, applies the
-canonical existing coercive-add/coercive-number/bitwise IR, and seals the
-result.
+An explicit With selection retains its actual Object Environment Record.
+`WithEnvironmentResolution` alone owns its HasProperty/unscopables visibility
+condition. Its `EagerCompoundAssignmentBindings` carrier still fixes the
+old-value, result and write-completion roles. Local/captured fallbacks keep
+their storage; a global fallback independently starts at the Global Environment
+and then retains that Record through Get/RHS/Put.
 
-After its initial plain HasProperty condition, the global plan composes only
-existing IR:
+No new backend expression or parallel arithmetic algorithm is introduced.
+The object-only `GlobalObjectEnvironmentReferencePlan` is removed: choosing
+an object property once cannot preserve a Global Record's later lexical
+delegate changes.
 
-1. materialize `oldValue = binding_object.get_value(...)`;
-2. materialize `result = apply(oldValue, rhs)`;
-3. materialize `write = binding_object.put_value(result, ...)`;
-4. only in the write materialization's body, read `result`.
-
-No new backend expression or parallel arithmetic implementation is admitted.
-An initially missing property selects a branch-local RuntimeThrow before the
-old-value materialization and therefore before the cloned RHS. Unknown global
-property metadata remains fully Dynamic and is never marked proven present.
-
-Thus a caller-built global object expression, a missing initial HasProperty,
-an unscopables lookup on the global path, positional same-typed binding roles,
-a second plan consumption, a restarted resolution, a result before successful
-PutValue, and a raw GlobalPropertyCompoundAssign shortcut are outside the
-producer API.
+The joined source repair extends
+`aot_ordinary_global_assignment_reference::global_prototype_hasbinding_precedes_rhs_and_plain_assignment_does_not_get`
+with late global lexical controls and lexical installation during initial Has
+or the eager RHS. Parsed IR controls cover all twelve operators, root/nested
+owners, original RHS operands, callable candidate retention and With fallbacks.
+These new controls are pending execution; earlier focused results do not verify
+the joined repair.
 
 ## Verification
 
@@ -120,7 +112,7 @@ The focused ladder after batch integration is:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir global_object_environment_compound_assignment --quiet
+cargo test -p lila-ir script_global_compound_assignments --quiet
 cargo test -p lila-aot-wasm \
   --test global_object_environment_compound_assignment_structure --quiet
 cargo test -p lila-cli --test cli \

@@ -2,6 +2,62 @@
 
 use crate::*;
 
+fn assert_runtime_regexp_compilation_gap(fixture_name: &str) {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(fixture_name))
+        .output()
+        .expect("runtime RegExp gap command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "{fixture_name}: unsupported runtime grammar returned success: {stdout}"
+    );
+    assert!(
+        stderr.contains("T19:") && stderr.contains("Wasm compiler"),
+        "{fixture_name}: expected the compiler semantic gap, got {stderr}"
+    );
+    assert!(
+        !stdout.contains("boolean(true)"),
+        "{fixture_name}: a JavaScript catch converted the gap into success: {stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_unicode_id_properties_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_unicode_id_properties.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_nul_unicode_mode_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_nul_unicode_mode.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_regexp_modifier_overrides_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
@@ -738,8 +794,8 @@ fn run_wasm_backend_succeeds_for_regexp_symbol_search_internal_slots_fixture() {
     assert!(stdout.contains("boolean(true)"));
 }
 
-/// The accepted half of the AOT runtime RegExp pattern table, plus the recorded
-/// policy for a pattern the table has never seen.
+/// Cached programs and clean uncached patterns compile; unsupported runtime
+/// grammar remains a host semantic gap rather than a JavaScript exception.
 ///
 /// Companion to `…_regexp_runtime_pattern_invalid_fixture`. Both fixtures reach
 /// the table only through *computed* pattern values, because with a literal
@@ -757,6 +813,37 @@ fn run_wasm_backend_succeeds_for_regexp_runtime_pattern_valid_fixture() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+
+    let named = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_runtime_named_captures.js"))
+        .output()
+        .expect("run command should compile computed named captures");
+    assert!(
+        named.status.success(),
+        "{}",
+        String::from_utf8_lossy(&named.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&named.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+    let lookbehind = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_runtime_lookbehind.js"))
+        .output()
+        .expect("run command should compile computed lookbehind");
+    assert!(
+        lookbehind.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lookbehind.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&lookbehind.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
@@ -828,6 +915,66 @@ fn run_wasm_backend_succeeds_for_regexp_prototype_accessors_fixture() {
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_regexp_prototype_accessors.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_dynamic_unicode_validation_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_dynamic_unicode_validation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+
+    for fixture in [
+        "wasm_regexp_runtime_gap_q_string.js",
+        "wasm_regexp_runtime_gap_property_trailing.js",
+        "wasm_regexp_runtime_gap_property_leading.js",
+        "wasm_regexp_runtime_gap_subtraction.js",
+        "wasm_regexp_runtime_gap_intersection.js",
+        "wasm_regexp_runtime_gap_subtraction_chain.js",
+        "wasm_regexp_runtime_gap_intersection_chain.js",
+    ] {
+        assert_runtime_regexp_compilation_gap(fixture);
+    }
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_huge_quantifier_bounds_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_huge_quantifier_bounds.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_matcher_arena_clamp_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_matcher_arena_clamp.js"))
         .output()
         .expect("run command should run");
 

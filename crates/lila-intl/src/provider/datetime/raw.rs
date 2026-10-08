@@ -8,8 +8,12 @@ pub(super) struct Profile {
     pub(super) schema_version: u32,
     pub(super) selector: Selector,
     pub(super) numbering_systems: Vec<Numbering>,
+    pub(super) numbering_supplement: NumberingSupplement,
+    pub(super) era_supplement: EraSupplement,
     pub(super) algorithmic_fields: Vec<Algorithmic>,
     pub(super) zone_geography: Geography,
+    pub(super) calendar_pool: Vec<Calendar>,
+    pub(super) zone_name_pool: Vec<ZoneNames>,
     pub(super) locales: Vec<Locale>,
 }
 #[derive(Deserialize)]
@@ -27,6 +31,23 @@ pub(super) struct Selector {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct NumberingSupplement {
+    pub(super) identifier: String,
+    pub(super) cldr_release: String,
+    pub(super) cldr_commit: String,
+    pub(super) unicode_release: String,
+    pub(super) source_manifest_sha256: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EraSupplement {
+    pub(super) identifier: String,
+    pub(super) cldr_release: String,
+    pub(super) cldr_commit: String,
+    pub(super) source_manifest_sha256: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Numbering {
     pub(super) identifier: String,
     pub(super) digits: String,
@@ -41,6 +62,36 @@ pub(super) struct Algorithmic {
     pub(super) source: String,
     pub(super) ruleset: String,
     pub(super) consumed_rules: Vec<(String, u64, String)>,
+    pub(super) positional_fallback: Option<PositionalFallback>,
+}
+#[derive(Deserialize, Clone, Copy)]
+pub(super) enum PositionalFallback {
+    #[serde(rename = "latn")]
+    Latin,
+}
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum Weekday {
+    Sun,
+    Mon,
+    Tue,
+    Wed,
+    Thu,
+    Fri,
+    Sat,
+}
+impl Weekday {
+    pub(super) const fn sunday_index(self) -> u8 {
+        match self {
+            Self::Sun => 0,
+            Self::Mon => 1,
+            Self::Tue => 2,
+            Self::Wed => 3,
+            Self::Thu => 4,
+            Self::Fri => 5,
+            Self::Sat => 6,
+        }
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,8 +107,9 @@ pub(super) struct Locale {
     pub(super) preferred_hour: char,
     pub(super) allowed_hours: Vec<String>,
     pub(super) day_period_rules: Vec<PeriodRule>,
-    pub(super) calendars: BTreeMap<String, Calendar>,
-    pub(super) zone_names: ZoneNames,
+    pub(super) first_weekday: Weekday,
+    pub(super) calendar_refs: Vec<(String, u32)>,
+    pub(super) zone_name_ref: u32,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,7 +123,7 @@ pub(super) struct PeriodRule {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Calendar {
-    pub(super) calendar: String,
+    pub(super) calendar: super::profile::CalendarDataKind,
     pub(super) names: Vec<Name>,
     pub(super) styles: BTreeMap<String, Style>,
     pub(super) available: Vec<Available>,
@@ -89,6 +141,8 @@ pub(super) struct Name {
     pub(super) width: Option<String>,
     pub(super) index: Option<u8>,
     pub(super) period: Option<String>,
+    pub(super) year_type: Option<super::names::MonthYearType>,
+    pub(super) era_source_calendar: Option<super::names::EraSource>,
     pub(super) value: String,
 }
 #[derive(Deserialize)]
@@ -103,6 +157,7 @@ pub(super) struct Style {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Pattern {
+    pub(super) range_pattern: Option<Box<Pattern>>,
     pub(super) source: String,
     pub(super) tokens: Vec<Token>,
     pub(super) numbering_overrides: Vec<NumberingOverride>,
@@ -110,6 +165,7 @@ pub(super) struct Pattern {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Available {
+    pub(super) range_pattern: Option<Box<Pattern>>,
     pub(super) skeleton: String,
     pub(super) source: String,
     pub(super) tokens: Vec<Token>,

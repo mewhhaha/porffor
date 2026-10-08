@@ -3,31 +3,33 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum DateParseForm {
     Iso,
-    Display { weekday: u32 },
+    Display { weekday: I64Local },
 }
 
 pub(super) struct DateParseComponents {
-    pub(super) year: u32,
-    pub(super) month: u32,
-    pub(super) date: u32,
-    pub(super) hour: u32,
-    pub(super) minute: u32,
-    pub(super) second: u32,
-    pub(super) millisecond: u32,
-    pub(super) offset: u32,
+    pub(super) year: I64Local,
+    pub(super) month: I64Local,
+    pub(super) date: I64Local,
+    pub(super) hour: I64Local,
+    pub(super) minute: I64Local,
+    pub(super) second: I64Local,
+    pub(super) millisecond: I64Local,
+    pub(super) offset: I64Local,
+    local_time: I64Local,
 }
 
 impl DateParseComponents {
     pub(super) fn new(builder: &mut FunctionBuilder<'_>, function: &mut Function) -> Self {
         let parts = Self {
-            year: builder.reserve_temp_local(),
-            month: builder.reserve_temp_local(),
-            date: builder.reserve_temp_local(),
-            hour: builder.reserve_temp_local(),
-            minute: builder.reserve_temp_local(),
-            second: builder.reserve_temp_local(),
-            millisecond: builder.reserve_temp_local(),
-            offset: builder.reserve_temp_local(),
+            year: builder.runtime_schema().reserve_i64_local(function),
+            month: builder.runtime_schema().reserve_i64_local(function),
+            date: builder.runtime_schema().reserve_i64_local(function),
+            hour: builder.runtime_schema().reserve_i64_local(function),
+            minute: builder.runtime_schema().reserve_i64_local(function),
+            second: builder.runtime_schema().reserve_i64_local(function),
+            millisecond: builder.runtime_schema().reserve_i64_local(function),
+            offset: builder.runtime_schema().reserve_i64_local(function),
+            local_time: builder.runtime_schema().reserve_i64_local(function),
         };
         // Month is zero-based for MakeDay. All absent ISO elements receive
         // their specified defaults, including reduced date-time forms.
@@ -35,12 +37,12 @@ impl DateParseComponents {
             let initial = if local == parts.date { 1.0 } else { 0.0 };
             function.instruction(&Instruction::F64Const(Ieee64::from(initial)));
             function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(local));
+            local.store(function);
         }
         parts
     }
 
-    fn locals(&self) -> [u32; 8] {
+    fn locals(&self) -> [I64Local; 9] {
         [
             self.year,
             self.month,
@@ -50,7 +52,18 @@ impl DateParseComponents {
             self.second,
             self.millisecond,
             self.offset,
+            self.local_time,
         ]
+    }
+
+    pub(super) fn use_local_time(&self, function: &mut Function) {
+        function.instruction(&Instruction::I64Const(1));
+        self.local_time.store(function);
+    }
+
+    pub(super) fn use_utc_time(&self, function: &mut Function) {
+        function.instruction(&Instruction::I64Const(0));
+        self.local_time.store(function);
     }
 
     /// Validate the written calendar date before applying the special ISO
@@ -61,58 +74,69 @@ impl DateParseComponents {
         builder: &mut FunctionBuilder<'_>,
         cursor: &DateParseCursor,
         form: DateParseForm,
-        dest: u32,
+        dest: I64Local,
         function: &mut Function,
-    ) {
-        let rollover = builder.reserve_temp_local();
-        let day = builder.reserve_temp_local();
-        let time = builder.reserve_temp_local();
-        let parsed = builder.reserve_temp_local();
-        let actual: [u32; 7] = std::array::from_fn(|_| builder.reserve_temp_local());
+    ) -> Result<(), EmitError> {
+        let rollover = builder.runtime_schema().reserve_i64_local(function);
+        let day = builder.runtime_schema().reserve_i64_local(function);
+        let time = builder.runtime_schema().reserve_i64_local(function);
+        let prepared_validation = builder.reserve_date_make_date_result(function);
+        let actual: [I64Local; 7] =
+            std::array::from_fn(|_| builder.runtime_schema().reserve_i64_local(function));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(rollover));
+        rollover.store(function);
         match form {
             DateParseForm::Iso => {
-                function.instruction(&Instruction::LocalGet(self.hour));
+                self.hour.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(24.0)));
                 function.instruction(&Instruction::F64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 for local in [self.minute, self.second, self.millisecond] {
-                    function.instruction(&Instruction::LocalGet(local));
+                    local.load(function);
                     function.instruction(&Instruction::F64ReinterpretI64);
                     function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
                     function.instruction(&Instruction::F64Eq);
                     cursor.require(function);
                 }
                 function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(rollover));
+                rollover.store(function);
                 function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.hour));
+                self.hour.store(function);
                 function.instruction(&Instruction::End);
             }
             DateParseForm::Display { .. } => {}
         }
-        builder.emit_date_make_day(self.year, self.month, self.date, day, function);
-        builder.emit_date_make_time(
+        let fields = [
+            self.year,
+            self.month,
+            self.date,
             self.hour,
             self.minute,
             self.second,
             self.millisecond,
-            time,
+        ];
+        let validation = builder.emit_date_make_date_from_components_into(
+            prepared_validation,
+            &fields,
             function,
         );
-        function.instruction(&Instruction::LocalGet(day));
+        validation.payload().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::LocalGet(time));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::F64Div);
+        function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(parsed));
+        day.store(function);
         builder.emit_date_components_from_time(
-            parsed, actual[0], actual[1], actual[2], actual[3], actual[4], actual[5], actual[6],
+            validation.payload(),
+            actual[0],
+            actual[1],
+            actual[2],
+            actual[3],
+            actual[4],
+            actual[5],
+            actual[6],
             function,
         );
         for (actual, expected) in actual.into_iter().zip([
@@ -124,9 +148,9 @@ impl DateParseComponents {
             self.second,
             self.millisecond,
         ]) {
-            function.instruction(&Instruction::LocalGet(actual));
+            actual.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::LocalGet(expected));
+            expected.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Eq);
             cursor.require(function);
@@ -134,49 +158,78 @@ impl DateParseComponents {
         match form {
             DateParseForm::Iso => {}
             DateParseForm::Display { weekday } => {
-                function.instruction(&Instruction::LocalGet(day));
+                day.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
                 function.instruction(&Instruction::F64Add);
                 function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(time));
+                time.store(function);
                 builder.emit_date_positive_mod(time, 7.0, function);
-                function.instruction(&Instruction::LocalGet(weekday));
+                weekday.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Eq);
                 cursor.require(function);
             }
         }
         cursor.require_end(function);
-        function.instruction(&Instruction::LocalGet(cursor.valid));
+        cursor.valid.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(parsed));
+        // Calendar validation precedes ISO 24:00 rollover. Re-run actual
+        // MakeDate on the rolled component inputs; completed proofs are never
+        // mutated to impersonate a different mathematical result.
+        self.date.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(rollover));
+        rollover.load(function);
         function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
-        function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::LocalGet(self.offset));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        self.date.store(function);
+        let prepared = builder.reserve_date_make_date_result(function);
+        let date = builder.emit_date_make_date_from_components_into(prepared, &fields, function);
+        self.local_time.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let prepared_clip = builder.reserve_date_clip_result(function);
+        let clipped =
+            builder.emit_date_utc_time_clip_from_make_date_into(prepared_clip, &date, function)?;
+        clipped.payload().load(function);
+        dest.store(function);
+        clipped.release(builder, function);
+        function.instruction(&Instruction::Else);
+        let adjusted = builder.runtime_schema().reserve_i64_local(function);
+        date.payload().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        self.offset.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(parsed));
-        builder.emit_date_time_clip(parsed, dest, function);
+        adjusted.store(function);
+        let prepared_clip = builder.reserve_date_clip_result(function);
+        let clipped = builder.emit_date_time_clip_into(prepared_clip, adjusted, function);
+        clipped.payload().load(function);
+        dest.store(function);
+        clipped.release(builder, function);
+        builder
+            .runtime_schema()
+            .release_i64_local(adjusted, function);
+        function.instruction(&Instruction::End);
+        date.release(builder, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest));
+        dest.store(function);
         function.instruction(&Instruction::End);
         for local in actual.into_iter().rev() {
-            builder.release_temp_local(local);
+            builder.runtime_schema().release_i64_local(local, function);
         }
-        for local in [parsed, time, day, rollover] {
-            builder.release_temp_local(local);
+        validation.release(builder, function);
+        for local in [time, day, rollover] {
+            builder.runtime_schema().release_i64_local(local, function);
         }
         for local in self.locals().into_iter().rev() {
-            builder.release_temp_local(local);
+            builder.runtime_schema().release_i64_local(local, function);
         }
+        Ok(())
     }
 }

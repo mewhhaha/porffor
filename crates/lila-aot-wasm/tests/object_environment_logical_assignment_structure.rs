@@ -1,4 +1,5 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
+const ENVIRONMENT_EMITTER: &str = include_str!("../src/expressions/environment_identifier.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const LOGICAL_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/object_environment_logical.rs");
@@ -116,7 +117,7 @@ fn shared_private_lifecycle_keeps_putvalue_inside_the_taken_branch() {
 }
 
 #[test]
-fn noncopy_with_and_global_plans_consume_one_selected_reference() {
+fn with_selection_and_global_start_consume_one_selected_reference() {
     assert!(REFERENCE_SOURCE.contains(
         "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
@@ -155,39 +156,46 @@ fn noncopy_with_and_global_plans_consume_one_selected_reference() {
     assert!(resolution.contains("else_expr: Box::new(fallback)"));
     assert_before(resolution, "let binding_visible =", "let selected =");
 
-    assert!(REFERENCE_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment\"]\npub(crate) struct GlobalObjectEnvironmentReferencePlan {"
-    ));
-    let global_impl = bounded(
-        REFERENCE_SOURCE,
-        "impl GlobalObjectEnvironmentReferencePlan {",
-        "/// Compiler-private bindings used by one Object Environment numeric update.",
+    let global = bounded(
+        LOGICAL_SOURCE,
+        "    fn lower_global_environment_logical_assignment(",
+        "    pub(super) fn lower_located_identifier_logical_assignment(",
     );
+    assert!(global.contains("EnvironmentIdentifierIr::global("));
+    assert!(global.contains("EnvironmentIdentifierOperationIr::LogicalCompound {"));
+    assert!(!global.contains("ExprIr::GlobalPropertyRead"));
+    assert!(!global.contains("ExprIr::GlobalPropertyWrite"));
     assert!(
-        global_impl.contains("ObjectEnvironmentBindingObject::global_object(global_object_info)")
+        ENVIRONMENT_EMITTER.contains("EnvironmentIdentifierResolutionStart::GlobalEnvironment =>")
     );
-    assert!(!global_impl.contains("binding_visible("));
-    assert!(!global_impl.contains("unscopables_binding"));
-    let global_logical = bounded(
-        global_impl,
-        "    pub(crate) fn logical_assignment(",
-        "\n    }\n}",
+    assert!(ENVIRONMENT_EMITTER
+        .contains("self.emit_resolve_global_identifier(&key, identifier.strictness, function)?"));
+    assert_before(
+        ENVIRONMENT_EMITTER,
+        "let reference = match identifier.resolution_start()",
+        "self.emit_environment_identifier_get(&reference, read, &value, function)?;",
     );
-    for marker in [
-        "let present = binding_object.has_property(&referenced_name);",
-        "binding_object.logical_assignment(&referenced_name, strictness, op, rhs)",
-        "name: NativeErrorKind::ReferenceError",
-        "condition: Box::new(present)",
-        "then_expr: Box::new(selected)",
-        "else_expr: Box::new(missing)",
-    ] {
-        assert!(
-            global_logical.contains(marker),
-            "missing global plan: {marker}"
-        );
-    }
-    assert_before(global_logical, "let present =", "let selected =");
-    assert_before(global_logical, "let selected =", "let missing =");
+    let logical = bounded(
+        ENVIRONMENT_EMITTER,
+        "                    Operation::LogicalCompound { operation, rhs } => {",
+        "                    Operation::Call { args, direct_eval } => {",
+    );
+    assert_before(
+        logical,
+        "self.open_frame(ControlFrameKind::If",
+        "self.compile_expr_to_value(rhs",
+    );
+    assert_before(
+        logical,
+        "self.compile_expr_to_value(rhs",
+        "self.emit_environment_identifier_put(&reference",
+    );
+    assert!(!logical.contains("emit_resolve_"));
+    assert_before(
+        logical,
+        "self.emit_environment_identifier_put(&reference",
+        "self.pop_control(ControlFrameKind::If)",
+    );
 }
 
 #[test]
@@ -202,21 +210,23 @@ fn pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit() {
         "#[must_use = \"a pre-RHS logical-assignment Reference must be consumed after RHS lowering\"]\npub(super) struct LocatedIdentifierLogicalAssignment {"
     ));
     assert!(located.contains("reference: LocatedIdentifierReference"));
-    assert!(located.contains("proven_global_value: Option<ValueInfo>"));
+    assert!(located.contains("global_value_candidates: Option<ValueInfo>"));
     assert!(located.contains("pub(super) fn reject_definite_tdz(self)"));
     assert!(!located.contains("#[derive"));
     assert!(!located.contains("Clone"));
     assert!(!located.contains("Copy"));
     assert!(!located.contains("pub(super) reference:"));
-    assert!(!located.contains("pub(super) proven_global_value:"));
+    assert!(!located.contains("pub(super) global_value_candidates:"));
 
     let producer = bounded(
         LOGICAL_SOURCE,
         "    pub(super) fn locate_identifier_logical_assignment(",
-        "    pub(super) fn lower_global_object_environment_logical_assignment(",
+        "    fn lower_global_environment_logical_assignment(",
     );
     assert!(producer.contains("let reference = self.locate_identifier_reference(name);"));
-    assert!(producer.contains(".filter(|info| info.proven_present)"));
+    assert!(
+        producer.contains(".filter(|info| info.source != GlobalPropertySource::DefinitelyDeleted)")
+    );
     assert!(producer.contains(".map(|info| info.value_info.clone())"));
     assert!(producer.contains("LocatedIdentifierLogicalAssignment {"));
     assert_eq!(
@@ -258,7 +268,11 @@ fn pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit() {
         "let rhs_value = self.lower_conditionally_reached_expression(rhs);",
     );
     assert!(arm.contains("reference.reject_definite_tdz()"));
-    assert!(arm.contains("reference.is_unproven_global()"));
+    assert_before(
+        arm,
+        "self.invalidate_unknown_user_code_effects();",
+        "let rhs_value = self.lower_conditionally_reached_expression(rhs);",
+    );
     assert!(arm.contains("plan.logical_assignment(logical_op, rhs_value, fallback)"));
     assert!(arm.contains("LogicalAssignmentReachability::WithEnvironmentFallback"));
     assert!(arm.contains("LogicalAssignmentReachability::Definite"));
@@ -270,26 +284,26 @@ fn pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit() {
     );
     assert!(consumer.contains("located: LocatedIdentifierLogicalAssignment"));
     assert!(consumer.contains("let LocatedIdentifierLogicalAssignment {"));
-    assert!(consumer.contains(".or(proven_global_value)"));
+    assert!(consumer.contains("return self.lower_global_environment_logical_assignment("));
     assert!(consumer.contains("ExprIr::LogicalShortCircuit {"));
     assert!(consumer.contains("rhs: Box::new(write)"));
     assert_eq!(
         consumer
             .matches("LogicalAssignmentReachability::WithEnvironmentFallback =>")
             .count(),
-        4,
+        3,
     );
     assert!(consumer.contains("value.widen_for_possible_replacement();"));
 
     let global = bounded(
         LOGICAL_SOURCE,
-        "    pub(super) fn lower_global_object_environment_logical_assignment(",
+        "    fn lower_global_environment_logical_assignment(",
         "    pub(super) fn lower_located_identifier_logical_assignment(",
     );
-    assert!(global.contains("info.value_info.widen_for_possible_replacement();"));
-    assert!(global.contains("info.proven_present = false;"));
-    assert!(global.contains("GlobalObjectEnvironmentReferencePlan::new("));
-    assert!(global.contains(".logical_assignment(op, rhs)"));
+    assert!(global.contains("result_info.widen_for_possible_replacement();"));
+    assert!(global.contains("self.invalidate_unknown_user_code_effects();"));
+    assert!(global.contains("EnvironmentIdentifierIr::global("));
+    assert!(global.contains("rhs: Box::new(rhs)"));
 }
 
 #[test]

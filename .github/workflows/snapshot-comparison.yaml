@@ -25,9 +25,9 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/snapshot-comparison-evidence
           git rev-parse HEAD | tee /tmp/snapshot-comparison-evidence/source-commit.txt
-          sha256sum crates/lila-test262/src/lib.rs crates/lila-test262/tests/snapshot_comparison_identity.rs \
+          sha256sum crates/lila-test262/src/lib.rs crates/lila-test262/src/snapshot_comparison_identity_tests.rs \
             | tee /tmp/snapshot-comparison-evidence/input-sha256.txt
-          cargo test --locked -p lila-test262 --test snapshot_comparison_identity --no-run --message-format=json \
+          cargo test --locked -p lila-test262 --lib --no-run --message-format=json \
             > /tmp/snapshot-comparison-evidence/build.jsonl
       - name: Execute the complete compiled inventory
         shell: bash
@@ -37,18 +37,36 @@ jobs:
           import sys
           from pathlib import Path
           sys.path.insert(0, "scripts")
-          from run_engine_regression_inventory import run_inventory
+          import hashlib
+          import subprocess
+          from run_aot_unit_shard import parse_inventory, passed_exactly_one
           evidence = Path("/tmp/snapshot-comparison-evidence")
           binaries = set()
           for line in (evidence / "build.jsonl").read_text().splitlines():
               message = json.loads(line)
               if (message.get("reason") == "compiler-artifact"
-                      and message["target"]["name"] == "snapshot_comparison_identity"
+                      and message["target"]["name"] == "lila_test262"
                       and message["profile"]["test"] and message.get("executable")):
                   binaries.add(message["executable"])
           if len(binaries) != 1:
               raise SystemExit(f"expected exactly one comparison test executable, found {binaries}")
-          summary = run_inventory(Path(binaries.pop()), evidence, timeout=120)
+          binary = Path(binaries.pop())
+          inventory = subprocess.check_output([str(binary), "--list"], text=True, timeout=30)
+          (evidence / "inventory.txt").write_text(inventory)
+          all_names = parse_inventory(inventory)
+          names = [name for name in all_names if name.startswith("snapshot_comparison_identity_tests::")]
+          if len(names) != 10:
+              raise SystemExit(f"expected all ten retained comparison controls, found {names}")
+          results = []
+          for name in names:
+              result = subprocess.run([str(binary), name, "--exact", "--nocapture", "--test-threads=1"],
+                                      text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+              log = hashlib.sha256(name.encode()).hexdigest() + ".txt"
+              (evidence / log).write_text(result.stdout)
+              passed = result.returncode == 0 and passed_exactly_one(result.stdout, len(all_names))
+              results.append({"name": name, "passed": passed, "log": log})
+          summary = {"total": len(results), "passed": sum(item["passed"] for item in results), "results": results}
+          (evidence / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
           if summary["passed"] != summary["total"]:
               raise SystemExit("comparison contract inventory failed")
           PY

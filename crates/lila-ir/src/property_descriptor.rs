@@ -479,10 +479,6 @@ impl<C: DescriptorCarrier> PartialDescriptor<C> {
     ///   definition descriptor is projected from the same converted record,
     ///   after ToBoolean, for namespace and TypedArray dispatch without
     ///   observing input fields again.
-    /// * `lila-aot-wasm/src/builtins/reflect.rs`,
-    ///   `FunctionBuilder::compile_reflect_define_property_builtin` — the
-    ///   emitted mixed data/accessor rejection immediately dominates its
-    ///   definition descriptor, shared by namespace and TypedArray dispatch.
     ///
     /// Adding a caller without adding a line here is the defect this doc
     /// comment exists to make visible to `rg from_runtime_checked`. The
@@ -591,6 +587,38 @@ impl<C: DescriptorCarrier> ValidatedDescriptor<C> {
 
     pub fn into_partial(self) -> PartialDescriptor<C> {
         self.0
+    }
+
+    /// Changes only the carriers of the three attribute values. Field
+    /// presence, runtime presence identities and the data/accessor/generic
+    /// classification are preserved, so validation cannot be omitted here.
+    ///
+    /// The actual consumer is the AOT reserved descriptor owner: its
+    /// ToBoolean results project from tagged locals to Boolean payload locals
+    /// for the namespace and TypedArray definition operations.
+    pub fn map_flags<D>(
+        &self,
+        mut map_flag: impl FnMut(C::Flag) -> D::Flag,
+    ) -> ValidatedDescriptor<D>
+    where
+        D: DescriptorCarrier<Value = C::Value, RuntimeFlag = C::RuntimeFlag>,
+    {
+        let mut flag = |presence: Presence<C::Flag, C::RuntimeFlag>| match presence {
+            Presence::Absent => Presence::Absent,
+            Presence::Present(value) => Presence::Present(map_flag(value)),
+            Presence::Runtime { present, value } => Presence::Runtime {
+                present,
+                value: map_flag(value),
+            },
+        };
+        ValidatedDescriptor(PartialDescriptor {
+            value: self.0.value.clone(),
+            writable: flag(self.0.writable),
+            get: self.0.get.clone(),
+            set: self.0.set.clone(),
+            enumerable: flag(self.0.enumerable),
+            configurable: flag(self.0.configurable),
+        })
     }
 }
 

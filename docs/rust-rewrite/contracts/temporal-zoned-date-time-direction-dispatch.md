@@ -1,40 +1,53 @@
 # Temporal ZonedDateTime direction dispatch
 
-Status: current Wasm-AOT direction contract as of 2026-09-12. The structural
-assertion refresh passed the [coordinated verification checkpoint](../../../test262/replays/zoned-date-time-follow-up-20260910.verification.json).
+## Source replacement — 2026-10-05
 
-## Invariant
+The GC source retains the shared closed direction domains and four fixed entries. Each entry now passes complete argument and options values to the branded GC receiver authority. The former payload/tag source recipe has been retired; the unchanged fixed-route and historical receipt checks remain.
 
-`ZonedDateTimeArithmetic::{Add, Subtract}` and
-`ZonedDateTimeDifference::{Until, Since}` are private, non-derived domains in
-`builtins/temporal_zoned_date_time_methods.rs`. Arithmetic retains its private
-exhaustive projection to the corresponding PlainDateTime `add` or `subtract`
-builtin. Difference dispatch uses two exhaustive matches inside its private
-shared emitter:
+The pre-retirement source is identified exactly:
 
-| Direction | Shared arithmetic operation | Settings plan |
-| --- | --- | --- |
-| `Until` | `TemporalPlainDifferenceOperation::Until` | `TemporalDateTimeDifferenceSettingsPlan::ZonedUntil` |
-| `Since` | `TemporalPlainDifferenceOperation::Since` | `TemporalDateTimeDifferenceSettingsPlan::ZonedSince` |
+- `temporal_zoned_date_time_dispatch_structure.rs`: SHA-256 `c877c582ca0e3f45733a8d23c330cc2eeae9b01ac33313d2ce74f113e8c508af`.
 
-The settings plan owns the hour fallback and rounding-mode direction. The
-operation carries the final-result direction into shared date-time arithmetic.
-Time-unit differences use exact epoch arithmetic in the ZonedDateTime entry.
-PR47 removed the difference projection to PlainDateTime builtin identities and
-its normalized options transport; the fixed catalog boundary remains intact.
+The earlier verification checkpoints below do not verify the GC replacement. The atomic GC source and its finite controls are authored and unexecuted; compilation, Wasm validation and runtime conformance remain unverified.
 
-The shared catalog dispatcher can call only four fixed entries:
-`emit_temporal_zoned_date_time_add_builtin`, `subtract_builtin`,
-`until_builtin` and `since_builtin`. It cannot import either direction domain,
-select a variant, or call either raw emitter. `builtins/mod.rs` does not
-re-export the domains.
+Status: staged source contract for the T22 named-zone authority batch, 2026-09-30.
+The new leaves, shared arithmetic and named provider are staged and unexecuted;
+this document records no new runtime result or published-suite count.
 
-The module audit requires the exact private domains, four fixed entries and
-four fixed catalog routes, rejects raw emitter calls and escaping domains, and
-budgets the family owner independently. The structural target pins the exact
-variants, the arithmetic projection, both difference mappings, fixed
-entry-to-variant mapping, fixed catalog routes, private raw emitters and absent
-re-export.
+## Current invariant
+
+The shared closed direction domains
+`TemporalZonedArithmeticOperation::{Add, Subtract}` and
+`TemporalZonedDifferenceOperation::{Until, Since}` belong to
+`builtins/temporal_zoned_arithmetic.rs`. The four fixed entries in
+`temporal_zoned_date_time_methods.rs` select exactly one direction and pass the
+opaque branded receiver plus complete original argument/options values to that
+single authority. They do not convert through PlainDateTime or re-coerce values.
+
+The authority owns duration conversion, calendar arithmetic, exact elapsed
+arithmetic and zoned difference settings. Add/subtract read duration and overflow
+before local projection. Until/since convert the other operand and compare actual
+calendars before reading settings; date-unit comparisons use PrimaryIdentifier,
+while time-unit differences use exact epochs. Retained proof handles keep zone,
+calendar and normalized epoch tied to their actual construction and allocation.
+
+The shared catalog dispatcher still calls only four fixed entries:
+`emit_temporal_zoned_date_time_add_builtin`, `subtract_builtin`, `until_builtin`
+and `since_builtin`. It cannot select either operation domain or call either
+private raw leaf wrapper. `builtins/mod.rs` does not re-export the domains.
+The module guard locates the shared authority and checks four fixed routes;
+the retained structure target checks entry-to-direction mappings and
+fixed catalog routes into that authority. Runtime meaning belongs to the
+forthcoming named-zone native and exact pinned controls, not those source checks.
+
+## Retired owner distinction
+
+The former private, non-derived domains `ZonedDateTimeArithmetic` and
+`ZonedDateTimeDifference` and their PlainDateTime arithmetic projection are
+retired by this coherent batch. The old fixed-zone difference machinery is
+replaced by the shared zone-aware authority. These historical ownership claims
+and source-equivalence receipts below remain evidence of their original
+checkpoint; they are not claims about the replacement source.
 
 ## Historical source-equivalence witnesses: 2026-09-01 checkpoint
 
@@ -70,9 +83,8 @@ rerun supplies current verification separately from these historical results.
 
 ## Nonclaims
 
-The original source-equivalent compiler hardening introduced no new Temporal behavior,
-Test262 pass or published-status change. PR47 subsequently repaired the option
-ordering and shared difference arithmetic; its evidence has its own scope.
-The current assertion/comment refresh adds no runtime behavior. Named-zone and
-DST arithmetic remain outside the supported UTC/fixed-offset domain, and this
-does not close T22.
+The historical closure introduced no new Temporal behavior, Test262 pass or
+published-status change. PR47's shared fixed-zone difference/ordering work has
+separate evidence. The staged T22 replacement requires the full named consumer
+graph and its actual verification checkpoint before named admission; it does
+not establish full Temporal conformance and does not close T22.

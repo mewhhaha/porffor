@@ -8,9 +8,21 @@ impl<'a> ScriptLowerer<'a> {
         context_key_override: Option<ExactCallbackContextKey>,
     ) -> FunctionIr {
         let output_id = output_id.unwrap_or_else(|| function.id.clone());
-        let resumable_plan = (function.protocol.execution_kind()
-            == FunctionExecutionKind::AsyncGenerator)
-            .then(|| async_generator_resumable_plan(function.body));
+        let resumable_plan = if function.protocol.execution_kind()
+            == FunctionExecutionKind::AsyncGenerator
+        {
+            match async_generator_resumable_plan(function.body) {
+                Ok(plan) => Some(plan),
+                Err(error) => {
+                    self.unsupported_with_message(format!(
+                        "unsupported in lila wasm-aot: async-generator source has no complete continuation owner: {error:?}"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let captures_private_environment = self
             .analysis
             .owner_plans
@@ -20,7 +32,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
-            self.root_this_binding,
+            self.root_this_binding_for_function_owner(&function.id),
             function.id.clone(),
             self.host_surface_policy,
         );
@@ -32,6 +44,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.observed_script_global_writes = self.observed_script_global_writes.clone();
         lowerer.well_known_symbol_prototype_properties =
             self.well_known_symbol_prototype_properties.clone();
         lowerer.known_nested_script_global_value_infos =
@@ -47,10 +60,6 @@ impl<'a> ScriptLowerer<'a> {
         }
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_state = self.number_prototype_to_string_state;
-        lowerer.number_prototype_match_is_string_match =
-            self.number_prototype_match_is_string_match;
-        lowerer.number_prototype_split_is_string_split =
-            self.number_prototype_split_is_string_split;
         lowerer.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
         lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
@@ -66,6 +75,15 @@ impl<'a> ScriptLowerer<'a> {
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.var_bindings = self.var_bindings.clone();
         lowerer.seed_script_global_var_properties();
+        // A final body may execute after any top-level write, but it is
+        // lowered before the root-statement pass replays those writes.
+        // Degrade every observed-written global so shape reads, static calls
+        // and intrinsic folds in the emitted body all observe the possible
+        // replacement. Prepass and propagation bodies keep baseline facts:
+        // their output is signatures and summaries, never emitted code.
+        if !self.is_prepass {
+            self.degrade_observed_written_globals(&mut lowerer);
+        }
         lowerer.exact_context_function_observations =
             std::mem::take(&mut self.exact_context_function_observations);
         lowerer.exact_context_callback_observations =
@@ -89,23 +107,13 @@ impl<'a> ScriptLowerer<'a> {
                 lowerer.current_async_resume_state = Some(0);
             }
             FunctionExecutionKind::AsyncGenerator => {
-                let entry_state = resumable_plan
-                    .as_ref()
-                    .expect("async generator must have a resumable plan")
-                    .entry_state;
-                lowerer.current_generator_resume_state = Some(entry_state);
-                lowerer.current_async_resume_state = Some(entry_state);
-                lowerer.current_resumable_plan = resumable_plan.clone();
+                if let Some(plan) = &resumable_plan {
+                    lowerer.current_generator_resume_state = Some(plan.entry_state);
+                    lowerer.current_async_resume_state = Some(plan.entry_state);
+                    lowerer.current_resumable_plan = resumable_plan.clone();
+                }
             }
             FunctionExecutionKind::Ordinary => {}
-        }
-        if function.protocol.execution_kind() != FunctionExecutionKind::Ordinary
-            && function.captures.values().any(|capture| {
-                self.analysis.environment_plans[&capture.environment_id].kind
-                    == EnvironmentKind::WithObject
-            })
-        {
-            lowerer.unsupported("resumable function capture of a with Object Environment Record");
         }
         let exact_context_signature =
             lowerer.exact_signature_for_function(&function.id, context_key_override.as_ref());
@@ -251,6 +259,7 @@ impl<'a> ScriptLowerer<'a> {
             self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
             self.completed_direct_call_propagations = lowerer.completed_direct_call_propagations;
             return FunctionIr {
+                template_source: self.analysis.template_source,
                 eval_environment: self.analysis.owner_eval_environment(&function.id),
                 id: output_id.clone(),
                 name: function.name.clone(),
@@ -592,6 +601,15 @@ impl<'a> ScriptLowerer<'a> {
                 ));
             }
         }
+        if lowerer
+            .current_resumable_plan
+            .as_ref()
+            .is_some_and(|plan| !plan.matches_resume_environment_plan())
+        {
+            lowerer.unsupported(
+                "async-generator resume environments must retain their checked source owner",
+            );
+        }
         let mut body_statements = parameter_prefix_statements;
         let result_kind = lowered_body.result_kind;
         body_statements
@@ -684,6 +702,8 @@ impl<'a> ScriptLowerer<'a> {
             .extend(lowerer.dynamically_installed_getters);
         self.dynamically_installed_setters
             .extend(lowerer.dynamically_installed_setters);
+        self.observed_script_global_writes
+            .extend(std::mem::take(&mut lowerer.observed_script_global_writes));
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls += lowerer.host_builtin_calls;
         self.top_level_this_uses += lowerer.top_level_this_uses;
@@ -691,6 +711,7 @@ impl<'a> ScriptLowerer<'a> {
         let body_uses_super = summarize_block(&body).super_uses > 0;
 
         FunctionIr {
+            template_source: self.analysis.template_source,
             eval_environment: self.analysis.owner_eval_environment(&function.id),
             id: output_id,
             name: function.name.clone(),

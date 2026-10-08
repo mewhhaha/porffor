@@ -4,9 +4,13 @@ use super::options::{LocaleMatcher, NumberFormatOptions};
 use super::partition_resource::{
     owned_text, NumberFormatKernelError, NumberPartitionResourceError, PartitionLimits,
 };
-use super::profiles::NumberProfiles;
+use super::profiles::{NumberLocaleView, NumberProfiles};
 use crate::CanonicalLocaleId;
-use core::fmt;
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+};
+use std::sync::Arc;
 
 /// Canonical BCP47 nu spelling, selected from one validated number profile.
 /// Construction belongs to the generated locale/numbering-system resolver.
@@ -20,11 +24,12 @@ impl DecimalNumberingSystem {
 
 /// Public resolved locale and internal formatting locale are deliberately
 /// separate: Unicode nu may survive in the former, never in the data key.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct ResolvedNumberLocale {
     resolved: CanonicalLocaleId,
     formatting: CanonicalLocaleId,
     numbering_system: DecimalNumberingSystem,
+    profiles: Arc<NumberProfiles>,
 }
 impl ResolvedNumberLocale {
     pub fn resolved(&self) -> &CanonicalLocaleId {
@@ -111,10 +116,26 @@ impl ResolvedNumberLocale {
         resolved: CanonicalLocaleId,
         formatting: CanonicalLocaleId,
         numbering_system: &str,
-        profiles: &NumberProfiles,
+        profiles: &Arc<NumberProfiles>,
     ) -> Result<Self, NumberFormatKernelError> {
-        if profiles.profile(formatting.as_str()).is_none()
-            || profiles.system(numbering_system).is_none()
+        Self::from_resolved_in(
+            resolved,
+            formatting,
+            numbering_system,
+            NumberLocaleView::public(profiles),
+        )
+    }
+
+    pub(crate) fn from_resolved_in(
+        resolved: CanonicalLocaleId,
+        formatting: CanonicalLocaleId,
+        numbering_system: &str,
+        view: NumberLocaleView<'_>,
+    ) -> Result<Self, NumberFormatKernelError> {
+        let profiles = view.owner();
+        if !view.contains(formatting.as_str())
+            || profiles.profile(formatting.as_str()).is_none()
+            || !profiles.supports_numbering_system(formatting.as_str(), numbering_system)
         {
             return Err(NumberFormatKernelError::InvalidResolvedLocale);
         }
@@ -131,6 +152,7 @@ impl ResolvedNumberLocale {
         Ok(Self {
             resolved,
             formatting,
+            profiles: Arc::clone(profiles),
             numbering_system: DecimalNumberingSystem(owned_text(
                 numbering_system,
                 &PartitionLimits::HOST_ABI,
@@ -144,20 +166,61 @@ fn canonical_copy(source: &str) -> Result<CanonicalLocaleId, NumberFormatKernelE
         .map_err(|_| NumberFormatKernelError::InvalidResolvedLocale)
 }
 
-fn matching_locale<'a>(
+pub(crate) fn matching_locale<'a>(
     requested: &str,
     matcher: LocaleMatcher,
     profiles: &'a NumberProfiles,
 ) -> Option<&'a str> {
-    // Best fit uses the same permitted prefix policy as lookup. The inventory
-    // remains complete; this only searches a request's locale fallback chain.
+    matching_locale_in(requested, matcher, profiles.available_locales(), profiles)
+}
+
+fn matching_locale_in<'a>(
+    requested: &str,
+    matcher: LocaleMatcher,
+    locales: &'a [Box<str>],
+    profiles: &NumberProfiles,
+) -> Option<&'a str> {
+    let mut lookup = |candidate: &str| {
+        locales
+            .binary_search_by(|name| name.as_ref().cmp(candidate))
+            .ok()
+            .map(|index| locales[index].as_ref())
+    };
     match matcher {
-        LocaleMatcher::Lookup | LocaleMatcher::BestFit => {}
+        LocaleMatcher::Lookup => matching_locale_by(requested, lookup),
+        LocaleMatcher::BestFit => {
+            let mut locale: icu_locale::Locale = requested.parse().ok()?;
+            let base = locale.id.to_string();
+            if let Some(exact) = lookup(&base) {
+                return Some(exact);
+            }
+            // Retain explicit exact associations. Otherwise let the selected
+            // Locale authority infer missing script/region before falling back
+            // to a language-only row (zh-TW must reach zh-Hant-TW, not zh).
+            let fallback = matching_locale_by(&base, &mut lookup);
+            profiles.maximize_for_matching(&mut locale.id);
+            let maximized = matching_locale_by(&locale.id.to_string(), lookup);
+            match (maximized, fallback) {
+                (Some(maximized), Some(fallback)) => {
+                    if maximized.split('-').count() > fallback.split('-').count() {
+                        Some(maximized)
+                    } else {
+                        Some(fallback)
+                    }
+                }
+                (maximized, fallback) => maximized.or(fallback),
+            }
+        }
     }
+}
+
+fn matching_locale_by<T>(requested: &str, mut lookup: impl FnMut(&str) -> Option<T>) -> Option<T> {
+    // The inventory belongs to the admitted public/dependent view. Neither
+    // lookup nor likely-subtag matching can expose a private physical row.
     let mut candidate = requested;
     while !candidate.is_empty() {
-        if let Ok(index) = profiles.available_locales().binary_search(&candidate) {
-            return Some(profiles.available_locales()[index]);
+        if let Some(found) = lookup(candidate) {
+            return Some(found);
         }
         let position = candidate.rfind('-')?;
         candidate = &candidate[..position];
@@ -171,6 +234,25 @@ fn matching_locale<'a>(
         }
     }
     None
+}
+
+/// The Locale method's absent-nu default uses NumberFormat's prefix inventory,
+/// without service option resolution, likely subtags or a default-locale choice.
+pub(crate) fn locale_default_numbering_system(
+    request: crate::LocaleNumberingSystemsRequest,
+    profiles: &NumberProfiles,
+) -> Result<DecimalNumberingSystem, NumberFormatKernelError> {
+    let locale = request.into_locale();
+    let name = matching_locale_by(locale.as_str(), |candidate| {
+        profiles.default_numbering_index(candidate)
+    })
+    .map_or("latn", |index| {
+        profiles.numbering_systems()[usize::from(index)].as_ref()
+    });
+    Ok(DecimalNumberingSystem(owned_text(
+        name,
+        &PartitionLimits::HOST_ABI,
+    )?))
 }
 
 fn unicode_numbering_system(requested: &str) -> Option<&str> {
@@ -210,26 +292,42 @@ fn unicode_numbering_system(requested: &str) -> Option<&str> {
 
 pub fn resolve_number_locale(
     request: &NumberLocaleRequest,
-    profiles: &NumberProfiles,
+    profiles: &Arc<NumberProfiles>,
 ) -> Result<ResolvedNumberLocale, NumberFormatKernelError> {
+    resolve_number_locale_in(request, NumberLocaleView::public(profiles))
+}
+
+pub(crate) fn resolve_number_locale_in(
+    request: &NumberLocaleRequest,
+    view: NumberLocaleView<'_>,
+) -> Result<ResolvedNumberLocale, NumberFormatKernelError> {
+    let profiles = view.owner();
     let selected = request.requested.iter().find_map(|requested| {
-        matching_locale(requested.as_str(), request.matcher, profiles)
-            .map(|locale| (locale, unicode_numbering_system(requested.as_str())))
+        matching_locale_in(
+            requested.as_str(),
+            request.matcher,
+            view.locales(),
+            profiles,
+        )
+        .map(|locale| (locale, unicode_numbering_system(requested.as_str())))
     });
     let (formatting, extension) = selected.unwrap_or(("en-US", None));
     let profile = profiles
         .profile(formatting)
         .ok_or(NumberFormatKernelError::InvalidResolvedLocale)?;
-    let mut numbering = profiles.numbering_systems()[usize::from(profile.default_numbering)];
+    let mut numbering =
+        profiles.numbering_systems()[usize::from(profile.default_numbering)].as_ref();
     let mut retained = None;
-    if let Some(extension) = extension.filter(|name| profiles.system(name).is_some()) {
+    if let Some(extension) =
+        extension.filter(|name| profiles.supports_numbering_system(formatting, name))
+    {
         numbering = extension;
         retained = Some(extension);
     }
     if let Some(option) = request
         .numbering_system
         .as_ref()
-        .filter(|option| profiles.system(option.name()).is_some())
+        .filter(|option| profiles.supports_numbering_system(formatting, option.name()))
     {
         if option.name() != numbering {
             retained = None;
@@ -249,12 +347,12 @@ pub fn resolve_number_locale(
         resolved.push_str("-u-nu-");
         resolved.push_str(retained);
     }
-    ResolvedNumberLocale::from_resolved(
+    ResolvedNumberLocale::from_resolved_in(
         CanonicalLocaleId::from_data(resolved.into_boxed_str())
             .map_err(|_| NumberFormatKernelError::InvalidResolvedLocale)?,
         canonical_copy(formatting)?,
         numbering,
-        profiles,
+        view,
     )
 }
 
@@ -272,4 +370,42 @@ pub fn filter_number_locales(
         }
     }
     Ok(selected.into_boxed_slice())
+}
+
+impl ResolvedNumberLocale {
+    pub(crate) fn ensure_profiles(
+        &self,
+        profiles: &Arc<NumberProfiles>,
+    ) -> Result<(), NumberFormatKernelError> {
+        if !Arc::ptr_eq(&self.profiles, profiles) {
+            return Err(NumberFormatKernelError::InvalidResolvedLocale);
+        }
+        Ok(())
+    }
+}
+impl fmt::Debug for ResolvedNumberLocale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResolvedNumberLocale")
+            .field("resolved", &self.resolved)
+            .field("formatting", &self.formatting)
+            .field("numbering_system", &self.numbering_system)
+            .finish_non_exhaustive()
+    }
+}
+impl PartialEq for ResolvedNumberLocale {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.profiles, &other.profiles)
+            && self.resolved == other.resolved
+            && self.formatting == other.formatting
+            && self.numbering_system == other.numbering_system
+    }
+}
+impl Eq for ResolvedNumberLocale {}
+impl Hash for ResolvedNumberLocale {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.profiles).hash(state);
+        self.resolved.hash(state);
+        self.formatting.hash(state);
+        self.numbering_system.hash(state);
+    }
 }

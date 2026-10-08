@@ -1,55 +1,61 @@
 use super::*;
 
-#[must_use = "a validated Promise prototype then invocation must be called"]
+#[must_use = "the observed then Reference must be consumed by its call"]
 pub(super) struct ValidatedPromisePrototypeThenInvocationLocals {
-    method: TaggedLocals,
-    receiver: TaggedLocals,
+    method: ValueLocals,
+    receiver: ValueLocals,
 }
 
-impl<'a> FunctionBuilder<'a> {
+impl FunctionBuilder<'_> {
     pub(super) fn emit_validate_promise_prototype_then_invocation(
         &mut self,
-        method: TaggedLocals,
-        receiver: TaggedLocals,
+        method: &ValueLocals,
+        receiver: &ValueLocals,
         function: &mut Function,
     ) -> Result<ValidatedPromisePrototypeThenInvocationLocals, EmitError> {
-        self.emit_is_callable_i32(method.tag, method.payload, function)?;
+        let schema = self.runtime_schema();
+        self.emit_is_callable_i32(method, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
+        let error = schema.reserve_completion(function);
         self.emit_throw_current_function_realm_type_error(
-            "value is not callable",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::VALUE_IS_NOT_CALLABLE,
+            &error,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(&error, function);
+        self.emit_propagate_current_throw(function);
+        error.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        Ok(ValidatedPromisePrototypeThenInvocationLocals { method, receiver })
+        let copied_method = schema.reserve_value_local(function);
+        let copied_receiver = schema.reserve_value_local(function);
+        copied_method.copy_from(method, function);
+        copied_receiver.copy_from(receiver, function);
+        Ok(ValidatedPromisePrototypeThenInvocationLocals {
+            method: copied_method,
+            receiver: copied_receiver,
+        })
     }
-
     pub(super) fn emit_call_validated_promise_prototype_then_invocation(
         &mut self,
         invocation: ValidatedPromisePrototypeThenInvocationLocals,
-        first_argument: TaggedLocals,
-        second_argument: TaggedLocals,
-        result: TaggedLocals,
+        first: &ValueLocals,
+        second: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let ValidatedPromisePrototypeThenInvocationLocals { method, receiver } = invocation;
-
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method.payload,
-            method.tag,
-            receiver.payload,
-            receiver.tag,
-            &[
-                (first_argument.payload, first_argument.tag),
-                (second_argument.payload, second_argument.tag),
-            ],
-            result.payload,
-            result.tag,
+        let arguments = self.emit_pre_evaluated_arg_vector(&[first, second], function);
+        let emitted = self.emit_function_or_proxy_call_with_argv(
+            &invocation.method,
+            &invocation.receiver,
+            &arguments,
+            result,
             function,
-        )
+        );
+        arguments.clear(function);
+        invocation.receiver.clear(function);
+        invocation.method.clear(function);
+        emitted
     }
 }

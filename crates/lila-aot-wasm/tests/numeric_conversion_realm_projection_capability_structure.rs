@@ -75,18 +75,18 @@ fn numeric_realm_projections_are_exact_non_capability_domains() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&src, "NumericConversionRealmAccess"),
-        14
+        16
     );
     assert_eq!(
         count_in_rust_sources(
             &src,
             "NumericConversionRealmAccess::TrustedCurrentEnvironment"
         ),
-        6
+        7
     );
     assert_eq!(
         count_in_rust_sources(&src, "NumericConversionRealmAccess::MainRealmFallback"),
-        6
+        7
     );
     for retired_domain in [
         "OutlinedNumericRealmArgument",
@@ -97,7 +97,7 @@ fn numeric_realm_projections_are_exact_non_capability_domains() {
 }
 
 #[test]
-fn all_three_source_rows_project_once_for_both_consumers() {
+fn all_three_source_rows_share_the_single_realm_projection() {
     let projections = normalized(bounded(
         OPERATIONS_SOURCE,
         "fn numeric_conversion_realm_access(",
@@ -178,7 +178,7 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
     assert_eq!(
         type_error_consumer,
         concat!(
-            "&mutself,message:&str,payload_local:u32,tag_local:u32,",
+            "&mutself,message:RuntimeErrorMessage,payload_local:u32,tag_local:u32,",
             "function:&mutFunction,)->Result<(),EmitError>{",
             "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
             "NumericConversionRealmAccess::TrustedCurrentEnvironment=>self.",
@@ -197,7 +197,7 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
     assert_eq!(
         range_error_consumer,
         concat!(
-            "&mutself,message:&str,payload_local:u32,tag_local:u32,",
+            "&mutself,message:RuntimeErrorMessage,payload_local:u32,tag_local:u32,",
             "function:&mutFunction,)->Result<(),EmitError>{",
             "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
             "NumericConversionRealmAccess::TrustedCurrentEnvironment=>self.",
@@ -208,7 +208,28 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
         )
     );
 
-    let consumers = format!("{outlined_consumer}{type_error_consumer}{range_error_consumer}");
+    let syntax_error_consumer = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "fn emit_numeric_conversion_syntax_error(",
+        "\n    }\n\n    pub(crate) fn emit_value_to_bigint_locals(",
+    ));
+    assert_eq!(
+        syntax_error_consumer,
+        concat!(
+            "&mutself,message:RuntimeErrorMessage,payload_local:u32,tag_local:u32,",
+            "function:&mutFunction,)->Result<(),EmitError>{",
+            "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
+            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>self.",
+            "emit_throw_current_function_realm_error(",
+            "SYNTAX_ERROR_NAME,message,payload_local,tag_local,function,),",
+            "NumericConversionRealmAccess::MainRealmFallback=>self.emit_throw_runtime_error(",
+            "SYNTAX_ERROR_NAME,message,payload_local,tag_local,function,),}"
+        )
+    );
+
+    let consumers = format!(
+        "{outlined_consumer}{type_error_consumer}{range_error_consumer}{syntax_error_consumer}"
+    );
     for forbidden in ["_=>", "==", "!=", "matches!(", "unreachable!"] {
         assert!(!consumers.contains(forbidden), "found `{forbidden}`");
     }

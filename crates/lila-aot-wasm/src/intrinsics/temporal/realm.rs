@@ -1,58 +1,100 @@
 use super::*;
+use crate::gc_types::{GcStackReference, OrdinaryObject, ValueLocals};
 
-impl<'a> FunctionBuilder<'a> {
-    /// Temporal method results belong to the active builtin's Realm, even
-    /// when the receiver, arguments and mutable constructor properties do not.
+/// Completed GetPrototypeFromConstructor output, retaining full identity.
+#[must_use]
+pub(crate) struct TemporalConstructorPrototypeLocals {
+    family: TemporalIntrinsicFamily,
+    value: ValueLocals,
+}
+impl TemporalConstructorPrototypeLocals {
+    pub(crate) fn release(self, function: &mut Function) {
+        self.value.clear(function);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum TemporalPrototypeSource<'a> {
+    Intrinsic,
+    Constructor(&'a TemporalConstructorPrototypeLocals),
+}
+
+impl FunctionBuilder<'_> {
     pub(crate) fn emit_load_current_builtin_temporal_prototype(
         &mut self,
         family: TemporalIntrinsicFamily,
-        prototype: u32,
+        prototype: &ValueLocals,
         function: &mut Function,
     ) {
-        let realm = self.reserve_temp_local();
-        let intrinsics = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(family.prototype_global()));
-        function.instruction(&Instruction::LocalSet(prototype));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics,
-            family.prototype_slot().offset(),
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            family.prototype_slot(),
             prototype,
             function,
         );
-        // Both bootstrap paths publish these slots before any user code.
-        function.instruction(&Instruction::LocalGet(prototype));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(intrinsics);
-        self.release_temp_local(realm);
+        realm.clear(function);
+    }
+
+    pub(crate) fn emit_temporal_constructor_prototype(
+        &mut self,
+        family: TemporalIntrinsicFamily,
+        function: &mut Function,
+    ) -> Result<TemporalConstructorPrototypeLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let constructor = schema.reserve_value_local(function);
+        constructor.copy_from(
+            self.body_entry_locals()
+                .ok_or_else(|| {
+                    EmitError::unsupported("Temporal constructor has no callable entry")
+                })?
+                .new_target(),
+            function,
+        );
+        let completion = schema.reserve_completion(function);
+        self.emit_get_prototype_from_constructor(
+            &constructor,
+            crate::functions::OrdinaryDefaultPrototype::Temporal(family),
+            &completion,
+            function,
+        )?;
+        self.completion().copy_from(&completion, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let value = schema.reserve_value_local(function);
+        value.copy_from(completion.value(), function);
+        completion.clear(function);
+        constructor.clear(function);
+        Ok(TemporalConstructorPrototypeLocals { family, value })
+    }
+
+    /// Allocate only the common object header. Each native Temporal allocator
+    /// must construct its concrete GC record from completed numeric fields.
+    pub(crate) fn emit_alloc_temporal_object_header(
+        &mut self,
+        family: TemporalIntrinsicFamily,
+        source: TemporalPrototypeSource<'_>,
+        function: &mut Function,
+    ) -> Result<GcStackReference<OrdinaryObject>, EmitError> {
+        match source {
+            TemporalPrototypeSource::Intrinsic => {
+                let prototype = self.runtime_schema().reserve_value_local(function);
+                self.emit_load_current_builtin_temporal_prototype(family, &prototype, function);
+                let header =
+                    self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?;
+                prototype.clear(function);
+                Ok(header)
+            }
+            TemporalPrototypeSource::Constructor(prototype) => {
+                if prototype.family != family {
+                    return Err(EmitError::unsupported(
+                        "Temporal constructor prototype family mismatch",
+                    ));
+                }
+                self.emit_alloc_plain_object_with_prototype(Some(&prototype.value), function)
+            }
+        }
     }
 }

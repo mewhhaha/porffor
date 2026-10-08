@@ -55,13 +55,10 @@ fn opaque_plans_validate_identity_framing_and_primitive_membership() {
             bytes
         },
     ] {
-        let result = provider().format_parts(
-            DateTimeFormatRequest {
-                plan: EncodedDateTimePlan::from_bytes(bytes),
-                input: date(2020, 1, 25),
-            },
-            zones(),
-        );
+        let result = provider().format_parts(DateTimeFormatRequest {
+            plan: EncodedDateTimePlan::from_bytes(bytes),
+            input: date(2020, 1, 25),
+        });
         assert!(matches!(result, Err(DateTimeFormatError::InvalidPlan(_))));
     }
     let mut bad = input;
@@ -140,14 +137,14 @@ fn corrupted_required_profile_records_fail_at_construction() {
         Err(DateTimeFormatError::InvalidProfile(_))
     ));
     let mut unknown_field = original.clone();
-    unknown_field["locales"][0]["calendars"]["gregorian"]["styles"]["full"]["date"]["tokens"][0]
+    calendar_record_mut(&mut unknown_field, "gregory")["styles"]["full"]["date"]["tokens"][0]
         ["field"] = "Q".into();
     assert!(matches!(
         Profile::from_json(&unknown_field.to_string()),
         Err(DateTimeFormatError::InvalidProfile(_))
     ));
     let mut missing_name = original.clone();
-    let names = missing_name["locales"][0]["calendars"]["gregorian"]["names"]
+    let names = calendar_record_mut(&mut missing_name, "gregory")["names"]
         .as_array_mut()
         .unwrap();
     names.retain(|row| {
@@ -161,21 +158,20 @@ fn corrupted_required_profile_records_fail_at_construction() {
         Err(DateTimeFormatError::InvalidProfile(_))
     ));
     let mut missing_era_append = original.clone();
-    missing_era_append["locales"][0]["calendars"]["gregorian"]["append_era"] =
-        serde_json::Value::Null;
+    calendar_record_mut(&mut missing_era_append, "gregory")["append_era"] = serde_json::Value::Null;
     assert!(matches!(
         Profile::from_json(&missing_era_append.to_string()),
         Err(DateTimeFormatError::InvalidProfile(_))
     ));
     let mut unsupported_era_append = original.clone();
-    unsupported_era_append["locales"][0]["calendars"]["chinese"]["append_era"] =
-        original["locales"][0]["calendars"]["gregorian"]["append_era"].clone();
+    calendar_record_mut(&mut unsupported_era_append, "chinese")["append_era"] =
+        calendar_record(&original, "gregory")["append_era"].clone();
     assert!(matches!(
         Profile::from_json(&unsupported_era_append.to_string()),
         Err(DateTimeFormatError::InvalidProfile(_))
     ));
     let mut repeated_era_slot = original.clone();
-    repeated_era_slot["locales"][0]["calendars"]["gregorian"]["append_era"]["tokens"] =
+    calendar_record_mut(&mut repeated_era_slot, "gregory")["append_era"]["tokens"] =
         serde_json::json!([{"placeholder":0},{"placeholder":0}]);
     assert!(matches!(
         Profile::from_json(&repeated_era_slot.to_string()),
@@ -193,10 +189,125 @@ fn corrupted_required_profile_records_fail_at_construction() {
 }
 
 #[test]
+fn pooled_references_reject_unknown_missing_mismatched_and_unowned_records() {
+    let original: serde_json::Value =
+        serde_json::from_str(include_str!("../generated/profile.json")).unwrap();
+    let rejects = |value: serde_json::Value| {
+        assert!(matches!(
+            Profile::from_json(&value.to_string()),
+            Err(DateTimeFormatError::InvalidProfile(_))
+        ));
+    };
+    let mut missing = original.clone();
+    missing["locales"][0]["calendar_refs"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    rejects(missing);
+    let mut duplicate = original.clone();
+    duplicate["locales"][0]["calendar_refs"][1] =
+        duplicate["locales"][0]["calendar_refs"][0].clone();
+    rejects(duplicate);
+    let mut unknown = original.clone();
+    unknown["locales"][0]["calendar_refs"][0][0] = "gregorian".into();
+    rejects(unknown);
+    let mut bounds = original.clone();
+    bounds["locales"][0]["calendar_refs"][2][1] = u32::MAX.into();
+    rejects(bounds);
+    let mut domain = original.clone();
+    domain["locales"][0]["calendar_refs"][2][1] =
+        domain["locales"][0]["calendar_refs"][0][1].clone();
+    rejects(domain);
+    let mut alias = original.clone();
+    alias["locales"][0]["calendar_refs"][1][1] = alias["locales"][0]["calendar_refs"][2][1].clone();
+    rejects(alias);
+    let mut zone = original.clone();
+    zone["locales"][0]["zone_name_ref"] = u32::MAX.into();
+    rejects(zone);
+    let mut unused = original.clone();
+    let row = unused["calendar_pool"][0].clone();
+    unused["calendar_pool"].as_array_mut().unwrap().push(row);
+    rejects(unused);
+    let mut unknown_domain = original;
+    unknown_domain["calendar_pool"][0]["calendar"] = "fake-calendar".into();
+    rejects(unknown_domain);
+}
+
+#[test]
+fn name_construction_rejects_unconsumed_calendar_domains_and_nonweekday_short_widths() {
+    let original: serde_json::Value =
+        serde_json::from_str(include_str!("../generated/profile.json")).unwrap();
+    let record = |calendar, kind| {
+        calendar_record(&original, calendar)["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["kind"] == kind && row["width"] == "abbreviated")
+            .unwrap()
+            .clone()
+    };
+    let mut malformed = vec![
+        ("gregory", record("chinese", "cyclic_year")),
+        ("hebrew", record("chinese", "leap_month")),
+        (
+            "gregory",
+            serde_json::json!({"kind":"leap_month", "value":"Leap {0}"}),
+        ),
+    ];
+    for (calendar, kind) in [
+        ("gregory", "era"),
+        ("gregory", "month"),
+        ("gregory", "day_period"),
+        ("chinese", "cyclic_year"),
+        ("chinese", "leap_month"),
+    ] {
+        let mut extra = record(calendar, kind);
+        extra["width"] = "short".into();
+        malformed.push((calendar, extra));
+    }
+    for (calendar, extra) in malformed {
+        let mut bad = original.clone();
+        // All required valid names remain: the extra record itself must fail,
+        // rather than merely causing a missing-name check after construction.
+        calendar_record_mut(&mut bad, calendar)["names"]
+            .as_array_mut()
+            .unwrap()
+            .push(extra.clone());
+        assert!(
+            matches!(
+                Profile::from_json(&bad.to_string()),
+                Err(DateTimeFormatError::InvalidProfile(_))
+            ),
+            "{calendar}: {extra}"
+        );
+    }
+}
+
+#[test]
+fn inherited_identical_records_share_checked_owners() {
+    let profile = &provider().profile;
+    let en = profile.locale("en").unwrap();
+    let us = profile.locale("en-US").unwrap();
+    for calendar in [
+        DateTimeCalendar::Gregorian,
+        DateTimeCalendar::Iso8601,
+        DateTimeCalendar::Chinese,
+        DateTimeCalendar::Buddhist,
+    ] {
+        assert!(std::ptr::eq(en.calendar(calendar), us.calendar(calendar)));
+    }
+    assert!(std::sync::Arc::ptr_eq(&en.zones, &us.zones));
+    assert!(std::ptr::eq(
+        en.calendar(DateTimeCalendar::Gregorian),
+        en.calendar(DateTimeCalendar::Iso8601)
+    ));
+}
+
+#[test]
 fn every_inherited_pattern_has_a_renderable_checked_field_closure() {
     let profile = &provider().profile;
     for locale in &profile.locales {
-        for calendar in [DateTimeCalendar::Gregorian, DateTimeCalendar::Chinese] {
+        for calendar in DateTimeCalendar::ALL.iter().copied() {
             let mut input = request(
                 locale.identifier.as_str(),
                 DateTimeStyleSelection::Components(date_components()),
@@ -204,7 +315,9 @@ fn every_inherited_pattern_has_a_renderable_checked_field_closure() {
             input.locale.calendar = calendar;
             let plan = plan::select(profile, &input).unwrap();
             for epoch in [-8_640_000_000_000, 0, 1_707_523_200, 8_640_000_000_000] {
-                let prepared = render::prepare(&plan, instant(epoch, 0), zones()).unwrap();
+                let prepared =
+                    render::prepare(&plan, instant(epoch, 0), zones(), &provider().calendars)
+                        .unwrap();
                 let calendar = locale.calendar(calendar);
                 let patterns = calendar
                     .available
@@ -235,7 +348,8 @@ fn a_bare_numbering_override_stays_with_its_pattern_when_composed() {
     );
     let profile = &provider().profile;
     let selected = plan::select(profile, &input).unwrap();
-    let prepared = render::prepare(&selected, instant(0, 0), zones()).unwrap();
+    let prepared =
+        render::prepare(&selected, instant(0, 0), zones(), &provider().calendars).unwrap();
     let year = Pattern::new(
         vec![Token::Field(Field::Year(1))],
         vec![(None, "latn".into())],

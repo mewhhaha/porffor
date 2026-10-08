@@ -9,30 +9,45 @@ sources. There is no host-side JavaScript evaluator or opaque mutable host objec
 
 ## Pinned profiles
 
-The admitted locale inventory is en, en-US, ar, ar-EG, zh, zh-Hans and zh-Hans-CN.
-Unsupported requests use the specified locale lookup and default en-US selection;
-supportedLocalesOf returns only requested tags that match the same inventory.
-Gregorian, ISO8601 and Chinese calendars use the selected locale's inherited
-patterns and names. Arabic ar defaults to latn; ar-EG defaults to arab according
-to the pinned data. Calendar, numbering-system and hour-cycle Unicode extensions
-and explicit options follow ResolveLocale precedence.
+The complete source successor contains `en`, `en-US`, `ar`, `ar-EG`, `zh`,
+`zh-Hans`, `zh-Hans-CN`, `de`, `fr`, `it`, `ja`, `ko` and `hi` profiles.
+Unsupported requests follow locale lookup and the configured default;
+`supportedLocalesOf` preserves requested tags matching the same consumed
+inventory. Sixteen closed public calendar identities, exact wire codes and
+immutable native associations are joined with those data. Native and product
+verification of this expansion remain pending. Arabic `ar` defaults to Latin
+digits and `ar-EG` to Arabic digits according to the pinned data. Calendar,
+numbering and hour-cycle extensions and explicit options retain ResolveLocale
+precedence. Options consume the existing complete-value calendar alias
+authority; aliases do not become catalogue entries.
 
-The CLDR input is release 47.0.0, commit
-`2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`. The vendored manifest checks every input's
-length and SHA-256 before parsing. The selector records supported locales,
-calendars, draft threshold and alternate-pattern/name policy. LDML distinguishing/value
-attribute roles come from the pinned DTD. Inheritance consumes `pattern@numbers`
-with its pattern text, and rejects unresolved required leaves, cycles and
-unconsumed value attributes. An absent decimal symbol never substitutes a
-symbol from another numbering system.
+The base CLDR input is release 47.0.0, commit
+`2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`. Source manifests check input lengths
+and SHA256 before parsing, and the source receipts bind actual Git blobs.
+An explicit CLDR48 supplement provides only the additional Coptic, Ethiopian
+and Islamic era subtrees needed by this exact domain. Existing four-calendar
+leaves remain unchanged. LDML distinguishing and value attribute roles come
+from the pinned DTD. Inheritance consumes `pattern@numbers` with its text and
+rejects unresolved leaves, cycles and unconsumed attributes. An absent decimal
+symbol never substitutes another numbering system's symbol. See the
+[genuine profile and source proof](intl-datetime-profile-pools.md).
 
-All 77 positional numbering systems have exactly ten distinct Unicode scalars.
+All 78 checked positional numbering systems have exactly ten distinct Unicode scalars.
+The 77 CLDR47 tables remain exact; the shared [Tolong Siki supplement](intl-numbering-tols.md)
+adds one actual CLDR48 alphabet and its source-declared symbol aliases. Its
+Unicode17 contribution is restricted to NF/DTF formatting data and NF decimal
+spacing classification, with explicit service-specific artifact provenance.
 The renderer emits each selected digit directly, so variable UTF-8 byte lengths
 are valid. Names and literal punctuation are never subjected to whole-string
 digit replacement. The selected Chinese `d=hanidays` pattern override is compiled
 from the pinned RBNF rules to a checked finite day table; other numeric fields
 retain their own numbering selection. This is a pure generated field table,
 not an RBNF interpreter in the product.
+The Japanese first-year field uses its exact integer RBNF rules: full era year
+one emits `元`; all other years use the pinned Latin decimal fallback. It checks
+the full year before two-digit reduction. Hebrew numeric-width month fields
+consume their genuine abbreviated names, preserving Adar I, ordinary Adar and
+Adar II without confusing CLDR name indices with native month codes.
 
 CLDR47 supplies month, weekday, era, cyclic-year and day-period names, date/time
 styles, available skeletons, interval patterns, connectors and localized zone
@@ -49,9 +64,10 @@ source locale before continuing inheritance. This applies uniformly to styles,
 available formats, intervals, fallback connectors and append patterns; a missing
 alternate retains the default. A child default precedes a parent alternate, and
 aliases retain the selected leaf's source and value attributes. Names keep their
-separate declared policy. CLDR47 currently supplies 21 such English source
+separate declared policy. The earlier three-calendar checkpoint consumed 21 such English source
 leaves (17 available formats and four style patterns), and no ASCII interval
-alternates in these inputs. Interval literals therefore retain their original
+alternates. The retained consumed-leaf report binds the complete successor
+selection, including Buddhist inheritance. Interval literals therefore retain their original
 punctuation, including narrow no-break spaces where supplied.
 
 This is an explicit data selection allowed by [LDML47 Overriding
@@ -97,6 +113,14 @@ The boundaries are fixed proved joins, not error-triggered fallbacks. The
 calendar patch retains the existing golden fixtures and diagnoses invalid packed
 cache records. See [the canonical calendar domain](intl-calendar-domain.md) and its tests for the
 model policy and full-domain evidence.
+
+Buddhist uses the vendored ICU4X solar conversion, with Gregorian-equivalent
+months/days and Buddhist Era years. Its one `be` era selects CLDR era index 0.
+The native converted year remains signed; FormatDateTimePattern maps a
+nonpositive year to `1 - year` before numeric/two-digit formatting. This is a
+formatting step, not a change to the calendar's actual stored year. Gregorian
+and Chinese conversion policies remain unchanged. See the
+[Buddhist batch authority and controls](intl-datetime-buddhist.md).
 
 Legacy dates reach the provider after TimeClip; Temporal.Instant supplies exact
 floor seconds and normalized nanoseconds. Plain dates and times supply exact ISO

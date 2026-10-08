@@ -73,7 +73,7 @@ fn all_four_plain_difference_emitters_choose_rounding_and_result_exhaustively() 
             bounded(
                 DIFFERENCE_SOURCE,
                 "pub(super) fn emit_temporal_difference_date_time(",
-                "/// Validate a calendar candidate",
+                "\n}",
             )
         } else {
             ""

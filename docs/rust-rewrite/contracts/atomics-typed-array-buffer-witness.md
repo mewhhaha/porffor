@@ -1,5 +1,14 @@
 # Atomics TypedArray buffer witness
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+All fourteen fixed native entries retain whole arguments and concrete TypedArray/BufferOwner roots. Integer load/store/RMW and compareExchange complete entry admission and all required coercions before a fresh backing witness. Store returns the converted Number/BigInt rather than the truncated stored word. Notify on an ordinary buffer returns zero after count coercion. Waitable shared admission precedes index/value/timeout hooks. Errors and foreign thrown values remain whole completions. Shared no-tear accesses use width/alignment atomics; GC private bytes use one backing owner.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: focused-verified on 2026-08-24.
 
 ## Specification boundary

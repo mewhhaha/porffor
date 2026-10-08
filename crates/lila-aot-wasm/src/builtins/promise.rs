@@ -1,10 +1,12 @@
-use self::promise_internal_function_materialization::PromiseInternalFunctionMaterializationContext;
-use super::super::*;
-use crate::functions::{
-    FunctionRealmRevokedRoute, NewTargetPrototypeFallback, OrdinaryDefaultPrototype,
+use self::promise_internal_function_materialization::{
+    PromiseInternalFunction, PromiseInternalFunctionMaterializationContext,
 };
-use crate::objects::TaggedLocals;
+use super::super::*;
+use crate::functions::{FunctionRealmRevokedRoute, OrdinaryDefaultPrototype};
+use crate::gc_types::*;
+use crate::operations::PropertyKeyLocals;
 
+mod async_from_sync_iterator;
 mod current_function_realm_intrinsic_promise_capability;
 mod promise_combinator_algorithm_error_realm;
 mod promise_combinator_element_materialization;
@@ -21,107 +23,79 @@ mod promise_settlement_record_allocation;
 mod promise_species_realm_context;
 mod promise_try_callback_type_error;
 mod promise_with_resolvers_result_allocation;
+mod scheduling_helpers;
 
-const HEAP_PROMISE_RESOLVING_CONTEXT_SIZE: u64 = 24;
-const HEAP_PROMISE_RESOLVING_CONTEXT_RECORD_OFFSET: u64 = 0;
-const HEAP_PROMISE_RESOLVING_CONTEXT_ALREADY_RESOLVED_OFFSET: u64 = 8;
-const HEAP_PROMISE_RESOLVING_CONTEXT_PAYLOAD_OFFSET: u64 = 16;
-const HEAP_PROMISE_THENABLE_JOB_RECORD_SIZE: u64 = 48;
-const HEAP_PROMISE_THENABLE_JOB_PROMISE_RECORD_OFFSET: u64 = 0;
-const HEAP_PROMISE_THENABLE_JOB_PROMISE_PAYLOAD_OFFSET: u64 = 8;
-const HEAP_PROMISE_THENABLE_JOB_THENABLE_PAYLOAD_OFFSET: u64 = 16;
-const HEAP_PROMISE_THENABLE_JOB_THENABLE_TAG_OFFSET: u64 = 24;
-const HEAP_PROMISE_THENABLE_JOB_THEN_PAYLOAD_OFFSET: u64 = 32;
-const HEAP_PROMISE_THENABLE_JOB_THEN_TAG_OFFSET: u64 = 40;
-const HEAP_PROMISE_ALL_SHARED_CONTEXT_SIZE: u64 = 32;
-const HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET: u64 = 0;
-const HEAP_PROMISE_ALL_SHARED_VALUES_OFFSET: u64 = 8;
-const HEAP_PROMISE_ALL_SHARED_RESOLVE_PAYLOAD_OFFSET: u64 = 16;
-const HEAP_PROMISE_ALL_SHARED_RESOLVE_TAG_OFFSET: u64 = 24;
-const HEAP_PROMISE_ALL_ELEMENT_CONTEXT_SIZE: u64 = 24;
-const HEAP_PROMISE_ALL_ELEMENT_INDEX_OFFSET: u64 = 0;
-const HEAP_PROMISE_ALL_ELEMENT_SHARED_OFFSET: u64 = 8;
-const HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET: u64 = 16;
-const HEAP_PROMISE_KEYED_ELEMENT_CONTEXT_SIZE: u64 = 32;
-const HEAP_PROMISE_KEYED_ELEMENT_KEY_PAYLOAD_OFFSET: u64 = 0;
-const HEAP_PROMISE_KEYED_ELEMENT_KEY_TAG_OFFSET: u64 = 8;
-const HEAP_PROMISE_KEYED_ELEMENT_SHARED_OFFSET: u64 = 16;
-const HEAP_PROMISE_KEYED_ELEMENT_ALREADY_CALLED_OFFSET: u64 = 24;
-const HEAP_PROMISE_FINALLY_CONTEXT_SIZE: u64 = 32;
-const HEAP_PROMISE_FINALLY_ON_FINALLY_PAYLOAD_OFFSET: u64 = 0;
-const HEAP_PROMISE_FINALLY_ON_FINALLY_TAG_OFFSET: u64 = 8;
-const HEAP_PROMISE_FINALLY_CONSTRUCTOR_PAYLOAD_OFFSET: u64 = 16;
-const HEAP_PROMISE_FINALLY_CONSTRUCTOR_TAG_OFFSET: u64 = 24;
-const HEAP_PROMISE_FINALLY_VALUE_CONTEXT_SIZE: u64 = 16;
-const HEAP_PROMISE_FINALLY_VALUE_PAYLOAD_OFFSET: u64 = 0;
-const HEAP_PROMISE_FINALLY_VALUE_TAG_OFFSET: u64 = 8;
-
-enum AsyncAwaitContinuation {
-    AsyncFunction,
-    AsyncGeneratorBody,
-    AsyncGeneratorAwaitReturn,
-    AsyncGeneratorYield,
-    AsyncGeneratorYieldReturn,
-}
-
-/// Whether an async-generator request publishes a yielded or terminal result.
-///
-/// The state is projected to the iterator-result `done` Boolean only by
-/// `emit_complete_async_generator_step`, so callers cannot transpose the two
-/// lifecycle meanings with an unlabelled Boolean.
 pub(crate) enum AsyncGeneratorCompleteStepKind {
     Yielded,
     Completed,
 }
 
-/// The coupled `[[Prototype]]` and executing Realm for one Promise allocation.
-/// The prototype may be a custom `newTarget.prototype`; keeping both locals
-/// opaque prevents an allocation caller from manufacturing an unrelated pair.
-#[must_use = "Promise allocation context must be consumed by Promise allocation"]
+#[must_use = "Promise allocation consumes its selected prototype and Realm"]
 pub(crate) struct PromiseAllocationContext {
-    prototype_local: u32,
-    realm_local: u32,
+    prototype: ValueLocals,
+    realm: GcLocal<RealmRecord>,
 }
 
-/// The defining Realm retained by one async execution activation.
-///
-/// Its private, non-copyable local must be derived from the invoked function or
-/// a typed activation layout. Promise allocation and captured reactions can
-/// borrow it, but only the explicit release returns the local.
-#[must_use = "async execution Realm context must be explicitly released"]
+#[must_use = "async execution Realm roots must be released"]
 pub(crate) struct AsyncExecutionRealmContext {
-    realm_local: u32,
+    realm: GcLocal<RealmRecord>,
+}
+impl AsyncExecutionRealmContext {
+    pub(crate) fn realm(&self) -> &GcLocal<RealmRecord> {
+        &self.realm
+    }
 }
 
 enum PromiseResolveRealmAuthority<'a> {
     CurrentFunction,
     AsyncExecution(&'a AsyncExecutionRealmContext),
+    ExplicitRealm(&'a GcLocal<RealmRecord>),
 }
 
-pub(crate) enum ModuleReactionContinuation {
-    Body,
-    Join,
-}
-
-impl ModuleReactionContinuation {
-    fn callback_kind(&self) -> PromiseReactionCallbackKind {
-        match self {
-            Self::Body => PromiseReactionCallbackKind::ModuleBody,
-            Self::Join => PromiseReactionCallbackKind::ModuleJoin,
-        }
-    }
+pub(crate) enum ModuleReactionContinuation<'a> {
+    Body(&'a GcLocal<ModuleRecord>),
+    Join(&'a GcLocal<ModuleJoin>),
 }
 
 enum PromiseReactionInitialization<'a> {
-    Default,
-    AsyncExecution {
-        realm: &'a AsyncExecutionRealmContext,
-        continuation: AsyncAwaitContinuation,
+    Default {
+        handler: &'a ValueLocals,
+        capability: &'a GcLocal<PromiseCapability, Nullable>,
+    },
+    AsyncFunction {
+        activation: &'a GcLocal<AsyncActivation>,
+        realm: &'a GcLocal<RealmRecord>,
+    },
+    AsyncGenerator {
+        activation: &'a GcLocal<AsyncGeneratorActivation>,
+        realm: &'a GcLocal<RealmRecord>,
+        continuation: AsyncGeneratorAwaitContinuation,
+    },
+    AsyncFromSync {
+        context: &'a GcLocal<AsyncFromSyncIteratorContinuation>,
+        realm: &'a GcLocal<RealmRecord>,
     },
     Module {
-        realm: &'a AsyncExecutionRealmContext,
-        continuation: ModuleReactionContinuation,
+        realm: &'a GcLocal<RealmRecord>,
+        continuation: ModuleReactionContinuation<'a>,
     },
+}
+
+pub(crate) enum AsyncGeneratorAwaitContinuation {
+    Body,
+    AwaitReturn,
+    Yield,
+    YieldReturn,
+}
+impl AsyncGeneratorAwaitContinuation {
+    fn callback_kind(&self) -> PromiseReactionCallbackKind {
+        match self {
+            Self::Body => PromiseReactionCallbackKind::AsyncGeneratorAwait,
+            Self::AwaitReturn => PromiseReactionCallbackKind::AsyncGeneratorAwaitReturn,
+            Self::Yield => PromiseReactionCallbackKind::AsyncGeneratorYield,
+            Self::YieldReturn => PromiseReactionCallbackKind::AsyncGeneratorYieldReturn,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -129,29 +103,48 @@ enum PromiseCombinatorMode {
     Values,
     SettledRecords,
     FirstFulfillment,
+    Race,
 }
-
 impl PromiseCombinatorMode {
-    const fn builtin_name(self) -> &'static str {
+    const fn resolve_error(self) -> RuntimeErrorMessage {
         match self {
-            Self::Values => "Promise.all",
-            Self::SettledRecords => "Promise.allSettled",
-            Self::FirstFulfillment => "Promise.any",
+            Self::Race => {
+                RuntimeErrorMessage::PROMISE_RACE_CONSTRUCTOR_RESOLVE_PROPERTY_IS_NOT_CALLABLE
+            }
+            Self::Values | Self::SettledRecords | Self::FirstFulfillment => {
+                RuntimeErrorMessage::PROMISE_ALL_CONSTRUCTOR_RESOLVE_PROPERTY_IS_NOT_CALLABLE
+            }
         }
     }
-}
-
-impl AsyncAwaitContinuation {
-    fn reaction_callback_kind(&self) -> PromiseReactionCallbackKind {
+    const fn input_error(self) -> RuntimeErrorMessage {
         match self {
-            Self::AsyncFunction => PromiseReactionCallbackKind::AsyncFunction,
-            Self::AsyncGeneratorBody => PromiseReactionCallbackKind::AsyncGeneratorAwait,
-            Self::AsyncGeneratorAwaitReturn => {
-                PromiseReactionCallbackKind::AsyncGeneratorAwaitReturn
+            Self::Race => RuntimeErrorMessage::PROMISE_RACE_INPUT_IS_NOT_ITERABLE,
+            Self::Values | Self::SettledRecords | Self::FirstFulfillment => {
+                RuntimeErrorMessage::PROMISE_ALL_INPUT_IS_NOT_ITERABLE
             }
-            Self::AsyncGeneratorYield => PromiseReactionCallbackKind::AsyncGeneratorYield,
-            Self::AsyncGeneratorYieldReturn => {
-                PromiseReactionCallbackKind::AsyncGeneratorYieldReturn
+        }
+    }
+    const fn method_error(self) -> RuntimeErrorMessage {
+        match self {
+            Self::Race => RuntimeErrorMessage::PROMISE_RACE_ITERATOR_METHOD_IS_NOT_CALLABLE,
+            Self::Values | Self::SettledRecords | Self::FirstFulfillment => {
+                RuntimeErrorMessage::PROMISE_ALL_ITERATOR_METHOD_IS_NOT_CALLABLE
+            }
+        }
+    }
+    const fn method_result_error(self) -> RuntimeErrorMessage {
+        match self {
+            Self::Race => RuntimeErrorMessage::PROMISE_RACE_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            Self::Values | Self::SettledRecords | Self::FirstFulfillment => {
+                RuntimeErrorMessage::PROMISE_ALL_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT
+            }
+        }
+    }
+    const fn next_result_error(self) -> RuntimeErrorMessage {
+        match self {
+            Self::Race => RuntimeErrorMessage::PROMISE_RACE_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            Self::Values | Self::SettledRecords | Self::FirstFulfillment => {
+                RuntimeErrorMessage::PROMISE_ALL_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT
             }
         }
     }
@@ -160,1007 +153,906 @@ impl AsyncAwaitContinuation {
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_async_execution_realm_context_from_function(
         &mut self,
-        function_object_local: u32,
+        function_object: &GcLocal<FunctionObject>,
         function: &mut Function,
     ) -> AsyncExecutionRealmContext {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
+        let schema = self.runtime_schema();
+        let context = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<FunctionObject>()
+                .field(FunctionObjectSchema::CONTEXT)
+                .read(function_object, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        AsyncExecutionRealmContext { realm_local }
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<FunctionContext>()
+                .field(FunctionContextSchema::REALM)
+                .read(&context, schema, function)
+                .reference(),
+            function,
+        );
+        context.clear(function);
+        AsyncExecutionRealmContext { realm }
     }
 
     pub(crate) fn emit_async_function_execution_realm_context_from_activation(
         &mut self,
-        activation_local: u32,
+        activation: &GcLocal<AsyncActivation>,
         function: &mut Function,
     ) -> AsyncExecutionRealmContext {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_FUNCTION_REALM_OFFSET,
-            realm_local,
+        let schema = self.runtime_schema();
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncActivation>()
+                .field(AsyncActivationSchema::REALM)
+                .read(activation, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        AsyncExecutionRealmContext { realm_local }
+        AsyncExecutionRealmContext { realm }
     }
 
     pub(crate) fn emit_async_generator_execution_realm_context_from_activation(
         &mut self,
-        activation_local: u32,
+        activation: &GcLocal<AsyncGeneratorActivation>,
         function: &mut Function,
     ) -> AsyncExecutionRealmContext {
-        let realm_local = self.reserve_temp_local();
-        let function_object_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_FUNCTION_OFFSET,
-            function_object_local,
+        let schema = self.runtime_schema();
+        let frame = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::FRAME)
+                .read(activation, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(function_object_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
+        let callable = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<InvocationFrame>()
+                .field(InvocationFrameSchema::FUNCTION)
+                .read(&frame, schema, function)
+                .reference(),
             function,
         );
-        self.release_temp_local(function_object_local);
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        AsyncExecutionRealmContext { realm_local }
-    }
-
-    pub(crate) fn emit_store_async_function_execution_realm(
-        &self,
-        context: &AsyncExecutionRealmContext,
-        activation_local: u32,
-        function: &mut Function,
-    ) {
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_FUNCTION_REALM_OFFSET,
-            context.realm_local,
-            function,
-        );
-    }
-
-    pub(crate) fn emit_async_execution_promise_allocation_context(
-        &mut self,
-        context: &AsyncExecutionRealmContext,
-        function: &mut Function,
-    ) -> PromiseAllocationContext {
-        let realm_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(context.realm_local));
-        function.instruction(&Instruction::LocalSet(realm_local));
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        PromiseAllocationContext {
-            prototype_local,
-            realm_local,
-        }
+        let realm = self.emit_async_execution_realm_context_from_function(&callable, function);
+        callable.clear(function);
+        frame.clear(function);
+        realm
     }
 
     pub(crate) fn release_async_execution_realm_context(
         &mut self,
         context: AsyncExecutionRealmContext,
+        function: &mut Function,
     ) {
-        self.release_temp_local(context.realm_local);
+        context.realm.clear(function);
+    }
+
+    pub(crate) fn emit_async_execution_intrinsic_promise_allocation_context(
+        &mut self,
+        context: &AsyncExecutionRealmContext,
+        function: &mut Function,
+    ) -> PromiseAllocationContext {
+        self.emit_intrinsic_promise_allocation_context(context.realm(), function)
+    }
+
+    fn emit_intrinsic_promise_allocation_context(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> PromiseAllocationContext {
+        let schema = self.runtime_schema();
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            realm,
+            NonArrayRealmIntrinsicSlot::PromisePrototype,
+            &prototype,
+            function,
+        );
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(realm.load(schema, function), function);
+        PromiseAllocationContext { prototype, realm }
     }
 
     pub(crate) fn emit_current_function_realm_intrinsic_promise_allocation_context(
         &mut self,
         function: &mut Function,
     ) -> PromiseAllocationContext {
-        let realm_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let context = self.emit_intrinsic_promise_allocation_context(&realm, function);
+        realm.clear(function);
+        context
+    }
 
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        PromiseAllocationContext {
-            prototype_local,
-            realm_local,
-        }
+    pub(crate) fn emit_alloc_promise_in_realm(
+        &mut self,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> Result<GcLocal<PromiseObject>, EmitError> {
+        let context = self.emit_intrinsic_promise_allocation_context(realm, function);
+        self.emit_alloc_promise_with_prototype(context, function)
     }
 
     fn emit_current_function_realm_promise_allocation_context(
         &mut self,
-        prototype_source_local: u32,
+        prototype: &ValueLocals,
         function: &mut Function,
     ) -> PromiseAllocationContext {
-        let realm_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let active_constructor_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(active_constructor_local));
-        self.load_i64_to_local_from_offset(
-            active_constructor_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(prototype_source_local));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-
-        self.release_temp_local(active_constructor_local);
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let copied = schema.reserve_value_local(function);
+        copied.copy_from(prototype, function);
         PromiseAllocationContext {
-            prototype_local,
-            realm_local,
+            prototype: copied,
+            realm,
         }
     }
 
     pub(crate) fn emit_alloc_promise_with_prototype(
         &mut self,
         context: PromiseAllocationContext,
-        promise_payload_local: u32,
-        promise_record_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_alloc_plain_object_with_prototype(Some(context.prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(promise_payload_local));
-        self.emit_heap_alloc_const(HEAP_PROMISE_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(promise_record_local));
-        self.emit_initialize_promise_state(promise_record_local, function);
-        self.store_i64_const_at_offset(
-            promise_record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            ValueKind::Undefined.tag() as u64,
+    ) -> Result<GcLocal<PromiseObject>, EmitError> {
+        let schema = self.runtime_schema();
+        let object = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&context.prototype), function)?,
             function,
         );
-        for offset in [
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
-            HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
-            HEAP_PROMISE_IS_HANDLED_OFFSET,
-            HEAP_PROMISE_HOST_DATA_OFFSET,
-            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(promise_record_local, offset, 0, function);
-        }
-        self.store_i64_local_at_offset(
-            promise_record_local,
-            HEAP_PROMISE_REALM_OFFSET,
-            context.realm_local,
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let result = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&undefined, function),
             function,
         );
-        self.store_i64_const_at_offset(
-            promise_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_PROMISE,
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PromiseObject>().construct(
+                (
+                    GcOperand::reference(&object, schema),
+                    GcOperand::reference(&result, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::constant(PromiseState::Pending),
+                    GcOperand::boolean(false),
+                    GcOperand::reference(&context.realm, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                ),
+                function,
+            ),
             function,
         );
-        self.store_i64_const_at_offset(
-            promise_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            BOXED_PRIMITIVE_KIND_NONE,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            promise_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            ValueKind::Object.tag() as u64,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            promise_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            promise_record_local,
-            function,
-        );
-        self.release_temp_local(context.prototype_local);
-        self.release_temp_local(context.realm_local);
-        Ok(())
+        result.clear(function);
+        undefined.clear(function);
+        object.clear(function);
+        context.realm.clear(function);
+        context.prototype.clear(function);
+        Ok(promise)
     }
 
     fn emit_create_promise_resolving_functions(
         &mut self,
-        promise_payload_local: u32,
-        promise_record_local: u32,
-        resolving_context_local: u32,
-        resolve_function_local: u32,
-        reject_function_local: u32,
+        promise: &GcLocal<PromiseObject>,
+        resolve: &ValueLocals,
+        reject: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_heap_alloc_const(HEAP_PROMISE_RESOLVING_CONTEXT_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(resolving_context_local));
-        self.store_i64_local_at_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_RECORD_OFFSET,
-            promise_record_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_ALREADY_RESOLVED_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_PAYLOAD_OFFSET,
-            promise_payload_local,
-            function,
-        );
-        let materialization_context = self
-            .emit_promise_record_internal_function_materialization_context(
-                promise_record_local,
+        let schema = self.runtime_schema();
+        let shared = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PromiseResolvingContext>().construct(
+                (
+                    GcOperand::reference(promise, schema),
+                    GcOperand::boolean(false),
+                ),
                 function,
-            );
-
-        for (builtin, resolving_function_local) in [
-            (
-                StandardBuiltinId::PromiseResolveFunction,
-                resolve_function_local,
             ),
-            (
-                StandardBuiltinId::PromiseRejectFunction,
-                reject_function_local,
-            ),
+            function,
+        );
+        let context =
+            self.emit_promise_record_internal_function_materialization_context(promise, function);
+        for (entry, out) in [
+            (PromiseInternalFunction::Resolve(&shared), resolve),
+            (PromiseInternalFunction::Reject(&shared), reject),
         ] {
-            let meta = self
-                .functions
-                .get(&builtin.function_id())
-                .cloned()
-                .ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                        builtin.debug_name()
-                    ))
-                })?;
-            self.emit_promise_internal_function_value(
-                &meta,
-                &materialization_context,
-                resolving_context_local,
-                resolving_function_local,
-                function,
-            )?;
+            let callable = self.emit_promise_internal_function_value(entry, &context, function)?;
+            out.set_reference(&callable, schema, function);
+            callable.clear(function);
         }
-        self.release_promise_internal_function_materialization_context(materialization_context);
+        self.release_promise_internal_function_materialization_context(context, function);
+        shared.clear(function);
         Ok(())
+    }
+
+    pub(crate) fn emit_load_promise_state_strict(
+        &self,
+        promise: &GcLocal<PromiseObject>,
+        state: I32Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::STATE)
+            .read(promise, schema, function)
+            .store(state, function);
+        function.instruction(&Instruction::I32Const(0));
+        for kind in PromiseState::ALL {
+            state.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(kind)));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
     }
 
     fn emit_enqueue_promise_reaction_list(
         &mut self,
-        reaction_list_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        head: &GcLocal<PromiseReaction, Nullable>,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let reaction_record_local = self.reserve_temp_local();
-        let next_reaction_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(reaction_list_local));
-        function.instruction(&Instruction::LocalSet(reaction_record_local));
+        let schema = self.runtime_schema();
+        let current = schema
+            .reserve_gc_local(function)
+            .initialize(head.load(schema, function), function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(reaction_record_local));
-        function.instruction(&Instruction::I64Eqz);
+        current.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_NEXT_OFFSET,
-            next_reaction_local,
+        let reaction = schema.reserve_gc_local(function).initialize(
+            current.load(schema, function).require_non_null(function),
             function,
         );
-        self.emit_enqueue_promise_reaction_job(
-            reaction_record_local,
-            argument_payload_local,
-            argument_tag_local,
+        let next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseReaction>()
+                .field(PromiseReactionSchema::NEXT)
+                .read(&reaction, schema, function)
+                .reference(),
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(next_reaction_local));
-        function.instruction(&Instruction::LocalSet(reaction_record_local));
+        );
+        self.emit_enqueue_promise_reaction_job(&reaction, argument, function)?;
+        current.replace(next.load(schema, function), function);
+        next.clear(function);
+        reaction.clear(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.release_temp_local(next_reaction_local);
-        self.release_temp_local(reaction_record_local);
+        current.clear(function);
         Ok(())
     }
 
-    fn emit_promise_job_callback_realm_to_local(
+    fn emit_promise_job_callback_realm(
         &mut self,
-        callback_payload_local: u32,
-        callback_tag_local: u32,
-        realm_local: u32,
+        callback: &ValueLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let realm_result =
-            self.emit_get_function_realm(callback_payload_local, callback_tag_local, function);
-        let resolved_realm = self.emit_route_function_realm_result(
-            realm_result,
-            FunctionRealmRevokedRoute::UseCurrentRealm,
+    ) -> Result<GcLocal<RealmRecord>, EmitError> {
+        let schema = self.runtime_schema();
+        let fallback = self.load_current_realm(function);
+        let obtained = self.emit_get_function_realm(callback, function);
+        let resolved = self.emit_route_function_realm_result(
+            obtained,
+            FunctionRealmRevokedRoute::UseCurrentRealm { realm: &fallback },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(resolved_realm.index()));
-        function.instruction(&Instruction::LocalSet(realm_local));
-        self.release_resolved_function_realm_local(resolved_realm);
-        Ok(())
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(resolved.realm().load(schema, function), function);
+        self.release_resolved_function_realm_local(resolved, function);
+        fallback.clear(function);
+        Ok(realm)
     }
 
-    fn emit_promise_reaction_job_realm_to_local(
+    fn emit_promise_reaction_job_realm(
         &mut self,
-        reaction_record_local: u32,
-        realm_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let callback_kind_local = self.reserve_temp_local();
-        let handler_payload_local = self.reserve_temp_local();
-        let handler_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
-            callback_kind_local,
-            function,
-        );
-        let mut open_dispatch_arms = 0;
-        for kind in PromiseReactionCallbackKind::ALL {
-            function.instruction(&Instruction::LocalGet(callback_kind_local));
-            function.instruction(&Instruction::I64Const(kind.word() as i64));
-            function.instruction(&Instruction::I64Eq);
+    ) -> Result<GcLocal<RealmRecord, Nullable>, EmitError> {
+        let schema = self.runtime_schema();
+        let kind = schema.reserve_i32_local(function);
+        let realm = schema
+            .reserve_gc_local::<RealmRecord, Nullable>(function)
+            .initialize_null(schema, function);
+        schema
+            .struct_type::<PromiseReaction>()
+            .field(PromiseReactionSchema::CALLBACK_KIND)
+            .read(reaction, schema, function)
+            .store(kind, function);
+        let mut arms = 0;
+        for callback_kind in PromiseReactionCallbackKind::ALL {
+            kind.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(callback_kind)));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            match kind.realm_source() {
+            match callback_kind.realm_source() {
                 PromiseReactionRealmSource::HandlerOrNull => {
-                    // An empty handler carries the spec's null realm. The job
-                    // drain maps that sentinel to its saved checkpoint realm
-                    // instead of installing an invalid realm record.
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(realm_local));
-                    self.load_i64_to_local_from_offset(
-                        reaction_record_local,
-                        HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET,
-                        handler_payload_local,
+                    let stored = schema.reserve_gc_local(function).initialize(
+                        schema
+                            .struct_type::<PromiseReaction>()
+                            .field(PromiseReactionSchema::HANDLER)
+                            .read(reaction, schema, function)
+                            .reference(),
                         function,
                     );
-                    self.load_i64_to_local_from_offset(
-                        reaction_record_local,
-                        HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET,
-                        handler_tag_local,
-                        function,
-                    );
-                    self.emit_is_callable_i32(handler_tag_local, handler_payload_local, function)?;
+                    let handler = schema.reserve_value_local(function);
+                    schema
+                        .struct_type::<StoredValue>()
+                        .read_into(&stored, &handler, schema, function);
+                    self.emit_is_callable_i32(&handler, function)?;
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_promise_job_callback_realm_to_local(
-                        handler_payload_local,
-                        handler_tag_local,
-                        realm_local,
-                        function,
-                    )?;
+                    let selected = self.emit_promise_job_callback_realm(&handler, function)?;
+                    realm.replace(selected.load(schema, function).nullable(), function);
+                    selected.clear(function);
                     function.instruction(&Instruction::End);
+                    handler.clear(function);
+                    stored.clear(function);
                 }
                 PromiseReactionRealmSource::Captured => {
-                    self.load_i64_to_local_from_offset(
-                        reaction_record_local,
-                        HEAP_PROMISE_REACTION_REALM_OFFSET,
-                        realm_local,
+                    realm.replace(
+                        schema
+                            .struct_type::<PromiseReaction>()
+                            .field(PromiseReactionSchema::REALM)
+                            .read(reaction, schema, function)
+                            .reference(),
                         function,
                     );
+                    realm.load(schema, function);
+                    function.instruction(&Instruction::RefIsNull);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::Unreachable);
+                    function.instruction(&Instruction::End);
                 }
             }
             function.instruction(&Instruction::Else);
-            open_dispatch_arms += 1;
+            arms += 1;
         }
         function.instruction(&Instruction::Unreachable);
-        for _ in 0..open_dispatch_arms {
+        for _ in 0..arms {
             function.instruction(&Instruction::End);
         }
-
-        self.release_temp_local(handler_tag_local);
-        self.release_temp_local(handler_payload_local);
-        self.release_temp_local(callback_kind_local);
-        Ok(())
+        schema.release_i32_local(kind, function);
+        Ok(realm)
     }
 
     pub(crate) fn emit_resolve_promise_record(
         &mut self,
-        promise_payload_local: u32,
-        promise_record_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        promise: &GcLocal<PromiseObject>,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let then_key_local = self.reserve_temp_local();
-        let then_payload_local = self.reserve_temp_local();
-        let then_tag_local = self.reserve_temp_local();
-        let promise_realm_local = self.reserve_temp_local();
-        let realm_intrinsics_local = self.reserve_temp_local();
-        let type_error_prototype_local = self.reserve_temp_local();
-
-        self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
+        let schema = self.runtime_schema();
+        let then = schema.reserve_completion(function);
+        then.initialize(function);
+        self.emit_is_heap_object_like_tag_i32(value.tag(), function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
+        value.reference().load(function);
+        promise.load(schema, function);
+        function.instruction(&Instruction::RefEq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            HEAP_PROMISE_REALM_OFFSET,
-            promise_realm_local,
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::REALM)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(promise_realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            promise_realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            realm_intrinsics_local,
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::TypeErrorPrototype,
+            &prototype,
             function,
         );
-        function.instruction(&Instruction::LocalGet(realm_intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_intrinsics_local,
-            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
-            type_error_prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(type_error_prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.emit_throw_runtime_error_with_prototype_local(
-            TYPE_ERROR_NAME,
-            "Promise cannot resolve to itself",
-            type_error_prototype_local,
-            then_payload_local,
-            then_tag_local,
+        self.emit_throw_runtime_error_with_prototype(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PROMISE_CANNOT_RESOLVE_TO_ITSELF,
+            &prototype,
+            &then,
             function,
         )?;
         self.emit_settle_promise_record(
-            promise_record_local,
+            promise,
             PromiseSettlement::Reject,
-            then_payload_local,
-            then_tag_local,
+            then.value(),
             function,
         )?;
-        self.set_completion_kind(CompletionKind::Normal, function);
+        prototype.clear(function);
+        realm.clear(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("then")));
-        function.instruction(&Instruction::LocalSet(then_key_local));
-        self.emit_object_read_without_throw_propagation(
-            value_payload_local,
-            value_tag_local,
-            value_payload_local,
-            value_tag_local,
-            then_key_local,
-            then_payload_local,
-            then_tag_local,
+        let key_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("then", function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_string(schema, &key_string, function);
+        self.emit_object_read_with_throw_routing(
+            value,
+            value,
+            &key,
+            &then,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        then.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_settle_promise_record(
-            promise_record_local,
+            promise,
             PromiseSettlement::Reject,
-            then_payload_local,
-            then_tag_local,
+            then.value(),
             function,
         )?;
-        self.set_completion_kind(CompletionKind::Normal, function);
         function.instruction(&Instruction::Else);
-        self.emit_is_callable_i32(then_tag_local, then_payload_local, function)?;
+        self.emit_is_callable_i32(then.value(), function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_enqueue_promise_thenable_job(
-            promise_payload_local,
-            promise_record_local,
-            value_payload_local,
-            value_tag_local,
-            then_payload_local,
-            then_tag_local,
-            function,
-        )?;
+        self.emit_enqueue_promise_thenable_job(promise, value, then.value(), function)?;
         function.instruction(&Instruction::Else);
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Fulfill,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
+        self.emit_settle_promise_record(promise, PromiseSettlement::Fulfill, value, function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        key.clear(function);
+        key_string.clear(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Fulfill,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
+        self.emit_settle_promise_record(promise, PromiseSettlement::Fulfill, value, function)?;
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(type_error_prototype_local);
-        self.release_temp_local(realm_intrinsics_local);
-        self.release_temp_local(promise_realm_local);
-        self.release_temp_local(then_tag_local);
-        self.release_temp_local(then_payload_local);
-        self.release_temp_local(then_key_local);
+        then.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_settle_promise_record(
         &mut self,
-        promise_record_local: u32,
+        promise: &GcLocal<PromiseObject>,
         settlement: PromiseSettlement,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let state_local = self.reserve_temp_local();
-        let reaction_list_local = self.reserve_temp_local();
-        self.emit_load_promise_state_strict(promise_record_local, state_local, function);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(PromiseState::Pending.word() as i64));
-        function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        let state = schema.reserve_i32_local(function);
+        self.emit_load_promise_state_strict(promise, state, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            PromiseState::Pending,
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            match settlement {
-                PromiseSettlement::Fulfill => HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
-                PromiseSettlement::Reject => HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
-            },
-            reaction_list_local,
+        let fulfill = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::FULFILL_REACTIONS)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_local_at_offset(
-            promise_record_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            value_payload_local,
+        let reject = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::REJECT_REACTIONS)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_local_at_offset(
-            promise_record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            value_tag_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(value, function),
             function,
         );
-        for offset in [
-            HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
-            HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(promise_record_local, offset, 0, function);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::RESULT)
+            .write(
+                promise,
+                GcOperand::reference(&stored, schema),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::FULFILL_REACTIONS)
+            .write(promise, GcOperand::null(schema), schema, function);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::REJECT_REACTIONS)
+            .write(promise, GcOperand::null(schema), schema, function);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::STATE)
+            .write(
+                promise,
+                GcOperand::constant(settlement.state()),
+                schema,
+                function,
+            );
+        match settlement {
+            PromiseSettlement::Fulfill => {
+                self.emit_enqueue_promise_reaction_list(&fulfill, value, function)?
+            }
+            PromiseSettlement::Reject => {
+                self.emit_track_unhandled_rejection(promise, function);
+                self.emit_enqueue_promise_reaction_list(&reject, value, function)?;
+            }
         }
-        self.emit_store_promise_settlement(promise_record_local, settlement, function);
-        if settlement.is_rejected() {
-            // 27.2.1.7 RejectPromise step 7 runs before the captured reject
-            // reactions are triggered.
-            self.emit_track_unhandled_rejection(promise_record_local, function);
-        }
-        self.emit_enqueue_promise_reaction_list(
-            reaction_list_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
+        stored.clear(function);
+        reject.clear(function);
+        fulfill.clear(function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(reaction_list_local);
-        self.release_temp_local(state_local);
+        schema.release_i32_local(state, function);
         Ok(())
     }
 
-    /// Appends `promise_record_local` to the host unhandled-rejection list when
-    /// the promise still has no handler. Membership is only a candidate mark:
-    /// `emit_report_unhandled_rejection` re-reads `[[IsHandled]]` after the job
-    /// queue drains, so a handler attached from a later job clears the report.
     fn emit_track_unhandled_rejection(
         &mut self,
-        promise_record_local: u32,
+        promise: &GcLocal<PromiseObject>,
         function: &mut Function,
     ) {
-        let is_handled_local = self.reserve_temp_local();
-        let tail_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            HEAP_PROMISE_IS_HANDLED_OFFSET,
-            is_handled_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(is_handled_local));
-        function.instruction(&Instruction::I64Eqz);
+        let schema = self.runtime_schema();
+        let handled = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::HANDLED)
+            .read(promise, schema, function)
+            .store(handled, function);
+        handled.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            promise_record_local,
-            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
-            0,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(
-            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(tail_local));
-        function.instruction(&Instruction::LocalGet(tail_local));
-        function.instruction(&Instruction::I64Eqz);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::UNHANDLED_NEXT)
+            .write(promise, GcOperand::null(schema), schema, function);
+        let tail = schema.load_unhandled_promise_queue(RuntimeQueueEnd::Tail, function);
+        tail.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(promise_record_local));
-        function.instruction(&Instruction::GlobalSet(
-            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
-        ));
+        schema.replace_unhandled_promise_queue(RuntimeQueueEnd::Head, promise, function);
         function.instruction(&Instruction::Else);
-        self.store_i64_local_at_offset(
-            tail_local,
-            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
-            promise_record_local,
+        let nonnull = schema.reserve_gc_local(function).initialize(
+            tail.load(schema, function).require_non_null(function),
             function,
         );
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::UNHANDLED_NEXT)
+            .write(
+                &nonnull,
+                GcOperand::nullable_reference(promise, schema),
+                schema,
+                function,
+            );
+        nonnull.clear(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(promise_record_local));
-        function.instruction(&Instruction::GlobalSet(
-            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
-        ));
+        schema.replace_unhandled_promise_queue(RuntimeQueueEnd::Tail, promise, function);
+        tail.clear(function);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(tail_local);
-        self.release_temp_local(is_handled_local);
+        schema.release_i32_local(handled, function);
     }
 
-    /// Reports the finite snapshot of still-unhandled rejections captured at
-    /// the main-export checkpoint. When the Script completion is Normal, the
-    /// oldest rejection becomes the exported Throw and each later value is
-    /// printed in FIFO order. When an abrupt Script completion is already
-    /// pending, every snapshot rejection is printed and the Script completion
-    /// remains primary.
+    pub(crate) fn emit_complete_async_entry_invocation(
+        &mut self,
+        activation: &GcLocal<AsyncActivation>,
+        completion: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncActivation>()
+                .field(AsyncActivationSchema::PROMISE)
+                .read(activation, schema, function)
+                .reference(),
+            function,
+        );
+        let done = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<AsyncActivation>()
+            .field(AsyncActivationSchema::COMPLETED)
+            .read(activation, schema, function)
+            .store(done, function);
+        done.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        completion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_settle_promise_record(
+            &promise,
+            PromiseSettlement::Reject,
+            completion.value(),
+            function,
+        )?;
+        function.instruction(&Instruction::I32Const(1));
+        done.store(function);
+        function.instruction(&Instruction::Else);
+        completion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Return.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_resolve_promise_record(&promise, completion.value(), function)?;
+        function.instruction(&Instruction::I32Const(1));
+        done.store(function);
+        function.instruction(&Instruction::Else);
+        completion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        completion.target().load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        self.emit_resolve_promise_record(&promise, &undefined, function)?;
+        undefined.clear(function);
+        function.instruction(&Instruction::I32Const(1));
+        done.store(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        done.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let frame = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncActivation>()
+                .field(AsyncActivationSchema::FRAME)
+                .read(activation, schema, function)
+                .reference(),
+            function,
+        );
+        let lists = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<PrivateArgumentListTable>()
+                .fixed(std::iter::empty(), function),
+            function,
+        );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::PRIVATE_ARGUMENT_LISTS)
+            .write(
+                &frame,
+                GcOperand::reference(&lists, schema),
+                schema,
+                function,
+            );
+        lists.clear(function);
+        frame.clear(function);
+        function.instruction(&Instruction::End);
+        schema
+            .struct_type::<AsyncActivation>()
+            .field(AsyncActivationSchema::COMPLETED)
+            .write(activation, GcOperand::boolean_local(done), schema, function);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(done, function);
+        promise.clear(function);
+        Ok(())
+    }
+
+    /// Detach the finite checkpoint before diagnostic conversions can enqueue
+    /// more rejections. Existing abrupt completion always remains primary.
     pub(crate) fn emit_report_unhandled_rejection(
         &mut self,
         policy: PromiseRejectionPolicy,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         match policy {
-            PromiseRejectionPolicy::FailRun => {}
             PromiseRejectionPolicy::Ignore => {
-                // The default host tracker has no observable callbacks. Release
-                // its checkpoint roots without coercing rejection values.
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::GlobalSet(
-                    PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
-                ));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::GlobalSet(
-                    PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
-                ));
+                schema.clear_unhandled_promise_queue(RuntimeQueueEnd::Head, function);
+                schema.clear_unhandled_promise_queue(RuntimeQueueEnd::Tail, function);
                 return Ok(());
             }
+            PromiseRejectionPolicy::FailRun => {}
         }
-        let value_to_string_helper = self.value_to_string_helper_function_index().ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot: unhandled-rejection reporting requires the value-to-string runtime helper",
-            )
-        })?;
-        let record_local = self.reserve_temp_local();
-        let snapshot_head_local = self.reserve_temp_local();
-        let snapshot_tail_local = self.reserve_temp_local();
-        let state_local = self.reserve_temp_local();
-        let is_handled_local = self.reserve_temp_local();
-        let oldest_unhandled_local = self.reserve_temp_local();
-        let rejection_payload_local = self.reserve_temp_local();
-        let rejection_tag_local = self.reserve_temp_local();
-        let rejection_string_local = self.reserve_temp_local();
-        let rejection_string_ptr_local = self.reserve_temp_local();
-        let rejection_string_len_local = self.reserve_temp_local();
-        let conversion_completion_local = self.reserve_temp_local();
-        let conversion_aux_local = self.reserve_temp_local();
-        let saved_throw_error_name_local = self.reserve_temp_local();
-        let saved_throw_error_message_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::GlobalGet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        function.instruction(&Instruction::LocalSet(saved_throw_error_name_local));
-        function.instruction(&Instruction::GlobalGet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
-        function.instruction(&Instruction::LocalSet(saved_throw_error_message_local));
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(oldest_unhandled_local));
-        function.instruction(&Instruction::GlobalGet(
-            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(snapshot_head_local));
-        function.instruction(&Instruction::GlobalGet(
-            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(snapshot_tail_local));
-
-        // Diagnostic conversion may reject another Promise. Detach the finite
-        // checkpoint snapshot first, and sever its old tail, so reentrant
-        // rejections start a fresh FIFO rather than extending this traversal.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(
-            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(
-            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalGet(snapshot_tail_local));
-        function.instruction(&Instruction::I64Eqz);
+        let saved = schema.reserve_completion(function);
+        saved.copy_from(self.completion(), function);
+        let saved_name = schema.load_throw_diagnostic(ThrowDiagnosticRole::Name, function);
+        let saved_message = schema.load_throw_diagnostic(ThrowDiagnosticRole::Message, function);
+        let saved_constructor =
+            schema.load_throw_diagnostic(ThrowDiagnosticRole::ConstructorName, function);
+        let current = schema.load_unhandled_promise_queue(RuntimeQueueEnd::Head, function);
+        let tail = schema.load_unhandled_promise_queue(RuntimeQueueEnd::Tail, function);
+        let oldest = schema
+            .reserve_gc_local::<PromiseObject, Nullable>(function)
+            .initialize_null(schema, function);
+        schema.clear_unhandled_promise_queue(RuntimeQueueEnd::Head, function);
+        schema.clear_unhandled_promise_queue(RuntimeQueueEnd::Tail, function);
+        tail.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            snapshot_tail_local,
-            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
-            0,
+        let last = schema.reserve_gc_local(function).initialize(
+            tail.load(schema, function).require_non_null(function),
             function,
         );
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::UNHANDLED_NEXT)
+            .write(&last, GcOperand::null(schema), schema, function);
+        last.clear(function);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(snapshot_head_local));
-        function.instruction(&Instruction::LocalSet(record_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::I64Eqz);
+        current.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_load_promise_state_strict(record_local, state_local, function);
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PROMISE_IS_HANDLED_OFFSET,
-            is_handled_local,
+        let promise = schema.reserve_gc_local(function).initialize(
+            current.load(schema, function).require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(PromiseState::Rejected.word() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(is_handled_local));
-        function.instruction(&Instruction::I64Eqz);
+        let state = schema.reserve_i32_local(function);
+        let handled = schema.reserve_i32_local(function);
+        self.emit_load_promise_state_strict(&promise, state, function);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::HANDLED)
+            .read(&promise, schema, function)
+            .store(handled, function);
+        state.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            PromiseState::Rejected,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        handled.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(oldest_unhandled_local));
-        function.instruction(&Instruction::I64Eqz);
+        oldest.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::LocalSet(oldest_unhandled_local));
+        oldest.replace(promise.load(schema, function).nullable(), function);
         function.instruction(&Instruction::End);
-
-        // A Normal Script completion exposes the oldest rejection through the
-        // main-export Throw below. Every later rejection, or every rejection
-        // when a Script throw is already primary, must use the host output ABI.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(oldest_unhandled_local));
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::I64Ne);
+        saved.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        oldest.load(schema, function);
+        promise.load(schema, function);
+        function.instruction(&Instruction::RefEq);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            rejection_payload_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::RESULT)
+                .read(&promise, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            rejection_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(rejection_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        let rejection = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &rejection, schema, function);
+        let printed = schema
+            .reserve_gc_local::<StringValue, Nullable>(function)
+            .initialize_null(schema, function);
+        rejection.tag().load(function);
+        function.instruction(&Instruction::I32Const(ValueKind::Symbol.tag() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_symbol_descriptive_string_to_local(
-            rejection_payload_local,
-            rejection_string_local,
+        let symbol = schema.reserve_gc_local(function).initialize(
+            rejection.cast_reference::<SymbolValue>(schema, function),
             function,
-        )?;
+        );
+        printed.replace(
+            self.emit_symbol_descriptive_string(&symbol, function)?
+                .nullable(),
+            function,
+        );
+        symbol.clear(function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(rejection_payload_local));
-        function.instruction(&Instruction::LocalGet(rejection_tag_local));
-        for _ in 0..5 {
-            function.instruction(&Instruction::I64Const(0));
-        }
-        function.instruction(&Instruction::Call(value_to_string_helper));
-        self.store_call_results_to(
-            rejection_string_local,
-            rejection_tag_local,
-            conversion_completion_local,
-            conversion_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(conversion_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        let conversion = schema.reserve_completion(function);
+        conversion.initialize(function);
+        self.emit_value_to_string_payload(&rejection, &conversion, function)?;
+        conversion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .payload(UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE),
-        ));
-        function.instruction(&Instruction::LocalSet(rejection_string_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.emit_unpack_string_payload(
-            rejection_string_local,
-            rejection_string_ptr_local,
-            rejection_string_len_local,
+        printed.replace(
+            self.emit_interned_string_reference(
+                UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE,
+                function,
+            )?
+            .nullable(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(rejection_string_ptr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(rejection_string_len_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::Call(HOST_PRINT_IMPORT_FUNCTION_INDEX));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
-            record_local,
+        function.instruction(&Instruction::Else);
+        printed.replace(
+            conversion
+                .value()
+                .cast_reference::<StringValue>(schema, function)
+                .nullable(),
             function,
         );
+        function.instruction(&Instruction::End);
+        conversion.clear(function);
+        function.instruction(&Instruction::End);
+        let output = schema.reserve_gc_local(function).initialize(
+            printed.load(schema, function).require_non_null(function),
+            function,
+        );
+        self.emit_host_print_string(&output, function)?;
+        output.clear(function);
+        printed.clear(function);
+        rejection.clear(function);
+        stored.clear(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        current.replace(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::UNHANDLED_NEXT)
+                .read(&promise, schema, function)
+                .reference(),
+            function,
+        );
+        schema.release_i32_local(handled, function);
+        schema.release_i32_local(state, function);
+        promise.clear(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        // The detached snapshot is consumed exactly once. The globals now
-        // belong exclusively to rejections created during diagnostics.
-        function.instruction(&Instruction::LocalGet(saved_throw_error_name_local));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        function.instruction(&Instruction::LocalGet(saved_throw_error_message_local));
-        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
-
-        function.instruction(&Instruction::LocalGet(oldest_unhandled_local));
-        function.instruction(&Instruction::I64Eqz);
+        self.completion().copy_from(&saved, function);
+        schema.replace_throw_diagnostic(ThrowDiagnosticRole::Name, &saved_name, function);
+        schema.replace_throw_diagnostic(ThrowDiagnosticRole::Message, &saved_message, function);
+        schema.replace_throw_diagnostic(
+            ThrowDiagnosticRole::ConstructorName,
+            &saved_constructor,
+            function,
+        );
+        oldest.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        saved.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            oldest_unhandled_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            self.result_local,
+        let promise = schema.reserve_gc_local(function).initialize(
+            oldest.load(schema, function).require_non_null(function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            oldest_unhandled_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            self.result_tag_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::RESULT)
+                .read(&promise, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        self.emit_capture_throw_error_name(self.result_local, self.result_tag_local, function)?;
-        self.set_completion_kind_with_aux(CompletionKind::Throw, -1, function);
+        let value = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &value, schema, function);
+        self.completion().set_throw(&value, function);
+        schema.clear_throw_diagnostic(ThrowDiagnosticRole::Name, function);
+        self.emit_capture_throw_error_name(&value, function)?;
+        value.clear(function);
+        stored.clear(function);
+        promise.clear(function);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(saved_throw_error_message_local);
-        self.release_temp_local(saved_throw_error_name_local);
-        self.release_temp_local(conversion_aux_local);
-        self.release_temp_local(conversion_completion_local);
-        self.release_temp_local(rejection_string_len_local);
-        self.release_temp_local(rejection_string_ptr_local);
-        self.release_temp_local(rejection_string_local);
-        self.release_temp_local(rejection_tag_local);
-        self.release_temp_local(rejection_payload_local);
-        self.release_temp_local(oldest_unhandled_local);
-        self.release_temp_local(is_handled_local);
-        self.release_temp_local(state_local);
-        self.release_temp_local(snapshot_tail_local);
-        self.release_temp_local(snapshot_head_local);
-        self.release_temp_local(record_local);
+        oldest.clear(function);
+        tail.clear(function);
+        current.clear(function);
+        saved_constructor.clear(function);
+        saved_message.clear(function);
+        saved_name.clear(function);
+        saved.clear(function);
         Ok(())
     }
 
@@ -1168,1370 +1060,865 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let executor_payload_local = self.reserve_temp_local();
-        let executor_tag_local = self.reserve_temp_local();
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let resolving_context_local = self.reserve_temp_local();
-        let resolve_function_local = self.reserve_temp_local();
-        let reject_function_local = self.reserve_temp_local();
-        let function_tag_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
+        let schema = self.runtime_schema();
+        let executor = schema.reserve_value_local(function);
+        let new_target = schema.reserve_value_local(function);
+        new_target.copy_from(
+            self.body_entry_locals()
+                .expect("Promise constructor ordinary entry")
+                .new_target(),
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        );
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        new_target.tag().load(function);
+        function.instruction(&Instruction::I32Const(ValueKind::Undefined.tag() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Promise constructor requires new",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::PROMISE_CONSTRUCTOR_REQUIRES_NEW,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, executor_payload_local, executor_tag_local, function);
-        self.emit_is_callable_i32(executor_tag_local, executor_payload_local, function)?;
+        self.emit_builtin_arg_to_value(0, &executor, function);
+        self.emit_is_callable_i32(&executor, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Promise executor is not callable",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::PROMISE_EXECUTOR_IS_NOT_CALLABLE,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_new_target_prototype_to_locals(
-            PROMISE_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
-                OrdinaryDefaultPrototype::Promise,
-            ),
-            prototype_payload_local,
-            prototype_tag_local,
+        self.emit_get_prototype_from_constructor(
+            &new_target,
+            OrdinaryDefaultPrototype::Promise,
+            &pending,
             function,
         )?;
-        let promise_allocation_context = self
-            .emit_current_function_realm_promise_allocation_context(
-                prototype_payload_local,
-                function,
-            );
-        self.emit_alloc_promise_with_prototype(
-            promise_allocation_context,
-            promise_payload_local,
-            promise_record_local,
-            function,
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let context =
+            self.emit_current_function_realm_promise_allocation_context(pending.value(), function);
+        let promise = self.emit_alloc_promise_with_prototype(context, function)?;
+        let resolve = schema.reserve_value_local(function);
+        let reject = schema.reserve_value_local(function);
+        self.emit_create_promise_resolving_functions(&promise, &resolve, &reject, function)?;
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[&resolve, &reject], function);
+        self.emit_function_or_proxy_call_with_argv(
+            &executor, &undefined, &arguments, &pending, function,
         )?;
-
-        self.emit_create_promise_resolving_functions(
-            promise_payload_local,
-            promise_record_local,
-            resolving_context_local,
-            resolve_function_local,
-            reject_function_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(function_tag_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[
-                (resolve_function_local, function_tag_local),
-                (reject_function_local, function_tag_local),
-            ],
-            argc_local,
-            argv_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_function_handle_call_with_argv_without_throw_propagation(
-            executor_payload_local,
-            executor_tag_local,
-            Some((undefined_payload_local, Some(undefined_tag_local))),
-            argc_local,
-            argv_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_without_throw_propagation(
-            reject_function_local,
-            function_tag_local,
-            Some((undefined_payload_local, Some(undefined_tag_local))),
-            &[(call_payload_local, call_tag_local)],
-            self.result_local,
-            self.result_tag_local,
+        let rejection_arguments = self.emit_pre_evaluated_arg_vector(&[pending.value()], function);
+        let ignored = schema.reserve_completion(function);
+        ignored.initialize(function);
+        self.emit_function_or_proxy_call_with_argv(
+            &reject,
+            &undefined,
+            &rejection_arguments,
+            &ignored,
             function,
         )?;
+        ignored.clear(function);
+        rejection_arguments.clear(function);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(function_tag_local);
-        self.release_temp_local(reject_function_local);
-        self.release_temp_local(resolve_function_local);
-        self.release_temp_local(resolving_context_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(prototype_tag_local);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
-        self.release_temp_local(executor_tag_local);
-        self.release_temp_local(executor_payload_local);
+        let value = schema.reserve_value_local(function);
+        value.set_reference(&promise, schema, function);
+        self.completion().set_normal(&value, function);
+        value.clear(function);
+        arguments.clear(function);
+        undefined.clear(function);
+        reject.clear(function);
+        resolve.clear(function);
+        promise.clear(function);
+        pending.clear(function);
+        new_target.clear(function);
+        executor.clear(function);
         Ok(())
     }
 
+    /// Publish an immutable capability only after the exposed executor's
+    /// mutable cells have been initialized by the actual user Construct call.
     pub(crate) fn emit_new_promise_capability(
         &mut self,
         executor_context: &PromiseInternalFunctionMaterializationContext,
-        constructor_payload_local: u32,
-        constructor_tag_local: u32,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
+        constructor: &ValueLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let executor_payload_local = self.reserve_temp_local();
-        let executor_tag_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-
-        self.emit_is_constructor_i32(constructor_tag_local, constructor_payload_local, function)?;
+    ) -> Result<GcLocal<PromiseCapability>, EmitError> {
+        let schema = self.runtime_schema();
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        self.emit_is_constructor_i32(constructor, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Promise capability constructor is not a constructor",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::PROMISE_CAPABILITY_CONSTRUCTOR_IS_NOT_A_CONSTRUCTOR,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_heap_alloc_const(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(capability_record_local));
-        for tag_offset in [
-            HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(
-                capability_record_local,
-                tag_offset,
-                ValueKind::Undefined.tag() as u64,
-                function,
-            );
-        }
-        for payload_offset in [
-            HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(capability_record_local, payload_offset, 0, function);
-        }
-
-        let executor_meta = self
-            .functions
-            .get(&StandardBuiltinId::PromiseCapabilityExecutor.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing Promise capability executor builtin",
-                )
-            })?;
-        self.emit_promise_internal_function_value(
-            &executor_meta,
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let initial = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&undefined, function),
+            function,
+        );
+        let cells = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCapabilityExecutorContext>()
+                .construct(
+                    (
+                        GcOperand::reference(&initial, schema),
+                        GcOperand::reference(&initial, schema),
+                    ),
+                    function,
+                ),
+            function,
+        );
+        let executor = self.emit_promise_internal_function_value(
+            PromiseInternalFunction::CapabilityExecutor(&cells),
             executor_context,
-            capability_record_local,
-            executor_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(executor_tag_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[(executor_payload_local, executor_tag_local)],
-            argc_local,
-            argv_local,
-            function,
-        )?;
+        let executor_value = schema.reserve_value_local(function);
+        executor_value.set_reference(&executor, schema, function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[&executor_value], function);
         self.emit_function_or_proxy_construct_with_argv(
-            constructor_payload_local,
-            constructor_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            argc_local,
-            argv_local,
-            promise_payload_local,
-            promise_tag_local,
+            constructor,
+            constructor,
+            &arguments,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let resolve = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCapabilityExecutorContext>()
+                .field(PromiseCapabilityExecutorContextSchema::RESOLVE)
+                .read(&cells, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
+        let reject = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCapabilityExecutorContext>()
+                .field(PromiseCapabilityExecutorContextSchema::REJECT)
+                .read(&cells, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        self.emit_is_callable_i32(resolve_tag_local, resolve_payload_local, function)?;
-        self.emit_is_callable_i32(reject_tag_local, reject_payload_local, function)?;
+        let resolved_value = schema.reserve_value_local(function);
+        let rejected_value = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&resolve, &resolved_value, schema, function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&reject, &rejected_value, schema, function);
+        self.emit_is_callable_i32(&resolved_value, function)?;
+        self.emit_is_callable_i32(&rejected_value, function)?;
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
+        let failure = schema.reserve_completion(function);
+        failure.initialize(function);
         self.emit_throw_current_function_realm_type_error(
-            "Promise capability did not initialize callable resolving functions",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::PROMISE_CAPABILITY_DID_NOT_INITIALIZE_CALLABLE_RESOLVING_FUNCTIONS,
+            &failure,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(&failure, function);
+        self.emit_propagate_current_throw(function);
+        failure.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.store_i64_local_at_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET,
-            promise_payload_local,
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(pending.value(), function),
             function,
         );
-        self.store_i64_local_at_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET,
-            promise_tag_local,
+        let capability = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PromiseCapability>().construct(
+                (
+                    GcOperand::reference(&promise, schema),
+                    GcOperand::reference(&resolve, schema),
+                    GcOperand::reference(&reject, schema),
+                ),
+                function,
+            ),
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(executor_tag_local);
-        self.release_temp_local(executor_payload_local);
-        Ok(())
+        promise.clear(function);
+        rejected_value.clear(function);
+        resolved_value.clear(function);
+        reject.clear(function);
+        resolve.clear(function);
+        arguments.clear(function);
+        executor_value.clear(function);
+        executor.clear(function);
+        cells.clear(function);
+        initial.clear(function);
+        undefined.clear(function);
+        pending.clear(function);
+        Ok(capability)
     }
 
     fn emit_initialize_promise_reaction(
         &mut self,
-        reaction_record_local: u32,
-        capability_record_local: u32,
-        handler_payload_local: u32,
-        handler_tag_local: u32,
         reaction_type: PromiseReactionType,
         initialization: &PromiseReactionInitialization<'_>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_heap_alloc_const(HEAP_PROMISE_REACTION_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(reaction_record_local));
-        self.store_i64_local_at_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            capability_record_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET,
-            handler_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET,
-            handler_payload_local,
-            function,
-        );
-        let callback_kind = match initialization {
-            PromiseReactionInitialization::Default => {
-                self.store_i64_const_at_offset(
-                    reaction_record_local,
-                    HEAP_PROMISE_REACTION_REALM_OFFSET,
-                    0,
-                    function,
-                );
-                PromiseReactionCallbackKind::Default
-            }
-            PromiseReactionInitialization::AsyncExecution {
-                realm,
-                continuation,
-            } => {
-                self.store_i64_local_at_offset(
-                    reaction_record_local,
-                    HEAP_PROMISE_REACTION_REALM_OFFSET,
-                    realm.realm_local,
-                    function,
-                );
-                continuation.reaction_callback_kind()
-            }
-            PromiseReactionInitialization::Module {
-                realm,
-                continuation,
-            } => {
-                self.store_i64_local_at_offset(
-                    reaction_record_local,
-                    HEAP_PROMISE_REACTION_REALM_OFFSET,
-                    realm.realm_local,
-                    function,
-                );
-                continuation.callback_kind()
-            }
+    ) -> GcLocal<PromiseReaction> {
+        let schema = self.runtime_schema();
+        let empty = schema.reserve_value_local(function);
+        empty.set_undefined(function);
+        let handler = match initialization {
+            PromiseReactionInitialization::Default { handler, .. } => *handler,
+            PromiseReactionInitialization::AsyncFunction { .. }
+            | PromiseReactionInitialization::AsyncGenerator { .. }
+            | PromiseReactionInitialization::AsyncFromSync { .. }
+            | PromiseReactionInitialization::Module { .. } => &empty,
         };
-        self.store_i64_const_at_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_NEXT_OFFSET,
-            0,
+        let handler = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(handler, function),
             function,
         );
-        self.store_i64_const_at_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
-            callback_kind.word(),
+        let (kind, capability, realm, activation, generator, module, join, sync) =
+            match initialization {
+                PromiseReactionInitialization::Default { capability, .. } => (
+                    PromiseReactionCallbackKind::Default,
+                    GcOperand::reference(*capability, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                ),
+                PromiseReactionInitialization::AsyncFunction { activation, realm } => (
+                    PromiseReactionCallbackKind::AsyncFunction,
+                    GcOperand::null(schema),
+                    GcOperand::nullable_reference(*realm, schema),
+                    GcOperand::nullable_reference(*activation, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                ),
+                PromiseReactionInitialization::AsyncGenerator {
+                    activation,
+                    realm,
+                    continuation,
+                } => (
+                    continuation.callback_kind(),
+                    GcOperand::null(schema),
+                    GcOperand::nullable_reference(*realm, schema),
+                    GcOperand::null(schema),
+                    GcOperand::nullable_reference(*activation, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                ),
+                PromiseReactionInitialization::AsyncFromSync { context, realm } => (
+                    PromiseReactionCallbackKind::AsyncFromSyncIterator,
+                    GcOperand::null(schema),
+                    GcOperand::nullable_reference(*realm, schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
+                    GcOperand::nullable_reference(*context, schema),
+                ),
+                PromiseReactionInitialization::Module {
+                    realm,
+                    continuation,
+                } => match continuation {
+                    ModuleReactionContinuation::Body(record) => (
+                        PromiseReactionCallbackKind::ModuleBody,
+                        GcOperand::null(schema),
+                        GcOperand::nullable_reference(*realm, schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::nullable_reference(*record, schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                    ),
+                    ModuleReactionContinuation::Join(record) => (
+                        PromiseReactionCallbackKind::ModuleJoin,
+                        GcOperand::null(schema),
+                        GcOperand::nullable_reference(*realm, schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::nullable_reference(*record, schema),
+                        GcOperand::null(schema),
+                    ),
+                },
+            };
+        let reaction = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PromiseReaction>().construct(
+                (
+                    GcOperand::constant(reaction_type),
+                    GcOperand::constant(kind),
+                    GcOperand::reference(&handler, schema),
+                    capability,
+                    realm,
+                    activation,
+                    generator,
+                    module,
+                    join,
+                    sync,
+                    GcOperand::null(schema),
+                ),
+                function,
+            ),
             function,
         );
-        self.store_i64_const_at_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type.word(),
-            function,
-        );
-        Ok(())
+        handler.clear(function);
+        empty.clear(function);
+        reaction
     }
 
     fn emit_initialize_default_promise_reaction(
         &mut self,
-        reaction_record_local: u32,
-        capability_record_local: u32,
-        handler_payload_local: u32,
-        handler_tag_local: u32,
+        capability: &GcLocal<PromiseCapability, Nullable>,
+        handler: &ValueLocals,
         reaction_type: PromiseReactionType,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> GcLocal<PromiseReaction> {
         self.emit_initialize_promise_reaction(
-            reaction_record_local,
-            capability_record_local,
-            handler_payload_local,
-            handler_tag_local,
             reaction_type,
-            &PromiseReactionInitialization::Default,
+            &PromiseReactionInitialization::Default {
+                handler,
+                capability,
+            },
             function,
         )
     }
 
-    fn emit_initialize_async_execution_promise_reaction(
+    /// PerformPromiseThen for an already-owned Promise. Internal algorithms
+    /// attach reactions without observing mutable `then`, `constructor`, or
+    /// species properties. The public method selects its species beforehand.
+    pub(crate) fn emit_perform_promise_then(
         &mut self,
-        reaction_record_local: u32,
-        capability_record_local: u32,
-        handler_payload_local: u32,
-        handler_tag_local: u32,
-        reaction_type: PromiseReactionType,
-        realm: &AsyncExecutionRealmContext,
-        continuation: AsyncAwaitContinuation,
+        promise: &GcLocal<PromiseObject>,
+        on_fulfilled: &ValueLocals,
+        on_rejected: &ValueLocals,
+        capability: &GcLocal<PromiseCapability>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_initialize_promise_reaction(
-            reaction_record_local,
-            capability_record_local,
-            handler_payload_local,
-            handler_tag_local,
-            reaction_type,
-            &PromiseReactionInitialization::AsyncExecution {
-                realm,
-                continuation,
-            },
+        let schema = self.runtime_schema();
+        let nullable_capability = schema
+            .reserve_gc_local::<PromiseCapability, Nullable>(function)
+            .initialize(capability.load(schema, function).nullable(), function);
+        let fulfill = self.emit_initialize_default_promise_reaction(
+            &nullable_capability,
+            on_fulfilled,
+            PromiseReactionType::Fulfill,
             function,
-        )
+        );
+        let reject = self.emit_initialize_default_promise_reaction(
+            &nullable_capability,
+            on_rejected,
+            PromiseReactionType::Reject,
+            function,
+        );
+        self.emit_route_promise_reaction_pair(promise, &fulfill, &reject, function)?;
+        reject.clear(function);
+        fulfill.clear(function);
+        nullable_capability.clear(function);
+        Ok(())
     }
 
     fn emit_append_promise_reaction(
         &mut self,
-        promise_record_local: u32,
+        promise: &GcLocal<PromiseObject>,
         reaction_type: PromiseReactionType,
-        reaction_record_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
         function: &mut Function,
     ) {
-        let list_head_local = self.reserve_temp_local();
-        let current_reaction_local = self.reserve_temp_local();
-        let next_reaction_local = self.reserve_temp_local();
-        let reaction_list_offset = match reaction_type {
-            PromiseReactionType::Fulfill => HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
-            PromiseReactionType::Reject => HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
+        let schema = self.runtime_schema();
+        let field = match reaction_type {
+            PromiseReactionType::Fulfill => PromiseObjectSchema::FULFILL_REACTIONS,
+            PromiseReactionType::Reject => PromiseObjectSchema::REJECT_REACTIONS,
         };
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            reaction_list_offset,
-            list_head_local,
+        let head = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(field)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(list_head_local));
-        function.instruction(&Instruction::I64Eqz);
+        head.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_local_at_offset(
-            promise_record_local,
-            reaction_list_offset,
-            reaction_record_local,
+        schema.struct_type::<PromiseObject>().field(field).write(
+            promise,
+            GcOperand::nullable_reference(reaction, schema),
+            schema,
             function,
         );
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(list_head_local));
-        function.instruction(&Instruction::LocalSet(current_reaction_local));
+        let current = schema.reserve_gc_local(function).initialize(
+            head.load(schema, function).require_non_null(function),
+            function,
+        );
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            current_reaction_local,
-            HEAP_PROMISE_REACTION_NEXT_OFFSET,
-            next_reaction_local,
+        let next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseReaction>()
+                .field(PromiseReactionSchema::NEXT)
+                .read(&current, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(next_reaction_local));
-        function.instruction(&Instruction::I64Eqz);
+        next.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_local_at_offset(
-            current_reaction_local,
-            HEAP_PROMISE_REACTION_NEXT_OFFSET,
-            reaction_record_local,
-            function,
-        );
+        schema
+            .struct_type::<PromiseReaction>()
+            .field(PromiseReactionSchema::NEXT)
+            .write(
+                &current,
+                GcOperand::nullable_reference(reaction, schema),
+                schema,
+                function,
+            );
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(next_reaction_local));
-        function.instruction(&Instruction::LocalSet(current_reaction_local));
+        current.replace(
+            next.load(schema, function).require_non_null(function),
+            function,
+        );
+        next.clear(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        current.clear(function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(next_reaction_local);
-        self.release_temp_local(current_reaction_local);
-        self.release_temp_local(list_head_local);
+        head.clear(function);
     }
 
-    /// Perform the complete `PerformPromiseThen` state dispatch for one
-    /// fulfil/reject reaction pair.
-    ///
-    /// The comparison chain is derived from the closed wire domain and every
-    /// state selects behavior through an exhaustive Rust match. The strict
-    /// load traps before an invalid record can fall through as rejection.
+    /// Closed PerformPromiseThen dispatch; no invalid state becomes rejection.
     fn emit_route_promise_reaction_pair(
         &mut self,
-        promise_record_local: u32,
-        fulfill_reaction_local: u32,
-        reject_reaction_local: u32,
-        result_payload_local: u32,
-        result_tag_local: u32,
+        promise: &GcLocal<PromiseObject>,
+        fulfill: &GcLocal<PromiseReaction>,
+        reject: &GcLocal<PromiseReaction>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let state_word_local = self.reserve_temp_local();
-        self.emit_load_promise_state_strict(promise_record_local, state_word_local, function);
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            result_payload_local,
+        let schema = self.runtime_schema();
+        let state = schema.reserve_i32_local(function);
+        self.emit_load_promise_state_strict(promise, state, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseObject>()
+                .field(PromiseObjectSchema::RESULT)
+                .read(promise, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            result_tag_local,
-            function,
-        );
-
-        let mut open_dispatch_arms = 0;
-        for state in PromiseState::ALL {
-            function.instruction(&Instruction::LocalGet(state_word_local));
-            function.instruction(&Instruction::I64Const(state.word() as i64));
-            function.instruction(&Instruction::I64Eq);
+        let value = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &value, schema, function);
+        let mut arms = 0;
+        for selected in PromiseState::ALL {
+            state.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(selected)));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            match state {
+            match selected {
                 PromiseState::Pending => {
                     self.emit_append_promise_reaction(
-                        promise_record_local,
+                        promise,
                         PromiseReactionType::Fulfill,
-                        fulfill_reaction_local,
+                        fulfill,
                         function,
                     );
                     self.emit_append_promise_reaction(
-                        promise_record_local,
+                        promise,
                         PromiseReactionType::Reject,
-                        reject_reaction_local,
+                        reject,
                         function,
                     );
                 }
-                PromiseState::Fulfilled => self.emit_enqueue_promise_reaction_job(
-                    fulfill_reaction_local,
-                    result_payload_local,
-                    result_tag_local,
-                    function,
-                )?,
-                PromiseState::Rejected => self.emit_enqueue_promise_reaction_job(
-                    reject_reaction_local,
-                    result_payload_local,
-                    result_tag_local,
-                    function,
-                )?,
+                PromiseState::Fulfilled => {
+                    self.emit_enqueue_promise_reaction_job(fulfill, &value, function)?
+                }
+                PromiseState::Rejected => {
+                    self.emit_enqueue_promise_reaction_job(reject, &value, function)?
+                }
             }
             function.instruction(&Instruction::Else);
-            open_dispatch_arms += 1;
+            arms += 1;
         }
         function.instruction(&Instruction::Unreachable);
-        for _ in 0..open_dispatch_arms {
+        for _ in 0..arms {
             function.instruction(&Instruction::End);
         }
-
-        self.release_temp_local(state_word_local);
+        schema
+            .struct_type::<PromiseObject>()
+            .field(PromiseObjectSchema::HANDLED)
+            .write(promise, GcOperand::boolean(true), schema, function);
+        value.clear(function);
+        stored.clear(function);
+        schema.release_i32_local(state, function);
         Ok(())
     }
 
-    /// `AsyncFromSyncIteratorContinuation` (27.1.4.4) steps 5 and 14 ONLY, for
-    /// the `for await` path.
-    ///
-    /// Steps 6.a and 13 — the `IteratorClose` obligation — are NOT discharged
-    /// here. On this path they are discharged separately by
-    /// `compile_async_for_of_iterator` in `control_flow.rs`, off
-    /// `close_on_rejection_storage`; the async-generator delegation path
-    /// discharges them in `emit_async_from_sync_close_on_rejection` below,
-    /// against a different guard.
-    ///
-    /// Both drivers use the shared synchronous IteratorClose operation to
-    /// preserve the original rejection without unwrapping the return result.
-    /// The delegation fixture and `aot_for_await_rejection_close` regressions
-    /// exercise each driver's separate close obligation.
-    pub(crate) fn emit_async_from_sync_value_continuation(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        continuation_payload_local: u32,
-        continuation_tag_local: u32,
+    pub(crate) fn emit_read_promise_capability_promise(
+        &self,
+        capability: &GcLocal<PromiseCapability>,
+        output: &ValueLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(continuation_payload_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(continuation_tag_local));
-        Ok(())
+    ) {
+        let schema = self.runtime_schema();
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCapability>()
+                .field(PromiseCapabilitySchema::PROMISE)
+                .read(capability, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, output, schema, function);
+        stored.clear(function);
     }
 
-    /// `AsyncFromSyncIteratorContinuation` (27.1.4.4) steps 6.a and 13, for the
-    /// async-generator delegation path.
-    ///
-    /// The spec splits one obligation across two steps that this backend
-    /// reaches through a single edge:
-    ///
-    /// - step 6.a — `PromiseResolve(%Promise%, value)` abrupt-completes, so
-    ///   `valueWrapper` is set to `IteratorClose(syncIteratorRecord, valueWrapper)`;
-    /// - step 13 — the value wrapper settles as a rejection, so the `onRejected`
-    ///   closure performs `IteratorClose(syncIteratorRecord, ThrowCompletion(error))`.
-    ///
-    /// They converge because `emit_intrinsic_await_reactions` turns an abrupt
-    /// `PromiseResolve` into an already-rejected wrapper promise and then
-    /// attaches the same reject reaction (see the `COMPLETION_KIND_THROW` arm
-    /// there). So both spec steps arrive here, in the async-generator await
-    /// job, with `AsyncGeneratorResumeKind::Reject` — and one
-    /// emission discharges both.
-    ///
-    /// The three-part guard is the spec's, not a heuristic:
-    ///
-    /// - `[[AwaitingSyncValue]]` distinguishes *this* await from every other
-    ///   await an async generator can be suspended in. It is set by
-    ///   `compile_async_generator_delegation` immediately before it awaits the
-    ///   value of a **sync** iterator's result, and it is the only state in
-    ///   which an async-from-sync value wrapper is in flight. The flag is
-    ///   *consumed* here — read, then cleared — so a close can happen at most
-    ///   once per await, which is the `returnCount === 1` invariant expressed in
-    ///   the state rather than in a test.
-    /// - `done` is step 12's condition. `done === true` selects step 12, which
-    ///   installs no `onRejected` at all, so a rejected wrapper must reject the
-    ///   capability without closing. The stored `done` is the raw value read
-    ///   from the iterator result, so it is coerced with `ToBoolean` exactly as
-    ///   the delegation's own test does.
-    /// - `closeOnRejection` is false for exactly one caller,
-    ///   `%AsyncFromSyncIteratorPrototype%.return` (27.1.4.2.3), which this
-    ///   backend reaches as a delegation resumed with
-    ///   `AsyncGeneratorResumeKind::Return`. There the sync `return` has
-    ///   *already* been called to produce the result being unwrapped, so
-    ///   closing again would call it twice — the double close that
-    ///   `sameValue(returnCount, 1)` cannot see but a counting fixture can.
-    ///
-    /// `IteratorClose` is invoked with a throw completion, whose 7.4.9 shape is
-    /// exactly what `emit_iterator_close_preserving_current_throw` emits: step 6
-    /// returns the *original* completion before step 7 can consider the close's
-    /// own result, so a `return` that throws, a `return` that is not callable,
-    /// and a `return` that answers a non-object are all swallowed, while an
-    /// absent or nullish `return` skips the call entirely. The rejection reason
-    /// the generator is resumed with is therefore untouched by this emission.
-    fn emit_async_from_sync_close_on_rejection(
+    pub(in crate::builtins) fn emit_call_promise_capability(
         &mut self,
-        activation_local: u32,
-        reaction_is_rejected_local: u32,
+        capability: &GcLocal<PromiseCapability>,
+        settlement: PromiseSettlement,
+        argument: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let delegate_record_local = self.reserve_temp_local();
-        let awaiting_sync_value_local = self.reserve_temp_local();
-        let pending_kind_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let close_iterator_payload_local = self.reserve_temp_local();
-        let close_iterator_tag_local = self.reserve_temp_local();
-        let close_key_local = self.reserve_temp_local();
-        let close_return_payload_local = self.reserve_temp_local();
-        let close_return_tag_local = self.reserve_temp_local();
-        let close_result_payload_local = self.reserve_temp_local();
-        let close_result_tag_local = self.reserve_temp_local();
-        let close_saved_payload_local = self.reserve_temp_local();
-        let close_saved_tag_local = self.reserve_temp_local();
-        let close_saved_completion_local = self.reserve_temp_local();
-        let close_saved_aux_local = self.reserve_temp_local();
-
-        // Frame A: only a rejected await can owe an IteratorClose.
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        // Frame B: a cheap pre-filter, and ONLY that. A non-zero record means a
-        // delegation was entered — it does NOT mean one is still live. The four
-        // sites that zero `HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET`
-        // (`generator_delegation.rs`) are all reachable only from the
-        // `resume_kind == FULFILL` arm and its `ForAwaitYield` sub-branches; the
-        // `REJECT` arm returns without clearing. So the first time this emission
-        // closes an iterator, the record stays non-zero for the rest of that
-        // generator's life and every later rejecting await in the same
-        // activation passes this frame.
-        //
-        // `[[AwaitingSyncValue]]` below is the real liveness test, and the
-        // read-then-clear of it is load-bearing rather than tidy-up.
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
-            delegate_record_local,
+        let schema = self.runtime_schema();
+        let field = match settlement {
+            PromiseSettlement::Fulfill => PromiseCapabilitySchema::RESOLVE,
+            PromiseSettlement::Reject => PromiseCapabilitySchema::REJECT,
+        };
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCapability>()
+                .field(field)
+                .read(capability, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(delegate_record_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        self.load_i64_to_local_from_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET,
-            awaiting_sync_value_local,
-            function,
-        );
-        // Consume the flag before deciding: the await it describes is over
-        // either way, and clearing it here makes a second close structurally
-        // unreachable rather than merely unreached.
-        //
-        // Why the flag cannot go stale, in full — the step that carries it is
-        // the one a later editor needs and it is not the two clears. The flag is
-        // set immediately before the await (`generator_delegation.rs`, the
-        // `async_iterator == 0` arm) and it has exactly TWO clears: the
-        // `resume_kind == FULFILL` arm, and this one. That is exhaustive
-        // because an awaiting generator remains
-        // `AsyncGeneratorExecutionState::Executing` and cannot be resumed by
-        // `.next()`/`.throw()`/`.return()` at all —
-        // `builtins/standard.rs`'s `AsyncGeneratorPrototype{Next,Return,Throw}`
-        // dispatch tests only `SuspendedYield` and `SuspendedStart` — so every
-        // resume that can observe the flag comes from the await job itself and
-        // is FULFILL or REJECT.
-        self.store_i64_const_at_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET,
-            0,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
-            pending_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_RESULT_DONE_PAYLOAD_OFFSET,
-            done_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_RESULT_DONE_TAG_OFFSET,
-            done_tag_local,
-            function,
-        );
-        // Materialise `ToBoolean(done)` into a local before building the
-        // condition, so no operand is left under the nested blocks
-        // `compile_truthy_tagged_i32` opens.
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-
-        // Frame C: `[[AwaitingSyncValue]]` and `closeOnRejection` and `done is false`.
-        //
-        // Two of these three terms are NOT exercised by
-        // `built-ins/AsyncFromSyncIteratorPrototype`. Counted over all 38 corpus
-        // files: none pairs a rejecting value with `done: true`, and none pairs
-        // a `.return()`-during-`yield*` with a rejecting value and a `return`
-        // counter. Deleting the `pending_kind != RETURN` term or the
-        // `ToBoolean(done) == false` term therefore keeps that node at 38/38
-        // while silently closing a done-true iterator, or calling `return`
-        // twice. Their only oracle is the counting fixture
-        // `wasm_async_from_sync_iterator_close_on_rejection.js` (markers `f` and
-        // `h`, both counts). Do not "simplify" this guard against a green node.
-        function.instruction(&Instruction::LocalGet(awaiting_sync_value_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-            pending_kind_local,
-            AsyncGeneratorResumeKind::Return,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        self.load_i64_to_local_from_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_ITERATOR_PAYLOAD_OFFSET,
-            close_iterator_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            delegate_record_local,
-            HEAP_GENERATOR_DELEGATE_ITERATOR_TAG_OFFSET,
-            close_iterator_tag_local,
-            function,
-        );
-        self.emit_iterator_close_preserving_current_throw(
-            IteratorCloseOnThrowLocals {
-                iterator_payload_local: close_iterator_payload_local,
-                iterator_tag_local: close_iterator_tag_local,
-                key_local: close_key_local,
-                return_payload_local: close_return_payload_local,
-                return_tag_local: close_return_tag_local,
-                result_payload_local: close_result_payload_local,
-                result_tag_local: close_result_tag_local,
-                saved_payload_local: close_saved_payload_local,
-                saved_tag_local: close_saved_tag_local,
-                saved_completion_local: close_saved_completion_local,
-                saved_aux_local: close_saved_aux_local,
-            },
-            function,
+        let callback = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &callback, schema, function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[argument], function);
+        self.emit_function_or_proxy_call_with_argv(
+            &callback, &undefined, &arguments, result, function,
         )?;
-
-        function.instruction(&Instruction::End); // frame C
-        function.instruction(&Instruction::End); // frame B
-        function.instruction(&Instruction::End); // frame A
-
-        self.release_temp_local(close_saved_aux_local);
-        self.release_temp_local(close_saved_completion_local);
-        self.release_temp_local(close_saved_tag_local);
-        self.release_temp_local(close_saved_payload_local);
-        self.release_temp_local(close_result_tag_local);
-        self.release_temp_local(close_result_payload_local);
-        self.release_temp_local(close_return_tag_local);
-        self.release_temp_local(close_return_payload_local);
-        self.release_temp_local(close_key_local);
-        self.release_temp_local(close_iterator_tag_local);
-        self.release_temp_local(close_iterator_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(pending_kind_local);
-        self.release_temp_local(awaiting_sync_value_local);
-        self.release_temp_local(delegate_record_local);
+        arguments.clear(function);
+        undefined.clear(function);
+        callback.clear(function);
+        stored.clear(function);
         Ok(())
     }
 
-    // These records were allocated by the compiler-owned module protocol. No
-    // source PromiseResolve, constructor, species or then property is observed.
     fn emit_owned_promise_record_reactions(
         &mut self,
-        context: u32,
-        record: u32,
+        promise: &GcLocal<PromiseObject>,
         initialization: PromiseReactionInitialization<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let fulfill = self.reserve_temp_local();
-        let reject = self.reserve_temp_local();
-        let payload = self.reserve_temp_local();
-        let tag = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag));
-        self.emit_initialize_promise_reaction(
-            fulfill,
-            context,
-            payload,
-            tag,
+        let fulfill = self.emit_initialize_promise_reaction(
             PromiseReactionType::Fulfill,
             &initialization,
             function,
-        )?;
-        self.emit_initialize_promise_reaction(
-            reject,
-            context,
-            payload,
-            tag,
+        );
+        let reject = self.emit_initialize_promise_reaction(
             PromiseReactionType::Reject,
             &initialization,
             function,
-        )?;
-        self.emit_route_promise_reaction_pair(record, fulfill, reject, payload, tag, function)?;
-        self.store_i64_const_at_offset(record, HEAP_PROMISE_IS_HANDLED_OFFSET, 1, function);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.release_temp_local(tag);
-        self.release_temp_local(payload);
-        self.release_temp_local(reject);
-        self.release_temp_local(fulfill);
+        );
+        self.emit_route_promise_reaction_pair(promise, &fulfill, &reject, function)?;
+        reject.clear(function);
+        fulfill.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_module_promise_reactions(
         &mut self,
-        context: u32,
-        record: u32,
+        promise: &GcLocal<PromiseObject>,
         realm: &AsyncExecutionRealmContext,
-        continuation: ModuleReactionContinuation,
+        continuation: ModuleReactionContinuation<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_owned_promise_record_reactions(
-            context,
-            record,
+            promise,
             PromiseReactionInitialization::Module {
-                realm,
+                realm: realm.realm(),
                 continuation,
             },
             function,
         )
     }
-
     pub(crate) fn emit_module_import_await_reactions(
         &mut self,
-        activation: u32,
-        promise: u32,
+        activation: &GcLocal<AsyncActivation>,
+        promise: &GcLocal<PromiseObject>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.store_i64_local_at_offset(
-            activation,
-            HEAP_ASYNC_ENV_OFFSET,
-            self.current_env_local,
+        let schema = self.runtime_schema();
+        let frame = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncActivation>()
+                .field(AsyncActivationSchema::FRAME)
+                .read(activation, schema, function)
+                .reference(),
             function,
         );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::LEXICAL_ENVIRONMENT)
+            .write(
+                &frame,
+                GcOperand::reference(self.current_environment(), schema),
+                schema,
+                function,
+            );
         let realm =
             self.emit_async_function_execution_realm_context_from_activation(activation, function);
-        let record = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            promise,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record,
-            function,
-        );
         self.emit_owned_promise_record_reactions(
-            activation,
-            record,
-            PromiseReactionInitialization::AsyncExecution {
-                realm: &realm,
-                continuation: AsyncAwaitContinuation::AsyncFunction,
+            promise,
+            PromiseReactionInitialization::AsyncFunction {
+                activation,
+                realm: realm.realm(),
             },
             function,
         )?;
-        self.release_temp_local(record);
-        self.release_async_execution_realm_context(realm);
+        self.release_async_execution_realm_context(realm, function);
+        frame.clear(function);
         Ok(())
     }
-
     pub(crate) fn emit_module_execution_realm_context(
         &mut self,
-        record: u32,
+        module: &GcLocal<ModuleRecord>,
         function: &mut Function,
     ) -> AsyncExecutionRealmContext {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(record, MODULE_REALM_OFFSET, realm_local, function);
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        AsyncExecutionRealmContext { realm_local }
-    }
-
-    pub(crate) fn emit_async_await_reactions(
-        &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            AsyncAwaitContinuation::AsyncFunction,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_async_generator_await_reactions(
-        &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            AsyncAwaitContinuation::AsyncGeneratorBody,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_async_generator_yield_reactions(
-        &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            AsyncAwaitContinuation::AsyncGeneratorYield,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_async_generator_yield_return_reactions(
-        &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            AsyncAwaitContinuation::AsyncGeneratorYieldReturn,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_intrinsic_await_with_handlers(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        on_fulfilled_payload_local: u32,
-        on_fulfilled_tag_local: u32,
-        on_rejected_payload_local: u32,
-        on_rejected_tag_local: u32,
-        throwaway_capability_record_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_default_intrinsic_await_reactions(
-            throwaway_capability_record_local,
-            value_payload_local,
-            value_tag_local,
-            on_fulfilled_payload_local,
-            on_fulfilled_tag_local,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
-            function,
-        )
-    }
-
-    fn emit_await_reactions(
-        &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        continuation: AsyncAwaitContinuation,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let realm = match &continuation {
-            AsyncAwaitContinuation::AsyncFunction => {
-                // Implicit disposal and iterator awaits suspend the same lexical
-                // chain as an AwaitExpression. Save it at their shared boundary.
-                self.store_i64_local_at_offset(
-                    activation_local,
-                    HEAP_ASYNC_ENV_OFFSET,
-                    self.current_env_local,
-                    function,
-                );
-                self.emit_async_function_execution_realm_context_from_activation(
-                    activation_local,
-                    function,
-                )
-            }
-            AsyncAwaitContinuation::AsyncGeneratorBody
-            | AsyncAwaitContinuation::AsyncGeneratorAwaitReturn
-            | AsyncAwaitContinuation::AsyncGeneratorYield
-            | AsyncAwaitContinuation::AsyncGeneratorYieldReturn => self
-                .emit_async_generator_execution_realm_context_from_activation(
-                    activation_local,
-                    function,
-                ),
-        };
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        let result = self.emit_async_execution_intrinsic_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &realm,
-            continuation,
+        let schema = self.runtime_schema();
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::REALM)
+                .read(module, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_async_execution_realm_context(realm);
-        result
+        AsyncExecutionRealmContext { realm }
     }
 
-    fn emit_default_intrinsic_await_reactions(
+    fn emit_async_await_reactions_inner(
         &mut self,
-        reaction_capability_record_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        on_fulfilled_payload_local: u32,
-        on_fulfilled_tag_local: u32,
-        on_rejected_payload_local: u32,
-        on_rejected_tag_local: u32,
+        activation: &GcLocal<AsyncActivation>,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intrinsic_await_reactions(
-            reaction_capability_record_local,
-            value_payload_local,
-            value_tag_local,
-            on_fulfilled_payload_local,
-            on_fulfilled_tag_local,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
-            PromiseReactionInitialization::Default,
+        let schema = self.runtime_schema();
+        let frame = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncActivation>()
+                .field(AsyncActivationSchema::FRAME)
+                .read(activation, schema, function)
+                .reference(),
             function,
-        )
+        );
+        schema
+            .struct_type::<InvocationFrame>()
+            .field(InvocationFrameSchema::LEXICAL_ENVIRONMENT)
+            .write(
+                &frame,
+                GcOperand::reference(self.current_environment(), schema),
+                schema,
+                function,
+            );
+        let realm =
+            self.emit_async_function_execution_realm_context_from_activation(activation, function);
+        let initialization = PromiseReactionInitialization::AsyncFunction {
+            activation,
+            realm: realm.realm(),
+        };
+        self.emit_intrinsic_await_reactions(
+            value,
+            &initialization,
+            &initialization,
+            PromiseResolveRealmAuthority::AsyncExecution(&realm),
+            function,
+        )?;
+        self.release_async_execution_realm_context(realm, function);
+        frame.clear(function);
+        Ok(())
     }
-
-    fn emit_async_execution_intrinsic_await_reactions(
+    fn emit_async_generator_await_with_continuation_inner(
         &mut self,
-        reaction_capability_record_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        on_fulfilled_payload_local: u32,
-        on_fulfilled_tag_local: u32,
-        on_rejected_payload_local: u32,
-        on_rejected_tag_local: u32,
-        realm: &AsyncExecutionRealmContext,
-        continuation: AsyncAwaitContinuation,
+        activation: &GcLocal<AsyncGeneratorActivation>,
+        value: &ValueLocals,
+        continuation: AsyncGeneratorAwaitContinuation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intrinsic_await_reactions(
-            reaction_capability_record_local,
-            value_payload_local,
-            value_tag_local,
-            on_fulfilled_payload_local,
-            on_fulfilled_tag_local,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
-            PromiseReactionInitialization::AsyncExecution {
-                realm,
-                continuation,
-            },
+        let realm =
+            self.emit_async_generator_execution_realm_context_from_activation(activation, function);
+        let initialization = PromiseReactionInitialization::AsyncGenerator {
+            activation,
+            realm: realm.realm(),
+            continuation,
+        };
+        let emitted = self.emit_intrinsic_await_reactions(
+            value,
+            &initialization,
+            &initialization,
+            PromiseResolveRealmAuthority::AsyncExecution(&realm),
             function,
-        )
+        );
+        self.release_async_execution_realm_context(realm, function);
+        emitted
+    }
+    pub(crate) fn emit_intrinsic_await_with_handlers(
+        &mut self,
+        value: &ValueLocals,
+        fulfilled: &ValueLocals,
+        rejected: &ValueLocals,
+        capability: &GcLocal<PromiseCapability>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let capability = schema
+            .reserve_gc_local::<PromiseCapability, Nullable>(function)
+            .initialize(capability.load(schema, function).nullable(), function);
+        let fulfill = PromiseReactionInitialization::Default {
+            handler: fulfilled,
+            capability: &capability,
+        };
+        let reject = PromiseReactionInitialization::Default {
+            handler: rejected,
+            capability: &capability,
+        };
+        let emitted = self.emit_intrinsic_await_reactions(
+            value,
+            &fulfill,
+            &reject,
+            PromiseResolveRealmAuthority::CurrentFunction,
+            function,
+        );
+        capability.clear(function);
+        emitted
     }
 
     fn emit_intrinsic_await_reactions(
         &mut self,
-        reaction_capability_record_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        on_fulfilled_payload_local: u32,
-        on_fulfilled_tag_local: u32,
-        on_rejected_payload_local: u32,
-        on_rejected_tag_local: u32,
-        initialization: PromiseReactionInitialization<'_>,
+        value: &ValueLocals,
+        fulfill: &PromiseReactionInitialization<'_>,
+        reject: &PromiseReactionInitialization<'_>,
+        authority: PromiseResolveRealmAuthority<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let awaited_promise_payload_local = self.reserve_temp_local();
-        let awaited_promise_record_local = self.reserve_temp_local();
-        let rejected_promise_capability_local = self.reserve_temp_local();
-        let rejected_promise_constructor_tag_local = self.reserve_temp_local();
-        let resolve_error_payload_local = self.reserve_temp_local();
-        let resolve_error_tag_local = self.reserve_temp_local();
-        let source_result_payload_local = self.reserve_temp_local();
-        let source_result_tag_local = self.reserve_temp_local();
-        let fulfill_reaction_local = self.reserve_temp_local();
-        let reject_reaction_local = self.reserve_temp_local();
-
-        let resolve_realm_authority = match &initialization {
-            PromiseReactionInitialization::Default => PromiseResolveRealmAuthority::CurrentFunction,
-            PromiseReactionInitialization::AsyncExecution { realm, .. }
-            | PromiseReactionInitialization::Module { realm, .. } => {
-                PromiseResolveRealmAuthority::AsyncExecution(*realm)
-            }
-        };
-        let resolve_context =
-            self.emit_intrinsic_promise_resolve_realm_context(resolve_realm_authority, function)?;
-        self.emit_intrinsic_promise_resolve_to_locals(
-            &resolve_context,
-            value_payload_local,
-            value_tag_local,
-            awaited_promise_payload_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(awaited_promise_payload_local));
-        function.instruction(&Instruction::LocalSet(resolve_error_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(resolve_error_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(
-            rejected_promise_constructor_tag_local,
-        ));
-        self.emit_new_intrinsic_promise_resolve_rejection_capability(
-            &resolve_context,
-            rejected_promise_constructor_tag_local,
-            rejected_promise_capability_local,
-            awaited_promise_payload_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            awaited_promise_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            awaited_promise_record_local,
+        let schema = self.runtime_schema();
+        let context = self.emit_intrinsic_promise_resolve_realm_context(authority, function)?;
+        let resolved = schema.reserve_completion(function);
+        self.emit_intrinsic_promise_resolve_to_locals(&context, value, &resolved, function)?;
+        // Await propagates synchronous PromiseResolve failure before it suspends.
+        // The caller owns catch/finally routing and activation/status commits.
+        self.completion().copy_from(&resolved, function);
+        resolved.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let selected = schema.reserve_gc_local(function).initialize(
+            resolved
+                .value()
+                .cast_reference::<PromiseObject>(schema, function),
             function,
         );
-        self.emit_settle_promise_record(
-            awaited_promise_record_local,
-            PromiseSettlement::Reject,
-            resolve_error_payload_local,
-            resolve_error_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.release_intrinsic_promise_resolve_realm_context(resolve_context);
-        self.load_i64_to_local_from_offset(
-            awaited_promise_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            awaited_promise_record_local,
-            function,
-        );
-
-        self.emit_initialize_promise_reaction(
-            fulfill_reaction_local,
-            reaction_capability_record_local,
-            on_fulfilled_payload_local,
-            on_fulfilled_tag_local,
-            PromiseReactionType::Fulfill,
-            &initialization,
-            function,
-        )?;
-        self.emit_initialize_promise_reaction(
-            reject_reaction_local,
-            reaction_capability_record_local,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
-            PromiseReactionType::Reject,
-            &initialization,
-            function,
-        )?;
-
+        let fulfill_reaction =
+            self.emit_initialize_promise_reaction(PromiseReactionType::Fulfill, fulfill, function);
+        let reject_reaction =
+            self.emit_initialize_promise_reaction(PromiseReactionType::Reject, reject, function);
         self.emit_route_promise_reaction_pair(
-            awaited_promise_record_local,
-            fulfill_reaction_local,
-            reject_reaction_local,
-            source_result_payload_local,
-            source_result_tag_local,
+            &selected,
+            &fulfill_reaction,
+            &reject_reaction,
             function,
         )?;
-        self.store_i64_const_at_offset(
-            awaited_promise_record_local,
-            HEAP_PROMISE_IS_HANDLED_OFFSET,
-            1,
-            function,
-        );
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(reject_reaction_local);
-        self.release_temp_local(fulfill_reaction_local);
-        self.release_temp_local(source_result_tag_local);
-        self.release_temp_local(source_result_payload_local);
-        self.release_temp_local(resolve_error_tag_local);
-        self.release_temp_local(resolve_error_payload_local);
-        self.release_temp_local(rejected_promise_constructor_tag_local);
-        self.release_temp_local(rejected_promise_capability_local);
-        self.release_temp_local(awaited_promise_record_local);
-        self.release_temp_local(awaited_promise_payload_local);
+        reject_reaction.clear(function);
+        fulfill_reaction.clear(function);
+        selected.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        resolved.clear(function);
+        self.release_intrinsic_promise_resolve_realm_context(context, function);
         Ok(())
     }
 
-    pub(crate) fn emit_async_generator_await_return_reactions(
+    fn emit_async_generator_await_return_reactions_inner(
         &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        resolved_promise_payload_local: u32,
-        resolved_promise_tag_local: u32,
+        activation: &GcLocal<AsyncGeneratorActivation>,
+        value: &ValueLocals,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let resolved_promise_record_local = self.reserve_temp_local();
-        let source_result_payload_local = self.reserve_temp_local();
-        let source_result_tag_local = self.reserve_temp_local();
-        let fulfill_reaction_local = self.reserve_temp_local();
-        let reject_reaction_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        let realm = self.emit_async_generator_execution_realm_context_from_activation(
-            activation_local,
-            function,
-        );
-        let resolve_context = self.emit_intrinsic_promise_resolve_realm_context(
+        let schema = self.runtime_schema();
+        let realm =
+            self.emit_async_generator_execution_realm_context_from_activation(activation, function);
+        let context = self.emit_intrinsic_promise_resolve_realm_context(
             PromiseResolveRealmAuthority::AsyncExecution(&realm),
             function,
         )?;
-        self.emit_intrinsic_promise_resolve_to_locals(
-            &resolve_context,
-            value_payload_local,
-            value_tag_local,
-            resolved_promise_payload_local,
-            resolved_promise_tag_local,
-            function,
-        )?;
-        self.release_intrinsic_promise_resolve_realm_context(resolve_context);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Ne);
+        self.emit_intrinsic_promise_resolve_to_locals(&context, value, result, function)?;
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            resolved_promise_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            resolved_promise_record_local,
+        let promise = schema.reserve_gc_local(function).initialize(
+            result
+                .value()
+                .cast_reference::<PromiseObject>(schema, function),
             function,
         );
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_initialize_async_execution_promise_reaction(
-            fulfill_reaction_local,
-            activation_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            PromiseReactionType::Fulfill,
-            &realm,
-            AsyncAwaitContinuation::AsyncGeneratorAwaitReturn,
-            function,
-        )?;
-        self.emit_initialize_async_execution_promise_reaction(
-            reject_reaction_local,
-            activation_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            PromiseReactionType::Reject,
-            &realm,
-            AsyncAwaitContinuation::AsyncGeneratorAwaitReturn,
-            function,
-        )?;
-        self.release_async_execution_realm_context(realm);
-
-        self.emit_route_promise_reaction_pair(
-            resolved_promise_record_local,
-            fulfill_reaction_local,
-            reject_reaction_local,
-            source_result_payload_local,
-            source_result_tag_local,
-            function,
-        )?;
-        self.store_i64_const_at_offset(
-            resolved_promise_record_local,
-            HEAP_PROMISE_IS_HANDLED_OFFSET,
-            1,
-            function,
-        );
+        let initialization = PromiseReactionInitialization::AsyncGenerator {
+            activation,
+            realm: realm.realm(),
+            continuation: AsyncGeneratorAwaitContinuation::AwaitReturn,
+        };
+        self.emit_owned_promise_record_reactions(&promise, initialization, function)?;
+        promise.clear(function);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(reject_reaction_local);
-        self.release_temp_local(fulfill_reaction_local);
-        self.release_temp_local(source_result_tag_local);
-        self.release_temp_local(source_result_payload_local);
-        self.release_temp_local(resolved_promise_record_local);
+        self.release_intrinsic_promise_resolve_realm_context(context, function);
+        self.release_async_execution_realm_context(realm, function);
         Ok(())
     }
 
@@ -2539,158 +1926,62 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.prototype.then receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.prototype.then receiver tag",
-            )
-        })?;
-        let valid_receiver_local = self.reserve_temp_local();
-        let brand_local = self.reserve_temp_local();
-        let source_record_local = self.reserve_temp_local();
-        let source_result_payload_local = self.reserve_temp_local();
-        let source_result_tag_local = self.reserve_temp_local();
-        let on_fulfilled_payload_local = self.reserve_temp_local();
-        let on_fulfilled_tag_local = self.reserve_temp_local();
-        let on_rejected_payload_local = self.reserve_temp_local();
-        let on_rejected_tag_local = self.reserve_temp_local();
-        let result_promise_payload_local = self.reserve_temp_local();
-        let result_promise_tag_local = self.reserve_temp_local();
-        let capability_record_local = self.reserve_temp_local();
-        let species_constructor_payload_local = self.reserve_temp_local();
-        let species_constructor_tag_local = self.reserve_temp_local();
-        let fulfill_reaction_local = self.reserve_temp_local();
-        let reject_reaction_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_receiver_local));
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        receiver.copy_from(
+            self.body_entry_locals()
+                .expect("Promise then ordinary entry")
+                .this_value(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_PROMISE as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(valid_receiver_local));
+        let pending = schema.reserve_completion(function);
+        receiver.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<PromiseObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let prototype = self.emit_load_promise_prototype_receiver_type_error_prototype(function);
+        self.emit_throw_promise_then_incompatible_receiver_error(prototype, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(valid_receiver_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let receiver_error_prototype =
-            self.emit_load_promise_prototype_receiver_type_error_prototype(function);
-        self.emit_throw_promise_then_incompatible_receiver_error(
-            receiver_error_prototype,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            source_record_local,
+        let promise = schema.reserve_gc_local(function).initialize(
+            receiver.cast_reference::<PromiseObject>(schema, function),
             function,
         );
-        self.emit_builtin_arg_to_locals(
-            0,
-            on_fulfilled_payload_local,
-            on_fulfilled_tag_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(
-            1,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
-            function,
-        );
-        let species_context = self.emit_current_function_promise_species_realm_context(function);
-        self.emit_promise_species_constructor(
-            species_context,
-            receiver_payload_local,
-            receiver_tag_local,
-            species_constructor_payload_local,
-            species_constructor_tag_local,
-            function,
-        )?;
-        let executor_context =
+        let on_fulfilled = schema.reserve_value_local(function);
+        let on_rejected = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &on_fulfilled, function);
+        self.emit_builtin_arg_to_value(1, &on_rejected, function);
+        let species = self.emit_current_function_promise_species_realm_context(function);
+        self.emit_promise_species_constructor(species, &receiver, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let executor =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            species_constructor_payload_local,
-            species_constructor_tag_local,
-            capability_record_local,
-            result_promise_payload_local,
-            result_promise_tag_local,
+        let capability = self.emit_new_promise_capability(&executor, pending.value(), function)?;
+        self.release_promise_internal_function_materialization_context(executor, function);
+        self.emit_perform_promise_then(
+            &promise,
+            &on_fulfilled,
+            &on_rejected,
+            &capability,
             function,
         )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.emit_initialize_default_promise_reaction(
-            fulfill_reaction_local,
-            capability_record_local,
-            on_fulfilled_payload_local,
-            on_fulfilled_tag_local,
-            PromiseReactionType::Fulfill,
-            function,
-        )?;
-        self.emit_initialize_default_promise_reaction(
-            reject_reaction_local,
-            capability_record_local,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
-            PromiseReactionType::Reject,
-            function,
-        )?;
-
-        self.emit_route_promise_reaction_pair(
-            source_record_local,
-            fulfill_reaction_local,
-            reject_reaction_local,
-            source_result_payload_local,
-            source_result_tag_local,
-            function,
-        )?;
-        self.store_i64_const_at_offset(
-            source_record_local,
-            HEAP_PROMISE_IS_HANDLED_OFFSET,
-            1,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(result_promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(result_promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(reject_reaction_local);
-        self.release_temp_local(fulfill_reaction_local);
-        self.release_temp_local(species_constructor_tag_local);
-        self.release_temp_local(species_constructor_payload_local);
-        self.release_temp_local(capability_record_local);
-        self.release_temp_local(result_promise_tag_local);
-        self.release_temp_local(result_promise_payload_local);
-        self.release_temp_local(on_rejected_tag_local);
-        self.release_temp_local(on_rejected_payload_local);
-        self.release_temp_local(on_fulfilled_tag_local);
-        self.release_temp_local(on_fulfilled_payload_local);
-        self.release_temp_local(source_result_tag_local);
-        self.release_temp_local(source_result_payload_local);
-        self.release_temp_local(source_record_local);
-        self.release_temp_local(brand_local);
-        self.release_temp_local(valid_receiver_local);
+        let result = schema.reserve_value_local(function);
+        self.emit_read_promise_capability_promise(&capability, &result, function);
+        self.completion().set_normal(&result, function);
+        result.clear(function);
+        capability.clear(function);
+        on_rejected.clear(function);
+        on_fulfilled.clear(function);
+        promise.clear(function);
+        pending.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -2698,80 +1989,60 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.prototype.catch receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.prototype.catch receiver tag",
-            )
-        })?;
-        let object_payload_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-        let then_key_local = self.reserve_temp_local();
-        let then_payload_local = self.reserve_temp_local();
-        let then_tag_local = self.reserve_temp_local();
-        let on_rejected_payload_local = self.reserve_temp_local();
-        let on_rejected_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            on_rejected_payload_local,
-            on_rejected_tag_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        receiver.copy_from(
+            self.body_entry_locals()
+                .expect("Promise catch ordinary entry")
+                .this_value(),
             function,
         );
-        self.emit_value_to_current_function_realm_object_locals(
-            receiver_payload_local,
-            receiver_tag_local,
-            object_payload_local,
-            object_tag_local,
+        let on_rejected = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &on_rejected, function);
+        let pending = schema.reserve_completion(function);
+        self.emit_value_to_object_locals(&receiver, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let target = schema.reserve_value_local(function);
+        target.copy_from(pending.value(), function);
+        let key_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("then", function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_string(schema, &key_string, function);
+        self.emit_object_read_with_throw_routing(
+            &target,
+            &receiver,
+            &key,
+            &pending,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("then")));
-        function.instruction(&Instruction::LocalSet(then_key_local));
-        self.emit_object_read(
-            object_payload_local,
-            object_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            then_key_local,
-            then_payload_local,
-            then_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
         let invocation = self.emit_validate_promise_prototype_then_invocation(
-            TaggedLocals::new(then_payload_local, then_tag_local),
-            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            pending.value(),
+            &receiver,
             function,
         )?;
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
         self.emit_call_validated_promise_prototype_then_invocation(
             invocation,
-            TaggedLocals::new(undefined_payload_local, undefined_tag_local),
-            TaggedLocals::new(on_rejected_payload_local, on_rejected_tag_local),
-            TaggedLocals::new(self.result_local, self.result_tag_local),
+            &undefined,
+            &on_rejected,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(on_rejected_tag_local);
-        self.release_temp_local(on_rejected_payload_local);
-        self.release_temp_local(then_tag_local);
-        self.release_temp_local(then_payload_local);
-        self.release_temp_local(then_key_local);
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(object_payload_local);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        undefined.clear(function);
+        key.clear(function);
+        key_string.clear(function);
+        target.clear(function);
+        pending.clear(function);
+        on_rejected.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -2779,1779 +2050,1442 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.prototype.finally receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.prototype.finally receiver tag",
-            )
-        })?;
-        let on_finally_payload_local = self.reserve_temp_local();
-        let on_finally_tag_local = self.reserve_temp_local();
-        let constructor_payload_local = self.reserve_temp_local();
-        let constructor_tag_local = self.reserve_temp_local();
-        let context_local = self.reserve_temp_local();
-        let then_finally_payload_local = self.reserve_temp_local();
-        let then_finally_tag_local = self.reserve_temp_local();
-        let catch_finally_payload_local = self.reserve_temp_local();
-        let catch_finally_tag_local = self.reserve_temp_local();
-        let then_key_local = self.reserve_temp_local();
-        let then_payload_local = self.reserve_temp_local();
-        let then_tag_local = self.reserve_temp_local();
-
-        let then_finally_meta = self
-            .functions
-            .get(&StandardBuiltinId::PromiseThenFinally.function_id())
-            .cloned()
-            .ok_or_else(|| EmitError::unsupported("missing Promise then-finally builtin"))?;
-        let catch_finally_meta = self
-            .functions
-            .get(&StandardBuiltinId::PromiseCatchFinally.function_id())
-            .cloned()
-            .ok_or_else(|| EmitError::unsupported("missing Promise catch-finally builtin"))?;
-
-        self.emit_is_heap_object_like_tag_i32(receiver_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let receiver_error_prototype =
-            self.emit_load_promise_prototype_receiver_type_error_prototype(function);
-        self.emit_throw_promise_finally_non_object_receiver_error(
-            receiver_error_prototype,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(
-            0,
-            on_finally_payload_local,
-            on_finally_tag_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        receiver.copy_from(
+            self.body_entry_locals()
+                .expect("Promise finally ordinary entry")
+                .this_value(),
             function,
         );
-        let species_context = self.emit_current_function_promise_species_realm_context(function);
-        self.emit_promise_species_constructor(
-            species_context,
-            receiver_payload_local,
-            receiver_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(on_finally_payload_local));
-        function.instruction(&Instruction::LocalSet(then_finally_payload_local));
-        function.instruction(&Instruction::LocalGet(on_finally_tag_local));
-        function.instruction(&Instruction::LocalSet(then_finally_tag_local));
-        function.instruction(&Instruction::LocalGet(on_finally_payload_local));
-        function.instruction(&Instruction::LocalSet(catch_finally_payload_local));
-        function.instruction(&Instruction::LocalGet(on_finally_tag_local));
-        function.instruction(&Instruction::LocalSet(catch_finally_tag_local));
-        self.emit_is_callable_i32(on_finally_tag_local, on_finally_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_heap_alloc_const(HEAP_PROMISE_FINALLY_CONTEXT_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(context_local));
-        for (offset, value_local) in [
-            (
-                HEAP_PROMISE_FINALLY_ON_FINALLY_PAYLOAD_OFFSET,
-                on_finally_payload_local,
-            ),
-            (
-                HEAP_PROMISE_FINALLY_ON_FINALLY_TAG_OFFSET,
-                on_finally_tag_local,
-            ),
-            (
-                HEAP_PROMISE_FINALLY_CONSTRUCTOR_PAYLOAD_OFFSET,
-                constructor_payload_local,
-            ),
-            (
-                HEAP_PROMISE_FINALLY_CONSTRUCTOR_TAG_OFFSET,
-                constructor_tag_local,
-            ),
-        ] {
-            self.store_i64_local_at_offset(context_local, offset, value_local, function);
-        }
-        let materialization_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_promise_internal_function_value(
-            &then_finally_meta,
-            &materialization_context,
-            context_local,
-            then_finally_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(then_finally_tag_local));
-        self.emit_promise_internal_function_value(
-            &catch_finally_meta,
-            &materialization_context,
-            context_local,
-            catch_finally_payload_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(materialization_context);
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(catch_finally_tag_local));
+        let pending = schema.reserve_completion(function);
+        self.emit_is_heap_object_like_tag_i32(receiver.tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let prototype = self.emit_load_promise_prototype_receiver_type_error_prototype(function);
+        self.emit_throw_promise_finally_non_object_receiver_error(prototype, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("then")));
-        function.instruction(&Instruction::LocalSet(then_key_local));
-        self.emit_object_read(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            then_key_local,
-            then_payload_local,
-            then_tag_local,
+        let on_finally = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &on_finally, function);
+        let species = self.emit_current_function_promise_species_realm_context(function);
+        self.emit_promise_species_constructor(species, &receiver, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let constructor = schema.reserve_value_local(function);
+        constructor.copy_from(pending.value(), function);
+        let then_finally = schema.reserve_value_local(function);
+        let catch_finally = schema.reserve_value_local(function);
+        then_finally.copy_from(&on_finally, function);
+        catch_finally.copy_from(&on_finally, function);
+        self.emit_is_callable_i32(&on_finally, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let callback = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&on_finally, function),
+            function,
+        );
+        let captured_constructor = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&constructor, function),
+            function,
+        );
+        let context = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<PromiseFinallyContext>().construct(
+                (
+                    GcOperand::reference(&callback, schema),
+                    GcOperand::reference(&captured_constructor, schema),
+                ),
+                function,
+            ),
+            function,
+        );
+        let materialization =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
+        let fulfilled = self.emit_promise_internal_function_value(
+            PromiseInternalFunction::ThenFinally(&context),
+            &materialization,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        then_finally.set_reference(&fulfilled, schema, function);
+        fulfilled.clear(function);
+        let rejected = self.emit_promise_internal_function_value(
+            PromiseInternalFunction::CatchFinally(&context),
+            &materialization,
+            function,
+        )?;
+        catch_finally.set_reference(&rejected, schema, function);
+        rejected.clear(function);
+        self.release_promise_internal_function_materialization_context(materialization, function);
+        context.clear(function);
+        captured_constructor.clear(function);
+        callback.clear(function);
+        function.instruction(&Instruction::End);
+        let key_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("then", function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_string(schema, &key_string, function);
+        self.emit_object_read_with_throw_routing(
+            &receiver,
+            &receiver,
+            &key,
+            &pending,
+            AccessorThrowRouting::LeaveInCompletion,
+            function,
+        )?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
         let invocation = self.emit_validate_promise_prototype_then_invocation(
-            TaggedLocals::new(then_payload_local, then_tag_local),
-            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            pending.value(),
+            &receiver,
             function,
         )?;
         self.emit_call_validated_promise_prototype_then_invocation(
             invocation,
-            TaggedLocals::new(then_finally_payload_local, then_finally_tag_local),
-            TaggedLocals::new(catch_finally_payload_local, catch_finally_tag_local),
-            TaggedLocals::new(self.result_local, self.result_tag_local),
+            &then_finally,
+            &catch_finally,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(then_tag_local);
-        self.release_temp_local(then_payload_local);
-        self.release_temp_local(then_key_local);
-        self.release_temp_local(catch_finally_tag_local);
-        self.release_temp_local(catch_finally_payload_local);
-        self.release_temp_local(then_finally_tag_local);
-        self.release_temp_local(then_finally_payload_local);
-        self.release_temp_local(context_local);
-        self.release_temp_local(constructor_tag_local);
-        self.release_temp_local(constructor_payload_local);
-        self.release_temp_local(on_finally_tag_local);
-        self.release_temp_local(on_finally_payload_local);
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        key.clear(function);
+        key_string.clear(function);
+        catch_finally.clear(function);
+        then_finally.clear(function);
+        constructor.clear(function);
+        on_finally.clear(function);
+        pending.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
     fn emit_run_async_continuation_job(
         &mut self,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.reserve_temp_local();
-        let function_env_local = self.reserve_temp_local();
-        let function_table_index_local = self.reserve_temp_local();
-        let this_payload_local = self.reserve_temp_local();
-        let this_tag_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let completed_local = self.reserve_temp_local();
-        let body_payload_local = self.reserve_temp_local();
-        let body_tag_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            activation_local,
+        let schema = self.runtime_schema();
+        let activation = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseReaction>()
+                .field(PromiseReactionSchema::ASYNC_ACTIVATION)
+                .read(reaction, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_COMPLETED_OFFSET,
-            completed_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(completed_local));
-        function.instruction(&Instruction::I64Eqz);
+        schema
+            .struct_type::<AsyncActivation>()
+            .field(AsyncActivationSchema::COMPLETED)
+            .read(&activation, schema, function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        for (offset, destination_local) in [
-            (HEAP_ASYNC_FUNCTION_ENV_OFFSET, function_env_local),
-            (
-                HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET,
-                function_table_index_local,
-            ),
-            (HEAP_ASYNC_THIS_PAYLOAD_OFFSET, this_payload_local),
-            (HEAP_ASYNC_THIS_TAG_OFFSET, this_tag_local),
-            (HEAP_ASYNC_ARGC_OFFSET, argc_local),
-            (HEAP_ASYNC_ARGV_OFFSET, argv_local),
-            (HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET, promise_payload_local),
-            (HEAP_ASYNC_PROMISE_RECORD_OFFSET, promise_record_local),
-        ] {
-            self.load_i64_to_local_from_offset(
-                activation_local,
-                offset,
-                destination_local,
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(argument, function),
+            function,
+        );
+        schema
+            .struct_type::<AsyncActivation>()
+            .field(AsyncActivationSchema::RESUME_VALUE)
+            .write(
+                &activation,
+                GcOperand::reference(&stored, schema),
+                schema,
                 function,
             );
-        }
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-            argument_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_TAG_OFFSET,
-            argument_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
+        rejected.load(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_store_async_function_resume_completion(
-            activation_local,
-            AsyncFunctionResumeCompletion::Normal,
-            function,
-        );
+        schema
+            .struct_type::<AsyncActivation>()
+            .field(AsyncActivationSchema::RESUME_COMPLETION)
+            .write(
+                &activation,
+                GcOperand::constant(AwaitCompletionKind::Throw),
+                schema,
+                function,
+            );
         function.instruction(&Instruction::Else);
-        self.emit_store_async_function_resume_completion(
-            activation_local,
-            AsyncFunctionResumeCompletion::Throw,
-            function,
-        );
+        schema
+            .struct_type::<AsyncActivation>()
+            .field(AsyncActivationSchema::RESUME_COMPLETION)
+            .write(
+                &activation,
+                GcOperand::constant(AwaitCompletionKind::Normal),
+                schema,
+                function,
+            );
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(function_env_local));
-        function.instruction(&Instruction::LocalGet(this_payload_local));
-        function.instruction(&Instruction::LocalGet(this_tag_local));
-        function.instruction(&Instruction::LocalGet(activation_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalGet(argc_local));
-        function.instruction(&Instruction::LocalGet(argv_local));
-        function.instruction(&Instruction::LocalGet(function_table_index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::CallIndirect {
-            type_index: JS_FUNCTION_TYPE_INDEX,
-            table_index: 0,
-        });
-        self.store_call_results(body_payload_local, body_tag_local, function);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Reject,
-            body_payload_local,
-            body_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_resolve_promise_record(
-            promise_payload_local,
-            promise_record_local,
-            body_payload_local,
-            body_tag_local,
-            function,
-        )?;
+        let body = schema.reserve_completion(function);
+        body.initialize(function);
+        self.emit_saved_async_body_call(&activation, &body, function);
+        self.emit_complete_async_entry_invocation(&activation, &body, function)?;
+        body.clear(function);
+        stored.clear(function);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(activation_local, HEAP_ASYNC_COMPLETED_OFFSET, 1, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(body_tag_local);
-        self.release_temp_local(body_payload_local);
-        self.release_temp_local(completed_local);
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(this_tag_local);
-        self.release_temp_local(this_payload_local);
-        self.release_temp_local(function_table_index_local);
-        self.release_temp_local(function_env_local);
-        self.release_temp_local(activation_local);
+        activation.clear(function);
+        self.completion().initialize(function);
         Ok(())
     }
 
     fn emit_remove_async_generator_queue_head(
-        &mut self,
-        activation_local: u32,
-        request_local: u32,
-        next_request_local: u32,
+        &self,
+        activation: &GcLocal<AsyncGeneratorActivation>,
+        request: &GcLocal<AsyncGeneratorRequest>,
         function: &mut Function,
     ) {
-        self.load_i64_to_local_from_offset(
-            request_local,
-            HEAP_ASYNC_GENERATOR_REQUEST_NEXT_OFFSET,
-            next_request_local,
+        let schema = self.runtime_schema();
+        let next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorRequest>()
+                .field(AsyncGeneratorRequestSchema::NEXT)
+                .read(request, schema, function)
+                .reference(),
             function,
         );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET,
-            next_request_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(next_request_local));
-        function.instruction(&Instruction::I64Eqz);
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::REQUEST_HEAD)
+            .write(
+                activation,
+                GcOperand::reference(&next, schema),
+                schema,
+                function,
+            );
+        next.load(schema, function).is_null(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_QUEUE_TAIL_OFFSET,
-            0,
-            function,
-        );
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::REQUEST_TAIL)
+            .write(activation, GcOperand::null(schema), schema, function);
         function.instruction(&Instruction::End);
+        schema
+            .struct_type::<AsyncGeneratorRequest>()
+            .field(AsyncGeneratorRequestSchema::NEXT)
+            .write(request, GcOperand::null(schema), schema, function);
+        next.clear(function);
     }
 
     pub(crate) fn emit_complete_async_generator_step(
         &mut self,
-        activation_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        completion_kind_local: u32,
+        activation: &GcLocal<AsyncGeneratorActivation>,
+        completion: &CompletionLocals,
         kind: AsyncGeneratorCompleteStepKind,
+        realm: Option<&GcLocal<RealmRecord>>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let request_local = self.reserve_temp_local();
-        let next_request_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let iterator_result_payload_local = self.reserve_temp_local();
-        let iterator_result_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            request_local,
+        let schema = self.runtime_schema();
+        let request = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::ACTIVE_REQUEST)
+                .read(activation, schema, function)
+                .reference()
+                .require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(request_local));
-        function.instruction(&Instruction::I64Eqz);
+        let capability = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorRequest>()
+                .field(AsyncGeneratorRequestSchema::CAPABILITY)
+                .read(&request, schema, function)
+                .reference(),
+            function,
+        );
+        self.emit_remove_async_generator_queue_head(activation, &request, function);
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::ACTIVE_REQUEST)
+            .write(activation, GcOperand::null(schema), schema, function);
+        let settled = schema.reserve_completion(function);
+        settled.initialize(function);
+        completion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        for (offset, destination_local) in [
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_PROMISE_PAYLOAD_OFFSET,
-                promise_payload_local,
-            ),
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_PROMISE_RECORD_OFFSET,
-                promise_record_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(request_local, offset, destination_local, function);
-        }
-        self.emit_remove_async_generator_queue_head(
-            activation_local,
-            request_local,
-            next_request_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            0,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_settle_promise_record(
-            promise_record_local,
+        self.emit_call_promise_capability(
+            &capability,
             PromiseSettlement::Reject,
-            value_payload_local,
-            value_tag_local,
+            completion.value(),
+            &settled,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        completion.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let done = match kind {
-            AsyncGeneratorCompleteStepKind::Yielded => false,
-            AsyncGeneratorCompleteStepKind::Completed => true,
-        };
-        self.emit_iterator_result_object_from_locals(
-            value_payload_local,
-            value_tag_local,
-            done,
-            iterator_result_payload_local,
-            iterator_result_tag_local,
-            function,
-        )?;
-        self.emit_resolve_promise_record(
-            promise_payload_local,
-            promise_record_local,
-            iterator_result_payload_local,
-            iterator_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
+        // CompleteStep allocates in the explicitly supplied previous context,
+        // or the current execution context. A capability's Promise is arbitrary.
+        let current_realm = realm.is_none().then(|| self.load_current_realm(function));
+        let realm = realm
+            .or(current_realm.as_ref())
+            .expect("iterator result Realm is selected");
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            realm,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
+            function,
+        );
+        let object = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
+            function,
+        );
+        for (name, value) in [("value", completion.value())] {
+            let string = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(name, function)?,
+                function,
+            );
+            let key = PropertyKeyLocals::from_string(schema, &string, function);
+            self.emit_object_append_data_property_with_flags(
+                &object, &key, value, true, true, true, function,
+            )?;
+            key.clear(function);
+            string.clear(function);
+        }
+        let done = schema.reserve_value_local(function);
+        done.set_scalar(
+            ScalarValue::Boolean(matches!(kind, AsyncGeneratorCompleteStepKind::Completed)),
+            function,
+        );
+        let done_string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("done", function)?,
+            function,
+        );
+        let done_key = PropertyKeyLocals::from_string(schema, &done_string, function);
+        self.emit_object_append_data_property_with_flags(
+            &object, &done_key, &done, true, true, true, function,
+        )?;
+        let result = schema.reserve_value_local(function);
+        result.set_reference(&object, schema, function);
+        self.emit_call_promise_capability(
+            &capability,
+            PromiseSettlement::Fulfill,
+            &result,
+            &settled,
+            function,
+        )?;
+        result.clear(function);
+        done_key.clear(function);
+        done_string.clear(function);
+        done.clear(function);
+        object.clear(function);
+        prototype.clear(function);
+        if let Some(realm) = current_realm {
+            realm.clear(function);
+        }
         function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(iterator_result_tag_local);
-        self.release_temp_local(iterator_result_payload_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(next_request_local);
-        self.release_temp_local(request_local);
+        if matches!(kind, AsyncGeneratorCompleteStepKind::Completed) {
+            let frame = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<AsyncGeneratorActivation>()
+                    .field(AsyncGeneratorActivationSchema::FRAME)
+                    .read(activation, schema, function)
+                    .reference(),
+                function,
+            );
+            let lists = schema.reserve_gc_local(function).initialize(
+                schema
+                    .array_type::<PrivateArgumentListTable>()
+                    .fixed(std::iter::empty(), function),
+                function,
+            );
+            schema
+                .struct_type::<InvocationFrame>()
+                .field(InvocationFrameSchema::PRIVATE_ARGUMENT_LISTS)
+                .write(
+                    &frame,
+                    GcOperand::reference(&lists, schema),
+                    schema,
+                    function,
+                );
+            lists.clear(function);
+            frame.clear(function);
+        }
+        self.completion().initialize(function);
+        settled.clear(function);
+        capability.clear(function);
+        request.clear(function);
         Ok(())
     }
 
-    pub(crate) fn emit_drain_async_generator_queue(
+    fn emit_drain_async_generator_queue_inner(
         &mut self,
-        activation_local: u32,
+        activation: &GcLocal<AsyncGeneratorActivation>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let request_local = self.reserve_temp_local();
-        let step_completion_kind_local = self.reserve_temp_local();
-        let completion_payload_local = self.reserve_temp_local();
-        let completion_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let resolved_promise_payload_local = self.reserve_temp_local();
-        let resolved_promise_tag_local = self.reserve_temp_local();
-        let stop_draining_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(stop_draining_local));
+        let schema = self.runtime_schema();
+        let stopped = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        stopped.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET,
-            request_local,
+        let head = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::REQUEST_HEAD)
+                .read(activation, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(request_local));
-        function.instruction(&Instruction::I64Eqz);
+        head.load(schema, function).is_null(function);
         function.instruction(&Instruction::BrIf(1));
-        let request_completion_kind =
-            self.emit_load_async_generator_request_completion_kind_strict(request_local, function);
-        for (offset, destination_local) in [
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET,
-                completion_payload_local,
-            ),
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET,
-                completion_tag_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(request_local, offset, destination_local, function);
-        }
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            request_local,
+        let request = schema.reserve_gc_local(function).initialize(
+            head.load(schema, function).require_non_null(function),
             function,
         );
-        self.emit_async_generator_request_completion_kind_equals(
-            &request_completion_kind,
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::ACTIVE_REQUEST)
+            .write(
+                activation,
+                GcOperand::nullable_reference(&request, schema),
+                schema,
+                function,
+            );
+        let value = schema.reserve_value_local(function);
+        let record = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorRequest>()
+                .field(AsyncGeneratorRequestSchema::COMPLETION_VALUE)
+                .read(&request, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&record, &value, schema, function);
+        let kind = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<AsyncGeneratorRequest>()
+            .field(AsyncGeneratorRequestSchema::COMPLETION_KIND)
+            .read(&request, schema, function)
+            .store(kind, function);
+        let step = schema.reserve_completion(function);
+        step.initialize(function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorRequestCompletionKind::Normal,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_copy_async_generator_request_completion_kind_to_step_completion(
-            &request_completion_kind,
-            step_completion_kind_local,
-            function,
-        );
+        step.value().set_undefined(function);
         self.emit_complete_async_generator_step(
-            activation_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            step_completion_kind_local,
+            activation,
+            &step,
             AsyncGeneratorCompleteStepKind::Completed,
+            None,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_async_generator_request_completion_kind_equals(
-            &request_completion_kind,
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorRequestCompletionKind::Throw,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_copy_async_generator_request_completion_kind_to_step_completion(
-            &request_completion_kind,
-            step_completion_kind_local,
-            function,
-        );
+        step.set_throw(&value, function);
         self.emit_complete_async_generator_step(
-            activation_local,
-            completion_payload_local,
-            completion_tag_local,
-            step_completion_kind_local,
+            activation,
+            &step,
             AsyncGeneratorCompleteStepKind::Completed,
+            None,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_async_generator_request_completion_kind_equals(
-            &request_completion_kind,
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorRequestCompletionKind::Return,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_async_generator_await_return_reactions(
-            activation_local,
-            completion_payload_local,
-            completion_tag_local,
-            resolved_promise_payload_local,
-            resolved_promise_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.emit_async_generator_await_return_reactions(activation, &value, &step, function)?;
+        step.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::I64Const(CompletionKind::Throw.code()));
-        function.instruction(&Instruction::LocalSet(step_completion_kind_local));
         self.emit_complete_async_generator_step(
-            activation_local,
-            resolved_promise_payload_local,
-            resolved_promise_tag_local,
-            step_completion_kind_local,
+            activation,
+            &step,
             AsyncGeneratorCompleteStepKind::Completed,
+            None,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(stop_draining_local));
+        function.instruction(&Instruction::I32Const(1));
+        stopped.store(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::LocalGet(stop_draining_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        step.clear(function);
+        schema.release_i32_local(kind, function);
+        record.clear(function);
+        value.clear(function);
+        request.clear(function);
+        head.clear(function);
+        stopped.load(function);
         function.instruction(&Instruction::BrIf(1));
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(stop_draining_local));
-        function.instruction(&Instruction::I64Eqz);
+        stopped.load(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            0,
-            function,
-        );
-        self.emit_store_async_generator_execution_state(
-            activation_local,
-            AsyncGeneratorExecutionState::Completed,
-            function,
-        );
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::ACTIVE_REQUEST)
+            .write(activation, GcOperand::null(schema), schema, function);
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+            .write(
+                activation,
+                GcOperand::constant(AsyncGeneratorExecutionState::Completed),
+                schema,
+                function,
+            );
         function.instruction(&Instruction::End);
-
-        self.release_loaded_async_generator_request_completion_kind(request_completion_kind);
-        self.release_temp_local(stop_draining_local);
-        self.release_temp_local(resolved_promise_tag_local);
-        self.release_temp_local(resolved_promise_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(completion_tag_local);
-        self.release_temp_local(completion_payload_local);
-        self.release_temp_local(step_completion_kind_local);
-        self.release_temp_local(request_local);
+        schema.release_i32_local(stopped, function);
+        self.completion().initialize(function);
         Ok(())
+    }
+
+    fn emit_async_generator_reaction_activation(
+        &self,
+        reaction: &GcLocal<PromiseReaction>,
+        require_await: bool,
+        function: &mut Function,
+    ) -> GcLocal<AsyncGeneratorActivation> {
+        let schema = self.runtime_schema();
+        let activation = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseReaction>()
+                .field(PromiseReactionSchema::ASYNC_GENERATOR)
+                .read(reaction, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
+        if require_await {
+            for (field, expected) in [(
+                AsyncGeneratorActivationSchema::EXECUTION_STATE,
+                GcI32Constant::encode(AsyncGeneratorExecutionState::Executing),
+            )] {
+                schema
+                    .struct_type::<AsyncGeneratorActivation>()
+                    .field(field)
+                    .read(&activation, schema, function);
+                function.instruction(&Instruction::I32Const(expected));
+                function.instruction(&Instruction::I32Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Unreachable);
+                function.instruction(&Instruction::End);
+            }
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::BODY_STATUS)
+                .read(&activation, schema, function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+                AsyncGeneratorBodyStatus::Await,
+            )));
+            function.instruction(&Instruction::I32Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+            let active = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<AsyncGeneratorActivation>()
+                    .field(AsyncGeneratorActivationSchema::ACTIVE_REQUEST)
+                    .read(&activation, schema, function)
+                    .reference()
+                    .require_non_null(function),
+                function,
+            );
+            let head = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<AsyncGeneratorActivation>()
+                    .field(AsyncGeneratorActivationSchema::REQUEST_HEAD)
+                    .read(&activation, schema, function)
+                    .reference(),
+                function,
+            );
+            active.load(schema, function);
+            head.load(schema, function);
+            function.instruction(&Instruction::RefEq);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+            head.clear(function);
+            active.clear(function);
+        }
+        activation
+    }
+
+    pub(crate) fn emit_async_generator_resume_value(
+        &self,
+        activation: &GcLocal<AsyncGeneratorActivation>,
+        value: &ValueLocals,
+        rejected: I32Local,
+        fulfilled: AsyncGeneratorResumeKind,
+        rejection: AsyncGeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(value, function),
+            function,
+        );
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::RESUME_VALUE)
+            .write(
+                activation,
+                GcOperand::reference(&stored, schema),
+                schema,
+                function,
+            );
+        rejected.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::RESUME_KIND)
+            .write(activation, GcOperand::constant(rejection), schema, function);
+        function.instruction(&Instruction::Else);
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::RESUME_KIND)
+            .write(activation, GcOperand::constant(fulfilled), schema, function);
+        function.instruction(&Instruction::End);
+        stored.clear(function);
     }
 
     fn emit_run_async_generator_await_job(
         &mut self,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.reserve_temp_local();
-        let active_request_local = self.reserve_temp_local();
-        let queue_head_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            activation_local,
-            function,
-        );
-        let execution_state =
-            self.emit_load_async_generator_execution_state_strict(activation_local, function);
-        self.emit_async_generator_execution_state_equals(
-            &execution_state,
-            AsyncGeneratorExecutionState::Executing,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        let body_status =
-            self.emit_load_async_generator_body_status_strict(activation_local, function);
-        self.emit_async_generator_body_status_equals(
-            &body_status,
-            AsyncGeneratorBodyStatus::Await,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            active_request_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(active_request_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET,
-            queue_head_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(active_request_local));
-        function.instruction(&Instruction::LocalGet(queue_head_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        // `AsyncFromSyncIteratorContinuation` steps 6.a and 13. This runs
-        // before the body is resumed, and leaves both the resume payload and
-        // the current completion untouched: the generator is still resumed
-        // with the *original* rejection reason.
-        //
-        // Known microtask-ordering deviation, recorded rather than fixed. In the
-        // spec the close happens in the valueWrapper's `onRejected` reaction job
-        // and the generator's `Await(innerResult)` reaction is a LATER job; here
-        // the close and `emit_start_async_generator_body` below run in ONE
-        // invocation of the await job, because this backend never materialises
-        // the AsyncFromSync wrapper promise. Observable only when the sync
-        // `return` method itself schedules a microtask: under the spec that
-        // microtask runs before the generator resumes, here after. This follows
-        // from the pre-existing job fusion, not from the close emission, and no
-        // case in `built-ins/AsyncFromSyncIteratorPrototype` observes it.
-        self.emit_async_from_sync_close_on_rejection(
-            activation_local,
-            reaction_is_rejected_local,
-            function,
-        )?;
-
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-            argument_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-            argument_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
+        let activation = self.emit_async_generator_reaction_activation(reaction, true, function);
+        self.emit_async_generator_resume_value(
+            &activation,
+            argument,
+            rejected,
             AsyncGeneratorResumeKind::Fulfill,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
             AsyncGeneratorResumeKind::Reject,
             function,
         );
-        function.instruction(&Instruction::End);
-        self.emit_start_async_generator_body(activation_local, function)?;
-
-        self.release_loaded_async_generator_body_status(body_status);
-        self.release_loaded_async_generator_execution_state(execution_state);
-        self.release_temp_local(queue_head_local);
-        self.release_temp_local(active_request_local);
-        self.release_temp_local(activation_local);
+        self.emit_start_async_generator_body(&activation, function)?;
+        activation.clear(function);
         Ok(())
     }
 
     fn emit_run_async_generator_await_return_job(
         &mut self,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.reserve_temp_local();
-        let completion_kind_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            activation_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
+        let schema = self.runtime_schema();
+        let activation = self.emit_async_generator_reaction_activation(reaction, false, function);
+        let completion = schema.reserve_completion(function);
+        completion.initialize(function);
+        rejected.load(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::LocalSet(completion_kind_local));
+        completion.set_throw(argument, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::LocalSet(completion_kind_local));
+        completion.set_normal(argument, function);
         function.instruction(&Instruction::End);
         self.emit_complete_async_generator_step(
-            activation_local,
-            argument_payload_local,
-            argument_tag_local,
-            completion_kind_local,
+            &activation,
+            &completion,
             AsyncGeneratorCompleteStepKind::Completed,
+            None,
             function,
         )?;
-        self.emit_drain_async_generator_queue(activation_local, function)?;
-        self.release_temp_local(completion_kind_local);
-        self.release_temp_local(activation_local);
+        self.emit_drain_async_generator_queue(&activation, function)?;
+        completion.clear(function);
+        activation.clear(function);
         Ok(())
     }
 
     fn emit_run_async_generator_yield_return_job(
         &mut self,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.reserve_temp_local();
-        let active_request_local = self.reserve_temp_local();
-        let queue_head_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            activation_local,
-            function,
-        );
-        let execution_state =
-            self.emit_load_async_generator_execution_state_strict(activation_local, function);
-        self.emit_async_generator_execution_state_equals(
-            &execution_state,
-            AsyncGeneratorExecutionState::Executing,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        let body_status =
-            self.emit_load_async_generator_body_status_strict(activation_local, function);
-        self.emit_async_generator_body_status_equals(
-            &body_status,
-            AsyncGeneratorBodyStatus::Await,
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            active_request_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(active_request_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET,
-            queue_head_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(active_request_local));
-        function.instruction(&Instruction::LocalGet(queue_head_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-            argument_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-            argument_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
+        let activation = self.emit_async_generator_reaction_activation(reaction, true, function);
+        self.emit_async_generator_resume_value(
+            &activation,
+            argument,
+            rejected,
             AsyncGeneratorResumeKind::Return,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
             AsyncGeneratorResumeKind::Throw,
             function,
         );
-        function.instruction(&Instruction::End);
-        self.emit_start_async_generator_body(activation_local, function)?;
-
-        self.release_loaded_async_generator_body_status(body_status);
-        self.release_loaded_async_generator_execution_state(execution_state);
-        self.release_temp_local(queue_head_local);
-        self.release_temp_local(active_request_local);
-        self.release_temp_local(activation_local);
+        self.emit_start_async_generator_body(&activation, function)?;
+        activation.clear(function);
         Ok(())
     }
 
     fn emit_run_async_generator_yield_job(
         &mut self,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let activation_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            activation_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
+        let schema = self.runtime_schema();
+        let activation = self.emit_async_generator_reaction_activation(reaction, false, function);
+        rejected.load(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let resume_body_local = self.reserve_temp_local();
-        self.emit_complete_async_generator_yield(
-            activation_local,
-            argument_payload_local,
-            argument_tag_local,
-            resume_body_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(resume_body_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_start_async_generator_body(activation_local, function)?;
-        function.instruction(&Instruction::End);
-        self.release_temp_local(resume_body_local);
-
-        function.instruction(&Instruction::Else);
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-            argument_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-            argument_tag_local,
-            function,
-        );
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
+        self.emit_async_generator_resume_value(
+            &activation,
+            argument,
+            rejected,
+            AsyncGeneratorResumeKind::Fulfill,
             AsyncGeneratorResumeKind::Reject,
             function,
         );
-        self.emit_start_async_generator_body(activation_local, function)?;
+        self.emit_start_async_generator_body(&activation, function)?;
+        function.instruction(&Instruction::Else);
+        let resume = schema.reserve_i32_local(function);
+        self.emit_complete_async_generator_yield(&activation, argument, resume, None, function)?;
+        resume.load(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_start_async_generator_body(&activation, function)?;
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(activation_local);
+        schema.release_i32_local(resume, function);
+        function.instruction(&Instruction::End);
+        activation.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_complete_async_generator_yield(
         &mut self,
-        activation_local: u32,
-        yield_payload_local: u32,
-        yield_tag_local: u32,
-        resume_body_local: u32,
+        activation: &GcLocal<AsyncGeneratorActivation>,
+        value: &ValueLocals,
+        resume: I32Local,
+        realm: Option<&GcLocal<RealmRecord>>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let completion_kind_local = self.reserve_temp_local();
-        let request_local = self.reserve_temp_local();
-        let request_payload_local = self.reserve_temp_local();
-        let request_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(resume_body_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::LocalSet(completion_kind_local));
+        let schema = self.runtime_schema();
+        let incoming = schema.reserve_completion(function);
+        incoming.copy_from(self.completion(), function);
+        function.instruction(&Instruction::I32Const(0));
+        resume.store(function);
+        let completion = schema.reserve_completion(function);
+        completion.initialize(function);
+        completion.set_normal(value, function);
         self.emit_complete_async_generator_step(
-            activation_local,
-            yield_payload_local,
-            yield_tag_local,
-            completion_kind_local,
+            activation,
+            &completion,
             AsyncGeneratorCompleteStepKind::Yielded,
+            realm,
             function,
         )?;
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_QUEUE_HEAD_OFFSET,
-            request_local,
+        let head = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorActivation>()
+                .field(AsyncGeneratorActivationSchema::REQUEST_HEAD)
+                .read(activation, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(request_local));
-        function.instruction(&Instruction::I64Eqz);
+        head.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET,
-            request_local,
+        let request = schema.reserve_gc_local(function).initialize(
+            head.load(schema, function).require_non_null(function),
             function,
         );
-        for (offset, destination_local) in [
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET,
-                request_payload_local,
-            ),
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET,
-                request_tag_local,
-            ),
-        ] {
-            self.load_i64_to_local_from_offset(request_local, offset, destination_local, function);
-        }
-        let request_completion_kind =
-            self.emit_load_async_generator_request_completion_kind_strict(request_local, function);
-        self.emit_async_generator_request_completion_kind_equals(
-            &request_completion_kind,
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::ACTIVE_REQUEST)
+            .write(
+                activation,
+                GcOperand::nullable_reference(&request, schema),
+                schema,
+                function,
+            );
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<AsyncGeneratorRequest>()
+                .field(AsyncGeneratorRequestSchema::COMPLETION_VALUE)
+                .read(&request, schema, function)
+                .reference(),
+            function,
+        );
+        schema.struct_type::<StoredValue>().read_into(
+            &stored,
+            completion.value(),
+            schema,
+            function,
+        );
+        let kind = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<AsyncGeneratorRequest>()
+            .field(AsyncGeneratorRequestSchema::COMPLETION_KIND)
+            .read(&request, schema, function)
+            .store(kind, function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
             AsyncGeneratorRequestCompletionKind::Return,
-            function,
-        );
+        )));
+        function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_async_generator_yield_return_reactions(
-            activation_local,
-            request_payload_local,
-            request_tag_local,
-            function,
-        )?;
-        self.emit_store_async_generator_body_status(
-            activation_local,
-            AsyncGeneratorBodyStatus::Await,
-            function,
-        );
-        self.emit_store_async_generator_execution_state(
-            activation_local,
-            AsyncGeneratorExecutionState::Executing,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(resume_body_local));
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-            request_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-            request_tag_local,
-            function,
-        );
-        self.emit_async_generator_request_completion_kind_equals(
-            &request_completion_kind,
-            AsyncGeneratorRequestCompletionKind::Throw,
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
+        self.emit_async_generator_yield_return_reactions(activation, completion.value(), function)?;
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let rejected = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(1));
+        rejected.store(function);
+        self.emit_async_generator_resume_value(
+            activation,
+            self.completion().value(),
+            rejected,
+            AsyncGeneratorResumeKind::Return,
             AsyncGeneratorResumeKind::Throw,
             function,
         );
+        function.instruction(&Instruction::I32Const(1));
+        resume.store(function);
+        schema.release_i32_local(rejected, function);
         function.instruction(&Instruction::Else);
-        self.emit_store_async_generator_resume_kind(
-            activation_local,
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::BODY_STATUS)
+            .write(
+                activation,
+                GcOperand::constant(AsyncGeneratorBodyStatus::Await),
+                schema,
+                function,
+            );
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+            .write(
+                activation,
+                GcOperand::constant(AsyncGeneratorExecutionState::Executing),
+                schema,
+                function,
+            );
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        let rejected = schema.reserve_i32_local(function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            AsyncGeneratorRequestCompletionKind::Throw,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        rejected.store(function);
+        rejected.load(function);
+        kind.load(function);
+        function.instruction(&Instruction::I32Const(GcI32Constant::encode(
+            AsyncGeneratorRequestCompletionKind::Normal,
+        )));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.emit_async_generator_resume_value(
+            activation,
+            completion.value(),
+            rejected,
             AsyncGeneratorResumeKind::Normal,
+            AsyncGeneratorResumeKind::Throw,
             function,
         );
+        function.instruction(&Instruction::I32Const(1));
+        resume.store(function);
+        schema.release_i32_local(rejected, function);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(kind, function);
+        stored.clear(function);
+        request.clear(function);
         function.instruction(&Instruction::End);
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+            .write(
+                activation,
+                GcOperand::constant(AsyncGeneratorExecutionState::SuspendedYield),
+                schema,
+                function,
+            );
+        // A queued Return stays Executing while its Await reactions are pending.
+        resume.load(function);
+        head.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        schema
+            .struct_type::<AsyncGeneratorActivation>()
+            .field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
+            .write(
+                activation,
+                GcOperand::constant(AsyncGeneratorExecutionState::Executing),
+                schema,
+                function,
+            );
         function.instruction(&Instruction::End);
-
-        self.release_loaded_async_generator_request_completion_kind(request_completion_kind);
-        self.release_temp_local(request_tag_local);
-        self.release_temp_local(request_payload_local);
-        self.release_temp_local(request_local);
-        self.release_temp_local(completion_kind_local);
+        head.clear(function);
+        self.completion().copy_from(&incoming, function);
+        completion.clear(function);
+        incoming.clear(function);
         Ok(())
     }
 
     fn emit_run_promise_reaction_callback(
         &mut self,
         kind: PromiseReactionCallbackKind,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         match kind {
-            PromiseReactionCallbackKind::ModuleBody => self.emit_run_module_body_reaction(
-                reaction_record_local,
-                reaction_is_rejected_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            ),
-            PromiseReactionCallbackKind::ModuleJoin => self.emit_run_module_join_reaction(
-                reaction_record_local,
-                reaction_is_rejected_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            ),
-            PromiseReactionCallbackKind::Default => self.emit_run_default_promise_reaction_job(
-                reaction_record_local,
-                reaction_is_rejected_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            ),
-            PromiseReactionCallbackKind::AsyncFunction => self.emit_run_async_continuation_job(
-                reaction_record_local,
-                reaction_is_rejected_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            ),
+            PromiseReactionCallbackKind::Default => {
+                self.emit_run_default_promise_reaction_job(reaction, rejected, argument, function)
+            }
+            PromiseReactionCallbackKind::AsyncFunction => {
+                self.emit_run_async_continuation_job(reaction, rejected, argument, function)
+            }
+            PromiseReactionCallbackKind::AsyncGeneratorAwait => {
+                self.emit_run_async_generator_await_job(reaction, rejected, argument, function)
+            }
             PromiseReactionCallbackKind::AsyncGeneratorAwaitReturn => self
-                .emit_run_async_generator_await_return_job(
-                    reaction_record_local,
-                    reaction_is_rejected_local,
-                    argument_payload_local,
-                    argument_tag_local,
-                    function,
-                ),
-            PromiseReactionCallbackKind::AsyncGeneratorAwait => self
-                .emit_run_async_generator_await_job(
-                    reaction_record_local,
-                    reaction_is_rejected_local,
-                    argument_payload_local,
-                    argument_tag_local,
-                    function,
-                ),
-            PromiseReactionCallbackKind::AsyncGeneratorYield => self
-                .emit_run_async_generator_yield_job(
-                    reaction_record_local,
-                    reaction_is_rejected_local,
-                    argument_payload_local,
-                    argument_tag_local,
-                    function,
-                ),
+                .emit_run_async_generator_await_return_job(reaction, rejected, argument, function),
+            PromiseReactionCallbackKind::AsyncGeneratorYield => {
+                self.emit_run_async_generator_yield_job(reaction, rejected, argument, function)
+            }
             PromiseReactionCallbackKind::AsyncGeneratorYieldReturn => self
-                .emit_run_async_generator_yield_return_job(
-                    reaction_record_local,
-                    reaction_is_rejected_local,
-                    argument_payload_local,
-                    argument_tag_local,
+                .emit_run_async_generator_yield_return_job(reaction, rejected, argument, function),
+            PromiseReactionCallbackKind::AsyncFromSyncIterator => {
+                self.emit_run_async_from_sync_iterator_job(reaction, rejected, argument, function)
+            }
+            PromiseReactionCallbackKind::ModuleBody => {
+                let module = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<PromiseReaction>()
+                        .field(PromiseReactionSchema::MODULE)
+                        .read(reaction, schema, function)
+                        .reference()
+                        .require_non_null(function),
                     function,
-                ),
-        }
-    }
-
-    fn emit_decode_promise_reaction_type(
-        &self,
-        reaction_type_word_local: u32,
-        reaction_is_rejected_local: u32,
-        function: &mut Function,
-    ) {
-        let mut open_dispatch_arms = 0;
-        for reaction_type in PromiseReactionType::ALL {
-            function.instruction(&Instruction::LocalGet(reaction_type_word_local));
-            function.instruction(&Instruction::I64Const(reaction_type.word() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(if reaction_type.is_rejected() {
-                1
-            } else {
-                0
-            }));
-            function.instruction(&Instruction::LocalSet(reaction_is_rejected_local));
-            function.instruction(&Instruction::Else);
-            open_dispatch_arms += 1;
-        }
-        function.instruction(&Instruction::Unreachable);
-        for _ in 0..open_dispatch_arms {
-            function.instruction(&Instruction::End);
+                );
+                let result =
+                    self.emit_run_module_body_reaction(&module, rejected, argument, function);
+                module.clear(function);
+                result
+            }
+            PromiseReactionCallbackKind::ModuleJoin => {
+                let join = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<PromiseReaction>()
+                        .field(PromiseReactionSchema::MODULE_JOIN)
+                        .read(reaction, schema, function)
+                        .reference()
+                        .require_non_null(function),
+                    function,
+                );
+                let result =
+                    self.emit_run_module_join_reaction(&join, rejected, argument, function);
+                join.clear(function);
+                result
+            }
         }
     }
 
     fn emit_run_promise_reaction_job(
         &mut self,
-        reaction_record_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let callback_kind_local = self.reserve_temp_local();
-        let reaction_type_word_local = self.reserve_temp_local();
-        let reaction_is_rejected_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
-            callback_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type_word_local,
-            function,
-        );
-        self.emit_decode_promise_reaction_type(
-            reaction_type_word_local,
-            reaction_is_rejected_local,
-            function,
-        );
-
-        let mut open_dispatch_arms = 0;
-        for kind in PromiseReactionCallbackKind::ALL {
-            function.instruction(&Instruction::LocalGet(callback_kind_local));
-            function.instruction(&Instruction::I64Const(kind.word() as i64));
-            function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        let kind = schema.reserve_i32_local(function);
+        let reaction_type = schema.reserve_i32_local(function);
+        let rejected = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<PromiseReaction>()
+            .field(PromiseReactionSchema::TYPE)
+            .read(reaction, schema, function)
+            .store(reaction_type, function);
+        let mut arms = 0;
+        for selected in PromiseReactionType::ALL {
+            reaction_type.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(selected)));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_run_promise_reaction_callback(
-                kind,
-                reaction_record_local,
-                reaction_is_rejected_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            )?;
+            function.instruction(&Instruction::I32Const(i32::from(selected.is_rejected())));
+            rejected.store(function);
             function.instruction(&Instruction::Else);
-            open_dispatch_arms += 1;
+            arms += 1;
         }
         function.instruction(&Instruction::Unreachable);
-        for _ in 0..open_dispatch_arms {
+        for _ in 0..arms {
             function.instruction(&Instruction::End);
         }
-
-        self.release_temp_local(reaction_is_rejected_local);
-        self.release_temp_local(reaction_type_word_local);
-        self.release_temp_local(callback_kind_local);
+        schema
+            .struct_type::<PromiseReaction>()
+            .field(PromiseReactionSchema::CALLBACK_KIND)
+            .read(reaction, schema, function)
+            .store(kind, function);
+        let mut arms = 0;
+        for selected in PromiseReactionCallbackKind::ALL {
+            kind.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(selected)));
+            function.instruction(&Instruction::I32Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_run_promise_reaction_callback(
+                selected, reaction, rejected, argument, function,
+            )?;
+            function.instruction(&Instruction::Else);
+            arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..arms {
+            function.instruction(&Instruction::End);
+        }
+        schema.release_i32_local(rejected, function);
+        schema.release_i32_local(reaction_type, function);
+        schema.release_i32_local(kind, function);
         Ok(())
     }
 
     fn emit_run_default_promise_reaction_job(
         &mut self,
-        reaction_record_local: u32,
-        reaction_is_rejected_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
+        reaction: &GcLocal<PromiseReaction>,
+        rejected: I32Local,
+        argument: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let capability_record_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let handler_payload_local = self.reserve_temp_local();
-        let handler_tag_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-        let selected_function_payload_local = self.reserve_temp_local();
-        let selected_function_tag_local = self.reserve_temp_local();
-        let selected_argument_payload_local = self.reserve_temp_local();
-        let selected_argument_tag_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-            capability_record_local,
+        let schema = self.runtime_schema();
+        let stored_handler = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseReaction>()
+                .field(PromiseReactionSchema::HANDLER)
+                .read(reaction, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
+        let handler = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_handler, &handler, schema, function);
+        let capability = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseReaction>()
+                .field(PromiseReactionSchema::CAPABILITY)
+                .read(reaction, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET,
-            handler_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET,
-            handler_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_is_callable_i32(handler_tag_local, handler_payload_local, function)?;
+        let handled = schema.reserve_completion(function);
+        rejected.load(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_pre_evaluated_arg_vector(
-            &[(argument_payload_local, argument_tag_local)],
-            argc_local,
-            argv_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            handler_payload_local,
-            handler_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            argc_local,
-            argv_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        handled.set_throw(argument, function);
+        function.instruction(&Instruction::Else);
+        handled.set_normal(argument, function);
+        function.instruction(&Instruction::End);
+        self.emit_is_callable_i32(&handler, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(reject_payload_local));
-        function.instruction(&Instruction::LocalSet(selected_function_payload_local));
-        function.instruction(&Instruction::LocalGet(reject_tag_local));
-        function.instruction(&Instruction::LocalSet(selected_function_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(resolve_payload_local));
-        function.instruction(&Instruction::LocalSet(selected_function_payload_local));
-        function.instruction(&Instruction::LocalGet(resolve_tag_local));
-        function.instruction(&Instruction::LocalSet(selected_function_tag_local));
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[argument], function);
+        self.emit_function_or_proxy_call_with_argv(
+            &handler, &undefined, &arguments, &handled, function,
+        )?;
+        arguments.clear(function);
+        undefined.clear(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(call_payload_local));
-        function.instruction(&Instruction::LocalSet(selected_argument_payload_local));
-        function.instruction(&Instruction::LocalGet(call_tag_local));
-        function.instruction(&Instruction::LocalSet(selected_argument_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
+        capability.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(resolve_payload_local));
-        function.instruction(&Instruction::LocalSet(selected_function_payload_local));
-        function.instruction(&Instruction::LocalGet(resolve_tag_local));
-        function.instruction(&Instruction::LocalSet(selected_function_tag_local));
+        let selected = schema.reserve_gc_local(function).initialize(
+            capability.load(schema, function).require_non_null(function),
+            function,
+        );
+        let settled = schema.reserve_completion(function);
+        handled.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_call_promise_capability(
+            &selected,
+            PromiseSettlement::Reject,
+            handled.value(),
+            &settled,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(reject_payload_local));
-        function.instruction(&Instruction::LocalSet(selected_function_payload_local));
-        function.instruction(&Instruction::LocalGet(reject_tag_local));
-        function.instruction(&Instruction::LocalSet(selected_function_tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(argument_payload_local));
-        function.instruction(&Instruction::LocalSet(selected_argument_payload_local));
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::LocalSet(selected_argument_tag_local));
-        function.instruction(&Instruction::End);
-
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_pre_evaluated_arg_vector(
-            &[(selected_argument_payload_local, selected_argument_tag_local)],
-            argc_local,
-            argv_local,
+        self.emit_call_promise_capability(
+            &selected,
+            PromiseSettlement::Fulfill,
+            handled.value(),
+            &settled,
             function,
         )?;
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            selected_function_payload_local,
-            selected_function_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            argc_local,
-            argv_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(selected_argument_tag_local);
-        self.release_temp_local(selected_argument_payload_local);
-        self.release_temp_local(selected_function_tag_local);
-        self.release_temp_local(selected_function_payload_local);
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(handler_tag_local);
-        self.release_temp_local(handler_payload_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        self.release_temp_local(capability_record_local);
+        function.instruction(&Instruction::End);
+        settled.clear(function);
+        selected.clear(function);
+        function.instruction(&Instruction::End);
+        handled.clear(function);
+        capability.clear(function);
+        handler.clear(function);
+        stored_handler.clear(function);
+        self.completion().initialize(function);
         Ok(())
     }
 
     fn emit_run_promise_thenable_job(
         &mut self,
-        thenable_job_local: u32,
+        job: &GcLocal<PromiseThenableJob>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let promise_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let thenable_payload_local = self.reserve_temp_local();
-        let thenable_tag_local = self.reserve_temp_local();
-        let then_payload_local = self.reserve_temp_local();
-        let then_tag_local = self.reserve_temp_local();
-        let resolving_context_local = self.reserve_temp_local();
-        let resolve_function_local = self.reserve_temp_local();
-        let reject_function_local = self.reserve_temp_local();
-        let function_tag_local = self.reserve_temp_local();
-        let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-        let already_resolved_local = self.reserve_temp_local();
-
-        for (offset, value_local) in [
-            (
-                HEAP_PROMISE_THENABLE_JOB_PROMISE_RECORD_OFFSET,
-                promise_record_local,
-            ),
-            (
-                HEAP_PROMISE_THENABLE_JOB_PROMISE_PAYLOAD_OFFSET,
-                promise_payload_local,
-            ),
-            (
-                HEAP_PROMISE_THENABLE_JOB_THENABLE_PAYLOAD_OFFSET,
-                thenable_payload_local,
-            ),
-            (
-                HEAP_PROMISE_THENABLE_JOB_THENABLE_TAG_OFFSET,
-                thenable_tag_local,
-            ),
-            (
-                HEAP_PROMISE_THENABLE_JOB_THEN_PAYLOAD_OFFSET,
-                then_payload_local,
-            ),
-            (HEAP_PROMISE_THENABLE_JOB_THEN_TAG_OFFSET, then_tag_local),
-        ] {
-            self.load_i64_to_local_from_offset(thenable_job_local, offset, value_local, function);
-        }
-        self.emit_create_promise_resolving_functions(
-            promise_payload_local,
-            promise_record_local,
-            resolving_context_local,
-            resolve_function_local,
-            reject_function_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(function_tag_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[
-                (resolve_function_local, function_tag_local),
-                (reject_function_local, function_tag_local),
-            ],
-            argc_local,
-            argv_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            then_payload_local,
-            then_tag_local,
-            thenable_payload_local,
-            thenable_tag_local,
-            argc_local,
-            argv_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_ALREADY_RESOLVED_OFFSET,
-            already_resolved_local,
+        let schema = self.runtime_schema();
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseThenableJob>()
+                .field(PromiseThenableJobSchema::PROMISE)
+                .read(job, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(already_resolved_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_ALREADY_RESOLVED_OFFSET,
-            1,
+        let stored_value = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseThenableJob>()
+                .field(PromiseThenableJobSchema::THENABLE)
+                .read(job, schema, function)
+                .reference(),
             function,
         );
-        self.emit_settle_promise_record(
-            promise_record_local,
-            PromiseSettlement::Reject,
-            call_payload_local,
-            call_tag_local,
+        let stored_method = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseThenableJob>()
+                .field(PromiseThenableJobSchema::THEN_METHOD)
+                .read(job, schema, function)
+                .reference(),
+            function,
+        );
+        let thenable = schema.reserve_value_local(function);
+        let method = schema.reserve_value_local(function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_value, &thenable, schema, function);
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored_method, &method, schema, function);
+        let resolve = schema.reserve_value_local(function);
+        let reject = schema.reserve_value_local(function);
+        self.emit_create_promise_resolving_functions(&promise, &resolve, &reject, function)?;
+        let arguments = self.emit_pre_evaluated_arg_vector(&[&resolve, &reject], function);
+        let called = schema.reserve_completion(function);
+        self.emit_function_or_proxy_call_with_argv(
+            &method, &thenable, &arguments, &called, function,
+        )?;
+        called.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Invoke the same shared already-resolved guard as user rejection.
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let rejection_arguments = self.emit_pre_evaluated_arg_vector(&[called.value()], function);
+        let ignored = schema.reserve_completion(function);
+        self.emit_function_or_proxy_call_with_argv(
+            &reject,
+            &undefined,
+            &rejection_arguments,
+            &ignored,
             function,
         )?;
+        ignored.clear(function);
+        rejection_arguments.clear(function);
+        undefined.clear(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(already_resolved_local);
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(function_tag_local);
-        self.release_temp_local(reject_function_local);
-        self.release_temp_local(resolve_function_local);
-        self.release_temp_local(resolving_context_local);
-        self.release_temp_local(then_tag_local);
-        self.release_temp_local(then_payload_local);
-        self.release_temp_local(thenable_tag_local);
-        self.release_temp_local(thenable_payload_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(promise_record_local);
+        called.clear(function);
+        arguments.clear(function);
+        reject.clear(function);
+        resolve.clear(function);
+        method.clear(function);
+        thenable.clear(function);
+        stored_method.clear(function);
+        stored_value.clear(function);
+        promise.clear(function);
+        self.completion().initialize(function);
         Ok(())
     }
 
-    fn emit_run_promise_job(
-        &mut self,
-        kind: PromiseJobKind,
-        callback_payload_local: u32,
-        argument_payload_local: u32,
-        argument_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        match kind {
-            PromiseJobKind::Reaction => self.emit_run_promise_reaction_job(
-                callback_payload_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            ),
-            PromiseJobKind::ResolveThenable => {
-                self.emit_run_promise_thenable_job(callback_payload_local, function)
-            }
-        }
-    }
-
-    pub(crate) fn emit_drain_promise_jobs(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let saved_result_local = self.reserve_temp_local();
-        let saved_result_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_completion_aux_local = self.reserve_temp_local();
-        let saved_throw_error_name_local = self.reserve_temp_local();
-        let saved_throw_error_message_local = self.reserve_temp_local();
-        let saved_realm_local = self.reserve_temp_local();
-        let job_record_local = self.reserve_temp_local();
-        let next_job_local = self.reserve_temp_local();
-        let reaction_record_local = self.reserve_temp_local();
-        let argument_payload_local = self.reserve_temp_local();
-        let argument_tag_local = self.reserve_temp_local();
-        let job_realm_local = self.reserve_temp_local();
-        let job_kind_local = self.reserve_temp_local();
-
-        for (source, destination) in [
-            (self.result_local, saved_result_local),
-            (self.result_tag_local, saved_result_tag_local),
-            (self.completion_local, saved_completion_local),
-            (self.completion_aux_local, saved_completion_aux_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
-        }
-        function.instruction(&Instruction::GlobalGet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        function.instruction(&Instruction::LocalSet(saved_throw_error_name_local));
-        function.instruction(&Instruction::GlobalGet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
-        function.instruction(&Instruction::LocalSet(saved_throw_error_message_local));
-        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(saved_realm_local));
+    fn emit_drain_promise_jobs_inner(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let saved = schema.reserve_completion(function);
+        saved.copy_from(self.completion(), function);
+        let saved_name = schema.load_throw_diagnostic(ThrowDiagnosticRole::Name, function);
+        let saved_message = schema.load_throw_diagnostic(ThrowDiagnosticRole::Message, function);
+        let saved_constructor =
+            schema.load_throw_diagnostic(ThrowDiagnosticRole::ConstructorName, function);
+        let saved_realm = self.load_current_realm(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(PROMISE_JOB_QUEUE_HEAD_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(job_record_local));
-        function.instruction(&Instruction::LocalGet(job_record_local));
-        function.instruction(&Instruction::I64Eqz);
+        let head = schema.load_pending_job_queue(RuntimeQueueEnd::Head, function);
+        head.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            job_record_local,
-            HEAP_PENDING_JOB_NEXT_OFFSET,
-            next_job_local,
+        let job = schema.reserve_gc_local(function).initialize(
+            head.load(schema, function).require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(next_job_local));
-        function.instruction(&Instruction::GlobalSet(PROMISE_JOB_QUEUE_HEAD_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalGet(next_job_local));
-        function.instruction(&Instruction::I64Eqz);
+        let next = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PendingJob>()
+                .field(PendingJobSchema::NEXT)
+                .read(&job, schema, function)
+                .reference(),
+            function,
+        );
+        schema.replace_pending_job_queue(RuntimeQueueEnd::Head, &next, function);
+        next.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(PROMISE_JOB_QUEUE_TAIL_GLOBAL_INDEX));
+        schema.clear_pending_job_queue(RuntimeQueueEnd::Tail, function);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            job_record_local,
-            HEAP_PENDING_JOB_CALLBACK_PAYLOAD_OFFSET,
-            reaction_record_local,
+        schema
+            .struct_type::<PendingJob>()
+            .field(PendingJobSchema::NEXT)
+            .write(&job, GcOperand::null(schema), schema, function);
+        self.replace_current_realm(&saved_realm, function);
+        let realm = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PendingJob>()
+                .field(PendingJobSchema::REALM)
+                .read(&job, schema, function)
+                .reference(),
             function,
         );
-        self.load_i64_to_local_from_offset(
-            job_record_local,
-            HEAP_PENDING_JOB_ARG_PAYLOAD_OFFSET,
-            argument_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            job_record_local,
-            HEAP_PENDING_JOB_ARG_TAG_OFFSET,
-            argument_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            job_record_local,
-            HEAP_PENDING_JOB_REALM_OFFSET,
-            job_realm_local,
-            function,
-        );
-        // A null Promise-job realm means the job evaluates no handler code.
-        // Restore the host checkpoint realm for that job rather than leaking
-        // the previous queued job's realm or installing the null sentinel.
-        function.instruction(&Instruction::LocalGet(saved_realm_local));
-        function.instruction(&Instruction::GlobalSet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalGet(job_realm_local));
-        function.instruction(&Instruction::I64Eqz);
+        realm.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(job_realm_local));
-        function.instruction(&Instruction::GlobalSet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            job_record_local,
-            HEAP_PENDING_JOB_KIND_OFFSET,
-            job_kind_local,
+        let selected = schema.reserve_gc_local(function).initialize(
+            realm.load(schema, function).require_non_null(function),
             function,
         );
-        let mut open_dispatch_arms = 0;
-        for kind in PromiseJobKind::ALL {
-            function.instruction(&Instruction::LocalGet(job_kind_local));
-            function.instruction(&Instruction::I64Const(kind.word() as i64));
-            function.instruction(&Instruction::I64Eq);
+        self.replace_current_realm(&selected, function);
+        selected.clear(function);
+        function.instruction(&Instruction::End);
+        let kind = schema.reserve_i32_local(function);
+        schema
+            .struct_type::<PendingJob>()
+            .field(PendingJobSchema::KIND)
+            .read(&job, schema, function)
+            .store(kind, function);
+        let mut arms = 0;
+        for selected in PromiseJobKind::ALL {
+            kind.load(function);
+            function.instruction(&Instruction::I32Const(GcI32Constant::encode(selected)));
+            function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_run_promise_job(
-                kind,
-                reaction_record_local,
-                argument_payload_local,
-                argument_tag_local,
-                function,
-            )?;
+            match selected {
+                PromiseJobKind::Reaction => {
+                    let reaction = schema.reserve_gc_local(function).initialize(
+                        schema
+                            .struct_type::<PendingJob>()
+                            .field(PendingJobSchema::REACTION)
+                            .read(&job, schema, function)
+                            .reference()
+                            .require_non_null(function),
+                        function,
+                    );
+                    let stored = schema.reserve_gc_local(function).initialize(
+                        schema
+                            .struct_type::<PendingJob>()
+                            .field(PendingJobSchema::ARGUMENT)
+                            .read(&job, schema, function)
+                            .reference(),
+                        function,
+                    );
+                    let argument = schema.reserve_value_local(function);
+                    schema
+                        .struct_type::<StoredValue>()
+                        .read_into(&stored, &argument, schema, function);
+                    self.emit_run_promise_reaction_job(&reaction, &argument, function)?;
+                    argument.clear(function);
+                    stored.clear(function);
+                    reaction.clear(function);
+                }
+                PromiseJobKind::ResolveThenable => {
+                    let thenable = schema.reserve_gc_local(function).initialize(
+                        schema
+                            .struct_type::<PendingJob>()
+                            .field(PendingJobSchema::THENABLE)
+                            .read(&job, schema, function)
+                            .reference()
+                            .require_non_null(function),
+                        function,
+                    );
+                    self.emit_run_promise_thenable_job(&thenable, function)?;
+                    thenable.clear(function);
+                }
+            }
             function.instruction(&Instruction::Else);
-            open_dispatch_arms += 1;
+            arms += 1;
         }
         function.instruction(&Instruction::Unreachable);
-        for _ in 0..open_dispatch_arms {
+        for _ in 0..arms {
             function.instruction(&Instruction::End);
         }
+        schema.release_i32_local(kind, function);
+        realm.clear(function);
+        next.clear(function);
+        job.clear(function);
+        head.clear(function);
         if self
             .functions
             .monotonic_clock_nanos_import_function_index()
             .is_some()
         {
             self.emit_poll_atomics_wait_async_timeouts(function)?;
-            function.instruction(&Instruction::Drop);
         }
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(saved_realm_local));
-        function.instruction(&Instruction::GlobalSet(CURRENT_REALM_GLOBAL_INDEX));
-        for (source, destination) in [
-            (saved_result_local, self.result_local),
-            (saved_result_tag_local, self.result_tag_local),
-            (saved_completion_local, self.completion_local),
-            (saved_completion_aux_local, self.completion_aux_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
-        }
-        function.instruction(&Instruction::LocalGet(saved_throw_error_name_local));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        function.instruction(&Instruction::LocalGet(saved_throw_error_message_local));
-        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
-
-        self.release_temp_local(job_kind_local);
-        self.release_temp_local(job_realm_local);
-        self.release_temp_local(argument_tag_local);
-        self.release_temp_local(argument_payload_local);
-        self.release_temp_local(reaction_record_local);
-        self.release_temp_local(next_job_local);
-        self.release_temp_local(job_record_local);
-        self.release_temp_local(saved_realm_local);
-        self.release_temp_local(saved_throw_error_message_local);
-        self.release_temp_local(saved_throw_error_name_local);
-        self.release_temp_local(saved_completion_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_result_tag_local);
-        self.release_temp_local(saved_result_local);
+        self.replace_current_realm(&saved_realm, function);
+        self.completion().copy_from(&saved, function);
+        schema.replace_throw_diagnostic(ThrowDiagnosticRole::Name, &saved_name, function);
+        schema.replace_throw_diagnostic(ThrowDiagnosticRole::Message, &saved_message, function);
+        schema.replace_throw_diagnostic(
+            ThrowDiagnosticRole::ConstructorName,
+            &saved_constructor,
+            function,
+        );
+        saved_realm.clear(function);
+        saved_constructor.clear(function);
+        saved_message.clear(function);
+        saved_name.clear(function);
+        saved.clear(function);
         Ok(())
+    }
+
+    fn emit_promise_abrupt_exit(
+        &mut self,
+        pending: &CompletionLocals,
+        exit: ControlTarget,
+        function: &mut Function,
+    ) {
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().copy_from(pending, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_promise_capability_executor(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let capability_record_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let existing_resolve_tag_local = self.reserve_temp_local();
-        let existing_reject_tag_local = self.reserve_temp_local();
-
-        self.emit_load_promise_internal_function_context(capability_record_local, function);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            existing_resolve_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            existing_reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(existing_resolve_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(existing_reject_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
+        let schema = self.runtime_schema();
+        let context = self.emit_promise_capability_executor_context(function);
+        let resolve = schema.reserve_value_local(function);
+        let reject = schema.reserve_value_local(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        for (field, out) in [
+            (PromiseCapabilityExecutorContextSchema::RESOLVE, &resolve),
+            (PromiseCapabilityExecutorContextSchema::REJECT, &reject),
+        ] {
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<PromiseCapabilityExecutorContext>()
+                    .field(field)
+                    .read(&context, schema, function)
+                    .reference(),
+                function,
+            );
+            schema
+                .struct_type::<StoredValue>()
+                .read_into(&stored, out, schema, function);
+            stored.clear(function);
+        }
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        resolve.tag().load(function);
+        function.instruction(&Instruction::I32Const(ValueKind::Undefined.tag() as i32));
+        function.instruction(&Instruction::I32Ne);
+        reject.tag().load(function);
+        function.instruction(&Instruction::I32Const(ValueKind::Undefined.tag() as i32));
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Promise capability executor called more than once",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::PROMISE_CAPABILITY_EXECUTOR_CALLED_MORE_THAN_ONCE,
+            &pending,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.completion().copy_from(&pending, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, resolve_payload_local, resolve_tag_local, function);
-        self.emit_builtin_arg_to_locals(1, reject_payload_local, reject_tag_local, function);
-        self.store_i64_local_at_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(existing_reject_tag_local);
-        self.release_temp_local(existing_resolve_tag_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        self.release_temp_local(capability_record_local);
+        self.emit_builtin_arg_to_value(0, &resolve, function);
+        self.emit_builtin_arg_to_value(1, &reject, function);
+        for (field, value) in [
+            (PromiseCapabilityExecutorContextSchema::RESOLVE, &resolve),
+            (PromiseCapabilityExecutorContextSchema::REJECT, &reject),
+        ] {
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(value, function),
+                function,
+            );
+            schema
+                .struct_type::<PromiseCapabilityExecutorContext>()
+                .field(field)
+                .write(
+                    &context,
+                    GcOperand::reference(&stored, schema),
+                    schema,
+                    function,
+                );
+            stored.clear(function);
+        }
+        self.completion().initialize(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        pending.clear(function);
+        reject.clear(function);
+        resolve.clear(function);
+        context.clear(function);
         Ok(())
     }
 
@@ -4560,208 +3494,80 @@ impl<'a> FunctionBuilder<'a> {
         settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise static method receiver",
-            )
-        })?;
-        let constructor_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise static method receiver tag",
-            )
-        })?;
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        match settlement {
-            PromiseSettlement::Fulfill => {
-                self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "Promise.resolve receiver is not an object",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                let brand_local = self.reserve_temp_local();
-                let constructor_key_local = self.reserve_temp_local();
-                let value_constructor_payload_local = self.reserve_temp_local();
-                let value_constructor_tag_local = self.reserve_temp_local();
-                function.instruction(&Instruction::LocalGet(value_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    value_payload_local,
-                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    brand_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(brand_local));
-                function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_PROMISE as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
-                function.instruction(&Instruction::LocalSet(constructor_key_local));
-                self.emit_object_read(
-                    value_payload_local,
-                    value_tag_local,
-                    value_payload_local,
-                    value_tag_local,
-                    constructor_key_local,
-                    value_constructor_payload_local,
-                    value_constructor_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(value_constructor_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(value_constructor_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(value_constructor_tag_local));
-                function.instruction(&Instruction::LocalGet(constructor_tag_local));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(value_constructor_payload_local));
-                function.instruction(&Instruction::LocalGet(constructor_payload_local));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(value_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.set_completion_kind(CompletionKind::Normal, function);
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                self.release_temp_local(value_constructor_tag_local);
-                self.release_temp_local(value_constructor_payload_local);
-                self.release_temp_local(constructor_key_local);
-                self.release_temp_local(brand_local);
-            }
-            PromiseSettlement::Reject => {}
+        let schema = self.runtime_schema();
+        let constructor = schema.reserve_value_local(function);
+        constructor.copy_from(
+            self.body_entry_locals()
+                .expect("Promise static entry")
+                .this_value(),
+            function,
+        );
+        let value = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &value, function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        if matches!(settlement, PromiseSettlement::Fulfill) {
+            self.emit_is_heap_object_like_tag_i32(constructor.tag(), function);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_throw_current_function_realm_type_error(
+                RuntimeErrorMessage::PROMISE_RESOLVE_RECEIVER_IS_NOT_AN_OBJECT,
+                &pending,
+                function,
+            )?;
+            self.completion().copy_from(&pending, function);
+            self.emit_branch_to_target(exit, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            value.reference().load(function);
+            function.instruction(&Instruction::RefTestNonNull(
+                schema
+                    .reference_type::<PromiseObject>(GcNullability::NonNullable)
+                    .heap_type,
+            ));
+            self.open_frame(ControlFrameKind::If, function);
+            let name = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference("constructor", function)?,
+                function,
+            );
+            let key = PropertyKeyLocals::from_string(schema, &name, function);
+            self.emit_object_read_with_throw_routing(
+                &value,
+                &value,
+                &key,
+                &pending,
+                AccessorThrowRouting::LeaveInCompletion,
+                function,
+            )?;
+            self.emit_promise_abrupt_exit(&pending, exit, function);
+            self.emit_tagged_payload_same_value_i32(&constructor, pending.value(), function)?;
+            self.open_frame(ControlFrameKind::If, function);
+            self.completion().set_normal(&value, function);
+            self.emit_branch_to_target(exit, function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            key.clear(function);
+            name.clear(function);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
         }
-
-        let executor_context =
+        let context =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        self.emit_is_callable_i32(resolve_tag_local, resolve_payload_local, function)?;
-        self.emit_is_callable_i32(reject_tag_local, reject_payload_local, function)?;
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Promise capability did not initialize callable resolving functions",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        let capability = self.emit_new_promise_capability(&context, &constructor, function)?;
+        self.emit_call_promise_capability(&capability, settlement, &value, &pending, function)?;
+        self.emit_promise_abrupt_exit(&pending, exit, function);
+        let promise = schema.reserve_value_local(function);
+        self.emit_read_promise_capability_promise(&capability, &promise, function);
+        self.completion().set_normal(&promise, function);
+        promise.clear(function);
+        capability.clear(function);
+        self.release_promise_internal_function_materialization_context(context, function);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        let (settle_payload_local, settle_tag_local) = match settlement {
-            PromiseSettlement::Fulfill => (resolve_payload_local, resolve_tag_local),
-            PromiseSettlement::Reject => (reject_payload_local, reject_tag_local),
-        };
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            settle_payload_local,
-            settle_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(value_payload_local, value_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(call_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(call_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        self.release_temp_local(promise_tag_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(capability_record_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
+        pending.clear(function);
+        value.clear(function);
+        constructor.clear(function);
         Ok(())
     }
 
@@ -4769,394 +3575,491 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.withResolvers receiver",
-            )
-        })?;
-        let constructor_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.withResolvers receiver tag",
-            )
-        })?;
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let result_object_local = self.reserve_temp_local();
-
-        let executor_context =
+        let schema = self.runtime_schema();
+        let constructor = schema.reserve_value_local(function);
+        constructor.copy_from(
+            self.body_entry_locals()
+                .expect("withResolvers entry")
+                .this_value(),
+            function,
+        );
+        let context =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(result_object_local));
-        let result_allocation_context =
+        let capability = self.emit_new_promise_capability(&context, &constructor, function)?;
+        let allocation =
             self.emit_current_function_promise_with_resolvers_result_allocation_context(function);
-        self.emit_install_promise_with_resolvers_result_prototype(
-            result_object_local,
-            result_allocation_context,
-            function,
-        );
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "promise",
-            promise_payload_local,
-            promise_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "resolve",
-            resolve_payload_local,
-            resolve_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        self.emit_object_define_local_data_with_flags(
-            result_object_local,
-            "reject",
-            reject_payload_local,
-            reject_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(result_object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(result_object_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        self.release_temp_local(promise_tag_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(capability_record_local);
+        let object =
+            self.emit_alloc_promise_with_resolvers_result(allocation, &capability, function)?;
+        let value = schema.reserve_value_local(function);
+        value.set_reference(&object, schema, function);
+        self.completion().set_normal(&value, function);
+        value.clear(function);
+        object.clear(function);
+        capability.clear(function);
+        self.release_promise_internal_function_materialization_context(context, function);
+        constructor.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_promise_try(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.try receiver",
-            )
-        })?;
-        let constructor_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.try receiver tag",
-            )
-        })?;
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-        let callback_argc_local = self.reserve_temp_local();
-        let callback_argv_local = self.reserve_temp_local();
-        let callback_arg_index_local = self.reserve_temp_local();
-        let source_arg_index_local = self.reserve_temp_local();
-        let arg_payload_local = self.reserve_temp_local();
-        let arg_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let callback_result_payload_local = self.reserve_temp_local();
-        let callback_result_tag_local = self.reserve_temp_local();
-        let settle_payload_local = self.reserve_temp_local();
-        let settle_tag_local = self.reserve_temp_local();
-        let settle_call_payload_local = self.reserve_temp_local();
-        let settle_call_tag_local = self.reserve_temp_local();
-
-        let executor_context =
+        let schema = self.runtime_schema();
+        let constructor = schema.reserve_value_local(function);
+        constructor.copy_from(
+            self.body_entry_locals()
+                .expect("Promise.try entry")
+                .this_value(),
+            function,
+        );
+        let context =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
-
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
+        let capability = self.emit_new_promise_capability(&context, &constructor, function)?;
+        let callback = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &callback, function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        self.emit_is_callable_i32(&callback, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let prototype = self.emit_load_promise_try_callback_type_error_prototype(function);
+        self.emit_throw_promise_try_non_callable_callback(prototype, &pending, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(callback_argc_local));
-        self.emit_alloc_array_payload_with_length(
-            callback_argc_local,
-            callback_argv_local,
-            function,
+        let arguments = self.emit_builtin_argument_vector_tail(1, function);
+        self.emit_function_or_proxy_call_with_argv(
+            &callback, &undefined, &arguments, &pending, function,
         )?;
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(callback_arg_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(callback_arg_index_local));
-        function.instruction(&Instruction::LocalGet(callback_argc_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(callback_arg_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(source_arg_index_local));
-        self.emit_array_read(
-            self.argv_param_local(),
-            source_arg_index_local,
-            arg_payload_local,
-            arg_tag_local,
-            function,
-        );
-        self.emit_array_write(
-            callback_argv_local,
-            callback_arg_index_local,
-            arg_payload_local,
-            arg_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(callback_arg_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(callback_arg_index_local));
-        function.instruction(&Instruction::Br(0));
+        arguments.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            callback_payload_local,
-            callback_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            callback_argc_local,
-            callback_argv_local,
-            callback_result_payload_local,
-            callback_result_tag_local,
+        let settled = schema.reserve_completion(function);
+        settled.initialize(function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_call_promise_capability(
+            &capability,
+            PromiseSettlement::Reject,
+            pending.value(),
+            &settled,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        let type_error_prototype =
-            self.emit_load_promise_try_callback_type_error_prototype(function);
-        self.emit_throw_promise_try_non_callable_callback(
-            type_error_prototype,
-            callback_result_payload_local,
-            callback_result_tag_local,
+        self.emit_call_promise_capability(
+            &capability,
+            PromiseSettlement::Fulfill,
+            pending.value(),
+            &settled,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            settle_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            settle_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            settle_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            settle_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            settle_payload_local,
-            settle_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(callback_result_payload_local, callback_result_tag_local)],
-            settle_call_payload_local,
-            settle_call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(settle_call_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(settle_call_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(settle_call_tag_local);
-        self.release_temp_local(settle_call_payload_local);
-        self.release_temp_local(settle_tag_local);
-        self.release_temp_local(settle_payload_local);
-        self.release_temp_local(callback_result_tag_local);
-        self.release_temp_local(callback_result_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(arg_tag_local);
-        self.release_temp_local(arg_payload_local);
-        self.release_temp_local(source_arg_index_local);
-        self.release_temp_local(callback_arg_index_local);
-        self.release_temp_local(callback_argv_local);
-        self.release_temp_local(callback_argc_local);
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(callback_payload_local);
-        self.release_temp_local(promise_tag_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(capability_record_local);
+        self.completion().copy_from(&settled, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let promise = schema.reserve_value_local(function);
+        self.emit_read_promise_capability_promise(&capability, &promise, function);
+        self.completion().set_normal(&promise, function);
+        promise.clear(function);
+        settled.clear(function);
+        pending.clear(function);
+        undefined.clear(function);
+        callback.clear(function);
+        capability.clear(function);
+        self.release_promise_internal_function_materialization_context(context, function);
+        constructor.clear(function);
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn emit_promise_combinator_reject_current_throw(
+    fn emit_promise_property_get(
         &mut self,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        iterator_acquired_local: u32,
-        iterator_close: IteratorCloseOnThrowLocals,
-        error_payload_local: u32,
-        error_tag_local: u32,
-        call_payload_local: u32,
-        call_tag_local: u32,
+        target: &ValueLocals,
+        name: &str,
+        result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(iterator_acquired_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_iterator_close_preserving_current_throw(iterator_close, function)?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(error_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(error_tag_local));
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
+        let schema = self.runtime_schema();
+        let string = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(name, function)?,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            reject_payload_local,
-            reject_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(error_payload_local, error_tag_local)],
-            call_payload_local,
-            call_tag_local,
+        let key = PropertyKeyLocals::from_string(schema, &string, function);
+        self.emit_object_read_with_throw_routing(
+            target,
+            target,
+            &key,
+            result,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        key.clear(function);
+        string.clear(function);
+        Ok(())
+    }
 
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
+    fn emit_promise_combinator_reject_current_throw(
+        &mut self,
+        capability: &GcLocal<PromiseCapability>,
+        iterator: &GcLocal<IteratorRecord, Nullable>,
+        pending: &CompletionLocals,
+        exit: ControlTarget,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        iterator.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let record = schema.reserve_gc_local(function).initialize(
+            iterator.load(schema, function).require_non_null(function),
+            function,
+        );
+        schema
+            .struct_type::<IteratorRecord>()
+            .field(IteratorRecordSchema::DONE)
+            .read(&record, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let raw = schema.reserve_value_local(function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<IteratorRecord>()
+                .field(IteratorRecordSchema::ITERATOR)
+                .read(&record, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &raw, schema, function);
+        self.emit_iterator_close_with_completion(&raw, pending, pending, function)?;
+        stored.clear(function);
+        raw.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        record.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let settled = schema.reserve_completion(function);
+        settled.initialize(function);
+        self.emit_call_promise_capability(
+            capability,
+            PromiseSettlement::Reject,
+            pending.value(),
+            &settled,
+            function,
+        )?;
+        self.completion().copy_from(&settled, function);
+        settled.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        let promise = schema.reserve_value_local(function);
+        self.emit_read_promise_capability_promise(capability, &promise, function);
+        self.completion().set_normal(&promise, function);
+        promise.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        settled.clear(function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn emit_promise_combinator_iterator(
+        &mut self,
+        input: &ValueLocals,
+        errors: &promise_combinator_algorithm_error_realm::PromiseCombinatorAlgorithmErrorRealmContext,
+        mode: PromiseCombinatorMode,
+        pending: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<GcLocal<IteratorRecord, Nullable>, EmitError> {
+        let schema = self.runtime_schema();
+        let result = schema
+            .reserve_gc_local::<IteratorRecord, Nullable>(function)
+            .initialize_null(schema, function);
+        let boxed = schema.reserve_completion(function);
+        boxed.initialize(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.compile_nullish_tagged_i32(input.tag(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_promise_combinator_type_error(
+            errors,
+            mode.input_error(),
+            pending,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_value_to_object_locals(input, &boxed, function)?;
+        boxed.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        pending.copy_from(&boxed, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let symbol = schema.reserve_gc_local(function).initialize(
+            self.emit_well_known_symbol_reference(WellKnownSymbol::Iterator, function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_symbol(schema, &symbol, function);
+        self.emit_object_read_with_throw_routing(
+            boxed.value(),
+            input,
+            &key,
+            pending,
+            AccessorThrowRouting::LeaveInCompletion,
+            function,
+        )?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_callable_i32(pending.value(), function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_promise_combinator_type_error(
+            errors,
+            mode.method_error(),
+            pending,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let method = schema.reserve_value_local(function);
+        method.copy_from(pending.value(), function);
+        let args = self.emit_pre_evaluated_arg_vector(&[], function);
+        self.emit_function_or_proxy_call_with_argv(&method, input, &args, pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_heap_object_like_tag_i32(pending.value().tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_promise_combinator_type_error(
+            errors,
+            mode.method_result_error(),
+            pending,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let iterator = schema.reserve_value_local(function);
+        iterator.copy_from(pending.value(), function);
+        self.emit_promise_property_get(&iterator, "next", pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let stored_iterator = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(&iterator, function),
+            function,
+        );
+        let stored_method = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(pending.value(), function),
+            function,
+        );
+        result.replace(
+            schema
+                .struct_type::<IteratorRecord>()
+                .construct(
+                    (
+                        GcOperand::reference(&stored_iterator, schema),
+                        GcOperand::reference(&stored_method, schema),
+                        GcOperand::boolean(false),
+                    ),
+                    function,
+                )
+                .nullable(),
+            function,
+        );
+        stored_method.clear(function);
+        stored_iterator.clear(function);
+        iterator.clear(function);
+        args.clear(function);
+        method.clear(function);
+        key.clear(function);
+        symbol.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        boxed.clear(function);
+        Ok(result)
+    }
+
+    fn emit_promise_combinator_step(
+        &mut self,
+        record: &GcLocal<IteratorRecord>,
+        errors: &promise_combinator_algorithm_error_realm::PromiseCombinatorAlgorithmErrorRealmContext,
+        mode: PromiseCombinatorMode,
+        value: &ValueLocals,
+        done: I32Local,
+        pending: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let iterator = schema.reserve_value_local(function);
+        let next = schema.reserve_value_local(function);
+        for (field, out) in [
+            (IteratorRecordSchema::ITERATOR, &iterator),
+            (IteratorRecordSchema::NEXT_METHOD, &next),
+        ] {
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<IteratorRecord>()
+                    .field(field)
+                    .read(record, schema, function)
+                    .reference(),
+                function,
+            );
+            schema
+                .struct_type::<StoredValue>()
+                .read_into(&stored, out, schema, function);
+            stored.clear(function);
+        }
+        function.instruction(&Instruction::I32Const(1));
+        done.store(function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        let args = self.emit_pre_evaluated_arg_vector(&[], function);
+        self.emit_function_or_proxy_call_with_argv(&next, &iterator, &args, pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_heap_object_like_tag_i32(pending.value().tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_promise_combinator_type_error(
+            errors,
+            mode.next_result_error(),
+            pending,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let result = schema.reserve_value_local(function);
+        result.copy_from(pending.value(), function);
+        self.emit_promise_property_get(&result, "done", pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.compile_truthy_tagged_i32(pending.value(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_promise_property_get(&result, "value", pending, function)?;
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.copy_from(pending.value(), function);
+        function.instruction(&Instruction::I32Const(0));
+        done.store(function);
+        result.clear(function);
+        args.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema
+            .struct_type::<IteratorRecord>()
+            .field(IteratorRecordSchema::DONE)
+            .write(record, GcOperand::boolean_local(done), schema, function);
+        next.clear(function);
+        iterator.clear(function);
+        Ok(())
+    }
+
+    fn emit_finish_promise_combinator_list(
+        &mut self,
+        shared: &GcLocal<PromiseCombinatorShared>,
+        mode: PromiseCombinatorMode,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let list = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCombinatorShared>()
+                .field(PromiseCombinatorSharedSchema::VALUES)
+                .read(shared, schema, function)
+                .reference(),
+            function,
+        );
+        let array = self.emit_array_from_argument_list(&list, function)?;
+        let argument = schema.reserve_value_local(function);
+        argument.set_reference(&array, schema, function);
+        if matches!(mode, PromiseCombinatorMode::FirstFulfillment) {
+            let realm = schema
+                .reserve_gc_local(function)
+                .initialize(self.emit_current_function_realm(function), function);
+            self.emit_promise_any_aggregate_error(&argument, &realm, result, function)?;
+            argument.copy_from(result.value(), function);
+            realm.clear(function);
+        } else {
+            result.set_normal(&argument, function);
+        }
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let settle = schema.reserve_value_local(function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseCombinatorShared>()
+                .field(PromiseCombinatorSharedSchema::SETTLE)
+                .read(shared, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &settle, schema, function);
+        let undefined = schema.reserve_value_local(function);
+        undefined.set_undefined(function);
+        let args = self.emit_pre_evaluated_arg_vector(&[&argument], function);
+        self.emit_function_or_proxy_call_with_argv(&settle, &undefined, &args, result, function)?;
+        args.clear(function);
+        undefined.clear(function);
+        stored.clear(function);
+        settle.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        argument.clear(function);
+        array.clear(function);
+        list.clear(function);
         Ok(())
     }
 
@@ -5164,1188 +4067,131 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let element_context_local = self.reserve_temp_local();
-        let already_called_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let shared_context_local = self.reserve_temp_local();
-        let values_payload_local = self.reserve_temp_local();
-        let remaining_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        self.emit_load_promise_internal_function_context(element_context_local, function);
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            already_called_local,
+        self.emit_promise_combinator_element(
+            PromiseCombinatorMode::Values,
+            PromiseSettlement::Fulfill,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(already_called_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            1,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_SHARED_OFFSET,
-            shared_context_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_VALUES_OFFSET,
-            values_payload_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        self.emit_array_write(
-            values_payload_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            resolve_payload_local,
-            resolve_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(values_payload_local, value_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(call_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(call_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(call_tag_local);
-        self.release_temp_local(call_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(resolve_tag_local);
-        self.release_temp_local(resolve_payload_local);
-        self.release_temp_local(remaining_local);
-        self.release_temp_local(values_payload_local);
-        self.release_temp_local(shared_context_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(already_called_local);
-        self.release_temp_local(element_context_local);
-        Ok(())
+        )
     }
-
     pub(crate) fn emit_promise_all_settled_element(
         &mut self,
         settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let element_context_local = self.reserve_temp_local();
-        let already_called_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let shared_context_local = self.reserve_temp_local();
-        let values_payload_local = self.reserve_temp_local();
-        let remaining_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let record_payload_local = self.reserve_temp_local();
-        let status_payload_local = self.reserve_temp_local();
-        let status_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        self.emit_load_promise_internal_function_context(element_context_local, function);
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            already_called_local,
+        self.emit_promise_combinator_element(
+            PromiseCombinatorMode::SettledRecords,
+            settlement,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(already_called_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            1,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_SHARED_OFFSET,
-            shared_context_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_VALUES_OFFSET,
-            values_payload_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-
-        let (status, result_property) = match settlement {
-            PromiseSettlement::Fulfill => ("fulfilled", "value"),
-            PromiseSettlement::Reject => ("rejected", "reason"),
-        };
-        let allocation_context =
-            self.emit_self_backed_promise_settlement_record_allocation_context(function);
-        self.emit_alloc_promise_settlement_record(allocation_context, function)?;
-        function.instruction(&Instruction::LocalSet(record_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(status)));
-        function.instruction(&Instruction::LocalSet(status_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(status_tag_local));
-        self.emit_object_define_local_data_with_flags(
-            record_payload_local,
-            "status",
-            status_payload_local,
-            status_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        self.emit_object_define_local_data_with_flags(
-            record_payload_local,
-            result_property,
-            value_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_array_write(
-            values_payload_local,
-            index_local,
-            record_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            resolve_payload_local,
-            resolve_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(values_payload_local, value_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(call_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(call_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        for local in [
-            call_tag_local,
-            call_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
-            status_tag_local,
-            status_payload_local,
-            record_payload_local,
-            value_tag_local,
-            value_payload_local,
-            resolve_tag_local,
-            resolve_payload_local,
-            remaining_local,
-            values_payload_local,
-            shared_context_local,
-            index_local,
-            already_called_local,
-            element_context_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        )
     }
-
     pub(crate) fn emit_promise_any_reject_element(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let element_context_local = self.reserve_temp_local();
-        let already_called_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let shared_context_local = self.reserve_temp_local();
-        let errors_payload_local = self.reserve_temp_local();
-        let remaining_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let reason_payload_local = self.reserve_temp_local();
-        let reason_tag_local = self.reserve_temp_local();
-        let aggregate_payload_local = self.reserve_temp_local();
-        let aggregate_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
+        self.emit_promise_combinator_element(
+            PromiseCombinatorMode::FirstFulfillment,
+            PromiseSettlement::Reject,
+            function,
+        )
+    }
 
-        self.emit_load_promise_internal_function_context(element_context_local, function);
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            already_called_local,
+    fn emit_promise_combinator_element(
+        &mut self,
+        mode: PromiseCombinatorMode,
+        settlement: PromiseSettlement,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let element = self.emit_promise_element_context(function);
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        schema
+            .struct_type::<PromiseElementContext>()
+            .field(PromiseElementContextSchema::ALREADY_CALLED)
+            .read(&element, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .struct_type::<PromiseElementContext>()
+            .field(PromiseElementContextSchema::ALREADY_CALLED)
+            .write(&element, GcOperand::boolean(true), schema, function);
+        let shared = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseElementContext>()
+                .field(PromiseElementContextSchema::SHARED)
+                .read(&element, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(already_called_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            1,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_SHARED_OFFSET,
-            shared_context_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_VALUES_OFFSET,
-            errors_payload_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, reason_payload_local, reason_tag_local, function);
-        self.emit_array_write(
-            errors_payload_local,
-            index_local,
-            reason_payload_local,
-            reason_tag_local,
-            function,
-        )?;
-
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
+        let index = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<PromiseElementContext>()
+            .field(PromiseElementContextSchema::INDEX)
+            .read(&element, schema, function)
+            .store_i64(index, function);
+        let value = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &value, function);
+        if matches!(mode, PromiseCombinatorMode::SettledRecords) {
+            let allocation =
+                self.emit_self_backed_promise_settlement_record_allocation_context(function);
+            let record = self
+                .emit_alloc_promise_settlement_record(allocation, settlement, &value, function)?;
+            value.set_reference(&record, schema, function);
+            record.clear(function);
+        }
+        self.emit_store_promise_combinator_list_entry(&shared, index, &value, function);
+        let remaining = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<PromiseCombinatorShared>()
+            .field(PromiseCombinatorSharedSchema::REMAINING)
+            .read(&shared, schema, function)
+            .store_i64(remaining, function);
+        remaining.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
+        remaining.store(function);
+        schema
+            .struct_type::<PromiseCombinatorShared>()
+            .field(PromiseCombinatorSharedSchema::REMAINING)
+            .write(&shared, GcOperand::i64_local(remaining), schema, function);
+        remaining.load(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        let allocation_context =
-            self.emit_self_backed_promise_any_aggregate_error_allocation_context(function);
-        self.emit_promise_any_aggregate_error_from_context(
-            errors_payload_local,
-            allocation_context,
-            aggregate_payload_local,
-            aggregate_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            reject_payload_local,
-            reject_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(aggregate_payload_local, aggregate_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_finish_promise_combinator_list(&shared, mode, &pending, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        schema.release_i64_local(remaining, function);
+        value.clear(function);
+        schema.release_i64_local(index, function);
+        shared.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(call_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(call_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
+        pending.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.completion().copy_from(&pending, function);
+        function.instruction(&Instruction::Else);
+        self.completion().initialize(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        for local in [
-            call_tag_local,
-            call_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
-            aggregate_tag_local,
-            aggregate_payload_local,
-            reason_tag_local,
-            reason_payload_local,
-            reject_tag_local,
-            reject_payload_local,
-            remaining_local,
-            errors_payload_local,
-            shared_context_local,
-            index_local,
-            already_called_local,
-            element_context_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        pending.clear(function);
+        element.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_promise_race(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.race receiver",
-            )
-        })?;
-        let constructor_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Promise.race receiver tag",
-            )
-        })?;
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let promise_resolve_payload_local = self.reserve_temp_local();
-        let promise_resolve_tag_local = self.reserve_temp_local();
-        let iterable_payload_local = self.reserve_temp_local();
-        let iterable_tag_local = self.reserve_temp_local();
-        let iterable_object_payload_local = self.reserve_temp_local();
-        let iterable_object_tag_local = self.reserve_temp_local();
-        let iterator_method_payload_local = self.reserve_temp_local();
-        let iterator_method_tag_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let iterator_acquired_local = self.reserve_temp_local();
-        let next_result_payload_local = self.reserve_temp_local();
-        let next_result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let next_value_payload_local = self.reserve_temp_local();
-        let next_value_tag_local = self.reserve_temp_local();
-        let next_promise_payload_local = self.reserve_temp_local();
-        let next_promise_tag_local = self.reserve_temp_local();
-        let then_payload_local = self.reserve_temp_local();
-        let then_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let error_payload_local = self.reserve_temp_local();
-        let error_tag_local = self.reserve_temp_local();
-        let close_return_payload_local = self.reserve_temp_local();
-        let close_return_tag_local = self.reserve_temp_local();
-        let close_result_payload_local = self.reserve_temp_local();
-        let close_result_tag_local = self.reserve_temp_local();
-        let close_saved_payload_local = self.reserve_temp_local();
-        let close_saved_tag_local = self.reserve_temp_local();
-        let close_saved_completion_local = self.reserve_temp_local();
-        let close_saved_aux_local = self.reserve_temp_local();
-
-        let iterator_close = IteratorCloseOnThrowLocals {
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            return_payload_local: close_return_payload_local,
-            return_tag_local: close_return_tag_local,
-            result_payload_local: close_result_payload_local,
-            result_tag_local: close_result_tag_local,
-            saved_payload_local: close_saved_payload_local,
-            saved_tag_local: close_saved_tag_local,
-            saved_completion_local: close_saved_completion_local,
-            saved_aux_local: close_saved_aux_local,
-        };
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        let executor_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("resolve")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            constructor_payload_local,
-            constructor_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            key_local,
-            promise_resolve_payload_local,
-            promise_resolve_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        let algorithm_error_realm =
-            self.emit_promise_combinator_algorithm_error_realm_context(function);
-        self.emit_is_callable_i32(
-            promise_resolve_tag_local,
-            promise_resolve_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.race constructor resolve property is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, iterable_payload_local, iterable_tag_local, function);
-        function.instruction(&Instruction::LocalGet(iterable_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(iterable_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.race input is not iterable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_value_to_current_function_realm_object_locals(
-            iterable_payload_local,
-            iterable_tag_local,
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            key_local,
-            iterator_method_payload_local,
-            iterator_method_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(
-            iterator_method_tag_local,
-            iterator_method_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.race iterator method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            iterator_method_payload_local,
-            iterator_method_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.race iterator method must return an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.race iterator next method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            next_result_payload_local,
-            next_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::End);
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.race iterator next result must be an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            next_result_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            next_result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::End);
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            next_result_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            next_result_tag_local,
-            key_local,
-            next_value_payload_local,
-            next_value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::End);
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            promise_resolve_payload_local,
-            promise_resolve_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            &[(next_value_payload_local, next_value_tag_local)],
-            next_promise_payload_local,
-            next_promise_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("then")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            next_promise_payload_local,
-            next_promise_tag_local,
-            next_promise_payload_local,
-            next_promise_tag_local,
-            key_local,
-            then_payload_local,
-            then_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            then_payload_local,
-            then_tag_local,
-            next_promise_payload_local,
-            next_promise_tag_local,
-            &[
-                (resolve_payload_local, resolve_tag_local),
-                (reject_payload_local, reject_tag_local),
-            ],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_promise_combinator_algorithm_error_realm_context(algorithm_error_realm);
-        for local in [
-            close_saved_aux_local,
-            close_saved_completion_local,
-            close_saved_tag_local,
-            close_saved_payload_local,
-            close_result_tag_local,
-            close_result_payload_local,
-            close_return_tag_local,
-            close_return_payload_local,
-            error_tag_local,
-            error_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
-            key_local,
-            call_tag_local,
-            call_payload_local,
-            then_tag_local,
-            then_payload_local,
-            next_promise_tag_local,
-            next_promise_payload_local,
-            next_value_tag_local,
-            next_value_payload_local,
-            done_tag_local,
-            done_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            iterator_acquired_local,
-            next_tag_local,
-            next_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_method_tag_local,
-            iterator_method_payload_local,
-            iterable_object_tag_local,
-            iterable_object_payload_local,
-            iterable_tag_local,
-            iterable_payload_local,
-            promise_resolve_tag_local,
-            promise_resolve_payload_local,
-            reject_tag_local,
-            reject_payload_local,
-            resolve_tag_local,
-            resolve_payload_local,
-            promise_tag_local,
-            promise_payload_local,
-            capability_record_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        self.emit_promise_combinator(PromiseCombinatorMode::Race, function)
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn emit_promise_keyed_reject_current_throw(
-        &mut self,
-        capability_record_local: u32,
-        promise_payload_local: u32,
-        promise_tag_local: u32,
-        error_payload_local: u32,
-        error_tag_local: u32,
-        call_payload_local: u32,
-        call_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(error_payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(error_tag_local));
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            reject_payload_local,
-            reject_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(error_payload_local, error_tag_local)],
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(reject_tag_local);
-        self.release_temp_local(reject_payload_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_promise_all(&mut self, function: &mut Function) -> Result<(), EmitError> {
         self.emit_promise_combinator(PromiseCombinatorMode::Values, function)
     }
-
     pub(crate) fn emit_promise_all_settled(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_promise_combinator(PromiseCombinatorMode::SettledRecords, function)
     }
-
     pub(crate) fn emit_promise_any(&mut self, function: &mut Function) -> Result<(), EmitError> {
         self.emit_promise_combinator(PromiseCombinatorMode::FirstFulfillment, function)
     }
@@ -6355,887 +4201,360 @@ impl<'a> FunctionBuilder<'a> {
         mode: PromiseCombinatorMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let builtin_name = mode.builtin_name();
-        let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(format!(
-                "unsupported in lila wasm-aot first slice: missing {builtin_name} receiver"
-            ))
-        })?;
-        let constructor_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(format!(
-                "unsupported in lila wasm-aot first slice: missing {builtin_name} receiver tag"
-            ))
-        })?;
-        let capability_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_tag_local = self.reserve_temp_local();
-        let resolve_payload_local = self.reserve_temp_local();
-        let resolve_tag_local = self.reserve_temp_local();
-        let promise_resolve_payload_local = self.reserve_temp_local();
-        let promise_resolve_tag_local = self.reserve_temp_local();
-        let iterable_payload_local = self.reserve_temp_local();
-        let iterable_tag_local = self.reserve_temp_local();
-        let iterable_object_payload_local = self.reserve_temp_local();
-        let iterable_object_tag_local = self.reserve_temp_local();
-        let iterator_method_payload_local = self.reserve_temp_local();
-        let iterator_method_tag_local = self.reserve_temp_local();
-        let iterator_payload_local = self.reserve_temp_local();
-        let iterator_tag_local = self.reserve_temp_local();
-        let next_payload_local = self.reserve_temp_local();
-        let next_tag_local = self.reserve_temp_local();
-        let iterator_acquired_local = self.reserve_temp_local();
-        let next_result_payload_local = self.reserve_temp_local();
-        let next_result_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let next_value_payload_local = self.reserve_temp_local();
-        let next_value_tag_local = self.reserve_temp_local();
-        let next_promise_payload_local = self.reserve_temp_local();
-        let next_promise_tag_local = self.reserve_temp_local();
-        let then_payload_local = self.reserve_temp_local();
-        let then_tag_local = self.reserve_temp_local();
-        let reject_payload_local = self.reserve_temp_local();
-        let reject_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let values_payload_local = self.reserve_temp_local();
-        let shared_context_local = self.reserve_temp_local();
-        let remaining_local = self.reserve_temp_local();
-        let element_context_local = self.reserve_temp_local();
-        let resolve_element_payload_local = self.reserve_temp_local();
-        let resolve_element_tag_local = self.reserve_temp_local();
-        let reject_element_payload_local = self.reserve_temp_local();
-        let reject_element_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let error_payload_local = self.reserve_temp_local();
-        let error_tag_local = self.reserve_temp_local();
-        let close_return_payload_local = self.reserve_temp_local();
-        let close_return_tag_local = self.reserve_temp_local();
-        let close_result_payload_local = self.reserve_temp_local();
-        let close_result_tag_local = self.reserve_temp_local();
-        let close_saved_payload_local = self.reserve_temp_local();
-        let close_saved_tag_local = self.reserve_temp_local();
-        let close_saved_completion_local = self.reserve_temp_local();
-        let close_saved_aux_local = self.reserve_temp_local();
-
-        let iterator_close = IteratorCloseOnThrowLocals {
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            return_payload_local: close_return_payload_local,
-            return_tag_local: close_return_tag_local,
-            result_payload_local: close_result_payload_local,
-            result_tag_local: close_result_tag_local,
-            saved_payload_local: close_saved_payload_local,
-            saved_tag_local: close_saved_tag_local,
-            saved_completion_local: close_saved_completion_local,
-            saved_aux_local: close_saved_aux_local,
-        };
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        let executor_context =
+        let schema = self.runtime_schema();
+        let constructor = schema.reserve_value_local(function);
+        constructor.copy_from(
+            self.body_entry_locals()
+                .expect("Promise combinator entry")
+                .this_value(),
+            function,
+        );
+        let executor =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            resolve_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            resolve_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            reject_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            reject_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("resolve")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            constructor_payload_local,
-            constructor_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            key_local,
-            promise_resolve_payload_local,
-            promise_resolve_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        let algorithm_error_realm =
-            self.emit_promise_combinator_algorithm_error_realm_context(function);
-        self.emit_is_callable_i32(
-            promise_resolve_tag_local,
-            promise_resolve_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.all constructor resolve property is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, iterable_payload_local, iterable_tag_local, function);
-        function.instruction(&Instruction::LocalGet(iterable_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(iterable_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.all input is not iterable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_value_to_current_function_realm_object_locals(
-            iterable_payload_local,
-            iterable_tag_local,
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterable_object_payload_local,
-            iterable_object_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            key_local,
-            iterator_method_payload_local,
-            iterator_method_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(
-            iterator_method_tag_local,
-            iterator_method_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.all iterator method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            iterator_method_payload_local,
-            iterator_method_tag_local,
-            iterable_payload_local,
-            iterable_tag_local,
-            &[],
-            iterator_payload_local,
-            iterator_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.all iterator method must return an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            iterator_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            next_payload_local,
-            next_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.all iterator next method is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_alloc_array_payload_with_length_in_current_function_realm(
-            index_local,
-            values_payload_local,
-            function,
-        )?;
-        self.emit_heap_alloc_const(HEAP_PROMISE_ALL_SHARED_CONTEXT_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(shared_context_local));
-        self.store_i64_const_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            1,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_VALUES_OFFSET,
-            values_payload_local,
-            function,
-        );
-        let (settlement_payload_local, settlement_tag_local) = match mode {
-            PromiseCombinatorMode::Values | PromiseCombinatorMode::SettledRecords => {
-                (resolve_payload_local, resolve_tag_local)
-            }
-            PromiseCombinatorMode::FirstFulfillment => (reject_payload_local, reject_tag_local),
-        };
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_PAYLOAD_OFFSET,
-            settlement_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_RESOLVE_TAG_OFFSET,
-            settlement_tag_local,
-            function,
-        );
-
-        let resolve_element_builtin = match mode {
-            PromiseCombinatorMode::Values => Some(StandardBuiltinId::PromiseAllResolveElement),
-            PromiseCombinatorMode::SettledRecords => {
-                Some(StandardBuiltinId::PromiseAllSettledResolveElement)
-            }
-            PromiseCombinatorMode::FirstFulfillment => None,
-        };
-        let resolve_element_meta = resolve_element_builtin
-            .map(|builtin| {
-                self.functions
-                    .get(&builtin.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "missing {builtin_name} resolve element builtin"
-                        ))
-                    })
-            })
-            .transpose()?;
-        let reject_element_builtin = match mode {
-            PromiseCombinatorMode::SettledRecords => {
-                Some(StandardBuiltinId::PromiseAllSettledRejectElement)
-            }
-            PromiseCombinatorMode::FirstFulfillment => {
-                Some(StandardBuiltinId::PromiseAnyRejectElement)
-            }
-            PromiseCombinatorMode::Values => None,
-        };
-        let reject_element_meta = reject_element_builtin
-            .map(|builtin| {
-                self.functions
-                    .get(&builtin.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "missing {builtin_name} reject element builtin"
-                        ))
-                    })
-            })
-            .transpose()?;
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            next_payload_local,
-            next_tag_local,
-            iterator_payload_local,
-            iterator_tag_local,
-            &[],
-            next_result_payload_local,
-            next_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::End);
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        self.emit_throw_promise_combinator_type_error(
-            &algorithm_error_realm,
-            "Promise.all iterator next result must be an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            next_result_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            next_result_tag_local,
-            key_local,
-            done_payload_local,
-            done_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::End);
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            next_result_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            next_result_tag_local,
-            key_local,
-            next_value_payload_local,
-            next_value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(iterator_acquired_local));
-        function.instruction(&Instruction::End);
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(9_007_199_254_740_991));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_promise_combinator_range_error(
-            &algorithm_error_realm,
-            "Promise.all iterable contains too many values",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_array_write(
-            values_payload_local,
-            index_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            promise_resolve_payload_local,
-            promise_resolve_tag_local,
-            constructor_payload_local,
-            constructor_tag_local,
-            &[(next_value_payload_local, next_value_tag_local)],
-            next_promise_payload_local,
-            next_promise_tag_local,
-            function,
-        )?;
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-
-        self.emit_heap_alloc_const(HEAP_PROMISE_ALL_ELEMENT_CONTEXT_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(element_context_local));
-        self.store_i64_local_at_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_SHARED_OFFSET,
-            shared_context_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            element_context_local,
-            HEAP_PROMISE_ALL_ELEMENT_ALREADY_CALLED_OFFSET,
-            0,
-            function,
-        );
-        let materialization_context =
+        let capability = self.emit_new_promise_capability(&executor, &constructor, function)?;
+        let errors = self.emit_promise_combinator_algorithm_error_realm_context(function);
+        let elements =
             self.emit_current_function_promise_combinator_element_materialization_context(function);
-        if let Some(resolve_element_meta) = &resolve_element_meta {
-            self.emit_promise_combinator_element_function_value(
-                resolve_element_meta,
-                &materialization_context,
-                element_context_local,
-                resolve_element_payload_local,
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        let iterator = schema
+            .reserve_gc_local::<IteratorRecord, Nullable>(function)
+            .initialize_null(schema, function);
+        let resolve = schema.reserve_value_local(function);
+        let reject = schema.reserve_value_local(function);
+        for (field, out) in [
+            (PromiseCapabilitySchema::RESOLVE, &resolve),
+            (PromiseCapabilitySchema::REJECT, &reject),
+        ] {
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<PromiseCapability>()
+                    .field(field)
+                    .read(&capability, schema, function)
+                    .reference(),
                 function,
-            )?;
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(resolve_element_tag_local));
+            );
+            schema
+                .struct_type::<StoredValue>()
+                .read_into(&stored, out, schema, function);
+            stored.clear(function);
         }
-        if let Some(reject_element_meta) = &reject_element_meta {
-            self.emit_promise_combinator_element_function_value(
-                reject_element_meta,
-                &materialization_context,
-                element_context_local,
-                reject_element_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(reject_element_tag_local));
-        }
-        self.release_promise_combinator_element_function_materialization_context(
-            materialization_context,
-        );
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_promise_property_get(&constructor, "resolve", &pending, function)?;
+        self.emit_promise_combinator_reject_current_throw(
+            &capability,
+            &iterator,
+            &pending,
+            exit,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("then")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            next_promise_payload_local,
-            next_promise_tag_local,
-            next_promise_payload_local,
-            next_promise_tag_local,
-            key_local,
-            then_payload_local,
-            then_tag_local,
+        )?;
+        self.emit_is_callable_i32(pending.value(), function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_promise_combinator_type_error(
+            &errors,
+            mode.resolve_error(),
+            &pending,
             function,
         )?;
         self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
+            &capability,
+            &iterator,
+            &pending,
+            exit,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let promise_resolve = schema.reserve_value_local(function);
+        promise_resolve.copy_from(pending.value(), function);
+        let input = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &input, function);
+        let acquired =
+            self.emit_promise_combinator_iterator(&input, &errors, mode, &pending, function)?;
+        iterator.replace(acquired.load(schema, function), function);
+        acquired.clear(function);
+        self.emit_promise_combinator_reject_current_throw(
+            &capability,
+            &iterator,
+            &pending,
+            exit,
+            function,
+        )?;
+        let record = schema.reserve_gc_local(function).initialize(
+            iterator.load(schema, function).require_non_null(function),
+            function,
+        );
+        let shared = if matches!(mode, PromiseCombinatorMode::Race) {
+            None
+        } else {
+            let list = schema.reserve_gc_local(function).initialize(
+                schema
+                    .array_type::<ValueArray>()
+                    .fixed(std::iter::empty(), function),
+                function,
+            );
+            let settle = if matches!(mode, PromiseCombinatorMode::FirstFulfillment) {
+                &reject
+            } else {
+                &resolve
+            };
+            let stored = schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(settle, function),
+                function,
+            );
+            let shared = schema.reserve_gc_local(function).initialize(
+                schema.struct_type::<PromiseCombinatorShared>().construct(
+                    (
+                        GcOperand::i64(1),
+                        GcOperand::reference(&list, schema),
+                        GcOperand::reference(&stored, schema),
+                    ),
+                    function,
+                ),
+                function,
+            );
+            stored.clear(function);
+            list.clear(function);
+            Some(shared)
+        };
+        let index = schema.reserve_i64_local(function);
+        function.instruction(&Instruction::I64Const(0));
+        index.store(function);
+        let done = schema.reserve_i32_local(function);
+        let next_value = schema.reserve_value_local(function);
+        let next_promise = schema.reserve_value_local(function);
+        let then = schema.reserve_value_local(function);
+        let resolve_element = schema.reserve_value_local(function);
+        let reject_element = schema.reserve_value_local(function);
+        resolve_element.set_undefined(function);
+        reject_element.set_undefined(function);
+        let loop_end = self.open_frame(ControlFrameKind::Block, function);
+        let again = self.open_frame(ControlFrameKind::Loop, function);
+        self.emit_promise_combinator_step(
+            &record,
+            &errors,
+            mode,
+            &next_value,
+            done,
+            &pending,
+            function,
+        )?;
+        self.emit_promise_combinator_reject_current_throw(
+            &capability,
+            &iterator,
+            &pending,
+            exit,
+            function,
+        )?;
+        done.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_branch_to_target(loop_end, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        if let Some(shared) = &shared {
+            index.load(function);
+            function.instruction(&Instruction::I64Const(9_007_199_254_740_991));
+            function.instruction(&Instruction::I64GeU);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_throw_promise_combinator_range_error(
+                &errors,
+                RuntimeErrorMessage::PROMISE_ALL_ITERABLE_CONTAINS_TOO_MANY_VALUES,
+                &pending,
+                function,
+            )?;
+            self.emit_promise_combinator_reject_current_throw(
+                &capability,
+                &iterator,
+                &pending,
+                exit,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            self.emit_reserve_promise_combinator_list_entry(shared, function);
+        }
+        let args = self.emit_pre_evaluated_arg_vector(&[&next_value], function);
+        self.emit_function_or_proxy_call_with_argv(
+            &promise_resolve,
+            &constructor,
+            &args,
+            &pending,
+            function,
+        )?;
+        args.clear(function);
+        self.emit_promise_combinator_reject_current_throw(
+            &capability,
+            &iterator,
+            &pending,
+            exit,
+            function,
+        )?;
+        next_promise.copy_from(pending.value(), function);
+        if let Some(shared) = &shared {
+            let element = schema.reserve_gc_local(function).initialize(
+                schema.struct_type::<PromiseElementContext>().construct(
+                    (
+                        GcOperand::i64_local(index),
+                        GcOperand::reference(shared, schema),
+                        GcOperand::boolean(false),
+                    ),
+                    function,
+                ),
+                function,
+            );
+            match mode {
+                PromiseCombinatorMode::Values => {
+                    let callable = self.emit_promise_combinator_element_function_value(
+                        PromiseInternalFunction::AllElement(&element),
+                        &elements,
+                        function,
+                    )?;
+                    resolve_element.set_reference(&callable, schema, function);
+                    callable.clear(function);
+                }
+                PromiseCombinatorMode::SettledRecords => {
+                    let fulfilled = self.emit_promise_combinator_element_function_value(
+                        PromiseInternalFunction::SettledFulfillElement(&element),
+                        &elements,
+                        function,
+                    )?;
+                    let rejected = self.emit_promise_combinator_element_function_value(
+                        PromiseInternalFunction::SettledRejectElement(&element),
+                        &elements,
+                        function,
+                    )?;
+                    resolve_element.set_reference(&fulfilled, schema, function);
+                    reject_element.set_reference(&rejected, schema, function);
+                    rejected.clear(function);
+                    fulfilled.clear(function);
+                }
+                PromiseCombinatorMode::FirstFulfillment => {
+                    let callable = self.emit_promise_combinator_element_function_value(
+                        PromiseInternalFunction::AnyRejectElement(&element),
+                        &elements,
+                        function,
+                    )?;
+                    reject_element.set_reference(&callable, schema, function);
+                    callable.clear(function);
+                }
+                PromiseCombinatorMode::Race => unreachable!("Race owns no values List"),
+            }
+            let remaining = schema.reserve_i64_local(function);
+            schema
+                .struct_type::<PromiseCombinatorShared>()
+                .field(PromiseCombinatorSharedSchema::REMAINING)
+                .read(shared, schema, function)
+                .store_i64(remaining, function);
+            remaining.load(function);
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Add);
+            remaining.store(function);
+            schema
+                .struct_type::<PromiseCombinatorShared>()
+                .field(PromiseCombinatorSharedSchema::REMAINING)
+                .write(shared, GcOperand::i64_local(remaining), schema, function);
+            schema.release_i64_local(remaining, function);
+            element.clear(function);
+        }
+        self.emit_promise_property_get(&next_promise, "then", &pending, function)?;
+        self.emit_promise_combinator_reject_current_throw(
+            &capability,
+            &iterator,
+            &pending,
+            exit,
+            function,
+        )?;
+        then.copy_from(pending.value(), function);
         self.emit_invoke_promise_combinator_reaction_pair(
             mode,
-            then_payload_local,
-            then_tag_local,
-            next_promise_payload_local,
-            next_promise_tag_local,
-            resolve_element_payload_local,
-            resolve_element_tag_local,
-            reject_payload_local,
-            reject_tag_local,
-            reject_element_payload_local,
-            reject_element_tag_local,
-            resolve_payload_local,
-            resolve_tag_local,
-            call_payload_local,
-            call_tag_local,
+            &then,
+            &next_promise,
+            &resolve_element,
+            &reject,
+            &reject_element,
+            &resolve,
+            &pending,
             function,
         )?;
         self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
+            &capability,
+            &iterator,
+            &pending,
+            exit,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(index_local));
+        index.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
+        index.store(function);
+        self.emit_branch_to_target(again, function);
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        self.store_i64_local_at_offset(
-            shared_context_local,
-            HEAP_PROMISE_ALL_SHARED_REMAINING_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        match mode {
-            PromiseCombinatorMode::Values | PromiseCombinatorMode::SettledRecords => {
-                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                function.instruction(&Instruction::LocalSet(next_value_tag_local));
-                self.emit_function_or_proxy_call_leave_throw_completion(
-                    resolve_payload_local,
-                    resolve_tag_local,
-                    undefined_payload_local,
-                    undefined_tag_local,
-                    &[(values_payload_local, next_value_tag_local)],
-                    call_payload_local,
-                    call_tag_local,
-                    function,
-                )?;
-            }
-            PromiseCombinatorMode::FirstFulfillment => {
-                let allocation_context =
-                    self.emit_promise_combinator_aggregate_error_allocation_context(function);
-                self.emit_promise_any_aggregate_error_from_context(
-                    values_payload_local,
-                    allocation_context,
-                    next_value_payload_local,
-                    next_value_tag_local,
-                    function,
-                )?;
-                self.emit_function_or_proxy_call_leave_throw_completion(
-                    reject_payload_local,
-                    reject_tag_local,
-                    undefined_payload_local,
-                    undefined_tag_local,
-                    &[(next_value_payload_local, next_value_tag_local)],
-                    call_payload_local,
-                    call_tag_local,
-                    function,
-                )?;
-            }
+        if let Some(shared) = &shared {
+            let remaining = schema.reserve_i64_local(function);
+            schema
+                .struct_type::<PromiseCombinatorShared>()
+                .field(PromiseCombinatorSharedSchema::REMAINING)
+                .read(shared, schema, function)
+                .store_i64(remaining, function);
+            remaining.load(function);
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Sub);
+            remaining.store(function);
+            schema
+                .struct_type::<PromiseCombinatorShared>()
+                .field(PromiseCombinatorSharedSchema::REMAINING)
+                .write(shared, GcOperand::i64_local(remaining), schema, function);
+            remaining.load(function);
+            function.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_finish_promise_combinator_list(shared, mode, &pending, function)?;
+            self.emit_promise_combinator_reject_current_throw(
+                &capability,
+                &iterator,
+                &pending,
+                exit,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+            schema.release_i64_local(remaining, function);
         }
-        self.emit_promise_combinator_reject_current_throw(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            iterator_acquired_local,
-            iterator_close,
-            error_payload_local,
-            error_tag_local,
-            call_payload_local,
-            call_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(promise_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(promise_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_promise_combinator_algorithm_error_realm_context(algorithm_error_realm);
-        for local in [
-            close_saved_aux_local,
-            close_saved_completion_local,
-            close_saved_tag_local,
-            close_saved_payload_local,
-            close_result_tag_local,
-            close_result_payload_local,
-            close_return_tag_local,
-            close_return_payload_local,
-            error_tag_local,
-            error_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
-            reject_element_tag_local,
-            reject_element_payload_local,
-            resolve_element_tag_local,
-            resolve_element_payload_local,
-            element_context_local,
-            remaining_local,
-            shared_context_local,
-            values_payload_local,
-            index_local,
-            key_local,
-            call_tag_local,
-            call_payload_local,
-            reject_tag_local,
-            reject_payload_local,
-            then_tag_local,
-            then_payload_local,
-            next_promise_tag_local,
-            next_promise_payload_local,
-            next_value_tag_local,
-            next_value_payload_local,
-            done_tag_local,
-            done_payload_local,
-            next_result_tag_local,
-            next_result_payload_local,
-            iterator_acquired_local,
-            next_tag_local,
-            next_payload_local,
-            iterator_tag_local,
-            iterator_payload_local,
-            iterator_method_tag_local,
-            iterator_method_payload_local,
-            iterable_object_tag_local,
-            iterable_object_payload_local,
-            iterable_tag_local,
-            iterable_payload_local,
-            promise_resolve_tag_local,
-            promise_resolve_payload_local,
-            resolve_tag_local,
-            resolve_payload_local,
-            promise_tag_local,
-            promise_payload_local,
-            capability_record_local,
-        ] {
-            self.release_temp_local(local);
+        let promise = schema.reserve_value_local(function);
+        self.emit_read_promise_capability_promise(&capability, &promise, function);
+        self.completion().set_normal(&promise, function);
+        promise.clear(function);
+        reject_element.clear(function);
+        resolve_element.clear(function);
+        then.clear(function);
+        next_promise.clear(function);
+        next_value.clear(function);
+        schema.release_i32_local(done, function);
+        schema.release_i64_local(index, function);
+        if let Some(shared) = shared {
+            shared.clear(function);
         }
+        record.clear(function);
+        input.clear(function);
+        promise_resolve.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        reject.clear(function);
+        resolve.clear(function);
+        iterator.clear(function);
+        pending.clear(function);
+        self.release_promise_combinator_element_function_materialization_context(
+            elements, function,
+        );
+        self.release_promise_combinator_algorithm_error_realm_context(errors, function);
+        capability.clear(function);
+        self.release_promise_internal_function_materialization_context(executor, function);
+        constructor.clear(function);
         Ok(())
     }
 
@@ -7244,72 +4563,46 @@ impl<'a> FunctionBuilder<'a> {
         settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let resolving_context_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let already_resolved_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        self.emit_load_promise_internal_function_context(resolving_context_local, function);
-        self.load_i64_to_local_from_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_ALREADY_RESOLVED_OFFSET,
-            already_resolved_local,
+        let schema = self.runtime_schema();
+        let context = self.emit_promise_resolving_context(function);
+        self.completion().initialize(function);
+        schema
+            .struct_type::<PromiseResolvingContext>()
+            .field(PromiseResolvingContextSchema::ALREADY_RESOLVED)
+            .read(&context, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .struct_type::<PromiseResolvingContext>()
+            .field(PromiseResolvingContextSchema::ALREADY_RESOLVED)
+            .write(&context, GcOperand::boolean(true), schema, function);
+        let promise = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PromiseResolvingContext>()
+                .field(PromiseResolvingContextSchema::PROMISE)
+                .read(&context, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(already_resolved_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_ALREADY_RESOLVED_OFFSET,
-            1,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_RECORD_OFFSET,
-            promise_record_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            resolving_context_local,
-            HEAP_PROMISE_RESOLVING_CONTEXT_PAYLOAD_OFFSET,
-            promise_payload_local,
-            function,
-        );
-        self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
+        let value = schema.reserve_value_local(function);
+        self.emit_builtin_arg_to_value(0, &value, function);
         match settlement {
-            PromiseSettlement::Fulfill => self.emit_resolve_promise_record(
-                promise_payload_local,
-                promise_record_local,
-                value_payload_local,
-                value_tag_local,
-                function,
-            )?,
+            PromiseSettlement::Fulfill => {
+                self.emit_resolve_promise_record(&promise, &value, function)?
+            }
             PromiseSettlement::Reject => self.emit_settle_promise_record(
-                promise_record_local,
-                settlement,
-                value_payload_local,
-                value_tag_local,
+                &promise,
+                PromiseSettlement::Reject,
+                &value,
                 function,
             )?,
         }
+        value.clear(function);
+        promise.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(already_resolved_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(resolving_context_local);
+        context.clear(function);
+        self.completion().initialize(function);
         Ok(())
     }
 }

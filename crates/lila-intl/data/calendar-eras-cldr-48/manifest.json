@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "release": "48.0.0",
+  "commit": "acd6d88ae493633240e19a87a721076a8a75c310",
+  "purpose": "genuine era names only for newly selected Coptic/Ethiopic/Islamic domains; base CLDR47 patterns and original4 calendars retained",
+  "files": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/LICENSE",
+      "http_status": 200,
+      "bytes": 2033,
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6",
+      "git_blob_sha1": "861b74f3c812088755fd185d964e82a244503bbd"
+    },
+    {
+      "path": "common/main/root.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/root.xml",
+      "http_status": 200,
+      "bytes": 290595,
+      "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17",
+      "git_blob_sha1": "cb483de4be8dba64e1894bbc0d049aecee3433cb"
+    },
+    {
+      "path": "common/main/en.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/en.xml",
+      "http_status": 200,
+      "bytes": 478608,
+      "sha256": "416fb34c500e969a9e3e9bd1e363f8af5938df3cdda72aa7e636fa7e72123aae",
+      "git_blob_sha1": "50319634140f54c1960559c48e3b5c9e7c1c5a74"
+    },
+    {
+      "path": "common/main/ar.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/ar.xml",
+      "http_status": 200,
+      "bytes": 730729,
+      "sha256": "94b2fea65038e61fa34b9b3efd728ab55e12c77644e61d283e63464ff57e13b7",
+      "git_blob_sha1": "563ea34f091486316990607b40acba1b8ef5c5c7"
+    },
+    {
+      "path": "common/main/zh.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/zh.xml",
+      "http_status": 200,
+      "bytes": 626269,
+      "sha256": "b1ef8bcadcf19fa8914d9ba812a7bcec124c72fecbf4acea02e4c8bd2fe51866",
+      "git_blob_sha1": "9202c22bd6e8986c53d3df91a770a4dad4d9a55b"
+    },
+    {
+      "path": "common/main/de.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/de.xml",
+      "http_status": 200,
+      "bytes": 612277,
+      "sha256": "3e14f53fd40a00527f7cbaf5b3228e35985fac0e3f93a4eecc03b6716ceb6a68",
+      "git_blob_sha1": "9266e3020764c3d124704f56a3e07432c0bbe9ae"
+    },
+    {
+      "path": "common/main/fr.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/fr.xml",
+      "http_status": 200,
+      "bytes": 615203,
+      "sha256": "ebc67e303a56940609c892ededb3697e3b291466cf9622dd2c389ad48872e98f",
+      "git_blob_sha1": "198499a173371ebd3af12b523d57e6bea1998271"
+    },
+    {
+      "path": "common/main/it.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/it.xml",
+      "http_status": 200,
+      "bytes": 443958,
+      "sha256": "51834d1632b59a345c5beef712f5dddbe4e62530bf8abfc62ed42be4f3a43653",
+      "git_blob_sha1": "6aa9f956f076f430493dab65e9b7ddff84a700a3"
+    },
+    {
+      "path": "common/main/ja.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/ja.xml",
+      "http_status": 200,
+      "bytes": 526626,
+      "sha256": "24bc2347a4fc2d1d331f122f5f4c4f05ce435513f4f5280b16a428aad8753fdc",
+      "git_blob_sha1": "ccc773a50abd146969622b7d52d559ecebced5cb"
+    },
+    {
+      "path": "common/main/ko.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/ko.xml",
+      "http_status": 200,
+      "bytes": 515597,
+      "sha256": "41d80dfb7ee5a6c8227940db5f672eb5712765a3aa28ffed7bbe641a82bbeeda",
+      "git_blob_sha1": "6361c68b5d6b40f34ccff1bd65b00860da746ed6"
+    },
+    {
+      "path": "common/main/hi.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/acd6d88ae493633240e19a87a721076a8a75c310/common/main/hi.xml",
+      "http_status": 200,
+      "bytes": 582873,
+      "sha256": "5fa900f98f3f4ca70f73af23925783f73c62856d84892be9f364e05f4f10b261",
+      "git_blob_sha1": "06ac3e1d02c27ab2305e152e87181fe23199776e"
+    }
+  ],
+  "total_bytes": 5424768,
+  "allowed_calendar_era_subtrees": [
+    "coptic",
+    "ethiopic",
+    "ethiopic-amete-alem",
+    "islamic",
+    "islamic-civil",
+    "islamic-tbla",
+    "islamic-umalqura"
+  ],
+  "git_tree_sha256": "6a7eb73887062f7a8a141976135322ebe71e47ce5b8c988329705d8538471de1"
+}

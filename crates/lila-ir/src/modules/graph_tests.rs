@@ -42,6 +42,7 @@ fn sources_of(files: &[(&str, &str)]) -> ModuleGraphSources {
         }
     }
     ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions,
@@ -92,6 +93,7 @@ fn rejected_delete_reference_dependencies_keep_typed_diagnostics_through_graph_b
         );
 
         let diagnostics = build_graph(&ModuleGraphSources {
+            realm_requests: Default::default(),
             modules: vec![
                 ModuleSourceIr::new(
                     ModuleKey::from_host("/root/entry.js"),
@@ -114,12 +116,12 @@ fn rejected_delete_reference_dependencies_keep_typed_diagnostics_through_graph_b
 
         assert_eq!(
             diagnostic.kind(),
-            IrDiagnosticKind::EarlyError,
+            IrDiagnosticKind::LinkError,
             "{source_text:?}"
         );
         assert_eq!(
             diagnostic.phase(),
-            IrDiagnosticPhase::Early,
+            IrDiagnosticPhase::Resolution,
             "{source_text:?}"
         );
         assert_eq!(diagnostic.code(), Some(expected), "{source_text:?}");
@@ -147,6 +149,7 @@ fn rejected_optional_chain_tagged_template_dependency_keeps_typed_diagnostic_thr
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -163,8 +166,8 @@ fn rejected_optional_chain_tagged_template_dependency_keeps_typed_diagnostic_thr
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::OptionalChainTaggedTemplate)
@@ -195,6 +198,7 @@ fn rejected_for_head_body_declaration_conflict_dependency_keeps_typed_diagnostic
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -215,8 +219,8 @@ fn rejected_for_head_body_declaration_conflict_dependency_keeps_typed_diagnostic
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::ForHeadBodyDeclarationConflict)
@@ -247,6 +251,7 @@ fn rejected_for_declaration_duplicate_bound_name_dependency_keeps_typed_diagnost
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -267,8 +272,8 @@ fn rejected_for_declaration_duplicate_bound_name_dependency_keeps_typed_diagnost
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::ForDeclarationDuplicateBoundName)
@@ -298,6 +303,7 @@ fn rejected_lexical_bound_name_let_dependency_keeps_typed_diagnostic_through_gra
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -318,8 +324,8 @@ fn rejected_lexical_bound_name_let_dependency_keeps_typed_diagnostic_through_gra
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(diagnostic.code(), Some(EarlyErrorCode::LexicalBoundNameLet));
     assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
     let span = diagnostic
@@ -347,6 +353,7 @@ fn rejected_top_level_super_dependency_keeps_its_module_code_through_graph_build
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -363,8 +370,8 @@ fn rejected_top_level_super_dependency_keeps_its_module_code_through_graph_build
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(diagnostic.code(), Some(EarlyErrorCode::ModuleTopLevelSuper));
     assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
     let span = diagnostic
@@ -412,6 +419,7 @@ fn rejected_class_owned_super_call_dependencies_keep_distinct_codes_through_grap
         );
 
         let diagnostics = build_graph(&ModuleGraphSources {
+            realm_requests: Default::default(),
             modules: vec![
                 ModuleSourceIr::new(
                     ModuleKey::from_host("/root/entry.js"),
@@ -434,12 +442,12 @@ fn rejected_class_owned_super_call_dependencies_keep_distinct_codes_through_grap
 
         assert_eq!(
             diagnostic.kind(),
-            IrDiagnosticKind::EarlyError,
+            IrDiagnosticKind::LinkError,
             "{source_text:?}"
         );
         assert_eq!(
             diagnostic.phase(),
-            IrDiagnosticPhase::Early,
+            IrDiagnosticPhase::Resolution,
             "{source_text:?}"
         );
         assert_eq!(diagnostic.code(), Some(expected), "{source_text:?}");
@@ -478,6 +486,7 @@ fn rejected_class_field_super_call_dependency_keeps_its_code_through_graph_build
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -494,8 +503,8 @@ fn rejected_class_field_super_call_dependency_keeps_its_code_through_graph_build
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::ClassFieldInitializerContainsSuperCall)
@@ -533,6 +542,7 @@ fn rejected_function_expression_super_dependency_keeps_its_code_through_graph_bu
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -553,8 +563,8 @@ fn rejected_function_expression_super_dependency_keeps_its_code_through_graph_bu
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::FunctionExpressionContainsSuper)
@@ -581,6 +591,7 @@ fn retained_function_expression_without_super_builds_a_real_module_graph() {
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -619,6 +630,7 @@ fn rejected_function_declaration_super_dependency_keeps_its_code_through_graph_b
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -639,8 +651,8 @@ fn rejected_function_declaration_super_dependency_keeps_its_code_through_graph_b
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::FunctionDeclarationContainsSuper)
@@ -667,6 +679,7 @@ fn retained_function_declaration_without_super_builds_a_real_module_graph() {
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -705,6 +718,7 @@ fn rejected_async_function_declaration_super_dependency_keeps_its_code_through_g
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -725,8 +739,8 @@ fn rejected_async_function_declaration_super_dependency_keeps_its_code_through_g
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper)
@@ -753,6 +767,7 @@ fn retained_async_function_declaration_without_super_builds_a_real_module_graph(
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -795,6 +810,7 @@ fn rejected_generator_declaration_super_dependency_keeps_its_code_through_graph_
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -815,8 +831,8 @@ fn rejected_generator_declaration_super_dependency_keeps_its_code_through_graph_
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::GeneratorDeclarationContainsSuper)
@@ -843,6 +859,7 @@ fn retained_generator_declaration_without_super_builds_a_real_module_graph() {
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -885,6 +902,7 @@ fn rejected_async_generator_declaration_super_dependency_keeps_its_code_through_
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -905,8 +923,8 @@ fn rejected_async_generator_declaration_super_dependency_keeps_its_code_through_
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper)
@@ -933,6 +951,7 @@ fn retained_async_generator_declaration_without_super_builds_a_real_module_graph
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -975,6 +994,7 @@ fn rejected_async_function_expression_super_dependency_keeps_its_code_through_gr
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -995,8 +1015,8 @@ fn rejected_async_function_expression_super_dependency_keeps_its_code_through_gr
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::AsyncFunctionExpressionContainsSuper)
@@ -1023,6 +1043,7 @@ fn retained_async_function_expression_without_super_builds_a_real_module_graph()
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1065,6 +1086,7 @@ fn rejected_generator_expression_super_dependency_keeps_its_code_through_graph_b
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1085,8 +1107,8 @@ fn rejected_generator_expression_super_dependency_keeps_its_code_through_graph_b
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::GeneratorExpressionContainsSuper)
@@ -1113,6 +1135,7 @@ fn retained_generator_expression_without_super_builds_a_real_module_graph() {
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1151,6 +1174,7 @@ fn rejected_async_generator_expression_super_dependency_keeps_its_code_through_g
     );
 
     let diagnostics = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1171,8 +1195,8 @@ fn rejected_async_generator_expression_super_dependency_keeps_its_code_through_g
         panic!("expected one retained parse diagnostic, got {diagnostics:?}");
     };
 
-    assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
-    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+    assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+    assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(
         diagnostic.code(),
         Some(EarlyErrorCode::AsyncGeneratorExpressionContainsSuper)
@@ -1200,6 +1224,7 @@ fn retained_async_generator_expression_without_super_builds_a_real_module_graph(
     assert_eq!(dependency.module_requests(), Some(Vec::new()));
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1243,6 +1268,7 @@ fn retained_class_owned_super_dependency_builds_a_real_module_graph() {
     );
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1277,6 +1303,7 @@ fn retained_import_meta_dependency_keeps_its_module_goal_through_graph_build() {
     );
 
     let graph = build_graph(&ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1361,7 +1388,16 @@ fn a_source_only_module_and_its_own_dependency_never_evaluate() {
         ("/root/a.js", "import './b.js';\nexport const x = 1;"),
         ("/root/b.js", "globalThis.ran = true;"),
     ]);
-    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    assert_eq!(
+        graph.link_errors,
+        vec![ModuleLinkErrorIr::SourceUnavailable {
+            referrer: graph.entry,
+            request: ModuleRequestIr::from_key(
+                ModuleRequestKeyIr::plain("./a.js"),
+                ImportPhaseIr::Source,
+            ),
+        }]
+    );
     assert_eq!(
         graph.evaluation_mode(unit_of(&graph, "/root/a.js")),
         ModuleEvaluationModeIr::NotEvaluated
@@ -1384,7 +1420,16 @@ fn non_evaluation_phase_edges_do_not_form_an_evaluation_cycle() {
             "import source entry from './entry.js';\nexport const x = 1;\nentry;",
         ),
     ]);
-    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    assert_eq!(
+        graph.link_errors,
+        vec![ModuleLinkErrorIr::SourceUnavailable {
+            referrer: unit_of(&graph, "/root/a.js"),
+            request: ModuleRequestIr::from_key(
+                ModuleRequestKeyIr::plain("./entry.js"),
+                ImportPhaseIr::Source,
+            ),
+        }]
+    );
     assert_eq!(
         graph.evaluation_mode(unit_of(&graph, "/root/a.js")),
         ModuleEvaluationModeIr::Deferred
@@ -1405,7 +1450,16 @@ fn non_evaluation_phase_tla_does_not_make_graph_async() {
         ("/root/entry.js", "import source src from './a.js';\nsrc;"),
         ("/root/a.js", "export const x = await 1;"),
     ]);
-    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    assert_eq!(
+        graph.link_errors,
+        vec![ModuleLinkErrorIr::SourceUnavailable {
+            referrer: graph.entry,
+            request: ModuleRequestIr::from_key(
+                ModuleRequestKeyIr::plain("./a.js"),
+                ImportPhaseIr::Source,
+            ),
+        }]
+    );
     let target = unit_of(&graph, "/root/a.js");
     assert_eq!(
         graph.evaluation_mode(target),
@@ -1423,15 +1477,18 @@ fn non_evaluation_phase_tla_does_not_make_graph_async() {
     assert_eq!(graph.pending_async_dependencies(target), 0);
 }
 
-/// A source-phase request resolves to a module source object rather than to
-/// the `default` export its `ImportedBinding` grammar would otherwise name.
+/// Source-phase resolution retains the source symbol, then initialization
+/// rejects the loaded Source Text Module independently of its default export.
 #[test]
-fn a_source_phase_import_resolves_to_a_module_source() {
+fn a_source_phase_import_rejects_a_source_text_module() {
     let graph = linked(&[
         ("/root/entry.js", "import source src from './a.js';\nsrc;"),
         ("/root/a.js", "export const x = 1;"),
     ]);
-    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    assert!(matches!(
+        graph.link_errors.as_slice(),
+        [ModuleLinkErrorIr::SourceUnavailable { .. }]
+    ));
     let target = unit_of(&graph, "/root/a.js");
     assert_eq!(
         graph.units[0].resolved_imports,
@@ -1442,7 +1499,7 @@ fn a_source_phase_import_resolves_to_a_module_source() {
     );
     assert_eq!(
         namespace_target_reference(&graph.units[0].resolved_imports[0]),
-        Some(MergedName::minted(target, UnitCellRole::ModuleSource))
+        None
     );
 }
 
@@ -1513,6 +1570,7 @@ fn a_public_host_resolution_row_matches_canonical_request_attributes() {
     )
     .expect("host attributes are unique");
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions: vec![(0, host_request, 1)],
@@ -1561,6 +1619,7 @@ fn an_attributed_reexport_uses_the_matching_public_host_resolution_row() {
     )
     .expect("host attributes are unique");
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions: vec![(0, host_request, 1)],
@@ -1586,6 +1645,7 @@ fn an_attributed_reexport_uses_the_matching_public_host_resolution_row() {
 #[test]
 fn eval_defer_and_source_occurrences_share_one_resolution_key() {
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1620,7 +1680,16 @@ fn eval_defer_and_source_occurrences_share_one_resolution_key() {
     }
 
     link(&mut graph);
-    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    assert_eq!(
+        graph.link_errors,
+        vec![ModuleLinkErrorIr::SourceUnavailable {
+            referrer: graph.entry,
+            request: ModuleRequestIr::from_key(
+                ModuleRequestKeyIr::plain("./dep.js"),
+                ImportPhaseIr::Source,
+            ),
+        }]
+    );
     assert_eq!(graph.evaluation_mode(1), ModuleEvaluationModeIr::Eager);
 }
 
@@ -1628,6 +1697,7 @@ fn eval_defer_and_source_occurrences_share_one_resolution_key() {
 fn conflicting_public_resolution_rows_have_no_last_write_winner() {
     let request = ModuleRequestKeyIr::plain("./dep.js");
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1663,6 +1733,7 @@ fn conflicting_public_resolution_rows_have_no_last_write_winner() {
 #[test]
 fn a_repeated_key_with_different_text_is_one_unit_and_an_inconsistent_load() {
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules: vec![
             ModuleSourceIr::new(
                 ModuleKey::from_host("/root/entry.js"),
@@ -1868,7 +1939,16 @@ fn an_earlier_source_occurrence_does_not_reorder_later_evaluation_dependencies()
         ("/root/m.js", "export const m = 1;"),
         ("/root/n.js", "export const n = 1;"),
     ]);
-    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    assert_eq!(
+        graph.link_errors,
+        vec![ModuleLinkErrorIr::SourceUnavailable {
+            referrer: graph.entry,
+            request: ModuleRequestIr::from_key(
+                ModuleRequestKeyIr::plain("./m.js"),
+                ImportPhaseIr::Source,
+            ),
+        }]
+    );
     let m = unit_of(&graph, "/root/m.js");
     let n = unit_of(&graph, "/root/n.js");
     assert_eq!(graph.evaluation_order, vec![n, m, graph.entry]);
@@ -2073,6 +2153,7 @@ fn a_graph_larger_than_the_unit_id_cap_is_rejected_at_the_mint_site() {
         })
         .collect();
     let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
         modules,
         entry: 0,
         resolutions: Vec::new(),

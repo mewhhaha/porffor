@@ -1,5 +1,25 @@
 # Heap weak-edge identity authority
 
+Current dry source — 2026-10-05: the passive raw-representation source
+mirror below is retired from the atomic GC draft. Its registry spelling,
+offset descriptions and historical checks do not verify actual GC references,
+roots, host values or weak reachability. Current semantic GC source owns those
+operations through typed fields and complete value/Realm/completion owners.
+Final provider retirement and the remaining native source families are still
+in progress; the earlier descriptions, commands and results are historical.
+
+Compilation and behavioral verification remain deferred to the complete task
+batch. Weak reachability keeps its explicit [unavailable facility boundary](weak-unavailable-runtime-boundary.md). No current green result or weak
+retention facility is supplied by this source retirement.
+
+Current source — 2026-10-03: actual weak operations follow the
+[unavailable facility boundary](weak-unavailable-runtime-boundary.md). Active
+strong-retaining weak producers are retired. Installed intrinsic publication
+and earlier JavaScript validation remain observable; passive layout/edge rows
+are inventory only. Producer, valid-instance and verification descriptions
+below retain their earlier source scope and do not verify the current batch.
+Real weak reachability and semantic GC remain open; current controls are unexecuted.
+
 ## Closed edge identities
 
 The passive weak-edge inventory contains exactly seven `HeapWeakEdge`

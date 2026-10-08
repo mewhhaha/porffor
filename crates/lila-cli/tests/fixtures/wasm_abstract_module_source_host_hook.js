@@ -1,27 +1,5 @@
-function AbstractModuleSource() {
-  throw new TypeError();
-}
-
-function AbstractModuleSourceToStringTag() {
-  return undefined;
-}
-
-Object.defineProperty(AbstractModuleSource, "prototype", {
-  value: AbstractModuleSource.prototype,
-  writable: false,
-  enumerable: false,
-  configurable: false
-});
-
-Object.defineProperty(AbstractModuleSource.prototype, Symbol.toStringTag, {
-  get: AbstractModuleSourceToStringTag,
-  set: undefined,
-  enumerable: false,
-  configurable: true
-});
-
 var $262 = {
-  AbstractModuleSource: AbstractModuleSource
+  AbstractModuleSource: __lilaGetAbstractModuleSource()
 };
 
 if (typeof $262.AbstractModuleSource !== "function") throw "constructor type";

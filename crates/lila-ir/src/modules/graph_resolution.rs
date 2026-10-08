@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{ExportName, ImportNameIr, ModuleRequestIr, ModuleRequestKeyIr};
+use crate::{ExportName, ImportNameIr, ImportPhaseIr, ModuleRequestIr, ModuleRequestKeyIr};
 
 use super::graph::ModuleGraphIr;
 use super::record::{push_unique_name, ModuleUnitId};
@@ -132,6 +132,12 @@ impl ModuleGraphIr {
             let Some(target) = self.resolve_request(module, &entry.request) else {
                 return ResolvedBindingIr::NotFound;
             };
+            if entry.request.phase() == ImportPhaseIr::Source {
+                return ResolvedBindingIr::Resolved {
+                    module: target,
+                    binding: ModuleBindingNameIr::ModuleSource,
+                };
+            }
             return match &entry.import_name {
                 ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
                     module: target,

@@ -84,6 +84,13 @@ pub enum Error {
         /// Position of the source code where the error occurred.
         position: Position,
     },
+
+    /// A non-constructor or static class method has `HasDirectSuper` in its
+    /// parameters or body. The condition is independent of its display text.
+    ClassMethodHasDirectSuper {
+        /// Start of the class method that owns the early error.
+        position: Position,
+    },
 }
 
 impl Error {
@@ -226,6 +233,12 @@ impl fmt::Display for Error {
             Self::General { message, position } => write!(
                 f,
                 "{message} at line {}, col {}",
+                position.line_number(),
+                position.column_number()
+            ),
+            Self::ClassMethodHasDirectSuper { position } => write!(
+                f,
+                "class method cannot contain direct super call at line {}, col {}",
                 position.line_number(),
                 position.column_number()
             ),

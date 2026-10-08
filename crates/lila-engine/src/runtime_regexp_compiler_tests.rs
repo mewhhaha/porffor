@@ -1,5 +1,5 @@
 use super::*;
-use lila_ir::{RegExpProgram, RegExpProgramWord, ValidatedRegExpProgram};
+use lila_ir::{RegExpProgram, RegExpProgramWord, ValidatedRegExpProgram, REGEXP_MAX_INSTRUCTIONS};
 
 fn append_uleb(bytes: &mut Vec<u8>, mut value: u32) {
     loop {
@@ -196,9 +196,25 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
         let mut runtime = RuntimeCompiler::new();
         let nested = format!("{}a{}", "(".repeat(200), ")".repeat(200));
         let nested_modifiers = format!("{}^a${}", "(?m-s:".repeat(200), ")".repeat(200));
+        // The single-body loop plus its final MATCH must exactly fill the
+        // shared cap; a duplicated star body would reject this valid program.
+        let limit_plus = format!("(?:a{{{}}})+", REGEXP_MAX_INSTRUCTIONS - 2);
         for (source, flags) in [
             ("", ""),
             ("abc", ""),
+            ("a", "u"),
+            ("a", "v"),
+            (r"\p{ASCII}", "u"),
+            (r"[\q{ab}]", "v"),
+            (r"[\q{|ab}]", "v"),
+            (r"[\q{Ab}]", "iv"),
+            ("a+", ""),
+            ("a+?", ""),
+            ("(?:ab)+", ""),
+            ("(a|b)+", ""),
+            ("(a|)+", ""),
+            ("(a?)+?", ""),
+            (r"(a)?\1+", ""),
             (r"\c", ""),
             (r"\c0", ""),
             (r"\c_", ""),
@@ -209,6 +225,8 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
             ("(?:a?){1,3}?b", ""),
             ("(a(b)){0}", "d"),
             ("(?=(a+))a+", ""),
+            ("(?<name>a)", ""),
+            ("(?<=a)b", ""),
             ("a(?!bc)d", ""),
             ("(a)\\1", ""),
             ("\\1(a)", ""),
@@ -225,6 +243,7 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
             ("(?i-:.)", ""),
             (nested.as_str(), ""),
             (nested_modifiers.as_str(), "s"),
+            (limit_plus.as_str(), ""),
             ("😀+", ""),
             ("(?:😀)+", ""),
         ] {
@@ -243,6 +262,12 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
             )
             .unwrap();
             assert_eq!(program.bytes(), expected.bytes(), "{source:?}/{flags}");
+            if source == limit_plus {
+                assert_eq!(
+                    program.word(RegExpProgramWord::InstructionCount),
+                    REGEXP_MAX_INSTRUCTIONS as u64,
+                );
+            }
             assert_eq!(
                 runtime.heap_pointer(),
                 (before + bytes.len() as i64 + 7) & !7
@@ -263,10 +288,10 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
 }
 
 #[test]
-fn emitted_pattern_compiler_distinguishes_syntax_capability_resources_and_rolls_back_each_failure()
-{
+fn emitted_pattern_compiler_distinguishes_syntax_resources_and_rolls_back_each_failure() {
     run_on_sized_stack(|| {
         let mut runtime = RuntimeCompiler::new();
+        let resource_probe = format!("a{{{REGEXP_MAX_INSTRUCTIONS}}}");
         for (source, flags, expected) in [
             ("(", "", 1),
             ("[", "", 1),
@@ -279,10 +304,6 @@ fn emitted_pattern_compiler_distinguishes_syntax_capability_resources_and_rolls_
             ),
             ("a", "ii", 1),
             ("a", "uv", 1),
-            ("a", "u", 2),
-            ("a", "v", 2),
-            ("(?<name>a)", "", 2),
-            ("(?<=a)b", "", 2),
             ("(?-:a)", "", 1),
             ("(?ii:a)", "", 1),
             ("(?m-m:a)", "", 1),
@@ -292,7 +313,7 @@ fn emitted_pattern_compiler_distinguishes_syntax_capability_resources_and_rolls_
             ("(?d:a)", "", 1),
             ("(?i", "", 1),
             ("(?i:a", "", 1),
-            ("a{5000}", "", 3),
+            (resource_probe.as_str(), "", 3),
         ] {
             let (handle, status, _, detail, before) = runtime.call(source, flags);
             assert_eq!(status, expected, "{source:?}/{flags}; detail={detail}");
@@ -318,22 +339,76 @@ fn emitted_pattern_compiler_distinguishes_syntax_capability_resources_and_rolls_
 }
 
 #[test]
+fn emitted_pattern_compiler_elides_only_structurally_pure_empty_composition() {
+    run_on_sized_stack(|| {
+        let mut runtime = RuntimeCompiler::new();
+        for (source, simplified) in [
+            ("(?:(?:|){18446744073709551616}){18446744073709551616}", ""),
+            (
+                "(?:(?i:|)(?-i:||)){18446744073709551616,18446744073709551618}?",
+                "",
+            ),
+            ("((?:|){18446744073709551616})", "()"),
+            ("(?<value>(?:|){18446744073709551616})", "(?<value>)"),
+            ("(?<=((?:|){18446744073709551616}))a", "(?<=())a"),
+            ("(?:(?:|){18446744073709551616}|a)b", "(?:|a)b"),
+            ("(?:()|){3}", "(?:()|){3}"),
+            ("(?:^|){3}", "(?:^|){3}"),
+            ("(?:(?!)|){3}", "(?:(?!)|){3}"),
+            (r"()(?:\1|){3}", r"()(?:\1|){3}"),
+        ] {
+            let (handle, status, _, _, before) = runtime.call(source, "d");
+            assert_eq!(status, 0, "{source}");
+            assert_eq!((handle as u64 >> 32) as i64, before);
+            let actual = ValidatedRegExpProgram::from_bytes(runtime.descriptor(handle)).unwrap();
+            let literal =
+                ValidatedRegExpProgram::from_program(&RegExpProgram::compile(source, "d").unwrap())
+                    .unwrap();
+            let expected = ValidatedRegExpProgram::from_program(
+                &RegExpProgram::compile(simplified, "d").unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                actual.bytes(),
+                literal.bytes(),
+                "literal/runtime parity: {source}"
+            );
+            assert_eq!(actual.bytes(), expected.bytes(), "{source}");
+        }
+        for source in [
+            "(?:|){3,2}",
+            "(?:(?:|){3,2}){0}",
+            r"(?:(?:)|\k<missing>){0}",
+            "(?:(?<value>)(?<value>)){0}",
+        ] {
+            let (handle, status, _, _, before) = runtime.call(source, "u");
+            assert_eq!(status, 1, "{source}");
+            assert_eq!(handle, 0, "{source}");
+            assert_eq!(runtime.heap_pointer(), before, "{source}");
+        }
+    });
+}
+
+#[test]
 fn emitted_pattern_compiler_clears_released_memory_before_allocator_reuse() {
     run_on_sized_stack(|| {
         let mut runtime = RuntimeCompiler::new();
         let sentinel = runtime.string(&[0xa5; 128]);
         let sentinel_pointer = (sentinel as u64 >> 32) as usize;
         let mut retained = Vec::new();
+        let resource_probe = format!("(ab){{{REGEXP_MAX_INSTRUCTIONS}}}");
         for (source, flags, expected_status) in [
             (r"(a)?\1*", "", 0),
             (r"(?:(a)|b)\1*", "", 0),
             (r"(?i:(a|b)+)\1", "d", 0),
             ("(abc", "", 1),
             ("[z-a]", "", 1),
-            ("abc(?<name>x)", "", 2),
-            ("(ab){5000}", "", 3),
+            ("abc(?<name>x)", "", 0),
+            (resource_probe.as_str(), "", 3),
             ("a", "ii", 1),
-            ("a", "u", 2),
+            (r"\p{ASCII}", "u", 0),
+            (r"[\q{ab|a}]", "v", 0),
+            (r"[^\q{ab}]", "v", 1),
         ] {
             let (handle, status, _, detail, before) = runtime.call(source, flags);
             assert_eq!(
@@ -375,13 +450,24 @@ fn emitted_pattern_compiler_clears_released_memory_before_allocator_reuse() {
     });
 }
 
+fn with_resource_probe(fixture: &str) -> String {
+    // Keep the fixture's computed UTF-16 source path while deriving its
+    // exhaustion probe from the same cap as both Pattern compilers.
+    let pattern = format!("a{{{REGEXP_MAX_INSTRUCTIONS}}}");
+    format!(
+        "var regexpResourceProbeUnits = {:?};\n{fixture}",
+        pattern.as_bytes()
+    )
+}
+
 #[test]
 fn computed_pattern_workspace_reuse_preserves_capture_arrays_and_fresh_objects() {
     configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
+    let source = with_resource_probe(include_str!("testdata/runtime-regexp-workspace-reuse.js"));
     let outcome = engine
         .run_script(
-            include_str!("testdata/runtime-regexp-workspace-reuse.js"),
+            &source,
             CompileOptions::default(),
             RunOptions {
                 backend: ExecutionBackend::WasmAot,
@@ -417,10 +503,10 @@ fn runtime_workspace_memory_growth_failure_is_a_typed_rollback_not_a_trap() {
 fn computed_legacy_patterns_and_constructor_protocols_execute_in_wasm() {
     configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
-    let source = include_str!("testdata/runtime-regexp-grammar.js");
+    let source = with_resource_probe(include_str!("testdata/runtime-regexp-grammar.js"));
     let outcome = engine
         .run_script(
-            source,
+            &source,
             CompileOptions::default(),
             RunOptions {
                 backend: ExecutionBackend::WasmAot,

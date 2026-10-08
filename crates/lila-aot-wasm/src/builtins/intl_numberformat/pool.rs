@@ -22,14 +22,7 @@ pub(crate) fn intl_number_format_pool_strings() -> Vec<String> {
         "auto",
         "always",
         "min2",
-        NF_RECEIVER_ERROR,
-        NF_RANGE_UNDEFINED,
         NF_RANGE_NAN,
-        NF_CURRENCY_REQUIRED,
-        NF_UNIT_REQUIRED,
-        NF_INCREMENT_PRECISION,
-        NF_INCREMENT_RANGE,
-        NF_DIGIT_RANGE,
     ]
     .into_iter()
     .map(str::to_owned)

@@ -9,6 +9,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from ldml_schema import LdmlSchema
+from intl_positional_numbering import TolsSupplement
 
 INHERIT = "↑↑↑"
 NO_INHERIT = "∅∅∅"
@@ -140,6 +141,7 @@ class LocaleTree:
 class CldrResolver:
     def __init__(self, stage):
         self.root = Path(stage) / "reference/cldr"
+        self.numbering_supplement = TolsSupplement(Path(stage) / "reference/numbering-tols")
         manifest = json.loads((Path(stage) / "reference/cldr-input-manifest.json").read_text())
         if manifest["commit"] != "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c":
             raise ValueError("review a changed CLDR release before generation")
@@ -181,7 +183,7 @@ class CldrResolver:
         return content
 
     def xml(self, path):
-        return ET.fromstring(self.read(path))
+        return self.numbering_supplement.apply(path, ET.fromstring(self.read(path)))
 
     @lru_cache(maxsize=40)
     def tree(self, locale):

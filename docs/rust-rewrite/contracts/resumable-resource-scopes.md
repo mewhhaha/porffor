@@ -1,0 +1,14 @@
+# Complete resumable resource scopes
+
+Ordinary generators, plain async functions and async generators consume the same source-owned resource lifetime and the original disposal capability. The checked source protocol selects Yield, Await or their mixed tape before the IR carrier is published. Bare registration statements remain invalid outside the exact enclosing capability.
+
+One lexical statement list retains one capability across every staged initializer and intervening statement. Acquisition evaluates the original initializer once, gets the disposal method once, appends the resource, then initializes its original const binding. A rejected initializer or injected generator completion closes only entries already registered. Synchronous generators admit synchronous disposal; plain async and async generators use the original asynchronous continuation when the scope contains await-using.
+
+The source scope carries a closed synchronous-exit or asynchronous-finalizer
+owner. The actual finalizer returned by state allocation moves into the checked
+IR capability; it is no longer discarded and reconstructed from an async hint.
+Its entry, disposal and exit states must match the original complete source range.
+
+Classic resource heads retain that capability through tests, bodies, Continue and updates, disposing once when the whole loop exits. Switch clauses require an explicit nested block for resource declarations. Each block retains its own capability through suspension and closes it before fallthrough or a labelled exit leaves that block. Direct clause-level `using` and `await using` remain the typed early errors documented in [the switch-clause contract](switch-clause-using-declaration-early-errors.md). Original lexical records, pending whole completions and saved continuations remain the physical owners. Mixed synchronous and asynchronous entries in one legal resource scope share the original needsAwait/hasAwaited flags; declarations are never split into independent capabilities.
+
+The source controls cover initializer suspension and partial registration, whole injected Return, method caching, lexical TDZ, captured cells, labelled switch exit, classic back edges, pending async disposal and empty-resource microtask order. They run through the real JavaScript-to-Wasm Engine surface. The 2026-10-07 native collection rejected the original fixture's invalid direct clause declarations before execution. The correction adds the required blocks and asserts their actual fallthrough/disposal order. All nine corrected resource parsing/lowering checks pass. The shared binding allocator now publishes each activation cell's compiler-scope alias before later identifier reads. Both ordinary-generator and plain-async fixtures pass in strict and sloppy modes in `tasks-calendars-resource-repairs1` (439.04 seconds). Original deadlines remain; broader task acceptance is separate.

@@ -130,3 +130,16 @@ exotic target key ordering, recursive Proxy descriptor validation, any other
 Proxy internal method, Test262 materialization, snapshots, or published
 conformance counts. It does not complete T11 or establish full Proxy/Reflect
 closure.
+
+## Completed-list successor — 2026-10-03 dry source
+
+The acquisition protocol above retains its public typed roles and observable
+lookup/Call/fallback order. Its pending result is now consumed by the private
+[completed-list owner](proxy-own-keys-result-ownership.md), which performs live
+ordinary indexed Gets for all object results, finishes the full snapshot before
+duplicates, retains existing target checks and consumes successful validation
+at publication. List errors and fresh result Arrays use the defining-function
+Realm. The actual three validator/publication bodies moved from objects.rs into
+objects/proxy_own_keys_list.rs; existing owner guards follow that relocation.
+The earlier focused and pinned receipts do not verify these semantic changes.
+The authored paired controls and final combined verification remain pending.

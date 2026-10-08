@@ -151,6 +151,120 @@ Object.defineProperty(symbolSource, symbolKey, {
 ({ ...rest } = symbolSource);
 if (rest[symbolKey] !== 13) throw "symbol rest key";
 
+function checkSymbolRestExclusion(assignment) {
+  const excludedSymbol = Symbol("shared rest description");
+  const includedSymbol = Symbol("shared rest description");
+  let keyCalls = 0;
+  let trace = "";
+  function exclusionKey() {
+    keyCalls += 1;
+    trace += "k";
+    return excludedSymbol;
+  }
+  const symbolProxy = new Proxy({}, {
+    ownKeys() {
+      trace += "o";
+      return [
+        excludedSymbol, "excludedString", "0",
+        includedSymbol, "includedString", "1",
+      ];
+    },
+    getOwnPropertyDescriptor(target, key) {
+      if (key === excludedSymbol || key === "excludedString" || key === "0") {
+        throw "excluded rest descriptor trap";
+      }
+      let value;
+      if (key === includedSymbol) {
+        trace += "dy";
+        value = 21;
+      } else if (key === "includedString") {
+        trace += "dS";
+        value = 22;
+      } else if (key === "1") {
+        trace += "d1";
+        value = 23;
+      } else {
+        throw "unexpected rest descriptor key";
+      }
+      return { value, writable: true, enumerable: true, configurable: true };
+    },
+    get(target, key) {
+      if (key === excludedSymbol) {
+        trace += "x";
+        return 11;
+      }
+      if (key === "excludedString") {
+        trace += "s";
+        return 12;
+      }
+      if (key === "0") {
+        trace += "0";
+        return 13;
+      }
+      if (key === includedSymbol) {
+        trace += "gy";
+        return 21;
+      }
+      if (key === "includedString") {
+        trace += "gS";
+        return 22;
+      }
+      if (key === "1") {
+        trace += "g1";
+        return 23;
+      }
+      throw "unexpected rest get key";
+    },
+  });
+  let copiedRest;
+  if (assignment) {
+    let selectedSymbol;
+    let selectedString;
+    let selectedIndex;
+    ({
+      [exclusionKey()]: selectedSymbol,
+      excludedString: selectedString,
+      0: selectedIndex,
+      ...copiedRest
+    } = symbolProxy);
+    if (selectedSymbol !== 11 || selectedString !== 12 || selectedIndex !== 13) {
+      throw "symbol rest assignment binding values";
+    }
+  } else {
+    const {
+      [exclusionKey()]: selectedSymbol,
+      excludedString: selectedString,
+      0: selectedIndex,
+      ...boundRest
+    } = symbolProxy;
+    copiedRest = boundRest;
+    if (selectedSymbol !== 11 || selectedString !== 12 || selectedIndex !== 13) {
+      throw "symbol rest declaration binding values";
+    }
+  }
+  if (keyCalls !== 1 || trace !== "kxs0odygydSgSd1g1") {
+    throw "symbol rest key evaluation and copy order";
+  }
+  if (
+    copiedRest[includedSymbol] !== 21 ||
+    copiedRest.includedString !== 22 ||
+    copiedRest[1] !== 23
+  ) {
+    throw "distinct symbol and mixed rest keys";
+  }
+  if (
+    copiedRest[excludedSymbol] !== undefined ||
+    copiedRest.excludedString !== undefined ||
+    copiedRest[0] !== undefined
+  ) {
+    throw "excluded rest keys copied";
+  }
+  if (Reflect.ownKeys(copiedRest).length !== 3) throw "symbol rest own key count";
+}
+
+checkSymbolRestExclusion(false);
+checkSymbolRestExclusion(true);
+
 let nullThrows = false;
 try {
   ({ ...rest } = null);

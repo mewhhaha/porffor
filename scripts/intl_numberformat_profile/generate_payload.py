@@ -8,6 +8,7 @@ from pathlib import Path
 import struct
 
 from profile_schema import validate
+from intl_positional_numbering import TolsSupplement
 
 STAGE = Path(__file__).resolve().parents[1]
 TOKEN_NAMES = ["Literal", "Number", "MinusSign", "PlusSign", "PercentSign", "Currency", "Compact", "Unit", "Argument1"]
@@ -19,7 +20,7 @@ NUMBER_PATTERNS = ["decimal", "percent", "currency", "accounting", "currency_alp
 
 class Writer:
     def __init__(self):
-        self.content = bytearray(b"LNF47\0\x01\0")
+        self.content = bytearray(b"LNF47\0\x02\0")
 
     def u8(self, value):
         self.content.extend(struct.pack("<B", value))
@@ -174,12 +175,13 @@ def encode(profile):
         writer.sequence(alternatives, lambda conjunction: writer.sequence(conjunction, plural_relation))
 
     writer.sequence(tables["plural_rules"], lambda rows: writer.sequence(rows, plural_rule))
+    writer.sequence(tables["ordinal_rules"], lambda rows: writer.sequence(rows, plural_rule))
     writer.sequence(tables["plural_ranges"], lambda row: [writer.u8(CATEGORIES.index(value)) for value in row])
 
     def locale_profile(row):
         writer.u8(row["default_numbering"])
         writer.sequence(row["numbering"], writer.u32)
-        for name in ["plural_rules", "plural_ranges", "currencies"]:
+        for name in ["plural_rules", "ordinal_rules", "plural_ranges", "currencies"]:
             writer.u32(row[name])
         assert len(row["units"]) == 3
         for unit in row["units"]:
@@ -212,8 +214,14 @@ def main():
     profile = json.loads(gzip.decompress(canonical_bytes))
     if not profile["complete"]:
         raise ValueError("a diagnostic inventory cannot be published as a provider payload")
-    if profile["cldr_commit"] != "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c" or profile["schema"] != 1:
+    if profile["cldr_commit"] != "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c" or profile["schema"] != 2:
         raise ValueError("review changed canonical profile schema")
+    supplement = TolsSupplement(STAGE / "reference/numbering-tols")
+    if profile["numbering_supplement"] != supplement.identity:
+        raise ValueError("canonical number profile has unreviewed supplement provenance")
+    provenance = profile["numbering_supplement"]
+    provenance_line = (f'identifier={provenance["identifier"]};cldr={provenance["cldr_release"]};'
+                       f'unicode={provenance["unicode_release"]};source-sha256={provenance["source_manifest_sha256"]}')
     payload = encode(profile)
     digest = hashlib.sha256(payload).hexdigest()
     samples = json.loads((directory / "plural-samples.json").read_text())
@@ -222,13 +230,18 @@ def main():
         for sample in group["samples"]:
             sample_rows.append(f'    ({group["rule"]}, "{sample["spelling"]}", CardinalCategory::{sample["category"].title()}),')
     sample_source = "// Generated pinned CLDR47 cardinal-rule sample endpoints.\nuse super::CardinalCategory;\npub(super) const SAMPLES: &[(usize, &str, CardinalCategory)] = &[\n" + "\n".join(sample_rows) + "\n];\n"
+    ordinal_samples = json.loads((directory / "ordinal-samples.json").read_text())
+    ordinal_rows = [f'    ({g["rule"]}, "{s["spelling"]}", CardinalCategory::{s["category"].title()}),' for g in ordinal_samples for s in g["samples"]]
+    ordinal_source = "// Generated pinned CLDR47 ordinal-rule sample endpoints.\nuse super::CardinalCategory;\npub(super) const ORDINAL_SAMPLES: &[(usize, &str, CardinalCategory)] = &[\n" + "\n".join(ordinal_rows) + "\n];\n"
     products = {
+        STAGE / "work/crates/lila-intl/src/number_format/tests/ordinal_samples.rs": ordinal_source.encode(),
         directory / "profiles.bin": payload,
         STAGE / "work/crates/lila-intl/src/number_format/tests/plural_samples.rs": sample_source.encode(),
-        directory / "payload-manifest.json": (json.dumps({"schema": 1, "canonical_sha256": hashlib.sha256(gzip.decompress(canonical_bytes)).hexdigest(), "payload_sha256": digest, "payload_bytes": len(payload), "locales": len(profile["locales"]), "numbering_systems": len(profile["numbering_systems"])}, indent=2) + "\n").encode(),
+        directory / "payload-manifest.json": (json.dumps({"schema": 1, "canonical_sha256": hashlib.sha256(gzip.decompress(canonical_bytes)).hexdigest(), "payload_sha256": digest, "payload_bytes": len(payload), "locales": len(profile["locales"]), "numbering_systems": len(profile["numbering_systems"]), "numbering_supplement": profile["numbering_supplement"]}, indent=2) + "\n").encode(),
         STAGE / "work/crates/lila-intl/src/number_format/profiles/fingerprint.rs": (
-            "// Generated from pinned CLDR47; scripts/generate-intl-numberformat-profile.py.\n"
+            "// Generated from CLDR47 with checked CLDR48/UCD17 tols supplement; scripts/generate-intl-numberformat-profile.py.\n"
             f'pub const NUMBER_FORMAT_DATA_SHA256: &str =\n    "{digest}";\n'
+            f'pub(crate) const NUMBERING_SUPPLEMENT_PROVENANCE: &str =\n    "{provenance_line}";\n'
         ).encode(),
     }
     for path, content in products.items():

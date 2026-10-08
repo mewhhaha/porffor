@@ -47,8 +47,8 @@ impl RuntimeRegExpEntryKind {
     /// This is the whole policy, and it is deliberately not `!= Program`:
     /// `Unsupported` means the pattern is legal ECMAScript that Lila cannot
     /// compile statically, so it follows the same emitted compiler route as a
-    /// total miss. Only an explicit runtime capability failure retains the
-    /// transitional fallback matcher.
+    /// total miss. An explicit runtime capability failure exits through the
+    /// typed T19 semantic rejection outside JavaScript completion.
     pub(crate) const fn throws_syntax_error(&self) -> bool {
         match self {
             Self::Program | Self::Unsupported => false,

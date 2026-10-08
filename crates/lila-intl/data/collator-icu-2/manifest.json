@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "image_packages": [
+    {
+      "name": "icu_locale",
+      "version": "2.0.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "6ae5921528335e91da1b6c695dbf1ec37df5ac13faa3f91e5640be93aa2fbefd"
+    },
+    {
+      "name": "icu_locale_data",
+      "version": "2.0.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "4fdef0c124749d06a743c69e938350816554eb63ac979166590e2b4ee4252765"
+    },
+    {
+      "name": "icu_provider",
+      "version": "2.0.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "03c80da27b5f4187909049ee2d72f276f0d9f99a42c306bd0131ecfe04d8e5af"
+    },
+    {
+      "name": "icu_provider_adapters",
+      "version": "2.0.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "85c260e90e962088d46a1605687f78d3293cc3a34ba66b08ff7361084bc7895e"
+    },
+    {
+      "name": "icu_provider_blob",
+      "version": "2.0.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "cf5dd612b781cc4aa75b270f3c9f36fd42139a54b24fae7f077163ee6c322f85"
+    }
+  ],
+  "source_inputs_sha256": "4d8fe5b9a1afb8eff2b0d6f9376a0dc44b774f9fdad586652c74a2aaf6d0ca5c",
+  "owners": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+    },
+    {
+      "path": "crates/lila-intl/Cargo.toml",
+      "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+    },
+    {
+      "path": "crates/lila-intl-collator-data/Cargo.toml",
+      "sha256": "1226b55d7619167cd21b31aba5dc7f13ae88099c3f72b6700b10510c47b07482"
+    },
+    {
+      "path": "crates/lila-intl-collator-data/src/lib.rs",
+      "sha256": "3ecc9ae66c1ce7b3c5aa46a62cb944747487d29acd1978c46e8bd20538a03978"
+    },
+    {
+      "path": "crates/lila-intl-collator-data/src/baked.rs",
+      "sha256": "d82774705a9d794405855d8a3b223c5dbf8b7fcf0285af6961db44a831abb50e"
+    },
+    {
+      "path": "crates/lila-intl/src/collator.rs",
+      "sha256": "7fd714063eea44b9d53ed51515d0e598359361e22d7b570395b46f7cb72c2b5e"
+    },
+    {
+      "path": "crates/lila-intl/src/collator_protocol.rs",
+      "sha256": "24c6b65bb07848726ab6667dd062a26234a271a2c90a908737c7a0c87cfb04af"
+    },
+    {
+      "path": "crates/lila-intl/src/collator/profiles.rs",
+      "sha256": "4d52479510a011a9afd61e1fd4312b251a99411305a776e3acdac8ffd91ddbc2"
+    },
+    {
+      "path": "scripts/generate-intl-collator-data.py",
+      "sha256": "84b8a15192e8d49b581e9e15fbf908579b5ca92be919a53817f0ce9ddbc60fe0"
+    },
+    {
+      "path": "crates/lila-intl/src/provider.rs",
+      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+    },
+    {
+      "path": "crates/lila-intl/src/selection.rs",
+      "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+    },
+    {
+      "path": "crates/lila-intl/src/provider/conformance.rs",
+      "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
+    },
+    {
+      "path": "crates/lila-intl/src/service_selection.rs",
+      "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
+    },
+    {
+      "path": "crates/lila-intl/src/selection/manifest.rs",
+      "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
+    },
+    {
+      "path": "crates/lila-intl/src/selection/export.rs",
+      "sha256": "1ff9becaa320301f1ae1f1dcc85d468b4546d1aa86f33c31db9f35418408d97e"
+    },
+    {
+      "path": "crates/lila-intl/build.rs",
+      "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+    },
+    {
+      "path": "crates/lila-intl/src/image.rs",
+      "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+    },
+    {
+      "path": "crates/lila-intl/src/locale_image.rs",
+      "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+    },
+    {
+      "path": "crates/lila-intl/src/image_build/locale.rs",
+      "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+    },
+    {
+      "path": "crates/lila-engine/src/intl_data_images.rs",
+      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+    },
+    {
+      "path": "crates/lila-intl/src/collator_image.rs",
+      "sha256": "e92ea37943f6eaccddf801a0ae609f42a010a8ef6b8c0092761ce187175de5bf"
+    },
+    {
+      "path": "crates/lila-intl/src/image_build/collator.rs",
+      "sha256": "6ee235a2af1d2ce811c392641a4da657bb09f1f25b193d02997500d2dd4355f5"
+    },
+    {
+      "path": "crates/lila-intl/src/lib.rs",
+      "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+    },
+    {
+      "path": "crates/lila-intl/src/protocol.rs",
+      "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+    },
+    {
+      "path": "crates/lila-engine/src/intl_collator_host.rs",
+      "sha256": "5cc0e21323bb8444c0e35ce2f844c8ad1f47fa223ab6959ab656c3226e404ae8"
+    },
+    {
+      "path": "crates/lila-intl/src/image_build/keyword.rs",
+      "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+    },
+    {
+      "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+    },
+    {
+      "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+      "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+    },
+    {
+      "path": "crates/lila-intl/data/cldr-47-bcp47/manifest.json",
+      "sha256": "71a427fdc899544cb7ff29bc84c0c0f1fb5c29cbd80a35336ace332004235ff7"
+    },
+    {
+      "path": "crates/lila-intl/src/provider/language_domain.rs",
+      "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+    },
+    {
+      "path": "crates/lila-intl/data/collator-icu-2/locale-inventory.json",
+      "sha256": "f409cb88343d020b5986e21fe43571d1badf7b8e842cfaa8b1170217460bfab5"
+    },
+    {
+      "path": "crates/lila-aot-wasm/src/emit.rs",
+      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+    },
+    {
+      "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+    },
+    {
+      "path": "crates/lila-intl/src/collator_image/projection/rows.rs",
+      "sha256": "a14fcaab39a39cfe18b80fbd35d2c9d57d343e3a87ff5248712bb31452100bd6"
+    },
+    {
+      "path": "crates/lila-intl/src/collator_image/projection.rs",
+      "sha256": "8e0e0be6c581f1cf203a4f8d9bc70505f750b4f2f6378b304b04f4275cba3291"
+    },
+    {
+      "path": "crates/lila-intl/src/collator/profiles/preferences.rs",
+      "sha256": "fd71eeac3b7928130c6b57bf970f0b10abc9db33e74c154793c3168bd1128a01"
+    }
+  ],
+  "candidate_inventory_sha256": "d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254",
+  "generated_outputs": [
+    {
+      "bytes": 6888,
+      "path": "collation_diacritics_v1.rs.data",
+      "sha256": "4b27db34685d29336dd6e966306da3d053051b72a4486beb45d99379430689d2"
+    },
+    {
+      "bytes": 6627,
+      "path": "collation_jamo_v1.rs.data",
+      "sha256": "899f8aeebd985eae7ee46aae077cecec133d9f4cfc2737511075bb706a3ddac2"
+    },
+    {
+      "bytes": 7278,
+      "path": "collation_metadata_v1.rs.data",
+      "sha256": "6c14621f6b5296e37072b0870cef5e1c2258e613717c693eff25309e735c52c6"
+    },
+    {
+      "bytes": 36173,
+      "path": "collation_reordering_v1.rs.data",
+      "sha256": "25ca5b127b865ef3e2a74e6c7a0563166acc85416aaf577f8d169e9a13ff1dc9"
+    },
+    {
+      "bytes": 388642,
+      "path": "collation_root_v1.rs.data",
+      "sha256": "0b7fad9d9a66ee4c8d3f81b1d34ca2c1bdd8e6b09efd9009083f277fdefb75e7"
+    },
+    {
+      "bytes": 4138,
+      "path": "collation_special_primaries_v1.rs.data",
+      "sha256": "fd8a112f960e85fc2a5a49ab4fcd520a3f476758803fc99bdf466afae3e814d8"
+    },
+    {
+      "bytes": 3122758,
+      "path": "collation_tailoring_v1.rs.data",
+      "sha256": "4e401c5f9c8dd104e665d884c8172b5fc85643d6e6eafff5b4498a40d574d8b1"
+    },
+    {
+      "bytes": 2033,
+      "path": "mod.rs",
+      "sha256": "2f7c390bcfeb3bf4f2ac333abf074a3c11fafd5f624779c26a94ac8483e679d6"
+    },
+    {
+      "bytes": 71288,
+      "path": "normalizer_nfd_data_v1.rs.data",
+      "sha256": "9d979382310c61cbf6dea570a19b53fbcad493a2824191e67ba8195ba41526ce"
+    },
+    {
+      "bytes": 10924,
+      "path": "normalizer_nfd_tables_v1.rs.data",
+      "sha256": "ed4a3ca76c51d513fbd21bbb46e5c89c1a8d828999bcab3b54159bb5ea1c67e6"
+    }
+  ],
+  "generated_owner_path": "crates/lila-intl-collator-data/src/generated",
+  "public_catalogue_policy": "full canonical CLDR candidates; all sort-default and genuine-search profiles independently admitted; only explicit sort-purpose types with complete consumed data enter per-locale/public union",
+  "utf16_policy": "direct pinned compare_utf16; isolated units have ICU replacement weights, valid pairs are scalar; raw units preserved; no lexical tie-breaker",
+  "available_locales_count": null,
+  "available_sort_collations_count": null,
+  "data_sha256": "b07fd7549e8179fbb7d77b0df2db6aeaabf88eccfe5b2d7e9f052837ee232f41"
+}

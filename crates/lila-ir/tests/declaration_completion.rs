@@ -76,16 +76,7 @@ fn declaration_patterns_preserve_empty_completion_for_every_prepared_eval_unit()
         for unit in units {
             let mut effects = Vec::new();
             declaration_evaluations(&unit.body.statements, &mut effects);
-            // A simple object var pattern can also lower into ordinary Var
-            // declarators, whose normal completion is already empty.
-            let ordinary_var = matches!(unit.kind, PreparedScriptKind::IndirectEval)
-                && declaration == "var {selected} = {selected: 7};";
-            assert_eq!(
-                effects.len(),
-                usize::from(!ordinary_var),
-                "{declaration}: {:?}",
-                unit.body
-            );
+            assert_eq!(effects.len(), 1, "{declaration}: {:?}", unit.body);
             for effect in effects {
                 assert!(matches!(
                     effect.expr,

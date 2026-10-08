@@ -1,7 +1,7 @@
 use core::cmp::Ordering;
 use core::num::NonZeroU64;
 
-use super::RoundedDecimal;
+use super::{CompactExponentRow, RoundedDecimal};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PluralOperand {
@@ -212,12 +212,25 @@ impl<'a> PluralOperands<'a> {
     }
 
     fn with_compact_exponent(rounded: &'a RoundedDecimal, compact_exponent: u32) -> Self {
+        Self::with_context(rounded, compact_exponent, compact_exponent)
+    }
+
+    /// Bare FormatNumericToString digits are already expanded source digits.
+    /// This consumed path attaches a checked compact row without shifting them.
+    pub(crate) fn bare_with_compact_row(
+        rounded: &'a RoundedDecimal,
+        row: Option<CompactExponentRow>,
+    ) -> Self {
+        Self::with_context(rounded, 0, row.map_or(0, CompactExponentRow::exponent))
+    }
+
+    fn with_context(rounded: &'a RoundedDecimal, shift: u32, compact_exponent: u32) -> Self {
         let integer = rounded.integer_digits();
         let fraction = rounded.fraction_digits();
         // RoundedDecimal's total stored extent is <= u32::MAX. Adding a u32
         // compact exponent fits u64 and leaves large zero tails virtual.
-        let point = integer.len() as u64 + u64::from(compact_exponent);
-        let fraction_length = (fraction.len() as u64).saturating_sub(u64::from(compact_exponent));
+        let point = integer.len() as u64 + u64::from(shift);
+        let fraction_length = (fraction.len() as u64).saturating_sub(u64::from(shift));
         let integer_span = DigitSpan {
             integer,
             fraction,

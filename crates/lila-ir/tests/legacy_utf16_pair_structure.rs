@@ -91,11 +91,17 @@ fn legacy_utf16_pair_has_one_private_child_owner() {
 
 #[test]
 fn legacy_utf16_pair_constructor_and_projections_have_closed_callers() {
-    assert_eq!(
-        REGEXP_SOURCE
-            .matches("LegacyUtf16Pair::from_scalar(ch)")
-            .count(),
-        1
+    let scalar_parser = bounded(
+        REGEXP_SOURCE,
+        "fn parse_non_ascii_pattern_atom(",
+        "fn regexp_capture_syntax(",
+    );
+    assert!(scalar_parser.contains("LegacyUtf16Pair::from_scalar(character)"));
+    assert!(scalar_parser.contains("unicode_mode.is_unicode_mode() || code_point <= 0xffff"));
+    assert_before(
+        scalar_parser,
+        "let pair = LegacyUtf16Pair::from_scalar(character)",
+        "Ok(ParsedTermAtom::LegacyUtf16Pair(pair))",
     );
     let class_parser = bounded(
         REGEXP_SOURCE,
@@ -139,13 +145,13 @@ enum WordBoundaryPolarity",
     );
     assert_before(
         parser,
-        "let pair = LegacyUtf16Pair::from_scalar(ch)",
-        "return Ok(ParsedTermAtom::LegacyUtf16Pair(pair));",
+        "return parse_non_ascii_pattern_atom(bytes, offset, atom_offset + 1, unicode_mode)",
+        "return parse_non_ascii_pattern_atom(bytes, offset, atom_offset, unicode_mode)",
     );
     let nullability = bounded(
         REGEXP_SOURCE,
         "fn term_nullable(term: &ParsedTerm) -> bool {",
-        "fn first_required_unicode_set_semantics(",
+        "fn validate_named_backreferences(",
     );
     assert_eq!(
         nullability

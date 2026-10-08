@@ -22,6 +22,29 @@ fn run_boolean(source: &str) {
 }
 
 #[test]
+fn entry_global_root_preserves_literal_prototypes_and_captured_activation_cells() {
+    run_boolean(
+        r#"
+let captured = 17;
+const object = {marker: captured};
+const array = [object];
+function retain() {
+  return {read: function () { return captured; }, array: []};
+}
+const retained = retain();
+captured = 23;
+Object.getPrototypeOf(object) === Object.prototype
+  && Object.getPrototypeOf(array) === Array.prototype
+  && array[0] === object && object.marker === 17
+  && Object.getPrototypeOf(retained) === Object.prototype
+  && Object.getPrototypeOf(retained.array) === Array.prototype
+  && retained.read() === 23 && captured === 23
+  && globalThis.retain === retain;
+"#,
+    );
+}
+
+#[test]
 fn static_functions_use_constructor_global_bindings_and_preserve_caller_bindings() {
     run_boolean(
         r#"

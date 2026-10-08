@@ -1,143 +1,413 @@
+//! Date retains a typed private time record through every observable hook.
 use super::super::*;
-use crate::functions::{NewTargetPrototypeFallback, OrdinaryDefaultPrototype};
+use crate::functions::OrdinaryDefaultPrototype;
+use crate::gc_types::{
+    CodeUnitArray, DateObject, DateObjectSchema, GcLocal, GcNullability, GcOperand, I64Local,
+    Nullable, ScalarValue, StringValue, StringValueSchema, ValueLocals,
+};
+use crate::intrinsics::temporal::TemporalPrototypeSource;
 
+mod components;
+mod constructor;
 mod date_string_parse;
+pub(in crate::builtins) use components::{DateComponentGetter, DateComponentSetter, DateTimeBasis};
+mod zone;
+mod zone_data;
+pub(in crate::builtins) use zone::{DateLocalCoordinateLocals, DateUtcCoordinateLocals};
 mod local_string;
 mod locale_string;
 pub(crate) use locale_string::DateLocaleFormat;
 
-enum DateComponentSetterOperation {
-    FullYear,
-    Month,
-    Date,
-    Hours,
-    Minutes,
-    Seconds,
-    Milliseconds,
+pub(in crate::builtins) struct PreparedDateClipLocals {
+    payload: I64Local,
+}
+/// Only the TimeClip emitter can construct this storage proof.
+pub(in crate::builtins) struct CompletedDateClipLocals {
+    payload: I64Local,
+}
+pub(in crate::builtins) struct PreparedDateMakeDateLocals {
+    payload: I64Local,
+}
+pub(in crate::builtins) struct CompletedDateMakeDateLocals {
+    payload: I64Local,
+}
+struct BrandedDateRecordLocals {
+    object: GcLocal<DateObject>,
+}
+pub(in crate::builtins) struct CapturedDateValueLocals {
+    record: BrandedDateRecordLocals,
+    payload: I64Local,
+}
+/// Borrowed only inside the actual finite-time branch.
+pub(in crate::builtins) struct FiniteDateValueLocals {
+    payload: I64Local,
 }
 
-impl<'a> FunctionBuilder<'a> {
-    /// Resolve the prototype used by all Date construction arities.
-    ///
-    /// An object-valued `NewTarget.prototype` is used directly with its
-    /// representation tag. A primitive value must select `%Date.prototype%`
-    /// from `GetFunctionRealm(NewTarget)`; the typed policy traps missing realm
-    /// bootstrap state and cannot fall back to the entry-realm global.
-    pub(crate) fn emit_date_constructor_prototype_to_locals(
+impl FiniteDateValueLocals {
+    pub(in crate::builtins) fn payload(&self) -> I64Local {
+        self.payload
+    }
+}
+impl CompletedDateMakeDateLocals {
+    pub(in crate::builtins) fn payload(&self) -> I64Local {
+        self.payload
+    }
+    pub(in crate::builtins) fn release(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) {
+        builder
+            .runtime_schema()
+            .release_i64_local(self.payload, function);
+    }
+}
+impl CompletedDateClipLocals {
+    pub(in crate::builtins) fn payload(&self) -> I64Local {
+        self.payload
+    }
+    pub(in crate::builtins) fn release(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) {
+        builder
+            .runtime_schema()
+            .release_i64_local(self.payload, function);
+    }
+    pub(in crate::builtins) fn emit_valid_branch(
+        &self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+        valid: impl FnOnce(
+            &mut FunctionBuilder<'_>,
+            &mut Function,
+            &FiniteDateValueLocals,
+        ) -> Result<(), EmitError>,
+        invalid: impl FnOnce(&mut FunctionBuilder<'_>, &mut Function) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        builder.emit_date_finite_branch(self.payload, function, valid, invalid)
+    }
+}
+impl CapturedDateValueLocals {
+    pub(in crate::builtins) fn payload(&self) -> I64Local {
+        self.payload
+    }
+    pub(in crate::builtins) fn release(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) {
+        builder
+            .runtime_schema()
+            .release_i64_local(self.payload, function);
+        self.record.object.clear(function);
+    }
+    pub(in crate::builtins) fn emit_valid_branch(
+        &self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+        valid: impl FnOnce(
+            &mut FunctionBuilder<'_>,
+            &mut Function,
+            &FiniteDateValueLocals,
+        ) -> Result<(), EmitError>,
+        invalid: impl FnOnce(&mut FunctionBuilder<'_>, &mut Function) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        builder.emit_date_finite_branch(self.payload, function, valid, invalid)
+    }
+}
+
+impl FunctionBuilder<'_> {
+    pub(crate) fn emit_date_value_of_builtin(
         &mut self,
-        prototype_payload_local: u32,
-        prototype_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_new_target_prototype_to_locals(
-            DATE_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
-                OrdinaryDefaultPrototype::Date,
-            ),
-            prototype_payload_local,
-            prototype_tag_local,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_date_now(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_date_current_time_payload(self.result_local, function)?;
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        self.compile_this_to_locals(&receiver, function)?;
+        let captured = self.emit_date_capture_value(&receiver, function)?;
+        value.set_number(captured.payload(), function);
+        self.completion().set_normal(&value, function);
+        captured.release(self, function);
+        value.clear(function);
+        receiver.clear(function);
         Ok(())
     }
-
-    pub(crate) fn emit_date_value_payload(
+    pub(crate) fn emit_date_now(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let bits = schema.reserve_i64_local(function);
+        let value = schema.reserve_value_local(function);
+        self.emit_date_current_time_payload(bits, function)?;
+        value.set_number(bits, function);
+        self.completion().set_normal(&value, function);
+        value.clear(function);
+        schema.release_i64_local(bits, function);
+        Ok(())
+    }
+    fn emit_date_finite_branch(
         &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        dest_payload_local: u32,
+        payload: I64Local,
         function: &mut Function,
+        valid: impl FnOnce(
+            &mut FunctionBuilder<'_>,
+            &mut Function,
+            &FiniteDateValueLocals,
+        ) -> Result<(), EmitError>,
+        invalid: impl FnOnce(&mut FunctionBuilder<'_>, &mut Function) -> Result<(), EmitError>,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let slot_tag_local = self.reserve_temp_local();
-        let brand_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Date method receiver is not Date",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        payload.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        payload.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        valid(self, function, &FiniteDateValueLocals { payload })?;
+        function.instruction(&Instruction::Else);
+        invalid(self, function)?;
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
+        Ok(())
+    }
+    /// RefTest establishes the private brand without Get, Proxy traps or
+    /// public marker properties. The NN record exists only in the present arm.
+    fn emit_date_record_branch(
+        &mut self,
+        value: &ValueLocals,
+        function: &mut Function,
+        present: impl FnOnce(
+            &mut FunctionBuilder<'_>,
+            &mut Function,
+            &BrandedDateRecordLocals,
+        ) -> Result<(), EmitError>,
+        absent: impl FnOnce(&mut FunctionBuilder<'_>, &mut Function) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        value.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<DateObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let record = BrandedDateRecordLocals {
+            object: schema.reserve_gc_local(function).initialize(
+                value.cast_reference::<DateObject>(schema, function),
+                function,
+            ),
+        };
+        present(self, function, &record)?;
+        record.object.clear(function);
+        function.instruction(&Instruction::Else);
+        absent(self, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+    fn emit_date_record_value_into(
+        &self,
+        record: &BrandedDateRecordLocals,
+        destination: I64Local,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let number = schema.reserve_f64_local(function);
+        schema
+            .struct_type::<DateObject>()
+            .field(DateObjectSchema::TIME_VALUE)
+            .read(&record.object, schema, function)
+            .store_f64(number, function);
+        number.load(function);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        destination.store(function);
+        schema.release_f64_local(number, function);
+    }
+    pub(in crate::builtins) fn emit_date_capture_value(
+        &mut self,
+        value: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<CapturedDateValueLocals, EmitError> {
+        let schema = self.runtime_schema();
+        let object = schema
+            .reserve_gc_local::<DateObject, Nullable>(function)
+            .initialize_null(schema, function);
+        let bits = schema.reserve_i64_local(function);
+        self.emit_date_record_branch(
+            value,
+            function,
+            |builder, function, record| {
+                object.replace(record.object.load(schema, function).nullable(), function);
+                builder.emit_date_record_value_into(record, bits, function);
+                Ok(())
+            },
+            |builder, function| {
+                let error = schema.reserve_completion(function);
+                builder.emit_throw_current_function_realm_type_error(
+                    RuntimeErrorMessage::DATE_METHOD_RECEIVER_IS_NOT_DATE,
+                    &error,
+                    function,
+                )?;
+                builder.completion().copy_from(&error, function);
+                error.clear(function);
+                builder.emit_propagate_current_throw(function);
+                Ok(())
+            },
+        )?;
+        let retained = schema.reserve_gc_local(function).initialize(
+            object.load(schema, function).require_non_null(function),
             function,
         );
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_DATE as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Date method receiver is not Date",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(DATE_VALUE_SLOT),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
-            object_payload_local,
-            object_tag_local,
-            object_payload_local,
-            object_tag_local,
-            key_local,
-            dest_payload_local,
-            slot_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(slot_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Date method receiver is not Date",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(brand_local);
-        self.release_temp_local(slot_tag_local);
-        self.release_temp_local(key_local);
+        object.clear(function);
+        Ok(CapturedDateValueLocals {
+            record: BrandedDateRecordLocals { object: retained },
+            payload: bits,
+        })
+    }
+    pub(crate) fn emit_date_value_payload(
+        &mut self,
+        value: &ValueLocals,
+        destination: I64Local,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let captured = self.emit_date_capture_value(value, function)?;
+        captured.payload().load(function);
+        destination.store(function);
+        captured.release(self, function);
         Ok(())
+    }
+    fn emit_date_store_clip(
+        &self,
+        captured: &CapturedDateValueLocals,
+        clip: &CompletedDateClipLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
+        let number = schema.reserve_f64_local(function);
+        clip.payload().load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        number.store(function);
+        schema
+            .struct_type::<DateObject>()
+            .field(DateObjectSchema::TIME_VALUE)
+            .write(
+                &captured.record.object,
+                GcOperand::f64_local(number),
+                schema,
+                function,
+            );
+        schema.release_f64_local(number, function);
+    }
+    pub(in crate::builtins) fn reserve_date_clip_result(
+        &mut self,
+        function: &mut Function,
+    ) -> PreparedDateClipLocals {
+        PreparedDateClipLocals {
+            payload: self.runtime_schema().reserve_i64_local(function),
+        }
+    }
+    pub(in crate::builtins) fn emit_date_time_clip_into(
+        &mut self,
+        prepared: PreparedDateClipLocals,
+        number_payload: I64Local,
+        function: &mut Function,
+    ) -> CompletedDateClipLocals {
+        self.emit_date_time_clip(number_payload, prepared.payload, function);
+        CompletedDateClipLocals {
+            payload: prepared.payload,
+        }
+    }
+    pub(in crate::builtins) fn reserve_date_make_date_result(
+        &mut self,
+        function: &mut Function,
+    ) -> PreparedDateMakeDateLocals {
+        PreparedDateMakeDateLocals {
+            payload: self.runtime_schema().reserve_i64_local(function),
+        }
+    }
+    pub(in crate::builtins) fn emit_date_make_date_from_components_into(
+        &mut self,
+        prepared: PreparedDateMakeDateLocals,
+        fields: &[I64Local; 7],
+        function: &mut Function,
+    ) -> CompletedDateMakeDateLocals {
+        let time = self.runtime_schema().reserve_i64_local(function);
+        self.emit_date_make_day(fields[0], fields[1], fields[2], prepared.payload, function);
+        self.emit_date_make_time(fields[3], fields[4], fields[5], fields[6], time, function);
+        prepared.payload.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
+        function.instruction(&Instruction::F64Mul);
+        time.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        prepared.payload.store(function);
+        self.runtime_schema().release_i64_local(time, function);
+        CompletedDateMakeDateLocals {
+            payload: prepared.payload,
+        }
+    }
+    fn emit_date_make_full_year(
+        &mut self,
+        source: I64Local,
+        destination: I64Local,
+        function: &mut Function,
+    ) {
+        source.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        source.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        destination.store(function);
+        destination.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Ge);
+        destination.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(99.0)));
+        function.instruction(&Instruction::F64Le);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        destination.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1900.0)));
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        destination.store(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        destination.store(function);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_date_time_clip(
         &mut self,
-        input_payload_local: u32,
-        dest_payload_local: u32,
+        input_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(input_payload_local));
+        input_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(input_payload_local));
+        input_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(input_payload_local));
+        input_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(
             8_640_000_000_000_000.0,
         )));
         function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(input_payload_local));
+        input_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(
             -8_640_000_000_000_000.0,
@@ -147,23 +417,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_payload_local));
+        input_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
     }
 
     pub(crate) fn emit_date_day_from_year(
         &mut self,
-        year_payload_local: u32,
-        dest_payload_local: u32,
+        year_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(year_payload_local));
+        year_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(1970.0)));
         function.instruction(&Instruction::F64Sub);
@@ -174,7 +444,7 @@ impl<'a> FunctionBuilder<'a> {
             (1901.0, 100.0, false),
             (1601.0, 400.0, true),
         ] {
-            function.instruction(&Instruction::LocalGet(year_payload_local));
+            year_payload_local.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Const(Ieee64::from(offset)));
             function.instruction(&Instruction::F64Sub);
@@ -188,21 +458,25 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
     }
 
     pub(crate) fn emit_date_is_leap_year(
         &mut self,
-        year_payload_local: u32,
+        year_payload_local: I64Local,
         function: &mut Function,
     ) {
-        let div4_local = self.reserve_temp_local();
-        let div100_local = self.reserve_temp_local();
-        let div400_local = self.reserve_temp_local();
-        for divisor in [4.0, 100.0, 400.0] {
-            function.instruction(&Instruction::LocalGet(year_payload_local));
+        let div4_local = self.runtime_schema().reserve_i64_local(function);
+        let div100_local = self.runtime_schema().reserve_i64_local(function);
+        let div400_local = self.runtime_schema().reserve_i64_local(function);
+        for (divisor, destination) in [
+            (4.0, div4_local),
+            (100.0, div100_local),
+            (400.0, div400_local),
+        ] {
+            year_payload_local.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::LocalGet(year_payload_local));
+            year_payload_local.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Const(Ieee64::from(divisor)));
             function.instruction(&Instruction::F64Div);
@@ -211,37 +485,35 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::F64Mul);
             function.instruction(&Instruction::F64Eq);
             function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(match divisor as i32 {
-                4 => div4_local,
-                100 => div100_local,
-                400 => div400_local,
-                _ => unreachable!(),
-            }));
+            destination.store(function);
         }
-        function.instruction(&Instruction::LocalGet(div4_local));
+        div4_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(div100_local));
+        div100_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::LocalGet(div400_local));
+        div400_local.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32And);
-        self.release_temp_local(div400_local);
-        self.release_temp_local(div100_local);
-        self.release_temp_local(div4_local);
+        self.runtime_schema()
+            .release_i64_local(div400_local, function);
+        self.runtime_schema()
+            .release_i64_local(div100_local, function);
+        self.runtime_schema()
+            .release_i64_local(div4_local, function);
     }
 
     pub(crate) fn emit_date_month_day(
         &mut self,
-        year_payload_local: u32,
-        month_payload_local: u32,
-        dest_payload_local: u32,
+        year_payload_local: I64Local,
+        month_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
         for (month, common, leap) in [
             (1.0, 31.0, 31.0),
             (2.0, 59.0, 60.0),
@@ -255,7 +527,7 @@ impl<'a> FunctionBuilder<'a> {
             (10.0, 304.0, 305.0),
             (11.0, 334.0, 335.0),
         ] {
-            function.instruction(&Instruction::LocalGet(month_payload_local));
+            month_payload_local.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Const(Ieee64::from(month)));
             function.instruction(&Instruction::F64Ge);
@@ -267,21 +539,21 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::F64Const(Ieee64::from(common)));
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(dest_payload_local));
+            dest_payload_local.store(function);
             function.instruction(&Instruction::End);
         }
     }
 
     pub(crate) fn emit_date_month_from_day_within_year(
         &mut self,
-        year_payload_local: u32,
-        day_payload_local: u32,
-        dest_payload_local: u32,
+        year_payload_local: I64Local,
+        day_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
         for (month, common, leap) in [
             (1.0, 31.0, 31.0),
             (2.0, 59.0, 60.0),
@@ -295,7 +567,7 @@ impl<'a> FunctionBuilder<'a> {
             (10.0, 304.0, 305.0),
             (11.0, 334.0, 335.0),
         ] {
-            function.instruction(&Instruction::LocalGet(day_payload_local));
+            day_payload_local.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             self.emit_date_is_leap_year(year_payload_local, function);
             function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
@@ -307,46 +579,46 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::F64Const(Ieee64::from(month)));
             function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(dest_payload_local));
+            dest_payload_local.store(function);
             function.instruction(&Instruction::End);
         }
     }
 
     pub(crate) fn emit_date_make_day(
         &mut self,
-        year_payload_local: u32,
-        month_payload_local: u32,
-        date_payload_local: u32,
-        dest_payload_local: u32,
+        year_payload_local: I64Local,
+        month_payload_local: I64Local,
+        date_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
-        let ym_local = self.reserve_temp_local();
-        let mn_local = self.reserve_temp_local();
-        let month_int_local = self.reserve_temp_local();
-        let day_from_year_local = self.reserve_temp_local();
-        let month_day_local = self.reserve_temp_local();
+        let ym_local = self.runtime_schema().reserve_i64_local(function);
+        let mn_local = self.runtime_schema().reserve_i64_local(function);
+        let month_int_local = self.runtime_schema().reserve_i64_local(function);
+        let day_from_year_local = self.runtime_schema().reserve_i64_local(function);
+        let month_day_local = self.runtime_schema().reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(month_payload_local));
+        month_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(month_int_local));
+        month_int_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(year_payload_local));
+        year_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::LocalGet(month_int_local));
+        month_int_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(12.0)));
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(ym_local));
+        ym_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(month_int_local));
+        month_int_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(month_int_local));
+        month_int_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(12.0)));
         function.instruction(&Instruction::F64Div);
@@ -355,52 +627,55 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(mn_local));
+        mn_local.store(function);
 
         self.emit_date_day_from_year(ym_local, day_from_year_local, function);
         self.emit_date_month_day(ym_local, mn_local, month_day_local, function);
-        function.instruction(&Instruction::LocalGet(day_from_year_local));
+        day_from_year_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(month_day_local));
+        month_day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::LocalGet(date_payload_local));
+        date_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
 
-        self.release_temp_local(month_day_local);
-        self.release_temp_local(day_from_year_local);
-        self.release_temp_local(month_int_local);
-        self.release_temp_local(mn_local);
-        self.release_temp_local(ym_local);
+        self.runtime_schema()
+            .release_i64_local(month_day_local, function);
+        self.runtime_schema()
+            .release_i64_local(day_from_year_local, function);
+        self.runtime_schema()
+            .release_i64_local(month_int_local, function);
+        self.runtime_schema().release_i64_local(mn_local, function);
+        self.runtime_schema().release_i64_local(ym_local, function);
     }
 
     pub(crate) fn emit_date_year_from_time(
         &mut self,
-        time_payload_local: u32,
-        dest_payload_local: u32,
+        time_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
-        let day_local = self.reserve_temp_local();
-        let year_local = self.reserve_temp_local();
-        let year_day_local = self.reserve_temp_local();
-        let next_year_local = self.reserve_temp_local();
-        let done_local = self.reserve_temp_local();
+        let day_local = self.runtime_schema().reserve_i64_local(function);
+        let year_local = self.runtime_schema().reserve_i64_local(function);
+        let year_day_local = self.runtime_schema().reserve_i64_local(function);
+        let next_year_local = self.runtime_schema().reserve_i64_local(function);
+        let done_local = self.runtime_schema().reserve_i64_local(function);
 
-        function.instruction(&Instruction::LocalGet(time_payload_local));
+        time_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(day_local));
+        day_local.store(function);
 
-        function.instruction(&Instruction::LocalGet(day_local));
+        day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(365.2425)));
         function.instruction(&Instruction::F64Div);
@@ -408,87 +683,91 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Const(Ieee64::from(1970.0)));
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(year_local));
+        year_local.store(function);
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(done_local));
+        done_local.store(function);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(done_local));
+        done_local.load(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::BrIf(1));
         self.emit_date_day_from_year(year_local, year_day_local, function);
-        function.instruction(&Instruction::LocalGet(day_local));
+        day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(year_day_local));
+        year_day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Lt);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(year_local));
+        year_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(year_local));
+        year_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(year_local));
+        year_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(next_year_local));
+        next_year_local.store(function);
         self.emit_date_day_from_year(next_year_local, year_day_local, function);
-        function.instruction(&Instruction::LocalGet(day_local));
+        day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(year_day_local));
+        year_day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Ge);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(next_year_local));
-        function.instruction(&Instruction::LocalSet(year_local));
+        next_year_local.load(function);
+        year_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(done_local));
+        done_local.store(function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(year_local));
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        year_local.load(function);
+        dest_payload_local.store(function);
 
-        self.release_temp_local(done_local);
-        self.release_temp_local(next_year_local);
-        self.release_temp_local(year_day_local);
-        self.release_temp_local(year_local);
-        self.release_temp_local(day_local);
+        self.runtime_schema()
+            .release_i64_local(done_local, function);
+        self.runtime_schema()
+            .release_i64_local(next_year_local, function);
+        self.runtime_schema()
+            .release_i64_local(year_day_local, function);
+        self.runtime_schema()
+            .release_i64_local(year_local, function);
+        self.runtime_schema().release_i64_local(day_local, function);
     }
 
     pub(crate) fn emit_date_day_from_time(
         &mut self,
-        time_payload_local: u32,
-        dest_payload_local: u32,
+        time_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(time_payload_local));
+        time_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
     }
 
     pub(crate) fn emit_date_positive_mod(
         &mut self,
-        value_payload_local: u32,
+        value_payload_local: I64Local,
         modulo: f64,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(value_payload_local));
+        value_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
+        value_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(modulo)));
         function.instruction(&Instruction::F64Div);
@@ -500,11 +779,11 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_date_make_time(
         &mut self,
-        hour_payload_local: u32,
-        minute_payload_local: u32,
-        second_payload_local: u32,
-        ms_payload_local: u32,
-        dest_payload_local: u32,
+        hour_payload_local: I64Local,
+        minute_payload_local: I64Local,
+        second_payload_local: I64Local,
+        ms_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
         for (local, scale, first) in [
@@ -513,7 +792,7 @@ impl<'a> FunctionBuilder<'a> {
             (second_payload_local, 1_000.0, false),
             (ms_payload_local, 1.0, false),
         ] {
-            function.instruction(&Instruction::LocalGet(local));
+            local.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Trunc);
             function.instruction(&Instruction::F64Const(Ieee64::from(scale)));
@@ -523,23 +802,23 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        dest_payload_local.store(function);
     }
 
     pub(crate) fn emit_date_components_from_time(
         &mut self,
-        time_payload_local: u32,
-        year_payload_local: u32,
-        month_payload_local: u32,
-        date_payload_local: u32,
-        hour_payload_local: u32,
-        minute_payload_local: u32,
-        second_payload_local: u32,
-        ms_payload_local: u32,
+        time_payload_local: I64Local,
+        year_payload_local: I64Local,
+        month_payload_local: I64Local,
+        date_payload_local: I64Local,
+        hour_payload_local: I64Local,
+        minute_payload_local: I64Local,
+        second_payload_local: I64Local,
+        ms_payload_local: I64Local,
         function: &mut Function,
     ) {
-        let day_payload_local = self.reserve_temp_local();
-        let month_day_payload_local = self.reserve_temp_local();
+        let day_payload_local = self.runtime_schema().reserve_i64_local(function);
+        let month_day_payload_local = self.runtime_schema().reserve_i64_local(function);
 
         self.emit_date_year_from_time(time_payload_local, year_payload_local, function);
         self.emit_date_day_within_year(
@@ -560,423 +839,224 @@ impl<'a> FunctionBuilder<'a> {
             month_day_payload_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(day_payload_local));
+        day_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(month_day_payload_local));
+        month_day_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(date_payload_local));
+        date_payload_local.store(function);
 
         self.emit_date_positive_mod(time_payload_local, 86_400_000.0, function);
         function.instruction(&Instruction::F64Const(Ieee64::from(3_600_000.0)));
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(hour_payload_local));
+        hour_payload_local.store(function);
         self.emit_date_positive_mod(time_payload_local, 3_600_000.0, function);
         function.instruction(&Instruction::F64Const(Ieee64::from(60_000.0)));
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(minute_payload_local));
+        minute_payload_local.store(function);
         self.emit_date_positive_mod(time_payload_local, 60_000.0, function);
         function.instruction(&Instruction::F64Const(Ieee64::from(1_000.0)));
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Floor);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(second_payload_local));
+        second_payload_local.store(function);
         self.emit_date_positive_mod(time_payload_local, 1_000.0, function);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(ms_payload_local));
+        ms_payload_local.store(function);
 
-        self.release_temp_local(month_day_payload_local);
-        self.release_temp_local(day_payload_local);
+        self.runtime_schema()
+            .release_i64_local(month_day_payload_local, function);
+        self.runtime_schema()
+            .release_i64_local(day_payload_local, function);
     }
 
-    pub(super) fn emit_date_set_full_year_builtin(
-        &mut self,
+    fn emit_date_append_literal(
+        &self,
+        output: &GcLocal<StringValue>,
+        text: &str,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::FullYear, function)
-    }
-
-    pub(super) fn emit_date_set_month_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::Month, function)
-    }
-
-    pub(super) fn emit_date_set_date_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::Date, function)
-    }
-
-    pub(super) fn emit_date_set_hours_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::Hours, function)
-    }
-
-    pub(super) fn emit_date_set_minutes_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::Minutes, function)
-    }
-
-    pub(super) fn emit_date_set_seconds_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::Seconds, function)
-    }
-
-    pub(super) fn emit_date_set_milliseconds_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_date_component_setter(DateComponentSetterOperation::Milliseconds, function)
-    }
-
-    fn emit_date_component_setter(
-        &mut self,
-        operation: DateComponentSetterOperation,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let old_payload_local = self.reserve_temp_local();
-        let new_payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let date_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let ms_payload_local = self.reserve_temp_local();
-        let arg0_payload_local = self.reserve_temp_local();
-        let arg1_payload_local = self.reserve_temp_local();
-        let arg2_payload_local = self.reserve_temp_local();
-        let arg3_payload_local = self.reserve_temp_local();
-        let day_payload_local = self.reserve_temp_local();
-        let time_payload_local = self.reserve_temp_local();
-
-        let max_args = match operation {
-            DateComponentSetterOperation::FullYear | DateComponentSetterOperation::Minutes => 3,
-            DateComponentSetterOperation::Month | DateComponentSetterOperation::Seconds => 2,
-            DateComponentSetterOperation::Hours => 4,
-            DateComponentSetterOperation::Date | DateComponentSetterOperation::Milliseconds => 1,
-        };
-
-        self.emit_date_value_payload(
-            self.this_payload_local.unwrap(),
-            self.this_tag_local.unwrap(),
-            old_payload_local,
-            function,
-        )?;
-
-        for (index, local) in [
-            arg0_payload_local,
-            arg1_payload_local,
-            arg2_payload_local,
-            arg3_payload_local,
-        ]
-        .into_iter()
-        .enumerate()
-        .take(max_args)
-        {
-            if index == 0 {
-                self.emit_builtin_arg_to_locals(index, local, tag_local, function);
-                self.emit_value_to_number_payload(tag_local, local, function)?;
-                function.instruction(&Instruction::LocalSet(local));
-                self.emit_return_current_completion_if_throw(function);
-            } else {
-                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                function.instruction(&Instruction::I64Const((index + 1) as i64));
-                function.instruction(&Instruction::I64GeU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_builtin_arg_to_locals(index, local, tag_local, function);
-                self.emit_value_to_number_payload(tag_local, local, function)?;
-                function.instruction(&Instruction::LocalSet(local));
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::End);
-            }
-        }
-
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        match operation {
-            DateComponentSetterOperation::FullYear => {
-                for (local, value) in [
-                    (year_payload_local, 1970.0),
-                    (month_payload_local, 0.0),
-                    (date_payload_local, 1.0),
-                    (hour_payload_local, 0.0),
-                    (minute_payload_local, 0.0),
-                    (second_payload_local, 0.0),
-                    (ms_payload_local, 0.0),
-                ] {
-                    function.instruction(&Instruction::F64Const(Ieee64::from(value)));
-                    function.instruction(&Instruction::I64ReinterpretF64);
-                    function.instruction(&Instruction::LocalSet(local));
-                }
-            }
-            DateComponentSetterOperation::Month
-            | DateComponentSetterOperation::Date
-            | DateComponentSetterOperation::Hours
-            | DateComponentSetterOperation::Minutes
-            | DateComponentSetterOperation::Seconds
-            | DateComponentSetterOperation::Milliseconds => {
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(new_payload_local));
-            }
-        }
-        function.instruction(&Instruction::Else);
-        self.emit_date_components_from_time(
-            old_payload_local,
-            year_payload_local,
-            month_payload_local,
-            date_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            ms_payload_local,
+        let schema = self.runtime_schema();
+        let piece = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(text, function)?,
             function,
         );
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        match operation {
-            DateComponentSetterOperation::FullYear => {
-                function.instruction(&Instruction::I32Const(1));
-                function.instruction(&Instruction::I32Or);
-            }
-            DateComponentSetterOperation::Month
-            | DateComponentSetterOperation::Date
-            | DateComponentSetterOperation::Hours
-            | DateComponentSetterOperation::Minutes
-            | DateComponentSetterOperation::Seconds
-            | DateComponentSetterOperation::Milliseconds => {}
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        match operation {
-            DateComponentSetterOperation::FullYear => {
-                function.instruction(&Instruction::LocalGet(arg0_payload_local));
-                function.instruction(&Instruction::LocalSet(year_payload_local));
-                for (index, arg, dest) in [
-                    (1, arg1_payload_local, month_payload_local),
-                    (2, arg2_payload_local, date_payload_local),
-                ] {
-                    function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                    function.instruction(&Instruction::I64Const((index + 1) as i64));
-                    function.instruction(&Instruction::I64GeU);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(arg));
-                    function.instruction(&Instruction::LocalSet(dest));
-                    function.instruction(&Instruction::End);
-                }
-            }
-            DateComponentSetterOperation::Month => {
-                function.instruction(&Instruction::LocalGet(arg0_payload_local));
-                function.instruction(&Instruction::LocalSet(month_payload_local));
-                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                function.instruction(&Instruction::I64Const(2));
-                function.instruction(&Instruction::I64GeU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg1_payload_local));
-                function.instruction(&Instruction::LocalSet(date_payload_local));
-                function.instruction(&Instruction::End);
-            }
-            DateComponentSetterOperation::Date => {
-                function.instruction(&Instruction::LocalGet(arg0_payload_local));
-                function.instruction(&Instruction::LocalSet(date_payload_local));
-            }
-            DateComponentSetterOperation::Hours => {
-                for (index, arg, dest) in [
-                    (0, arg0_payload_local, hour_payload_local),
-                    (1, arg1_payload_local, minute_payload_local),
-                    (2, arg2_payload_local, second_payload_local),
-                    (3, arg3_payload_local, ms_payload_local),
-                ] {
-                    if index == 0 {
-                        function.instruction(&Instruction::LocalGet(arg));
-                        function.instruction(&Instruction::LocalSet(dest));
-                    } else {
-                        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                        function.instruction(&Instruction::I64Const((index + 1) as i64));
-                        function.instruction(&Instruction::I64GeU);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        function.instruction(&Instruction::LocalGet(arg));
-                        function.instruction(&Instruction::LocalSet(dest));
-                        function.instruction(&Instruction::End);
-                    }
-                }
-            }
-            DateComponentSetterOperation::Minutes => {
-                for (index, arg, dest) in [
-                    (0, arg0_payload_local, minute_payload_local),
-                    (1, arg1_payload_local, second_payload_local),
-                    (2, arg2_payload_local, ms_payload_local),
-                ] {
-                    if index == 0 {
-                        function.instruction(&Instruction::LocalGet(arg));
-                        function.instruction(&Instruction::LocalSet(dest));
-                    } else {
-                        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                        function.instruction(&Instruction::I64Const((index + 1) as i64));
-                        function.instruction(&Instruction::I64GeU);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        function.instruction(&Instruction::LocalGet(arg));
-                        function.instruction(&Instruction::LocalSet(dest));
-                        function.instruction(&Instruction::End);
-                    }
-                }
-            }
-            DateComponentSetterOperation::Seconds => {
-                function.instruction(&Instruction::LocalGet(arg0_payload_local));
-                function.instruction(&Instruction::LocalSet(second_payload_local));
-                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                function.instruction(&Instruction::I64Const(2));
-                function.instruction(&Instruction::I64GeU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg1_payload_local));
-                function.instruction(&Instruction::LocalSet(ms_payload_local));
-                function.instruction(&Instruction::End);
-            }
-            DateComponentSetterOperation::Milliseconds => {
-                function.instruction(&Instruction::LocalGet(arg0_payload_local));
-                function.instruction(&Instruction::LocalSet(ms_payload_local));
-            }
-        }
-        self.emit_date_make_day(
-            year_payload_local,
-            month_payload_local,
-            date_payload_local,
-            day_payload_local,
+        output.replace(
+            self.emit_concat_gc_strings(output, &piece, function),
             function,
         );
-        self.emit_date_make_time(
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            ms_payload_local,
-            time_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(day_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(new_payload_local));
-        self.emit_date_time_clip(new_payload_local, new_payload_local, function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(old_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        match operation {
-            DateComponentSetterOperation::FullYear => {
-                function.instruction(&Instruction::I32Const(1));
-                function.instruction(&Instruction::I32Or);
-            }
-            DateComponentSetterOperation::Month
-            | DateComponentSetterOperation::Date
-            | DateComponentSetterOperation::Hours
-            | DateComponentSetterOperation::Minutes
-            | DateComponentSetterOperation::Seconds
-            | DateComponentSetterOperation::Milliseconds => {}
-        }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_local_data(
-            self.this_payload_local.unwrap(),
-            DATE_VALUE_SLOT,
-            new_payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(new_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(time_payload_local);
-        self.release_temp_local(day_payload_local);
-        self.release_temp_local(arg3_payload_local);
-        self.release_temp_local(arg2_payload_local);
-        self.release_temp_local(arg1_payload_local);
-        self.release_temp_local(arg0_payload_local);
-        self.release_temp_local(ms_payload_local);
-        self.release_temp_local(second_payload_local);
-        self.release_temp_local(minute_payload_local);
-        self.release_temp_local(hour_payload_local);
-        self.release_temp_local(date_payload_local);
-        self.release_temp_local(month_payload_local);
-        self.release_temp_local(year_payload_local);
-        self.release_temp_local(tag_local);
-        self.release_temp_local(new_payload_local);
-        self.release_temp_local(old_payload_local);
+        piece.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_date_append_padded_decimal(
         &mut self,
-        output_payload_local: u32,
-        number_payload_local: u32,
+        output: &GcLocal<StringValue>,
+        number: I64Local,
         minimum_width: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let piece_payload_local = self.reserve_temp_local();
-        for remaining_digits in (1..minimum_width).rev() {
-            function.instruction(&Instruction::LocalGet(number_payload_local));
+        for remaining in (1..minimum_width).rev() {
+            number.load(function);
             function.instruction(&Instruction::F64ReinterpretI64);
             function.instruction(&Instruction::F64Const(Ieee64::from(
-                10_f64.powi(remaining_digits as i32),
+                10_f64.powi(remaining as i32),
             )));
             function.instruction(&Instruction::F64Lt);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload("0")));
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_concat_string_payloads_local(
-                output_payload_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(output_payload_local));
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_date_append_literal(output, "0", function)?;
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        self.emit_number_to_string_payload(number_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
+        let schema = self.runtime_schema();
+        let piece = schema.reserve_gc_local(function).initialize(
+            self.emit_number_to_string_payload(number, function)?,
+            function,
+        );
+        output.replace(
+            self.emit_concat_gc_strings(output, &piece, function),
+            function,
+        );
+        piece.clear(function);
+        Ok(())
+    }
+
+    fn emit_date_select_label(
+        &mut self,
+        component: I64Local,
+        labels: &[&str],
+        output: &GcLocal<StringValue>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // The caller supplies a finite Date calendar component, whose range
+        // fixes the label set before this formatting-only projection.
+        output.replace(
+            self.emit_interned_string_reference(labels[0], function)?,
+            function,
+        );
+        for (index, label) in labels.iter().enumerate().skip(1) {
+            component.load(function);
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(index as f64)));
+            function.instruction(&Instruction::F64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            output.replace(
+                self.emit_interned_string_reference(label, function)?,
+                function,
+            );
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        Ok(())
+    }
+
+    fn emit_date_append_year(
+        &mut self,
+        output: &GcLocal<StringValue>,
+        year: I64Local,
+        minimum_width: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let magnitude = schema.reserve_i64_local(function);
+        year.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Lt);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_date_append_literal(output, "-", function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        year.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        magnitude.store(function);
+        self.emit_date_append_padded_decimal(output, magnitude, minimum_width, function)?;
+        schema.release_i64_local(magnitude, function);
+        Ok(())
+    }
+
+    fn emit_date_append_calendar_date(
+        &mut self,
+        output: &GcLocal<StringValue>,
+        coordinate: I64Local,
+        fields: &[I64Local; 7],
+        utc: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let weekday = schema.reserve_i64_local(function);
+        let piece = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_interned_string_reference("", function)?, function);
+        self.emit_date_day_from_time(coordinate, weekday, function);
+        weekday.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        weekday.store(function);
+        self.emit_date_positive_mod(weekday, 7.0, function);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        weekday.store(function);
+        self.emit_date_select_label(
+            weekday,
+            &["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            &piece,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.release_temp_local(piece_payload_local);
+        output.replace(
+            self.emit_concat_gc_strings(output, &piece, function),
+            function,
+        );
+        self.emit_date_append_literal(output, if utc { ", " } else { " " }, function)?;
+        if utc {
+            self.emit_date_append_padded_decimal(output, fields[2], 2, function)?;
+            self.emit_date_append_literal(output, " ", function)?;
+        }
+        self.emit_date_select_label(
+            fields[1],
+            &[
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ],
+            &piece,
+            function,
+        )?;
+        output.replace(
+            self.emit_concat_gc_strings(output, &piece, function),
+            function,
+        );
+        self.emit_date_append_literal(output, " ", function)?;
+        if !utc {
+            self.emit_date_append_padded_decimal(output, fields[2], 2, function)?;
+            self.emit_date_append_literal(output, " ", function)?;
+        }
+        self.emit_date_append_year(output, fields[0], 4, function)?;
+        piece.clear(function);
+        schema.release_i64_local(weekday, function);
+        Ok(())
+    }
+
+    fn emit_date_append_clock_time(
+        &mut self,
+        output: &GcLocal<StringValue>,
+        fields: &[I64Local; 7],
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        for index in [3, 4, 5] {
+            self.emit_date_append_padded_decimal(output, fields[index], 2, function)?;
+            if index != 5 {
+                self.emit_date_append_literal(output, ":", function)?;
+            }
+        }
         Ok(())
     }
 
@@ -984,212 +1064,58 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let date_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let ms_payload_local = self.reserve_temp_local();
-        let weekday_payload_local = self.reserve_temp_local();
-        let output_payload_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let absolute_year_payload_local = self.reserve_temp_local();
-
-        self.emit_date_value_payload(
-            self.this_payload_local.unwrap(),
-            self.this_tag_local.unwrap(),
-            time_payload_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        let fields: [I64Local; 7] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let output = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_interned_string_reference("", function)?, function);
+        self.compile_this_to_locals(&receiver, function)?;
+        let captured = self.emit_date_capture_value(&receiver, function)?;
+        captured.emit_valid_branch(
+            self,
             function,
+            |builder, function, finite| {
+                builder.emit_date_components_from_time(
+                    finite.payload(),
+                    fields[0],
+                    fields[1],
+                    fields[2],
+                    fields[3],
+                    fields[4],
+                    fields[5],
+                    fields[6],
+                    function,
+                );
+                builder.emit_date_append_calendar_date(
+                    &output,
+                    finite.payload(),
+                    &fields,
+                    true,
+                    function,
+                )?;
+                builder.emit_date_append_literal(&output, " ", function)?;
+                builder.emit_date_append_clock_time(&output, &fields, function)?;
+                builder.emit_date_append_literal(&output, " GMT", function)
+            },
+            |builder, function| {
+                output.replace(
+                    builder.emit_interned_string_reference("Invalid Date", function)?,
+                    function,
+                );
+                Ok(())
+            },
         )?;
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Invalid Date")));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::Else);
-
-        self.emit_date_components_from_time(
-            time_payload_local,
-            year_payload_local,
-            month_payload_local,
-            date_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            ms_payload_local,
-            function,
-        );
-        self.emit_date_day_from_time(time_payload_local, weekday_payload_local, function);
-        function.instruction(&Instruction::LocalGet(weekday_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(weekday_payload_local));
-        self.emit_date_positive_mod(weekday_payload_local, 7.0, function);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(weekday_payload_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("Sun")));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        for (weekday, name) in [
-            (1.0, "Mon"),
-            (2.0, "Tue"),
-            (3.0, "Wed"),
-            (4.0, "Thu"),
-            (5.0, "Fri"),
-            (6.0, "Sat"),
-        ] {
-            function.instruction(&Instruction::LocalGet(weekday_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Const(Ieee64::from(weekday)));
-            function.instruction(&Instruction::F64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-            function.instruction(&Instruction::End);
+        value.set_reference(&output, schema, function);
+        self.completion().set_normal(&value, function);
+        captured.release(self, function);
+        output.clear(function);
+        for field in fields.into_iter().rev() {
+            schema.release_i64_local(field, function);
         }
-        function.instruction(&Instruction::I64Const(self.strings.payload(", ")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            date_payload_local,
-            2,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("Jan")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        for (month, name) in [
-            (1.0, "Feb"),
-            (2.0, "Mar"),
-            (3.0, "Apr"),
-            (4.0, "May"),
-            (5.0, "Jun"),
-            (6.0, "Jul"),
-            (7.0, "Aug"),
-            (8.0, "Sep"),
-            (9.0, "Oct"),
-            (10.0, "Nov"),
-            (11.0, "Dec"),
-        ] {
-            function.instruction(&Instruction::LocalGet(month_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Const(Ieee64::from(month)));
-            function.instruction(&Instruction::F64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            function.instruction(&Instruction::End);
-        }
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Neg);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            4,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-
-        for (component_payload_local, separator) in [
-            (hour_payload_local, ":"),
-            (minute_payload_local, ":"),
-            (second_payload_local, " GMT"),
-        ] {
-            self.emit_date_append_padded_decimal(
-                output_payload_local,
-                component_payload_local,
-                2,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_concat_string_payloads_local(
-                output_payload_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(output_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(absolute_year_payload_local);
-        self.release_temp_local(piece_payload_local);
-        self.release_temp_local(output_payload_local);
-        self.release_temp_local(weekday_payload_local);
-        self.release_temp_local(ms_payload_local);
-        self.release_temp_local(second_payload_local);
-        self.release_temp_local(minute_payload_local);
-        self.release_temp_local(hour_payload_local);
-        self.release_temp_local(date_payload_local);
-        self.release_temp_local(month_payload_local);
-        self.release_temp_local(year_payload_local);
-        self.release_temp_local(time_payload_local);
+        value.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -1197,163 +1123,90 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let date_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let ms_payload_local = self.reserve_temp_local();
-        let output_payload_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let absolute_year_payload_local = self.reserve_temp_local();
-
-        self.emit_date_value_payload(
-            self.this_payload_local.unwrap(),
-            self.this_tag_local.unwrap(),
-            time_payload_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let value = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        let fields: [I64Local; 7] = std::array::from_fn(|_| schema.reserve_i64_local(function));
+        let output = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_interned_string_reference("", function)?, function);
+        self.compile_this_to_locals(&receiver, function)?;
+        let captured = self.emit_date_capture_value(&receiver, function)?;
+        captured.emit_valid_branch(
+            self,
             function,
+            |builder, function, finite| {
+                builder.emit_date_components_from_time(
+                    finite.payload(),
+                    fields[0],
+                    fields[1],
+                    fields[2],
+                    fields[3],
+                    fields[4],
+                    fields[5],
+                    fields[6],
+                    function,
+                );
+                fields[0].load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::F64Lt);
+                fields[0].load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(9999.0)));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::I32Or);
+                builder.open_frame(ControlFrameKind::If, function);
+                fields[0].load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::F64Ge);
+                builder.open_frame(ControlFrameKind::If, function);
+                builder.emit_date_append_literal(&output, "+", function)?;
+                builder.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                builder.emit_date_append_year(&output, fields[0], 6, function)?;
+                function.instruction(&Instruction::Else);
+                builder.emit_date_append_year(&output, fields[0], 4, function)?;
+                builder.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                builder.emit_date_append_literal(&output, "-", function)?;
+                fields[1].load(function);
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+                function.instruction(&Instruction::F64Add);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                fields[1].store(function);
+                builder.emit_date_append_padded_decimal(&output, fields[1], 2, function)?;
+                builder.emit_date_append_literal(&output, "-", function)?;
+                builder.emit_date_append_padded_decimal(&output, fields[2], 2, function)?;
+                builder.emit_date_append_literal(&output, "T", function)?;
+                builder.emit_date_append_clock_time(&output, &fields, function)?;
+                builder.emit_date_append_literal(&output, ".", function)?;
+                builder.emit_date_append_padded_decimal(&output, fields[6], 3, function)?;
+                builder.emit_date_append_literal(&output, "Z", function)?;
+                value.set_reference(&output, schema, function);
+                result.set_normal(&value, function);
+                Ok(())
+            },
+            |builder, function| {
+                builder.emit_throw_current_function_realm_range_error(
+                    RuntimeErrorMessage::DATE_VALUE_IS_NOT_FINITE,
+                    &result,
+                    function,
+                )
+            },
         )?;
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Date value is not finite",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_date_components_from_time(
-            time_payload_local,
-            year_payload_local,
-            month_payload_local,
-            date_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            ms_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Neg);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(9_999.0)));
-        function.instruction(&Instruction::F64Gt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("+")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            4,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(month_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(month_payload_local));
-
-        for (component_payload_local, minimum_width, separator) in [
-            (month_payload_local, 2, "-"),
-            (date_payload_local, 2, "T"),
-            (hour_payload_local, 2, ":"),
-            (minute_payload_local, 2, ":"),
-            (second_payload_local, 2, "."),
-            (ms_payload_local, 3, "Z"),
-        ] {
-            self.emit_date_append_padded_decimal(
-                output_payload_local,
-                component_payload_local,
-                minimum_width,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_concat_string_payloads_local(
-                output_payload_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(output_payload_local));
+        self.completion().copy_from(&result, function);
+        captured.release(self, function);
+        output.clear(function);
+        for field in fields.into_iter().rev() {
+            schema.release_i64_local(field, function);
         }
-        function.instruction(&Instruction::LocalGet(output_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(absolute_year_payload_local);
-        self.release_temp_local(piece_payload_local);
-        self.release_temp_local(output_payload_local);
-        self.release_temp_local(ms_payload_local);
-        self.release_temp_local(second_payload_local);
-        self.release_temp_local(minute_payload_local);
-        self.release_temp_local(hour_payload_local);
-        self.release_temp_local(date_payload_local);
-        self.release_temp_local(month_payload_local);
-        self.release_temp_local(year_payload_local);
-        self.release_temp_local(time_payload_local);
+        result.clear(function);
+        value.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -1361,164 +1214,163 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_payload_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let instant_prototype_local = self.reserve_temp_local();
-
-        self.emit_date_value_payload(
-            self.this_payload_local.unwrap(),
-            self.this_tag_local.unwrap(),
-            time_payload_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        let milliseconds = schema.reserve_completion(function);
+        let scale = schema.reserve_completion(function);
+        let bits = schema.reserve_i64_local(function);
+        self.compile_this_to_locals(&receiver, function)?;
+        let captured = self.emit_date_capture_value(&receiver, function)?;
+        captured.emit_valid_branch(
+            self,
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Date value is not finite",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(time_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(milliseconds_local));
-        // No range check follows, and that is not an omission: `TimeClip` has
-        // already bounded the time value to ±8.64e15 ms, whose nanosecond
-        // widening is exactly the `IsValidEpochNanoseconds` limit.
-        self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
-            milliseconds_local,
-            UnvalidatedEpochNanoseconds {
-                payload_local: nanoseconds_payload_local,
-                tag_local: nanoseconds_tag_local,
+            |builder, function, finite| {
+                // The branded Date slot is an integral Number bounded by TimeClip.
+                // Widen before multiplication so the exact nanoseconds can exceed i64.
+                let cleanup = builder.open_frame(ControlFrameKind::Block, function);
+                builder.emit_number_to_bigint_locals(finite.payload(), &milliseconds, function)?;
+                builder.emit_date_native_throw_exit(&milliseconds, &result, cleanup, function);
+                function.instruction(&Instruction::F64Const(Ieee64::from(1_000_000.0)));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                bits.store(function);
+                builder.emit_number_to_bigint_locals(bits, &scale, function)?;
+                builder.emit_date_native_throw_exit(&scale, &result, cleanup, function);
+                builder.emit_bigint_binary_op_to_locals(
+                    crate::bigint::BigIntHelperOp::Mul,
+                    milliseconds.value(),
+                    scale.value(),
+                    &result,
+                    function,
+                )?;
+                result.kind().load(function);
+                function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+                function.instruction(&Instruction::I32Eq);
+                builder.emit_branch_if_to_target(cleanup, function);
+                let nanos = schema.reserve_gc_local(function).initialize(
+                    result
+                        .value()
+                        .cast_reference::<crate::gc_types::BigIntValue>(schema, function),
+                    function,
+                );
+                let header = schema.reserve_gc_local(function).initialize(
+                    builder.emit_alloc_temporal_object_header(
+                        crate::intrinsics::temporal::TemporalIntrinsicFamily::Instant,
+                        TemporalPrototypeSource::Intrinsic,
+                        function,
+                    )?,
+                    function,
+                );
+                let instant = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<crate::gc_types::TemporalInstantObject>()
+                        .construct(
+                            (
+                                GcOperand::reference(&header, schema),
+                                GcOperand::reference(&nanos, schema),
+                            ),
+                            function,
+                        ),
+                    function,
+                );
+                receiver.set_reference(&instant, schema, function);
+                result.set_normal(&receiver, function);
+                instant.clear(function);
+                header.clear(function);
+                nanos.clear(function);
+                builder.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+                Ok(())
             },
-            function,
+            |builder, function| {
+                builder.emit_throw_current_function_realm_range_error(
+                    RuntimeErrorMessage::DATE_VALUE_IS_NOT_FINITE,
+                    &result,
+                    function,
+                )
+            },
         )?;
-
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(instant_prototype_local));
-        self.emit_alloc_temporal_instant(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            instant_prototype_local,
-            function,
-        )?;
-
-        self.release_temp_local(instant_prototype_local);
-        self.release_temp_local(nanoseconds_tag_local);
-        self.release_temp_local(nanoseconds_payload_local);
-        self.release_temp_local(milliseconds_local);
-        self.release_temp_local(time_payload_local);
+        self.completion().copy_from(&result, function);
+        captured.release(self, function);
+        schema.release_i64_local(bits, function);
+        scale.clear(function);
+        milliseconds.clear(function);
+        result.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_date_to_json(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let object_payload_local = self.reserve_temp_local();
-        let object_tag_local = self.reserve_temp_local();
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        let key_payload_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-
-        self.emit_value_to_current_function_realm_object_locals(
-            self.this_payload_local.unwrap(),
-            self.this_tag_local.unwrap(),
-            object_payload_local,
-            object_tag_local,
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let object = schema.reserve_completion(function);
+        let primitive = schema.reserve_completion(function);
+        let method = schema.reserve_completion(function);
+        let result = schema.reserve_completion(function);
+        let name = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("toISOString", function)?,
             function,
-        )?;
-        self.emit_tagged_to_primitive_locals(
+        );
+        let key = crate::operations::PropertyKeyLocals::from_string(schema, &name, function);
+        self.compile_this_to_locals(&receiver, function)?;
+        let cleanup = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_value_to_current_function_realm_object_locals(&receiver, &object, function)?;
+        self.emit_date_native_throw_exit(&object, &result, cleanup, function);
+        self.emit_tagged_to_primitive_locals_pending(
             ToPrimitiveHint::Number,
-            object_payload_local,
-            object_tag_local,
-            primitive_payload_local,
-            primitive_tag_local,
-            ToPrimitiveAbruptRoute::ReturnCurrentFunction,
+            object.value(),
+            &primitive,
             function,
         )?;
-
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        self.emit_date_native_throw_exit(&primitive, &result, cleanup, function);
+        primitive.value().tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number.tag()));
+        function.instruction(&Instruction::I32Eq);
+        primitive.value().scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::Else);
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("toISOString")));
-        function.instruction(&Instruction::LocalSet(key_payload_local));
-        self.emit_object_read(
-            object_payload_local,
-            object_tag_local,
-            object_payload_local,
-            object_tag_local,
-            key_payload_local,
-            method_payload_local,
-            method_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
+        function.instruction(&Instruction::F64Lt);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        receiver.set_scalar(ScalarValue::Null, function);
+        result.set_normal(&receiver, function);
+        self.emit_branch_to_target(cleanup, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_object_read(object.value(), object.value(), &key, &method, function)?;
+        self.emit_date_native_throw_exit(&method, &result, cleanup, function);
+        self.emit_is_callable_i32(method.value(), function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Date toISOString method is not callable",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::DATE_TOISOSTRING_METHOD_IS_NOT_CALLABLE,
+            &result,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_branch_to_target(cleanup, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            object_payload_local,
-            object_tag_local,
-            &[],
-            self.result_local,
-            self.result_tag_local,
+        let arguments = self.emit_pre_evaluated_arg_vector(&[], function);
+        self.emit_function_or_proxy_call_with_argv(
+            method.value(),
+            object.value(),
+            &arguments,
+            &result,
             function,
         )?;
-        self.emit_return_current_completion_if_throw(function);
+        arguments.clear(function);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        self.release_temp_local(method_tag_local);
-        self.release_temp_local(method_payload_local);
-        self.release_temp_local(key_payload_local);
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
-        self.release_temp_local(object_tag_local);
-        self.release_temp_local(object_payload_local);
+        self.completion().copy_from(&result, function);
+        key.clear(function);
+        name.clear(function);
+        result.clear(function);
+        method.clear(function);
+        primitive.clear(function);
+        object.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
@@ -1526,189 +1378,89 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.unwrap();
-        let receiver_tag_local = self.this_tag_local.unwrap();
-        let hint_payload_local = self.reserve_temp_local();
-        let hint_tag_local = self.reserve_temp_local();
-        let string_hint_payload_local = self.reserve_temp_local();
-        let default_hint_payload_local = self.reserve_temp_local();
-        let number_hint_payload_local = self.reserve_temp_local();
-        let string_first_local = self.reserve_temp_local();
-        let valid_hint_local = self.reserve_temp_local();
-        let found_primitive_local = self.reserve_temp_local();
-        let key_payload_local = self.reserve_temp_local();
-        let method_payload_local = self.reserve_temp_local();
-        let method_tag_local = self.reserve_temp_local();
-        let call_payload_local = self.reserve_temp_local();
-        let call_tag_local = self.reserve_temp_local();
-
-        self.emit_is_heap_object_like_tag_i32(receiver_tag_local, function);
+        let schema = self.runtime_schema();
+        let receiver = schema.reserve_value_local(function);
+        let hint = schema.reserve_value_local(function);
+        let result = schema.reserve_completion(function);
+        let equal = schema.reserve_i32_local(function);
+        let fold = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        fold.store(function);
+        self.compile_this_to_locals(&receiver, function)?;
+        let cleanup = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_is_heap_object_like_tag_i32(receiver.tag(), function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_current_function_realm_type_error(
-            "Date.prototype[Symbol.toPrimitive] receiver is not an object",
-            self.result_local,
-            self.result_tag_local,
+            RuntimeErrorMessage::DATE_PROTOTYPE_SYMBOL_TOPRIMITIVE_RECEIVER_IS_NOT_AN_OBJECT,
+            &result,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_branch_to_target(cleanup, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, hint_payload_local, hint_tag_local, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("string")));
-        function.instruction(&Instruction::LocalSet(string_hint_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("default")));
-        function.instruction(&Instruction::LocalSet(default_hint_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("number")));
-        function.instruction(&Instruction::LocalSet(number_hint_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(string_first_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_hint_local));
-
-        function.instruction(&Instruction::LocalGet(hint_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        for (expected_hint_local, string_first) in [
-            (string_hint_payload_local, true),
-            (default_hint_payload_local, true),
-            (number_hint_payload_local, false),
+        self.emit_builtin_arg_to_value(0, &hint, function);
+        hint.tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String.tag()));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let string = schema.reserve_gc_local(function).initialize(
+            hint.cast_reference::<StringValue>(schema, function),
+            function,
+        );
+        for (spelling, preference) in [
+            ("string", ToPrimitiveHint::String),
+            ("default", ToPrimitiveHint::String),
+            ("number", ToPrimitiveHint::Number),
         ] {
-            self.emit_string_payload_equality_i32(
-                hint_payload_local,
-                expected_hint_local,
+            let expected = schema.reserve_gc_local(function).initialize(
+                self.emit_interned_string_reference(spelling, function)?,
                 function,
             );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(valid_hint_local));
-            if string_first {
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(string_first_local));
-            }
+            self.emit_gc_string_equality(&string, &expected, fold, equal, function);
+            expected.clear(function);
+            equal.load(function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_ordinary_to_primitive_pending(preference, &receiver, &result, function)?;
+            self.emit_branch_to_target(cleanup, function);
+            self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
+        string.clear(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(valid_hint_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Date.prototype[Symbol.toPrimitive] hint must be \"default\", \"number\", or \"string\"",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
+        self.emit_throw_current_function_realm_type_error(RuntimeErrorMessage::DATE_PROTOTYPE_SYMBOL_TOPRIMITIVE_HINT_MUST_BE_DEFAULT_NUMBER_OR_STRING, &result, function)?;
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(found_primitive_local));
-        for second_attempt in [false, true] {
-            function.instruction(&Instruction::LocalGet(found_primitive_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(string_first_local));
-            if second_attempt {
-                function.instruction(&Instruction::I64Eqz);
-            } else {
-                function.instruction(&Instruction::I32WrapI64);
-            }
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::I64Const(self.strings.payload("toString")));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(self.strings.payload("valueOf")));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalSet(key_payload_local));
-            self.emit_object_read(
-                receiver_payload_local,
-                receiver_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                key_payload_local,
-                method_payload_local,
-                method_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                method_payload_local,
-                method_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                &[],
-                call_payload_local,
-                call_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            self.emit_is_primitive_tag_i32(call_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(call_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::LocalGet(call_tag_local));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(found_primitive_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-
-        function.instruction(&Instruction::LocalGet(found_primitive_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Cannot convert object to primitive value",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        for local in [
-            call_tag_local,
-            call_payload_local,
-            method_tag_local,
-            method_payload_local,
-            key_payload_local,
-            found_primitive_local,
-            valid_hint_local,
-            string_first_local,
-            number_hint_payload_local,
-            default_hint_payload_local,
-            string_hint_payload_local,
-            hint_tag_local,
-            hint_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
+        self.completion().copy_from(&result, function);
+        schema.release_i32_local(fold, function);
+        schema.release_i32_local(equal, function);
+        result.clear(function);
+        hint.clear(function);
+        receiver.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_date_day_within_year(
         &mut self,
-        time_payload_local: u32,
-        year_payload_local: u32,
-        dest_payload_local: u32,
+        time_payload_local: I64Local,
+        year_payload_local: I64Local,
+        dest_payload_local: I64Local,
         function: &mut Function,
     ) {
-        let day_local = self.reserve_temp_local();
-        let year_day_local = self.reserve_temp_local();
+        let day_local = self.runtime_schema().reserve_i64_local(function);
+        let year_day_local = self.runtime_schema().reserve_i64_local(function);
         self.emit_date_day_from_time(time_payload_local, day_local, function);
         self.emit_date_day_from_year(year_payload_local, year_day_local, function);
-        function.instruction(&Instruction::LocalGet(day_local));
+        day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(year_day_local));
+        year_day_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(dest_payload_local));
-        self.release_temp_local(year_day_local);
-        self.release_temp_local(day_local);
+        dest_payload_local.store(function);
+        self.runtime_schema()
+            .release_i64_local(year_day_local, function);
+        self.runtime_schema().release_i64_local(day_local, function);
     }
 }

@@ -1,5 +1,5 @@
 const PLAIN_DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date.rs");
-const TEMPORAL_SOURCE: &str = include_str!("../src/builtins/temporal.rs");
+const ZONE_EXACT_SOURCE: &str = include_str!("../src/builtins/temporal_zone_provider/exact.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -39,10 +39,13 @@ fn calendar_canonicalization_context_projects_both_diagnostics_exhaustively() {
     assert_eq!(projection.matches("match self {").count(), 2);
     assert_eq!(projection.matches("Self::PlainDateFamily =>").count(), 2);
     assert_eq!(projection.matches("Self::ZonedDateTime =>").count(), 2);
-    assert!(projection.contains("Temporal.PlainDate calendar must be a string"));
-    assert!(projection.contains("Invalid Temporal.PlainDate calendar"));
-    assert!(projection.contains("Temporal.ZonedDateTime calendar must be a string"));
-    assert!(projection.contains("Invalid Temporal.ZonedDateTime calendar"));
+    assert!(
+        projection.contains("RuntimeErrorMessage::TEMPORAL_PLAINDATE_CALENDAR_MUST_BE_A_STRING")
+    );
+    assert!(projection.contains("RuntimeErrorMessage::INVALID_TEMPORAL_PLAINDATE_CALENDAR"));
+    assert!(projection
+        .contains("RuntimeErrorMessage::TEMPORAL_ZONEDDATETIME_CALENDAR_MUST_BE_A_STRING"));
+    assert!(projection.contains("RuntimeErrorMessage::INVALID_TEMPORAL_ZONEDDATETIME_CALENDAR"));
     assert!(!projection.contains("_ =>"));
     assert!(!projection.contains("unreachable!"));
 }
@@ -57,7 +60,7 @@ fn canonicalization_helper_has_exactly_two_typed_producers() {
     assert!(helper.contains("context: TemporalCalendarCanonicalizationContext"));
     assert!(helper.contains("context.type_error_message()"));
     assert!(helper.contains("context.range_error_message()"));
-    assert!(!helper.contains("type_error_message: &str"));
+    assert!(!helper.contains("type_error_message: RuntimeErrorMessage"));
     assert!(!helper.contains("range_error_message: &str"));
 
     let plain_date_family = bounded(
@@ -73,9 +76,9 @@ fn canonicalization_helper_has_exactly_two_typed_producers() {
     );
 
     let zoned_date_time = bounded(
-        TEMPORAL_SOURCE,
-        "    fn emit_temporal_zoned_date_time_calendar(",
-        "    pub(crate) fn emit_alloc_temporal_zoned_date_time(",
+        ZONE_EXACT_SOURCE,
+        "    pub(in crate::builtins) fn emit_temporal_constructor_calendar_slot(",
+        "\n}\n\nimpl FunctionBuilder<'_>",
     );
     assert_eq!(
         zoned_date_time
@@ -88,7 +91,7 @@ fn canonicalization_helper_has_exactly_two_typed_producers() {
         PLAIN_DATE_SOURCE
             .matches("emit_temporal_canonicalize_calendar(")
             .count()
-            + TEMPORAL_SOURCE
+            + ZONE_EXACT_SOURCE
                 .matches("emit_temporal_canonicalize_calendar(")
                 .count(),
         3,

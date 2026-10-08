@@ -1,5 +1,31 @@
 # Contract: closed spec name domains — `NativeErrorKind` and `WellKnownSymbol`
 
+## Canonical Symbol expressions — 2026-10-07
+
+The current GC compiler uses `ExprIr::WellKnownSymbol(WellKnownSymbol)` for a
+proved intrinsic Symbol read. The backend loads that identity from the original
+agent-wide Symbol table. String literals remain strings even when their text
+matches a Symbol description. Shape analysis, species descriptors and mutation
+publication consume the enum directly. This supersedes every runtime
+string-encoding claim in the historical domain audit below; descriptions and
+shape namespace strings remain metadata only.
+
+The old `ExprIr::String` payload with a Symbol kind hint produced real strings
+after the GC cutover. An iterator's direct key reads could agree with its
+mistaken string-keyed write while the native iterator protocol and dynamic
+`Reflect.get` correctly looked for the actual Symbol and failed. The affected
+IR controls now require the distinct variant. A finite native control covers
+all fifteen identities through constant reads, dynamic reads, a created Realm
+and simultaneous string properties with the same descriptions.
+`tasks-symbol-progress1` passes the whole-workspace type check, all 20 selected
+IR controls, native awaited iterator closing and the original mixed Array
+lifecycle in strict and sloppy modes. The new catalog control incorrectly used
+an unloaded `$262` harness and failed with an object throw; it now uses the actual
+`__lilaCreateRealm` hook. `tasks-constructor-progress1` passes the workspace
+type check and the corrected catalog control, including all fifteen actual
+Symbol identities and same-description string properties. Earlier domain
+results below retain their original scope.
+
 Area: *Closed spec name domains: NativeErrorKind and WellKnownSymbol*
 Stage: FORMALIZER. This document is normative for the encoder and is the
 oracle the dry-runner checks against. Source code is not edited in this stage.

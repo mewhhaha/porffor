@@ -67,22 +67,21 @@ impl<'p> Candidates<'p> {
                 .any(|token| matches!(token, Token::Field(Field::Second(_))))
             {
                 for count in 1..=3 {
+                    let fraction = DateTimeFractionalDigits::new(count)?;
                     let mut pattern = patterns[index].clone();
-                    let mut tokens = Vec::new();
-                    for token in pattern.tokens {
-                        let second = matches!(token, Token::Field(Field::Second(_)));
-                        tokens.push(token);
-                        if second {
-                            tokens.push(Token::Literal(decimal.clone()));
-                            tokens.push(Token::Field(Field::Fraction(
-                                DateTimeFractionalDigits::new(count)?,
-                            )));
+                    pattern.variants_mut(|variant| {
+                        let mut tokens = Vec::new();
+                        for token in std::mem::take(&mut variant.tokens) {
+                            let second = matches!(token, Token::Field(Field::Second(_)));
+                            tokens.push(token);
+                            if second {
+                                tokens.push(Token::Literal(decimal.clone()));
+                                tokens.push(Token::Field(Field::Fraction(fraction)));
+                            }
                         }
-                    }
-                    pattern.tokens = tokens;
-                    pattern
-                        .skeleton
-                        .push(Field::Fraction(DateTimeFractionalDigits::new(count)?));
+                        variant.tokens = tokens;
+                        variant.skeleton.push(Field::Fraction(fraction));
+                    });
                     patterns.push(pattern);
                 }
             }

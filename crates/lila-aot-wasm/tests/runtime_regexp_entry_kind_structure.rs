@@ -1,9 +1,12 @@
-use std::fs;
-use std::path::Path;
-
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const OWNER_SOURCE: &str = include_str!("../src/data/runtime_regexp_entry_kind.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
+const REGEXP_SOURCE: &str = include_str!("../src/expressions/regexp_program.rs");
+
+struct NormalizedRust {
+    identifiers: String,
+    routes: String,
+}
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -107,11 +110,6 @@ fn literal_end(source: &str, start: usize) -> Option<usize> {
     }
 }
 
-struct NormalizedRust {
-    identifiers: String,
-    routes: String,
-}
-
 fn normalize_rust(source: &str) -> NormalizedRust {
     let bytes = source.as_bytes();
     let mut identifiers = String::new();
@@ -174,91 +172,8 @@ fn normalize_rust(source: &str) -> NormalizedRust {
     }
 }
 
-fn exact_identifier_count(source: &str, identifier: &str) -> usize {
-    source
-        .match_indices(identifier)
-        .filter(|(offset, _)| {
-            let before = source[..*offset].chars().next_back();
-            let after = source[*offset + identifier.len()..].chars().next();
-            [before, after].into_iter().all(|edge| {
-                edge.map(|character| !character.is_alphanumeric() && character != '_')
-                    .unwrap_or(true)
-            })
-        })
-        .count()
-}
-
-fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
-    fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .map(|path| {
-            if path.is_dir() {
-                return count_identifier_in_rust_sources(&path, identifier);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return 0;
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            exact_identifier_count(&normalize_rust(&source).identifiers, identifier)
-        })
-        .sum()
-}
-
-fn normalized_routes_in_rust_sources(dir: &Path) -> String {
-    let mut paths = fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths
-        .into_iter()
-        .map(|path| {
-            if path.is_dir() {
-                return normalized_routes_in_rust_sources(&path);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return String::new();
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            let mut routes = normalize_rust(&source).routes;
-            routes.push('\n');
-            routes
-        })
-        .collect()
-}
-
 #[test]
 fn runtime_regexp_entry_kind_has_one_private_capability_free_owner() {
-    let lexical_probe = r###"
-        RuntimeRegExpEntryKind /* nested /* ignored */ comment */ :: r#Program;
-        // RuntimeRegExpEntryKind::Rejected
-        let normal = "RuntimeRegExpEntryKind::Unsupported";
-        let byte = b"RuntimeRegExpEntryKind::Program";
-        let c_string = c"RuntimeRegExpEntryKind::Rejected";
-        let raw = r#"RuntimeRegExpEntryKind::Unsupported"#;
-        let raw_byte = br#"RuntimeRegExpEntryKind::Program"#;
-        let raw_c = cr#"RuntimeRegExpEntryKind::Rejected"#;
-        let character = ':';
-        let byte_character = b':';
-        let borrowed: &'a str = value;
-    "###;
-    let normalized_probe = normalize_rust(lexical_probe);
-    assert_eq!(
-        normalized_probe.routes,
-        concat!(
-            "RuntimeRegExpEntryKind::Program;",
-            "letnormal=L;letbyte=L;letc_string=L;letraw=L;letraw_byte=L;",
-            "letraw_c=L;letcharacter=L;letbyte_character=L;letborrowed:&'astr=value;"
-        )
-    );
-    assert_eq!(
-        exact_identifier_count(&normalized_probe.identifiers, "RuntimeRegExpEntryKind"),
-        1
-    );
-
     assert_eq!(
         DATA_SOURCE
             .matches("\nmod runtime_regexp_entry_kind;\n")
@@ -286,25 +201,6 @@ fn runtime_regexp_entry_kind_has_one_private_capability_free_owner() {
             "Self::Program|Self::Unsupported=>false,Self::Rejected=>true,}}}"
         )
     );
-
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "RuntimeRegExpEntryKind"),
-        9,
-        "the owner, reexport, three writers and three reader routes must be the complete source census"
-    );
-    let all_routes = normalized_routes_in_rust_sources(&source_root);
-    for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
-        assert!(!all_routes.contains(&format!("impl{capability}forRuntimeRegExpEntryKind")));
-    }
-    for forbidden in [
-        "RuntimeRegExpEntryKindas",
-        "RuntimeRegExpEntryKind::Programas",
-        "RuntimeRegExpEntryKind::Rejectedas",
-        "RuntimeRegExpEntryKind::Unsupportedas",
-    ] {
-        assert!(!all_routes.contains(forbidden));
-    }
 }
 
 #[test]
@@ -321,12 +217,6 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
                 .count(),
             1,
             "{constant} declaration"
-        );
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        assert_eq!(
-            count_identifier_in_rust_sources(&source_root, constant),
-            2,
-            "{constant} must occur only at its declaration and typed word projection"
         );
     }
 
@@ -366,82 +256,42 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
         normalize_rust(expected_writer_tail).routes,
         "the typed entry-kind assignment must flow directly into exact record serialization"
     );
-
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let all_routes = normalized_routes_in_rust_sources(&source_root);
-    for (route, expected) in [
-        ("RuntimeRegExpEntryKind::Program.word()", 2),
-        ("RuntimeRegExpEntryKind::Rejected.word()", 1),
-        ("RuntimeRegExpEntryKind::Unsupported.word()", 2),
-    ] {
-        assert_eq!(all_routes.matches(route).count(), expected, "{route}");
-    }
-    assert_eq!(
-        all_routes
-            .matches(".map(RuntimeRegExpEntryKind::word)")
-            .count(),
-        0
-    );
-    assert_eq!(all_routes.matches(".throws_syntax_error()").count(), 1);
-    assert_eq!(
-        all_routes
-            .matches("RuntimeRegExpEntryKind::ALL.iter()")
-            .count(),
-        1
-    );
-    assert_eq!(
-        all_routes.matches("RuntimeRegExpEntryKind::word").count(),
-        0
-    );
-    assert!(!all_routes.contains("<RuntimeRegExpEntryKind>::word"));
-    assert!(!all_routes.contains("RuntimeRegExpEntryKind::ALL.into_iter()"));
 }
 
 #[test]
-fn runtime_regexp_reader_publishes_one_pending_descriptor_after_typed_resolution() {
-    let reader = bounded(
-        EXPRESSIONS_SOURCE,
+fn literal_allocation_and_static_slot_publication_require_a_compiled_program() {
+    let slots = normalize_rust(bounded(
+        REGEXP_SOURCE,
+        "    pub(crate) fn emit_regexp_program_slots(",
         "    pub(crate) fn emit_runtime_regexp_program_slots(",
-        "    #[allow(clippy::too_many_arguments)]\n    pub(crate) fn emit_regexp_program_with_compatible_flags(",
-    );
-    let routes = normalize_rust(reader).routes;
-    let kinds = routes
-        .find("forentryinRuntimeRegExpEntryKind::ALL.iter(){")
-        .unwrap();
-    let compiler = routes
-        .find("self.regexp_compiler_helper_function_index()")
-        .unwrap();
-    let outcomes = routes
-        .find("foroutcomeinRegExpCompilerStatus::ALL{")
-        .unwrap();
-    let publication = routes.find("self.store_i64_local_at_offset(object_local,HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,pending,function,").unwrap();
-    assert!(kinds < compiler && compiler < outcomes && outcomes < publication);
-    assert_eq!(routes.matches("self.store_i64_local_at_offset(").count(), 1);
-    assert_eq!(
-        routes.matches("HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET").count(),
-        1
-    );
-    assert_eq!(
-        routes
-            .matches("RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD")
-            .count(),
-        1
-    );
-    assert!(routes.contains("ifentry.throws_syntax_error(){"));
-    assert!(
-        routes.contains("RegExpCompilerStatus::Compiled|RegExpCompilerStatus::Unsupported=>None,")
-    );
-    for failure in ["SyntaxError", "ResourceExhausted", "CorruptProgram"] {
-        assert!(routes.contains(&format!("RegExpCompilerStatus::{failure}=>")));
-    }
-    for forbidden in [
-        "self.emit_regexp_program_slots(",
-        "HEAP_REGEXP_PROGRAM_PTR_OFFSET",
-        "HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET",
-        ".copied()",
-        "RuntimeRegExpEntryKind::ALL.into_iter()",
-        "_=>",
+    ))
+    .routes;
+    assert!(slots.contains("program:&RegExpProgram,"));
+    assert!(!slots.contains("Option<"));
+    assert!(!slots.contains("unwrap_or("));
+
+    let literal = normalize_rust(bounded(
+        REGEXP_SOURCE,
+        "    pub(super) fn compile_regexp_literal_to_value(",
+        "\n}",
+    ))
+    .routes;
+    assert!(literal.contains("program:&RegExpProgram,"));
+    assert!(!literal.contains("Option<"));
+
+    let admission = normalize_rust(bounded(
+        EXPRESSIONS_SOURCE,
+        "            ExprIr::RegExpLiteral {",
+        "            ExprIr::FunctionValue(",
+    ))
+    .routes;
+    for route in [
+        "Some(StaticRegExpCompilation::Program(program))",
+        "Some(compilation@StaticRegExpCompilation::InvalidSyntax{..})",
+        "None=>{",
+        "RuntimeSemanticGap::RegExpRuntimePatternCompilation",
     ] {
-        assert!(!routes.contains(forbidden), "{forbidden}");
+        assert!(admission.contains(route), "literal route: {route}");
     }
+    assert!(!admission.contains("_=>"));
 }

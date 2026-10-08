@@ -26,22 +26,24 @@ pub(in crate::provider::datetime) fn with_cycle(
         DateTimeHourCycle::H23 => 'H',
         DateTimeHourCycle::H24 => 'k',
     };
-    for token in &mut pattern.tokens {
-        if let Token::Field(Field::Hour { cycle, .. }) = token {
-            let previous = symbol(*cycle);
-            for (field, _) in &mut pattern.numbering {
-                if *field == Some(previous) {
-                    *field = Some(symbol(desired));
+    pattern.variants_mut(|pattern| {
+        for token in &mut pattern.tokens {
+            if let Token::Field(Field::Hour { cycle, .. }) = token {
+                let previous = symbol(*cycle);
+                for (field, _) in &mut pattern.numbering {
+                    if *field == Some(previous) {
+                        *field = Some(symbol(desired));
+                    }
                 }
+                *cycle = desired;
             }
-            *cycle = desired;
         }
-    }
-    for field in &mut pattern.skeleton {
-        if let Field::Hour { cycle, .. } = field {
-            *cycle = desired;
+        for field in &mut pattern.skeleton {
+            if let Field::Hour { cycle, .. } = field {
+                *cycle = desired;
+            }
         }
-    }
+    });
     pattern
 }
 pub(super) fn has_date(fields: DateTimeComponents) -> bool {
@@ -78,11 +80,13 @@ pub(in crate::provider::datetime) fn adjust_widths(
     pattern: &mut Pattern,
     wanted: DateTimeComponents,
 ) {
-    for token in &mut pattern.tokens {
-        if let Token::Field(field) = token {
-            *field = adjust_field(*field, wanted, &pattern.skeleton);
+    pattern.variants_mut(|pattern| {
+        for token in &mut pattern.tokens {
+            if let Token::Field(field) = token {
+                *field = adjust_field(*field, wanted, &pattern.skeleton);
+            }
         }
-    }
+    });
 }
 pub(super) fn adjust_field(
     original: Field,
@@ -135,6 +139,7 @@ pub(super) fn adjust_field(
                 *width = text(value);
             }
         }
+        Field::NumericWeekday { .. } => {}
         Field::DayPeriod {
             kind: PeriodKind::Flexible,
             width,
@@ -199,6 +204,7 @@ fn length(field: Field) -> u8 {
         | Field::RelatedYear(width)
         | Field::Month { width, .. }
         | Field::Day(width)
+        | Field::NumericWeekday { width, .. }
         | Field::Hour { width, .. }
         | Field::Minute(width)
         | Field::Second(width) => width,
@@ -213,12 +219,14 @@ pub(super) fn add_zone(
     zone: TimeZoneNameStyle,
 ) -> Result<(), DateTimeFormatError> {
     let mut found = false;
-    for token in &mut pattern.tokens {
-        if let Token::Field(Field::ZoneName(style)) = token {
-            *style = zone;
-            found = true;
+    pattern.variants_mut(|pattern| {
+        for token in &mut pattern.tokens {
+            if let Token::Field(Field::ZoneName(style)) = token {
+                *style = zone;
+                found = true;
+            }
         }
-    }
+    });
     if !found {
         *pattern = calendar
             .append_zone

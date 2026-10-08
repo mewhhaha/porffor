@@ -1,5 +1,30 @@
 # TypedArray intrinsic identity and prototype publication
 
+## Concrete GC constructor bodies — 2026-10-07
+
+Every compiled concrete constructor now owns the body for its
+`TypedArrayElementKind`. Planning, emission, function counts and diagnostic names
+consume the same compiled-builtin list; there is no second list that collapses
+these distinct bodies. Existing emitted-entry checks require every body's actual
+index to agree with its planned entry. Shared unsupported stubs retain their
+separate declared role.
+
+The old planner reused the first concrete constructor's Wasm entry for all
+twelve kinds. After the GC constructor cutover, that entry embedded its element
+kind: `new Int32Array(new SharedArrayBuffer(8))` produced Float64 storage of
+length one while retaining the requested Int32 prototype. A bounded native
+diagnostic observed that brand, length, shared-buffer identity and rejection by
+both Atomics.load and waitAsync. The correction retains the actual specialized
+bodies, without deriving element kind from mutable properties or `newTarget`.
+
+The new native storage control covers all twelve kinds in entry and created
+Realms, scalar-length and shared-buffer construction, element conversion and
+Reflect.construct with a different newTarget prototype. Its joined checkpoint
+also reruns the original waiter progress control. `tasks-constructor-progress1`
+passes the workspace type check and both native controls, plus the corrected
+all-Symbol catalog control, under one CPU and 4096 MiB with none ignored.
+Earlier prototype results below retain their historical scope.
+
 Status: implemented for the entry- and created-Realm hidden `%TypedArray%`
 constructor identities and their prototype graphs.
 

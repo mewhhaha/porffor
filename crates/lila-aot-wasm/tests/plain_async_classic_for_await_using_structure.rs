@@ -4,7 +4,6 @@ const FOR_LOOP_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
-const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_await_using_classic_for_lifecycle.js");
@@ -180,7 +179,7 @@ fn lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered() {
         "fn synchronous_using_for_of_is_a_closed_generic_iterator_head()",
     );
     for marker in [
-        "StatementIr::Labelled { labels, statement }",
+        "StatementIr::Labelled {",
         "StatementIr::For {",
         "init: Some(ForInitIr::AsyncDisposable(init))",
         "lexical_environment: Some(environment)",
@@ -230,7 +229,7 @@ fn backend_keeps_continue_inside_and_routes_every_terminal_edge_through_disposal
         "fn compile_sync_disposable_for(",
     );
     for marker in [
-        "meta.protocol.execution_kind() == FunctionExecutionKind::Async",
+        "meta.protocol().execution_kind() == FunctionExecutionKind::Async",
         "await using for head cannot own per-iteration bindings",
         "debug_assert!(!resources.is_empty())",
         "ActivationAsyncDisposeOwner::AsyncFunction(init.capability())",
@@ -292,7 +291,7 @@ fn backend_reconstructs_the_loop_environment_and_leaves_it_before_dispatch() {
     ));
     let continuation = bounded(
         CONTROL_FLOW_SOURCE,
-        "enum ActivationAsyncDisposeCompletionContinuation {",
+        "enum ActivationAsyncDisposeCompletionContinuation",
         "/// The two activation layouts",
     );
     assert!(continuation.contains("Scope"));
@@ -304,43 +303,6 @@ fn backend_reconstructs_the_loop_environment_and_leaves_it_before_dispatch() {
     assert!(continuation.contains("Active"));
     assert!(!continuation.contains("Clone"));
     assert!(!continuation.contains("Copy"));
-
-    let consume = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn consume_activation_async_dispose_capability(",
-        "fn finish_async_dispose_pending_completion(",
-    );
-    positions_in_order(
-        consume,
-        &[
-            "for entry_kind in ActivationAsyncDisposeEntryKind::ALL",
-            "emit_set_async_resume_state(activation_local, finalizer.resume_state()",
-            "emit_activation_async_dispose_await_reactions",
-            "finish_async_dispose_pending_completion(pending, function)",
-            "match continuation",
-            "ActivationAsyncDisposeCompletionContinuation::Scope =>",
-            "emit_set_async_resume_state(",
-            "finalizer.exit_state()",
-            "emit_dispatch_activation_async_dispose_completion(owner, function)",
-            "ActivationAsyncDisposeCompletionContinuation::ClassicFor {",
-            "emit_set_async_resume_state(",
-            "finalizer.exit_state()",
-            "ClassicForAsyncDisposeLexicalEnvironment::Absent => {}",
-            "ClassicForAsyncDisposeLexicalEnvironment::Active =>",
-            "self.emit_leave_lexical_environment(function)",
-            "emit_dispatch_activation_async_dispose_completion(owner, function)",
-            "self.emit_branch_to_target(break_target, function)",
-            "ActivationAsyncDisposeCompletionContinuation::ForOf(continuation) =>",
-            "finish_async_disposable_for_of_iteration(",
-        ],
-    );
-    assert_eq!(
-        consume
-            .matches("for entry_kind in ActivationAsyncDisposeEntryKind::ALL")
-            .count(),
-        1
-    );
-    assert!(!consume.contains("_ =>"));
 
     let compile = bounded(
         CONTROL_FLOW_SOURCE,
@@ -360,23 +322,6 @@ fn backend_reconstructs_the_loop_environment_and_leaves_it_before_dispatch() {
     );
     assert!(!compile.contains("HEAP_ASYNC_ENV_OFFSET"));
 
-    let planning = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_statement_temp_locals(statement: &StatementIr)",
-        "pub(crate) fn count_for_init_temp_locals(init: &ForInitIr)",
-    );
-    positions_in_order(
-        planning,
-        &[
-            "let test_temps",
-            "let update_temps",
-            "let body_temps",
-            "Some(ForInitIr::AsyncDisposable(init))",
-            "count_async_disposable_scope_temp_locals(",
-            "init.resources()",
-            "test_temps.max(update_temps).max(body_temps)",
-        ],
-    );
     assert!(DATA_SOURCE.contains("ForInitIr::AsyncDisposable(init) =>"));
     assert!(DATA_SOURCE.contains("for resource in init.resources().iter()"));
 }

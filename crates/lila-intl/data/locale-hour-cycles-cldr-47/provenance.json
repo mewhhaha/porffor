@@ -1,0 +1,1980 @@
+{
+  "algorithm": "locale-hour-cycles-cldr47-v1",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "cldr_release": "47.0.0",
+  "effective_region_rows": 292,
+  "existing_primary_data_changed": false,
+  "fallback_authority": "same pinned CLDR47 docs/ldml/tr35-dates.md Time_Data: region001 defaults",
+  "generation_kind": "source-only; no product execution",
+  "inputs": [
+    {
+      "bytes": 408368,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/supplementalData.xml",
+      "sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4"
+    },
+    {
+      "bytes": 194096,
+      "path": "crates/lila-intl/data/datetime-cldr-47/docs/ldml/tr35-dates.md",
+      "sha256": "0f4a9d5a7c19d95d545c0fd2f24410d75fc1d0987bcd28a8620947e0a72e28ec"
+    },
+    {
+      "bytes": 2033,
+      "path": "crates/lila-intl/data/datetime-cldr-47/LICENSE",
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    }
+  ],
+  "kernel_excludes": [
+    "tests.rs",
+    "profile_identity.rs"
+  ],
+  "kernel_input": {
+    "domain": "lila-locale-hour-cycles-native-kernel-v1",
+    "profile_sha256": "0f3b05c2da0fc33d4b89869a9b8e294e0250909a8119e470824865ce923372a6",
+    "sources": [
+      {
+        "bytes": 75241,
+        "path": "Cargo.lock",
+        "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+      },
+      {
+        "bytes": 3208,
+        "path": "Cargo.toml",
+        "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+      },
+      {
+        "bytes": 80996,
+        "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+        "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      },
+      {
+        "bytes": 80091,
+        "path": "crates/lila-aot-wasm/src/emit.rs",
+        "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      },
+      {
+        "bytes": 33617,
+        "path": "crates/lila-engine/src/intl_data_images.rs",
+        "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      },
+      {
+        "bytes": 16823,
+        "path": "crates/lila-engine/src/wasm_gc_intl_host.rs",
+        "sha256": "706e7e9284afc7c2833925bf516866eb1509ffb7b772b14d3255d0b9680e3af1"
+      },
+      {
+        "bytes": 3178,
+        "path": "crates/lila-intl/Cargo.toml",
+        "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+      },
+      {
+        "bytes": 2580,
+        "path": "crates/lila-intl/build.rs",
+        "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+      },
+      {
+        "bytes": 30852,
+        "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
+        "sha256": "147834564cc59a9ae0e1a127aa7fe661e250fac6151486cd3dddab3e1c943f53"
+      },
+      {
+        "bytes": 34690,
+        "path": "crates/lila-intl/data/locale-calendars-cldr-47/profile.json",
+        "sha256": "fcb074bd730a2c73a58a3c11a040a46efb959b35dc8e4a0457d955a7d9d722fe"
+      },
+      {
+        "bytes": 11416,
+        "path": "crates/lila-intl/data/locale-text-cldr-47/profile.json",
+        "sha256": "b85256e1db8dc6a087cd02af4e3ca27348f41f545d8ba072beda7e0f1e5a7fd3"
+      },
+      {
+        "bytes": 24415,
+        "path": "crates/lila-intl/data/locale-week-cldr-47/profile.json",
+        "sha256": "32464118c9ed0333083a695069825245f29572038a6e80c6c56675f7065c18c8"
+      },
+      {
+        "bytes": 13920,
+        "path": "crates/lila-intl/src/datetime.rs",
+        "sha256": "5af6c557f72da03b49f24c449b93745e1d8fa9a1a30ba0dd24251380e8533163"
+      },
+      {
+        "bytes": 13862,
+        "path": "crates/lila-intl/src/datetime_image.rs",
+        "sha256": "15c440cdeff5fcd666efd6b550c24d7aee379cf2ad6b4be37ea8de4583d4ac96"
+      },
+      {
+        "bytes": 8388,
+        "path": "crates/lila-intl/src/identifiers.rs",
+        "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
+      },
+      {
+        "bytes": 10333,
+        "path": "crates/lila-intl/src/image.rs",
+        "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+      },
+      {
+        "bytes": 1367,
+        "path": "crates/lila-intl/src/image_build/calendar.rs",
+        "sha256": "608b356c15c168141156b16db1a5876265515420671c43d879f490be34b6afaa"
+      },
+      {
+        "bytes": 1366,
+        "path": "crates/lila-intl/src/image_build/keyword.rs",
+        "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+      },
+      {
+        "bytes": 1473,
+        "path": "crates/lila-intl/src/image_build/locale.rs",
+        "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+      },
+      {
+        "bytes": 41350,
+        "path": "crates/lila-intl/src/lib.rs",
+        "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+      },
+      {
+        "bytes": 6504,
+        "path": "crates/lila-intl/src/locale_image.rs",
+        "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+      },
+      {
+        "bytes": 10243,
+        "path": "crates/lila-intl/src/native_locale_information_image.rs",
+        "sha256": "42f9ac832fd5a4a05741795304f5a32b087fd94a87b5ac1d2a0eb51eba95b2ef"
+      },
+      {
+        "bytes": 49955,
+        "path": "crates/lila-intl/src/protocol.rs",
+        "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+      },
+      {
+        "bytes": 328,
+        "path": "crates/lila-intl/src/provider/datetime/identity.rs",
+        "sha256": "f9984b289ecc339b43be5e2931e7d7770300686bcba7f9ba454f1d263e43479d"
+      },
+      {
+        "bytes": 4101,
+        "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+        "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+      },
+      {
+        "bytes": 17530,
+        "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+        "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      },
+      {
+        "bytes": 21618,
+        "path": "crates/lila-intl/src/provider/language_domain.rs",
+        "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+      },
+      {
+        "bytes": 6238,
+        "path": "crates/lila-intl/src/provider/locale_calendars/profile.rs",
+        "sha256": "1b86e787849aef02fb4a6d1ce2c37d78e019f959b94ae8e834f0bd04ecaccf86"
+      },
+      {
+        "bytes": 1073,
+        "path": "crates/lila-intl/src/provider/locale_calendars/record.rs",
+        "sha256": "0926e12f9a8606307ac6b89ffe35b42213f0f4ee1c34b5b6f14beda3e8bbc054"
+      },
+      {
+        "bytes": 4336,
+        "path": "crates/lila-intl/src/provider/locale_calendars.rs",
+        "sha256": "00af5f4776e5a0b6f576f58c6e9aba49d52ec7cef1c0b54da2f00c2eacc3b433"
+      },
+      {
+        "bytes": 5709,
+        "path": "crates/lila-intl/src/provider/locale_hour_cycles/profile.rs",
+        "sha256": "103454663ed9b6aba209afec840bc4c9bb4ecc5b17f40b7daf953259e9c3c70f"
+      },
+      {
+        "bytes": 1037,
+        "path": "crates/lila-intl/src/provider/locale_hour_cycles/record.rs",
+        "sha256": "046ca2e4063d9f011854c49b289770fb67511e2fed03e6c5b8071a39553f3d37"
+      },
+      {
+        "bytes": 3395,
+        "path": "crates/lila-intl/src/provider/locale_hour_cycles.rs",
+        "sha256": "f2af7809dfca6cb2b895a81361d14fbf44c671f1f0d6749253bc731802f24342"
+      },
+      {
+        "bytes": 3566,
+        "path": "crates/lila-intl/src/provider/locale_text/profile.rs",
+        "sha256": "fdcf3e6fe1ecb78011de4338c16ea62c91a0027176946e0bb740910335a5f43b"
+      },
+      {
+        "bytes": 640,
+        "path": "crates/lila-intl/src/provider/locale_text/record.rs",
+        "sha256": "a56c0b3995ade7d354712f00a76c63a75eeb522705a71e5cd5afc649748efdef"
+      },
+      {
+        "bytes": 1604,
+        "path": "crates/lila-intl/src/provider/locale_text/script.rs",
+        "sha256": "c77a8feaa51412ce121b7da490a4863fbc38a25e66f56d83fa2070736bc45643"
+      },
+      {
+        "bytes": 1726,
+        "path": "crates/lila-intl/src/provider/locale_text.rs",
+        "sha256": "f22fbe72741acb3a01a046f3fc22faa8ab1986d767cc51fe993555375498a4f2"
+      },
+      {
+        "bytes": 3410,
+        "path": "crates/lila-intl/src/provider/locale_week/profile.rs",
+        "sha256": "fd81900be61d92c6d5012d97017b5769e38717d84f0ccf419fa5964c67b3ba7c"
+      },
+      {
+        "bytes": 3678,
+        "path": "crates/lila-intl/src/provider/locale_week/record.rs",
+        "sha256": "046d42b879544fa28d58590aefd968d7aaac09da0585f4e51b0f5180fbbdc415"
+      },
+      {
+        "bytes": 2444,
+        "path": "crates/lila-intl/src/provider/locale_week.rs",
+        "sha256": "50c962da42f1d701cd49aa718bc896efab0ad533f34c702c0f71c615e8fc8798"
+      },
+      {
+        "bytes": 5089,
+        "path": "crates/lila-intl/src/provider/region_preference.rs",
+        "sha256": "f9cddf291e053fb1980fea123ca06b8053ea7566ea9b15e2e24b9b917c489d66"
+      },
+      {
+        "bytes": 80443,
+        "path": "crates/lila-intl/src/provider.rs",
+        "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+      },
+      {
+        "bytes": 54634,
+        "path": "crates/lila-intl/src/selection.rs",
+        "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+      },
+      {
+        "bytes": 9139,
+        "path": "scripts/generate-intl-keyword-aliases.py",
+        "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
+      },
+      {
+        "bytes": 12240,
+        "path": "scripts/generate-intl-locale-hour-cycles-profile.py",
+        "sha256": "135b9c877f648f69b902c80a4565c57dd07ac1ff0b2afcec5f25578ece14525e"
+      }
+    ]
+  },
+  "kernel_sha256": "fbfe4c783e856bd351fd163ed61b520c49c5d986230b4f925e61aa657c1ab1a3",
+  "language_region_selector_count": 23,
+  "normative_source": "https://tc39.es/ecma402/#sec-hourcyclesoflocale",
+  "ordering": "allowed preference order; stable uniqueness after projection; never prepend preferred",
+  "primary_manifest_path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
+  "primary_manifest_sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5",
+  "profile_sha256": "0f3b05c2da0fc33d4b89869a9b8e294e0250909a8119e470824865ce923372a6",
+  "raw_selector_count": 275,
+  "raw_timeData_node_count": 25,
+  "raw_timeData_rows": [
+    {
+      "allowed": "H",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23"
+      ],
+      "selectors": [
+        "AX",
+        "BQ",
+        "CP",
+        "CZ",
+        "DK",
+        "FI",
+        "ID",
+        "IS",
+        "ML",
+        "NE",
+        "RU",
+        "SE",
+        "SJ",
+        "SK"
+      ]
+    },
+    {
+      "allowed": "H h",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "001",
+        "BI",
+        "BY",
+        "FO",
+        "GL",
+        "HU",
+        "MG",
+        "MT",
+        "MU",
+        "MV",
+        "NO",
+        "PL",
+        "RW",
+        "TH",
+        "TJ",
+        "TM",
+        "VN",
+        "ZW"
+      ]
+    },
+    {
+      "allowed": "H h hb hB",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "AC",
+        "AI",
+        "BW",
+        "BZ",
+        "CC",
+        "CK",
+        "CX",
+        "DG",
+        "FK",
+        "GB",
+        "GG",
+        "GI",
+        "GS",
+        "IE",
+        "IM",
+        "IO",
+        "JE",
+        "LT",
+        "MK",
+        "MN",
+        "MS",
+        "NF",
+        "NG",
+        "NR",
+        "NU",
+        "PN",
+        "SH",
+        "SX",
+        "TA",
+        "ZA",
+        "en_IL"
+      ]
+    },
+    {
+      "allowed": "H h hB",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "CF",
+        "CM",
+        "LU",
+        "NP",
+        "PF",
+        "SC",
+        "SM",
+        "SN",
+        "TF",
+        "VA",
+        "ca_ES",
+        "fr_CA",
+        "gl_ES",
+        "it_CH",
+        "it_IT"
+      ]
+    },
+    {
+      "allowed": "H h hB hb",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "EA",
+        "IC",
+        "KG",
+        "KM",
+        "LK",
+        "MA",
+        "af_ZA",
+        "es_BR",
+        "es_ES",
+        "es_GQ"
+      ]
+    },
+    {
+      "allowed": "H K h",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h11",
+        "h12"
+      ],
+      "selectors": [
+        "JP"
+      ]
+    },
+    {
+      "allowed": "H hb hB h",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "AF",
+        "LA"
+      ]
+    },
+    {
+      "allowed": "H hB",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "AD",
+        "AM",
+        "AO",
+        "AT",
+        "AW",
+        "BE",
+        "BF",
+        "BJ",
+        "BL",
+        "BR",
+        "CG",
+        "CI",
+        "CV",
+        "CW",
+        "DE",
+        "EE",
+        "FR",
+        "GA",
+        "GF",
+        "GN",
+        "GP",
+        "GW",
+        "HR",
+        "IL",
+        "IT",
+        "KZ",
+        "MC",
+        "MD",
+        "MF",
+        "MQ",
+        "MZ",
+        "NC",
+        "NL",
+        "PM",
+        "PT",
+        "RE",
+        "RO",
+        "SI",
+        "SR",
+        "ST",
+        "TG",
+        "TR",
+        "WF",
+        "YT"
+      ]
+    },
+    {
+      "allowed": "H hB h",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "AZ",
+        "BA",
+        "BG",
+        "CH",
+        "GE",
+        "LI",
+        "ME",
+        "RS",
+        "UA",
+        "UZ",
+        "XK"
+      ]
+    },
+    {
+      "allowed": "H hB h hb",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "ES",
+        "GQ"
+      ]
+    },
+    {
+      "allowed": "H hB hb h",
+      "preferred": "H",
+      "projected_cycles": [
+        "h23",
+        "h12"
+      ],
+      "selectors": [
+        "CN",
+        "LV",
+        "TL",
+        "zu_ZA"
+      ]
+    },
+    {
+      "allowed": "hB H",
+      "preferred": "H",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "CD",
+        "IR"
+      ]
+    },
+    {
+      "allowed": "hB hb H h",
+      "preferred": "H",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "KE",
+        "MM",
+        "TZ",
+        "UG"
+      ]
+    },
+    {
+      "allowed": "h H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "AS",
+        "BT",
+        "DJ",
+        "ER",
+        "GH",
+        "IN",
+        "LS",
+        "PG",
+        "PW",
+        "SO",
+        "TO",
+        "VU",
+        "WS"
+      ]
+    },
+    {
+      "allowed": "h H hb hB",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "CY",
+        "GR"
+      ]
+    },
+    {
+      "allowed": "h H hB",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "AL",
+        "TD"
+      ]
+    },
+    {
+      "allowed": "h H hB hb",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "419",
+        "AR",
+        "BO",
+        "CL",
+        "CO",
+        "CR",
+        "CU",
+        "DO",
+        "EC",
+        "GT",
+        "HN",
+        "KP",
+        "KR",
+        "MX",
+        "NI",
+        "NA",
+        "PA",
+        "PE",
+        "PR",
+        "PY",
+        "SV",
+        "UY",
+        "VE"
+      ]
+    },
+    {
+      "allowed": "h hb H hB",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "AG",
+        "AU",
+        "BB",
+        "BM",
+        "BS",
+        "CA",
+        "DM",
+        "FJ",
+        "FM",
+        "GD",
+        "GM",
+        "GU",
+        "GY",
+        "JM",
+        "KI",
+        "KN",
+        "KY",
+        "LC",
+        "LR",
+        "MH",
+        "MP",
+        "MW",
+        "NZ",
+        "SB",
+        "SG",
+        "SL",
+        "SS",
+        "SZ",
+        "TC",
+        "TT",
+        "UM",
+        "US",
+        "VC",
+        "VG",
+        "VI",
+        "ZM",
+        "en_001",
+        "en_HK",
+        "en_MY"
+      ]
+    },
+    {
+      "allowed": "h hB H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "BD",
+        "PK"
+      ]
+    },
+    {
+      "allowed": "h hB hb H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "AE",
+        "BH",
+        "DZ",
+        "EG",
+        "EH",
+        "HK",
+        "IQ",
+        "JO",
+        "KW",
+        "LB",
+        "LY",
+        "MO",
+        "MR",
+        "OM",
+        "PH",
+        "PS",
+        "QA",
+        "SA",
+        "SD",
+        "SY",
+        "TN",
+        "YE",
+        "ar_001"
+      ]
+    },
+    {
+      "allowed": "hb hB h H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "BN",
+        "MY"
+      ]
+    },
+    {
+      "allowed": "hB h H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "hi_IN",
+        "kn_IN",
+        "ml_IN",
+        "te_IN"
+      ]
+    },
+    {
+      "allowed": "hB h H hb",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "KH"
+      ]
+    },
+    {
+      "allowed": "hB h hb H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "ta_IN"
+      ]
+    },
+    {
+      "allowed": "hB hb h H",
+      "preferred": "h",
+      "projected_cycles": [
+        "h12",
+        "h23"
+      ],
+      "selectors": [
+        "TW",
+        "ET",
+        "gu_IN",
+        "mr_IN",
+        "pa_IN"
+      ]
+    }
+  ],
+  "region_availability": "territoryInfo plus active territoryContainment plus explicit timeData regions; exclude ZZ sentinel",
+  "region_inheritance": [
+    {
+      "region": "001",
+      "source_selector": "001"
+    },
+    {
+      "region": "002",
+      "source_selector": "001"
+    },
+    {
+      "region": "003",
+      "source_selector": "001"
+    },
+    {
+      "region": "005",
+      "source_selector": "001"
+    },
+    {
+      "region": "009",
+      "source_selector": "001"
+    },
+    {
+      "region": "011",
+      "source_selector": "001"
+    },
+    {
+      "region": "013",
+      "source_selector": "001"
+    },
+    {
+      "region": "014",
+      "source_selector": "001"
+    },
+    {
+      "region": "015",
+      "source_selector": "001"
+    },
+    {
+      "region": "017",
+      "source_selector": "001"
+    },
+    {
+      "region": "018",
+      "source_selector": "001"
+    },
+    {
+      "region": "019",
+      "source_selector": "001"
+    },
+    {
+      "region": "021",
+      "source_selector": "001"
+    },
+    {
+      "region": "029",
+      "source_selector": "001"
+    },
+    {
+      "region": "030",
+      "source_selector": "001"
+    },
+    {
+      "region": "034",
+      "source_selector": "001"
+    },
+    {
+      "region": "035",
+      "source_selector": "001"
+    },
+    {
+      "region": "039",
+      "source_selector": "001"
+    },
+    {
+      "region": "053",
+      "source_selector": "001"
+    },
+    {
+      "region": "054",
+      "source_selector": "001"
+    },
+    {
+      "region": "057",
+      "source_selector": "001"
+    },
+    {
+      "region": "061",
+      "source_selector": "001"
+    },
+    {
+      "region": "142",
+      "source_selector": "001"
+    },
+    {
+      "region": "143",
+      "source_selector": "001"
+    },
+    {
+      "region": "145",
+      "source_selector": "001"
+    },
+    {
+      "region": "150",
+      "source_selector": "001"
+    },
+    {
+      "region": "151",
+      "source_selector": "001"
+    },
+    {
+      "region": "154",
+      "source_selector": "001"
+    },
+    {
+      "region": "155",
+      "source_selector": "001"
+    },
+    {
+      "region": "202",
+      "source_selector": "001"
+    },
+    {
+      "region": "419",
+      "source_selector": "419"
+    },
+    {
+      "region": "AC",
+      "source_selector": "AC"
+    },
+    {
+      "region": "AD",
+      "source_selector": "AD"
+    },
+    {
+      "region": "AE",
+      "source_selector": "AE"
+    },
+    {
+      "region": "AF",
+      "source_selector": "AF"
+    },
+    {
+      "region": "AG",
+      "source_selector": "AG"
+    },
+    {
+      "region": "AI",
+      "source_selector": "AI"
+    },
+    {
+      "region": "AL",
+      "source_selector": "AL"
+    },
+    {
+      "region": "AM",
+      "source_selector": "AM"
+    },
+    {
+      "region": "AO",
+      "source_selector": "AO"
+    },
+    {
+      "region": "AQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "AR",
+      "source_selector": "AR"
+    },
+    {
+      "region": "AS",
+      "source_selector": "AS"
+    },
+    {
+      "region": "AT",
+      "source_selector": "AT"
+    },
+    {
+      "region": "AU",
+      "source_selector": "AU"
+    },
+    {
+      "region": "AW",
+      "source_selector": "AW"
+    },
+    {
+      "region": "AX",
+      "source_selector": "AX"
+    },
+    {
+      "region": "AZ",
+      "source_selector": "AZ"
+    },
+    {
+      "region": "BA",
+      "source_selector": "BA"
+    },
+    {
+      "region": "BB",
+      "source_selector": "BB"
+    },
+    {
+      "region": "BD",
+      "source_selector": "BD"
+    },
+    {
+      "region": "BE",
+      "source_selector": "BE"
+    },
+    {
+      "region": "BF",
+      "source_selector": "BF"
+    },
+    {
+      "region": "BG",
+      "source_selector": "BG"
+    },
+    {
+      "region": "BH",
+      "source_selector": "BH"
+    },
+    {
+      "region": "BI",
+      "source_selector": "BI"
+    },
+    {
+      "region": "BJ",
+      "source_selector": "BJ"
+    },
+    {
+      "region": "BL",
+      "source_selector": "BL"
+    },
+    {
+      "region": "BM",
+      "source_selector": "BM"
+    },
+    {
+      "region": "BN",
+      "source_selector": "BN"
+    },
+    {
+      "region": "BO",
+      "source_selector": "BO"
+    },
+    {
+      "region": "BQ",
+      "source_selector": "BQ"
+    },
+    {
+      "region": "BR",
+      "source_selector": "BR"
+    },
+    {
+      "region": "BS",
+      "source_selector": "BS"
+    },
+    {
+      "region": "BT",
+      "source_selector": "BT"
+    },
+    {
+      "region": "BV",
+      "source_selector": "001"
+    },
+    {
+      "region": "BW",
+      "source_selector": "BW"
+    },
+    {
+      "region": "BY",
+      "source_selector": "BY"
+    },
+    {
+      "region": "BZ",
+      "source_selector": "BZ"
+    },
+    {
+      "region": "CA",
+      "source_selector": "CA"
+    },
+    {
+      "region": "CC",
+      "source_selector": "CC"
+    },
+    {
+      "region": "CD",
+      "source_selector": "CD"
+    },
+    {
+      "region": "CF",
+      "source_selector": "CF"
+    },
+    {
+      "region": "CG",
+      "source_selector": "CG"
+    },
+    {
+      "region": "CH",
+      "source_selector": "CH"
+    },
+    {
+      "region": "CI",
+      "source_selector": "CI"
+    },
+    {
+      "region": "CK",
+      "source_selector": "CK"
+    },
+    {
+      "region": "CL",
+      "source_selector": "CL"
+    },
+    {
+      "region": "CM",
+      "source_selector": "CM"
+    },
+    {
+      "region": "CN",
+      "source_selector": "CN"
+    },
+    {
+      "region": "CO",
+      "source_selector": "CO"
+    },
+    {
+      "region": "CP",
+      "source_selector": "CP"
+    },
+    {
+      "region": "CQ",
+      "source_selector": "001"
+    },
+    {
+      "region": "CR",
+      "source_selector": "CR"
+    },
+    {
+      "region": "CU",
+      "source_selector": "CU"
+    },
+    {
+      "region": "CV",
+      "source_selector": "CV"
+    },
+    {
+      "region": "CW",
+      "source_selector": "CW"
+    },
+    {
+      "region": "CX",
+      "source_selector": "CX"
+    },
+    {
+      "region": "CY",
+      "source_selector": "CY"
+    },
+    {
+      "region": "CZ",
+      "source_selector": "CZ"
+    },
+    {
+      "region": "DE",
+      "source_selector": "DE"
+    },
+    {
+      "region": "DG",
+      "source_selector": "DG"
+    },
+    {
+      "region": "DJ",
+      "source_selector": "DJ"
+    },
+    {
+      "region": "DK",
+      "source_selector": "DK"
+    },
+    {
+      "region": "DM",
+      "source_selector": "DM"
+    },
+    {
+      "region": "DO",
+      "source_selector": "DO"
+    },
+    {
+      "region": "DZ",
+      "source_selector": "DZ"
+    },
+    {
+      "region": "EA",
+      "source_selector": "EA"
+    },
+    {
+      "region": "EC",
+      "source_selector": "EC"
+    },
+    {
+      "region": "EE",
+      "source_selector": "EE"
+    },
+    {
+      "region": "EG",
+      "source_selector": "EG"
+    },
+    {
+      "region": "EH",
+      "source_selector": "EH"
+    },
+    {
+      "region": "ER",
+      "source_selector": "ER"
+    },
+    {
+      "region": "ES",
+      "source_selector": "ES"
+    },
+    {
+      "region": "ET",
+      "source_selector": "ET"
+    },
+    {
+      "region": "EU",
+      "source_selector": "001"
+    },
+    {
+      "region": "EZ",
+      "source_selector": "001"
+    },
+    {
+      "region": "FI",
+      "source_selector": "FI"
+    },
+    {
+      "region": "FJ",
+      "source_selector": "FJ"
+    },
+    {
+      "region": "FK",
+      "source_selector": "FK"
+    },
+    {
+      "region": "FM",
+      "source_selector": "FM"
+    },
+    {
+      "region": "FO",
+      "source_selector": "FO"
+    },
+    {
+      "region": "FR",
+      "source_selector": "FR"
+    },
+    {
+      "region": "GA",
+      "source_selector": "GA"
+    },
+    {
+      "region": "GB",
+      "source_selector": "GB"
+    },
+    {
+      "region": "GD",
+      "source_selector": "GD"
+    },
+    {
+      "region": "GE",
+      "source_selector": "GE"
+    },
+    {
+      "region": "GF",
+      "source_selector": "GF"
+    },
+    {
+      "region": "GG",
+      "source_selector": "GG"
+    },
+    {
+      "region": "GH",
+      "source_selector": "GH"
+    },
+    {
+      "region": "GI",
+      "source_selector": "GI"
+    },
+    {
+      "region": "GL",
+      "source_selector": "GL"
+    },
+    {
+      "region": "GM",
+      "source_selector": "GM"
+    },
+    {
+      "region": "GN",
+      "source_selector": "GN"
+    },
+    {
+      "region": "GP",
+      "source_selector": "GP"
+    },
+    {
+      "region": "GQ",
+      "source_selector": "GQ"
+    },
+    {
+      "region": "GR",
+      "source_selector": "GR"
+    },
+    {
+      "region": "GS",
+      "source_selector": "GS"
+    },
+    {
+      "region": "GT",
+      "source_selector": "GT"
+    },
+    {
+      "region": "GU",
+      "source_selector": "GU"
+    },
+    {
+      "region": "GW",
+      "source_selector": "GW"
+    },
+    {
+      "region": "GY",
+      "source_selector": "GY"
+    },
+    {
+      "region": "HK",
+      "source_selector": "HK"
+    },
+    {
+      "region": "HM",
+      "source_selector": "001"
+    },
+    {
+      "region": "HN",
+      "source_selector": "HN"
+    },
+    {
+      "region": "HR",
+      "source_selector": "HR"
+    },
+    {
+      "region": "HT",
+      "source_selector": "001"
+    },
+    {
+      "region": "HU",
+      "source_selector": "HU"
+    },
+    {
+      "region": "IC",
+      "source_selector": "IC"
+    },
+    {
+      "region": "ID",
+      "source_selector": "ID"
+    },
+    {
+      "region": "IE",
+      "source_selector": "IE"
+    },
+    {
+      "region": "IL",
+      "source_selector": "IL"
+    },
+    {
+      "region": "IM",
+      "source_selector": "IM"
+    },
+    {
+      "region": "IN",
+      "source_selector": "IN"
+    },
+    {
+      "region": "IO",
+      "source_selector": "IO"
+    },
+    {
+      "region": "IQ",
+      "source_selector": "IQ"
+    },
+    {
+      "region": "IR",
+      "source_selector": "IR"
+    },
+    {
+      "region": "IS",
+      "source_selector": "IS"
+    },
+    {
+      "region": "IT",
+      "source_selector": "IT"
+    },
+    {
+      "region": "JE",
+      "source_selector": "JE"
+    },
+    {
+      "region": "JM",
+      "source_selector": "JM"
+    },
+    {
+      "region": "JO",
+      "source_selector": "JO"
+    },
+    {
+      "region": "JP",
+      "source_selector": "JP"
+    },
+    {
+      "region": "KE",
+      "source_selector": "KE"
+    },
+    {
+      "region": "KG",
+      "source_selector": "KG"
+    },
+    {
+      "region": "KH",
+      "source_selector": "KH"
+    },
+    {
+      "region": "KI",
+      "source_selector": "KI"
+    },
+    {
+      "region": "KM",
+      "source_selector": "KM"
+    },
+    {
+      "region": "KN",
+      "source_selector": "KN"
+    },
+    {
+      "region": "KP",
+      "source_selector": "KP"
+    },
+    {
+      "region": "KR",
+      "source_selector": "KR"
+    },
+    {
+      "region": "KW",
+      "source_selector": "KW"
+    },
+    {
+      "region": "KY",
+      "source_selector": "KY"
+    },
+    {
+      "region": "KZ",
+      "source_selector": "KZ"
+    },
+    {
+      "region": "LA",
+      "source_selector": "LA"
+    },
+    {
+      "region": "LB",
+      "source_selector": "LB"
+    },
+    {
+      "region": "LC",
+      "source_selector": "LC"
+    },
+    {
+      "region": "LI",
+      "source_selector": "LI"
+    },
+    {
+      "region": "LK",
+      "source_selector": "LK"
+    },
+    {
+      "region": "LR",
+      "source_selector": "LR"
+    },
+    {
+      "region": "LS",
+      "source_selector": "LS"
+    },
+    {
+      "region": "LT",
+      "source_selector": "LT"
+    },
+    {
+      "region": "LU",
+      "source_selector": "LU"
+    },
+    {
+      "region": "LV",
+      "source_selector": "LV"
+    },
+    {
+      "region": "LY",
+      "source_selector": "LY"
+    },
+    {
+      "region": "MA",
+      "source_selector": "MA"
+    },
+    {
+      "region": "MC",
+      "source_selector": "MC"
+    },
+    {
+      "region": "MD",
+      "source_selector": "MD"
+    },
+    {
+      "region": "ME",
+      "source_selector": "ME"
+    },
+    {
+      "region": "MF",
+      "source_selector": "MF"
+    },
+    {
+      "region": "MG",
+      "source_selector": "MG"
+    },
+    {
+      "region": "MH",
+      "source_selector": "MH"
+    },
+    {
+      "region": "MK",
+      "source_selector": "MK"
+    },
+    {
+      "region": "ML",
+      "source_selector": "ML"
+    },
+    {
+      "region": "MM",
+      "source_selector": "MM"
+    },
+    {
+      "region": "MN",
+      "source_selector": "MN"
+    },
+    {
+      "region": "MO",
+      "source_selector": "MO"
+    },
+    {
+      "region": "MP",
+      "source_selector": "MP"
+    },
+    {
+      "region": "MQ",
+      "source_selector": "MQ"
+    },
+    {
+      "region": "MR",
+      "source_selector": "MR"
+    },
+    {
+      "region": "MS",
+      "source_selector": "MS"
+    },
+    {
+      "region": "MT",
+      "source_selector": "MT"
+    },
+    {
+      "region": "MU",
+      "source_selector": "MU"
+    },
+    {
+      "region": "MV",
+      "source_selector": "MV"
+    },
+    {
+      "region": "MW",
+      "source_selector": "MW"
+    },
+    {
+      "region": "MX",
+      "source_selector": "MX"
+    },
+    {
+      "region": "MY",
+      "source_selector": "MY"
+    },
+    {
+      "region": "MZ",
+      "source_selector": "MZ"
+    },
+    {
+      "region": "NA",
+      "source_selector": "NA"
+    },
+    {
+      "region": "NC",
+      "source_selector": "NC"
+    },
+    {
+      "region": "NE",
+      "source_selector": "NE"
+    },
+    {
+      "region": "NF",
+      "source_selector": "NF"
+    },
+    {
+      "region": "NG",
+      "source_selector": "NG"
+    },
+    {
+      "region": "NI",
+      "source_selector": "NI"
+    },
+    {
+      "region": "NL",
+      "source_selector": "NL"
+    },
+    {
+      "region": "NO",
+      "source_selector": "NO"
+    },
+    {
+      "region": "NP",
+      "source_selector": "NP"
+    },
+    {
+      "region": "NR",
+      "source_selector": "NR"
+    },
+    {
+      "region": "NU",
+      "source_selector": "NU"
+    },
+    {
+      "region": "NZ",
+      "source_selector": "NZ"
+    },
+    {
+      "region": "OM",
+      "source_selector": "OM"
+    },
+    {
+      "region": "PA",
+      "source_selector": "PA"
+    },
+    {
+      "region": "PE",
+      "source_selector": "PE"
+    },
+    {
+      "region": "PF",
+      "source_selector": "PF"
+    },
+    {
+      "region": "PG",
+      "source_selector": "PG"
+    },
+    {
+      "region": "PH",
+      "source_selector": "PH"
+    },
+    {
+      "region": "PK",
+      "source_selector": "PK"
+    },
+    {
+      "region": "PL",
+      "source_selector": "PL"
+    },
+    {
+      "region": "PM",
+      "source_selector": "PM"
+    },
+    {
+      "region": "PN",
+      "source_selector": "PN"
+    },
+    {
+      "region": "PR",
+      "source_selector": "PR"
+    },
+    {
+      "region": "PS",
+      "source_selector": "PS"
+    },
+    {
+      "region": "PT",
+      "source_selector": "PT"
+    },
+    {
+      "region": "PW",
+      "source_selector": "PW"
+    },
+    {
+      "region": "PY",
+      "source_selector": "PY"
+    },
+    {
+      "region": "QA",
+      "source_selector": "QA"
+    },
+    {
+      "region": "QO",
+      "source_selector": "001"
+    },
+    {
+      "region": "RE",
+      "source_selector": "RE"
+    },
+    {
+      "region": "RO",
+      "source_selector": "RO"
+    },
+    {
+      "region": "RS",
+      "source_selector": "RS"
+    },
+    {
+      "region": "RU",
+      "source_selector": "RU"
+    },
+    {
+      "region": "RW",
+      "source_selector": "RW"
+    },
+    {
+      "region": "SA",
+      "source_selector": "SA"
+    },
+    {
+      "region": "SB",
+      "source_selector": "SB"
+    },
+    {
+      "region": "SC",
+      "source_selector": "SC"
+    },
+    {
+      "region": "SD",
+      "source_selector": "SD"
+    },
+    {
+      "region": "SE",
+      "source_selector": "SE"
+    },
+    {
+      "region": "SG",
+      "source_selector": "SG"
+    },
+    {
+      "region": "SH",
+      "source_selector": "SH"
+    },
+    {
+      "region": "SI",
+      "source_selector": "SI"
+    },
+    {
+      "region": "SJ",
+      "source_selector": "SJ"
+    },
+    {
+      "region": "SK",
+      "source_selector": "SK"
+    },
+    {
+      "region": "SL",
+      "source_selector": "SL"
+    },
+    {
+      "region": "SM",
+      "source_selector": "SM"
+    },
+    {
+      "region": "SN",
+      "source_selector": "SN"
+    },
+    {
+      "region": "SO",
+      "source_selector": "SO"
+    },
+    {
+      "region": "SR",
+      "source_selector": "SR"
+    },
+    {
+      "region": "SS",
+      "source_selector": "SS"
+    },
+    {
+      "region": "ST",
+      "source_selector": "ST"
+    },
+    {
+      "region": "SV",
+      "source_selector": "SV"
+    },
+    {
+      "region": "SX",
+      "source_selector": "SX"
+    },
+    {
+      "region": "SY",
+      "source_selector": "SY"
+    },
+    {
+      "region": "SZ",
+      "source_selector": "SZ"
+    },
+    {
+      "region": "TA",
+      "source_selector": "TA"
+    },
+    {
+      "region": "TC",
+      "source_selector": "TC"
+    },
+    {
+      "region": "TD",
+      "source_selector": "TD"
+    },
+    {
+      "region": "TF",
+      "source_selector": "TF"
+    },
+    {
+      "region": "TG",
+      "source_selector": "TG"
+    },
+    {
+      "region": "TH",
+      "source_selector": "TH"
+    },
+    {
+      "region": "TJ",
+      "source_selector": "TJ"
+    },
+    {
+      "region": "TK",
+      "source_selector": "001"
+    },
+    {
+      "region": "TL",
+      "source_selector": "TL"
+    },
+    {
+      "region": "TM",
+      "source_selector": "TM"
+    },
+    {
+      "region": "TN",
+      "source_selector": "TN"
+    },
+    {
+      "region": "TO",
+      "source_selector": "TO"
+    },
+    {
+      "region": "TR",
+      "source_selector": "TR"
+    },
+    {
+      "region": "TT",
+      "source_selector": "TT"
+    },
+    {
+      "region": "TV",
+      "source_selector": "001"
+    },
+    {
+      "region": "TW",
+      "source_selector": "TW"
+    },
+    {
+      "region": "TZ",
+      "source_selector": "TZ"
+    },
+    {
+      "region": "UA",
+      "source_selector": "UA"
+    },
+    {
+      "region": "UG",
+      "source_selector": "UG"
+    },
+    {
+      "region": "UM",
+      "source_selector": "UM"
+    },
+    {
+      "region": "UN",
+      "source_selector": "001"
+    },
+    {
+      "region": "US",
+      "source_selector": "US"
+    },
+    {
+      "region": "UY",
+      "source_selector": "UY"
+    },
+    {
+      "region": "UZ",
+      "source_selector": "UZ"
+    },
+    {
+      "region": "VA",
+      "source_selector": "VA"
+    },
+    {
+      "region": "VC",
+      "source_selector": "VC"
+    },
+    {
+      "region": "VE",
+      "source_selector": "VE"
+    },
+    {
+      "region": "VG",
+      "source_selector": "VG"
+    },
+    {
+      "region": "VI",
+      "source_selector": "VI"
+    },
+    {
+      "region": "VN",
+      "source_selector": "VN"
+    },
+    {
+      "region": "VU",
+      "source_selector": "VU"
+    },
+    {
+      "region": "WF",
+      "source_selector": "WF"
+    },
+    {
+      "region": "WS",
+      "source_selector": "WS"
+    },
+    {
+      "region": "XK",
+      "source_selector": "XK"
+    },
+    {
+      "region": "YE",
+      "source_selector": "YE"
+    },
+    {
+      "region": "YT",
+      "source_selector": "YT"
+    },
+    {
+      "region": "ZA",
+      "source_selector": "ZA"
+    },
+    {
+      "region": "ZM",
+      "source_selector": "ZM"
+    },
+    {
+      "region": "ZW",
+      "source_selector": "ZW"
+    }
+  ],
+  "region_selector_count": 252,
+  "schema": 1,
+  "shared_region_helper": "Root-authored canonical RegionPreference leaf; no duplicate selector",
+  "symbol_projection": {
+    "H": "h23",
+    "K": "h11",
+    "h": "h12",
+    "hB": "h12",
+    "hb": "h12",
+    "k": "h24"
+  },
+  "unavailable_override": "no effective row; continue with original base region"
+}

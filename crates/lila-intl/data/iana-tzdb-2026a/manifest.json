@@ -23,7 +23,7 @@
       "ianaCountry": "IS"
     }
   ],
-  "providerDataSha256": "b164416b5a1889c5419cbb96d444f386ea258c6717929415bf0535b3797f4082",
+  "providerDataSha256": "672ea04b14ff9d178caa2c78cd04e75dda90b02cce8b51ff788c527ee8c29300",
   "recipe": {
     "domain": "lila-intl-named-time-zones-v1",
     "iana": "2026a",
@@ -63,23 +63,238 @@
       },
       {
         "path": "scripts/generate-intl-named-time-zones.py",
-        "bytes": 15960,
-        "sha256": "b2f68e325f530febe1f3a7da8700522ebbf1dde8f093dcb8a6caf1a8538b74b4"
+        "bytes": 18749,
+        "sha256": "87d2bad7926f6488a40ecfd4aaebc92df9d825a27da58b3a57e03c925cdc42ae"
       },
       {
         "path": "crates/lila-intl/src/provider/named_time_zones.rs",
-        "bytes": 5551,
-        "sha256": "e615aea3bf8086e87af7e728d4910901cd4ca272cf9e2b943aebed99be4656b0"
+        "bytes": 9293,
+        "sha256": "e5f33221369ad653b09bf35dfb88d2b60266fc197da590fb72a15c4d84810238"
+      },
+      {
+        "path": "crates/lila-intl/src/time_zone/exact.rs",
+        "bytes": 6289,
+        "sha256": "a19fff1f51a20d1ac243151d10cd4778000c6875e10377ad815add89041f2ddb"
+      },
+      {
+        "path": "crates/lila-intl/src/time_zone/named_query.rs",
+        "bytes": 16151,
+        "sha256": "be41eeed2244b90c4ffab437b89d61bf242a0aea3465f3f3df9f807f245313f9"
       },
       {
         "path": "crates/lila-intl/src/provider/named_time_zones/catalogue.rs",
-        "bytes": 2870,
-        "sha256": "f40ea745e5fe9f04b075172766d071654cbf7e2c047807b8aca0d1f2df44d704"
+        "bytes": 2790,
+        "sha256": "f1eba4819817796735a7c2cdf3d042cc23ea7c7ace4642c618160933a16e88b8"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/named_time_zones/exact_query.rs",
+        "bytes": 10909,
+        "sha256": "90b6d1e1ba0f73c128ff3df5c61a591422d2a5a10a49d20ebba502c0f5c57f45"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/named_time_zones/gap_topology.rs",
+        "bytes": 13079,
+        "sha256": "71f1d1d5736435acfa76425d947df0b2397073709f1a57ac39fd0fb1a7b8cd00"
       },
       {
         "path": "crates/lila-intl/src/provider/named_time_zones/validation.rs",
-        "bytes": 3581,
-        "sha256": "64f451f05d32268211d3ccfe74d0775ac6006564873041045e65e886abb93b5f"
+        "bytes": 3624,
+        "sha256": "e41225a342aeb3ed0a000bed327f7971e3c677d960e29700dad04b5db94d42a6"
+      },
+      {
+        "path": "Cargo.toml",
+        "bytes": 3208,
+        "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+      },
+      {
+        "path": "Cargo.lock",
+        "bytes": 75241,
+        "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+      },
+      {
+        "path": "crates/lila-intl/Cargo.toml",
+        "bytes": 3178,
+        "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+      },
+      {
+        "path": "crates/lila-intl/build.rs",
+        "bytes": 2580,
+        "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+      },
+      {
+        "path": "crates/lila-intl/src/lib.rs",
+        "bytes": 41350,
+        "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+      },
+      {
+        "path": "crates/lila-intl/src/provider.rs",
+        "bytes": 80443,
+        "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+      },
+      {
+        "path": "crates/lila-intl/src/selection.rs",
+        "bytes": 54634,
+        "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/conformance.rs",
+        "bytes": 2251,
+        "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
+      },
+      {
+        "path": "crates/lila-intl/src/service_selection.rs",
+        "bytes": 7999,
+        "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
+      },
+      {
+        "path": "crates/lila-intl/src/selection/manifest.rs",
+        "bytes": 35819,
+        "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
+      },
+      {
+        "path": "crates/lila-intl/src/selection/export.rs",
+        "bytes": 21454,
+        "sha256": "1ff9becaa320301f1ae1f1dcc85d468b4546d1aa86f33c31db9f35418408d97e"
+      },
+      {
+        "path": "crates/lila-intl/src/protocol.rs",
+        "bytes": 49955,
+        "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+      },
+      {
+        "path": "crates/lila-intl/src/image.rs",
+        "bytes": 10333,
+        "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+      },
+      {
+        "path": "crates/lila-intl/src/locale_image.rs",
+        "bytes": 6504,
+        "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+      },
+      {
+        "path": "crates/lila-intl/src/image_build/locale.rs",
+        "bytes": 1473,
+        "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+      },
+      {
+        "path": "crates/lila-intl/src/image_build/keyword.rs",
+        "bytes": 1366,
+        "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/language_domain.rs",
+        "bytes": 21618,
+        "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+        "bytes": 17530,
+        "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+        "bytes": 4101,
+        "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+      },
+      {
+        "path": "scripts/generate-intl-keyword-aliases.py",
+        "bytes": 9139,
+        "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
+      },
+      {
+        "path": "crates/lila-engine/src/intl_data_images.rs",
+        "bytes": 33617,
+        "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      },
+      {
+        "path": "crates/lila-engine/src/wasm_gc_intl_host.rs",
+        "bytes": 16823,
+        "sha256": "706e7e9284afc7c2833925bf516866eb1509ffb7b772b14d3255d0b9680e3af1"
+      },
+      {
+        "path": "crates/lila-aot-wasm/src/emit.rs",
+        "bytes": 80091,
+        "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      },
+      {
+        "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+        "bytes": 80996,
+        "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      },
+      {
+        "path": "crates/lila-intl/src/named_time_zone_image.rs",
+        "bytes": 7372,
+        "sha256": "e0965ad8ece236878a6f74834e05f9c37cf41256bbeab1e8e65730e4559c5b09"
+      },
+      {
+        "path": "crates/lila-intl/src/image_build/named_time_zones.rs",
+        "bytes": 2305,
+        "sha256": "46b01024c8edcd0d5471884c096049e48b12cba7cdf6bbc25331e097c6a3f754"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/locale_time_zones.rs",
+        "bytes": 8563,
+        "sha256": "9d461c9b1b905cf299543e3c95bb2ade3b0e2b4f1defeca09b9fda5b8930e17a"
+      },
+      {
+        "path": "crates/lila-intl/data/locale-time-zones-iana2026a/zone.tab",
+        "bytes": 18822,
+        "sha256": "586b4207e6c76722de82adcda6bf49d761f668517f45a673f64da83b333eecc4"
+      },
+      {
+        "path": "crates/lila-intl/data/locale-time-zones-iana2026a/regions.tsv",
+        "bytes": 8141,
+        "sha256": "c72778a1dfbf69cfb28b0c78e8c00054ea44c8ac13eaf398d82e887759044d43"
+      },
+      {
+        "path": "crates/lila-intl/src/time_zone_names_image.rs",
+        "bytes": 5226,
+        "sha256": "77f90d8e57b0d0c063cbd8ac30957ebc12b27811a3806b106f76428a9cb2ad33"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/time_zone_names.rs",
+        "bytes": 20672,
+        "sha256": "4e89e338554cf66bba18962cc16705b104f3ca12870d63d8981a058ecd039583"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/time_zone_names/raw.rs",
+        "bytes": 1169,
+        "sha256": "87870d188a6966f848dfbae2f6817edcb5da653bf048486dfe2f9442b1c06615"
+      },
+      {
+        "path": "crates/lila-intl/data/zone-names-cldr-47/native-profile.json",
+        "bytes": 160640,
+        "sha256": "52508dfd4f0bca47b39443589c97e959361f1f57d7324876f0b681b0509012f4"
+      },
+      {
+        "path": "crates/lila-intl/data/zone-names-cldr-47/native-profile-manifest.json",
+        "bytes": 686,
+        "sha256": "a6d46d42cc3be1bc14e87b8c7ee911e097233548e79676d650c59ecbb70644c9"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/time_zone_snapshot.rs",
+        "bytes": 1882,
+        "sha256": "3c6affbd6c7281eefeb6c73f928fe69733cb5bdf05f4fb29e35da2a4dcdc34b6"
+      },
+      {
+        "path": "crates/lila-intl/src/time_zone.rs",
+        "bytes": 19828,
+        "sha256": "67d23a10037cbf3581ad879d11d7722b045b1817f99ce535881a2c1e39ea5626"
+      },
+      {
+        "path": "crates/lila-intl/src/identifiers.rs",
+        "bytes": 8388,
+        "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
+      },
+      {
+        "path": "crates/lila-intl/src/named_time_zone_image/projection.rs",
+        "bytes": 5671,
+        "sha256": "f8ff3b45267a43ec47e000d90e516dbcb8ec1d76c51202f2f2eb620200d41422"
+      },
+      {
+        "path": "crates/lila-intl/src/time_zone_names_image/projection.rs",
+        "bytes": 5148,
+        "sha256": "1840ff3eb7ac03353584c0c02ce7f86b0be5a21660c1a3d9d388decb6878d86c"
       },
       {
         "path": "vendor/timezone_provider-0.1.2/Cargo.toml",
@@ -103,8 +318,8 @@
       },
       {
         "path": "vendor/timezone_provider-0.1.2/LILA-PATCH.md",
-        "bytes": 1667,
-        "sha256": "65d82f56e18612f048c6b89e0be00d81da28815ef017e5ba1cb000e00f2c4206"
+        "bytes": 3447,
+        "sha256": "c941e9d29b46cc5e8a03b6cf4b2aca727e61de59521f0afda76e4b83b91dc2f4"
       },
       {
         "path": "vendor/timezone_provider-0.1.2/README.md",
@@ -172,14 +387,24 @@
         "sha256": "5b44df3d333761b8da58fe5b30231dfe2b288a79b95253fe1f235db2ca83f867"
       },
       {
+        "path": "vendor/timezone_provider-0.1.2/src/tzif/offset_boundaries.rs",
+        "bytes": 9315,
+        "sha256": "c19c5c7607c05bb70be54c71204e2bdff18136282a0677c097d35e401da49a6e"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/tzif/posix_snapshot.rs",
+        "bytes": 11887,
+        "sha256": "82a9b5a7dea738685d91c1305b75772b565c0fc6a72ef75b1c69c90686b4216a"
+      },
+      {
         "path": "vendor/timezone_provider-0.1.2/src/tzif/snapshot.rs",
-        "bytes": 5547,
-        "sha256": "dfed5fa6afed0ac3dd6a2555655fb9c0973a36bccfc365aba0e8541a1c721fcf"
+        "bytes": 5558,
+        "sha256": "19a56b9d96676f7fdea502f65bd03ad5c2f2420f0bc7ae3e93032acc8cc6e6fd"
       },
       {
         "path": "vendor/timezone_provider-0.1.2/src/tzif.rs",
-        "bytes": 74641,
-        "sha256": "e96d8f052f8b35e766cc736993a29534ff1274a79740c5917c3b5df9f3d1ec7a"
+        "bytes": 70957,
+        "sha256": "e658ce817f2104e174eef88abfa71a4fbcd34fddbe40cee5228f52f0d57d9267"
       },
       {
         "path": "vendor/timezone_provider-0.1.2/src/utc.rs",
@@ -321,7 +546,7 @@
     {
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
       "bytes": 565,
-      "sha256": "405e063db482da6d010b78ec30ba470f6f32c9d14b2297d5ac2abe8c2b1e8f62"
+      "sha256": "a3d520962681e1928a3784be05f80cf2466f12e0884136ae950f3f3a385cc3d5"
     }
   ]
 }

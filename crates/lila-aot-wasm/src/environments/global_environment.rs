@@ -1,22 +1,15 @@
 use super::*;
+use crate::gc_types::{
+    NamedBinding, NamedBindingSchema, NamedBindingTable, RealmRecordSchema, StringValue,
+};
 
-// A Global Environment terminates the ordinary lexical parent chain. Its
-// declarative entries refer to the same cells used by captured lexical reads.
-pub(crate) const GLOBAL_ENV_REALM_OFFSET: u64 = 8;
-pub(crate) const GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET: u64 = 16;
-pub(crate) const GLOBAL_ENV_LEXICAL_COUNT_OFFSET: u64 = 24;
-const GLOBAL_ENV_SIZE: u64 = 32;
-pub(crate) const GLOBAL_LEXICAL_KEY_OFFSET: u64 = 0;
-pub(crate) const GLOBAL_LEXICAL_CELL_OFFSET: u64 = 8;
-pub(crate) const GLOBAL_LEXICAL_MUTABLE_OFFSET: u64 = 16;
-pub(crate) const GLOBAL_LEXICAL_ENTRY_SIZE: u64 = 24;
-
+// A Global Environment ends the lexical chain and roots its defining Realm.
+// Declarative names retain the same BindingCell identities as captured reads.
 pub(crate) enum GlobalBindingFailure {
     BeforeInitialization,
     Immutable,
     Unresolvable,
     UnresolvableAssignment,
-    NonConfigurableDelete,
 }
 
 pub(crate) enum SourceLiteralPrototype {
@@ -26,316 +19,236 @@ pub(crate) enum SourceLiteralPrototype {
 }
 
 impl FunctionBuilder<'_> {
-    pub(crate) fn has_source_execution_environment(&self) -> bool {
-        self.is_main()
-            || self
-                .current_function_meta()
-                .is_some_and(|meta| meta.standard_builtin.is_none() && meta.host_builtin.is_none())
-    }
-
     pub(crate) fn emit_alloc_realm_global_environment(
         &mut self,
-        realm_local: u32,
+        realm: &GcLocal<RealmRecord>,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let environment_local = self.reserve_temp_local();
-        self.emit_heap_alloc_const(GLOBAL_ENV_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(environment_local));
-        self.store_i64_const_at_offset(environment_local, ENV_PARENT_OFFSET, 0, function);
-        self.store_i64_local_at_offset(
-            environment_local,
-            GLOBAL_ENV_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_COUNT_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            realm_local,
-            HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
-            environment_local,
-            function,
-        );
-        self.release_temp_local(environment_local);
-        Ok(())
+    ) -> Result<GcLocal<Environment>, EmitError> {
+        let schema = self.runtime_schema();
+        let environment = schema
+            .reserve_gc_local::<Environment, NonNullable>(function)
+            .initialize(
+                schema.struct_type::<Environment>().construct(
+                    (
+                        GcOperand::nullable_reference(realm, schema),
+                        GcOperand::null(schema),
+                        GcOperand::i32(
+                            named_environment::NamedEnvironmentKind::GlobalLexical.code(),
+                        ),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                        GcOperand::null(schema),
+                    ),
+                    function,
+                ),
+                function,
+            );
+        schema
+            .struct_type::<RealmRecord>()
+            .field(RealmRecordSchema::GLOBAL_ENVIRONMENT)
+            .write(
+                realm,
+                GcOperand::nullable_reference(&environment, schema),
+                schema,
+                function,
+            );
+        Ok(environment)
     }
 
     pub(crate) fn emit_source_global_environment_to_local(
         &mut self,
-        environment_local: u32,
         function: &mut Function,
-    ) {
+    ) -> GcLocal<Environment> {
         assert!(self.has_source_execution_environment());
-        let parent_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
-        function.instruction(&Instruction::LocalGet(environment_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            ENV_PARENT_OFFSET,
-            parent_local,
+        let schema = self.runtime_schema();
+        let environment = schema
+            .reserve_gc_local::<Environment, NonNullable>(function)
+            .initialize(
+                self.current_environment()
+                    .load(schema, function)
+                    .require_non_null(function),
+                function,
+            );
+        let parent = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize_null(schema, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        parent.replace(
+            schema
+                .struct_type::<Environment>()
+                .field(EnvironmentSchema::PARENT)
+                .read(&environment, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::I64Eqz);
+        parent.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(parent_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
+        environment.replace(
+            parent.load(schema, function).require_non_null(function),
+            function,
+        );
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.release_temp_local(parent_local);
+        parent.clear(function);
+        environment
     }
 
     pub(crate) fn emit_source_execution_realm_to_local(
         &mut self,
-        realm_local: u32,
+        function: &mut Function,
+    ) -> GcLocal<RealmRecord> {
+        let schema = self.runtime_schema();
+        let environment = self.emit_source_global_environment_to_local(function);
+        let realm = schema
+            .reserve_gc_local::<RealmRecord, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<Environment>()
+                    .field(EnvironmentSchema::DEFINING_REALM)
+                    .read(&environment, schema, function)
+                    .reference()
+                    .require_non_null(function),
+                function,
+            );
+        environment.clear(function);
+        realm
+    }
+
+    fn emit_execution_realm_to_local(&mut self, function: &mut Function) -> GcLocal<RealmRecord> {
+        if self.has_source_execution_environment() {
+            self.emit_source_execution_realm_to_local(function)
+        } else {
+            self.load_current_realm(function)
+        }
+    }
+
+    pub(crate) fn emit_execution_global_object_to_locals(
+        &mut self,
+        result: &ValueLocals,
         function: &mut Function,
     ) {
-        self.emit_source_global_environment_to_local(realm_local, function);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            GLOBAL_ENV_REALM_OFFSET,
-            realm_local,
-            function,
-        );
+        let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm_to_local(function);
+        let stored = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<RealmRecord>()
+                    .field(RealmRecordSchema::GLOBAL_OBJECT)
+                    .read(&realm, schema, function)
+                    .reference()
+                    .require_non_null(function),
+                function,
+            );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, result, schema, function);
+        stored.clear(function);
+        realm.clear(function);
     }
 
-    pub(crate) fn emit_execution_global_object_payload(&mut self, function: &mut Function) {
-        let realm_local = self.reserve_temp_local();
-        if self.has_source_execution_environment() {
-            self.emit_source_execution_realm_to_local(realm_local, function);
-        } else {
-            function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(realm_local));
-        }
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_GLOBAL_OBJECT_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        self.release_temp_local(realm_local);
-    }
-
-    pub(crate) fn emit_source_literal_prototype_payload(
+    pub(crate) fn emit_source_literal_prototype_to_value(
         &mut self,
         prototype: SourceLiteralPrototype,
+        result: &ValueLocals,
         function: &mut Function,
     ) {
-        let (offset, entry_global) = match prototype {
-            SourceLiteralPrototype::Object => (
-                HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-                OBJECT_PROTOTYPE_GLOBAL_INDEX,
+        let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm_to_local(function);
+        match prototype {
+            SourceLiteralPrototype::Object => self.emit_load_non_array_realm_intrinsic(
+                &realm,
+                NonArrayRealmIntrinsicSlot::ObjectPrototype,
+                result,
+                function,
             ),
-            SourceLiteralPrototype::Array => (
-                HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
-                ARRAY_PROTOTYPE_GLOBAL_INDEX,
+            SourceLiteralPrototype::RegExp => self.emit_load_non_array_realm_intrinsic(
+                &realm,
+                NonArrayRealmIntrinsicSlot::RegExpPrototype,
+                result,
+                function,
             ),
-            SourceLiteralPrototype::RegExp => (
-                HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
-                REGEXP_PROTOTYPE_GLOBAL_INDEX,
-            ),
-        };
-        if !self.has_source_execution_environment() {
-            function.instruction(&Instruction::GlobalGet(entry_global));
-            return;
+            SourceLiteralPrototype::Array => {
+                let array = schema
+                    .reserve_gc_local::<ArrayObject, NonNullable>(function)
+                    .initialize(
+                        self.emit_load_realm_array_prototype(&realm, function),
+                        function,
+                    );
+                result.set_reference(&array, schema, function);
+                array.clear(function);
+            }
         }
-        let prototype_local = self.reserve_temp_local();
-        self.emit_source_execution_realm_to_local(prototype_local, function);
-        self.load_i64_to_local_from_offset(
-            prototype_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            prototype_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(prototype_local, offset, prototype_local, function);
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        self.release_temp_local(prototype_local);
+        realm.clear(function);
     }
 
-    pub(crate) fn emit_source_realm_function_context_payload(&mut self, function: &mut Function) {
-        let context_local = self.reserve_temp_local();
-        self.emit_source_execution_realm_to_local(context_local, function);
-        self.load_i64_to_local_from_offset(
-            context_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            context_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            context_local,
-            HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
-            context_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(context_local));
-        self.release_temp_local(context_local);
-    }
-
-    pub(crate) fn emit_install_dynamic_function_global_environment(
+    pub(crate) fn emit_source_realm_function_context_to_value(
         &mut self,
-        meta: &WasmFunctionMeta,
-        object_local: u32,
-        realm_local: u32,
+        result: &ValueLocals,
         function: &mut Function,
     ) {
-        assert!(
-            !meta.is_named_expression,
-            "dynamic function body cannot own a named-expression environment"
-        );
-        let global_environment_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
-            global_environment_local,
+        let realm = self.emit_source_execution_realm_to_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::FunctionPrototype,
+            result,
             function,
         );
-        if meta.has_function_context() {
-            let context_local = self.reserve_temp_local();
-            self.load_i64_to_local_from_offset(
-                object_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                context_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                context_local,
-                HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
-                global_environment_local,
-                function,
-            );
-            self.release_temp_local(context_local);
-        } else {
-            self.store_i64_local_at_offset(
-                object_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                global_environment_local,
-                function,
-            );
-        }
-        self.release_temp_local(global_environment_local);
+        realm.clear(function);
     }
 
-    pub(crate) fn emit_install_source_function_execution_realm(
+    pub(crate) fn emit_function_global_this_to_value(
         &mut self,
-        meta: &WasmFunctionMeta,
-        object_local: u32,
+        callable: &GcLocal<FunctionObject>,
+        result: &ValueLocals,
         function: &mut Function,
     ) {
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-        let prototype_local = self.reserve_temp_local();
-        let instance_prototype_local = self.reserve_temp_local();
-        self.emit_source_execution_realm_to_local(realm_local, function);
-        self.emit_store_function_defining_realm(object_local, realm_local, function);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        let (function_prototype_offset, function_prototype_tag, instance_prototype_offset) =
-            match meta.protocol.execution_kind() {
-                FunctionExecutionKind::Ordinary => (
-                    HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
-                    ValueKind::Function,
-                    meta.protocol
-                        .is_constructable()
-                        .then_some(HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET),
-                ),
-                FunctionExecutionKind::Generator => (
-                    HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
-                    ValueKind::Object,
-                    Some(HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET),
-                ),
-                FunctionExecutionKind::Async => (
-                    HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_PROTOTYPE_OFFSET,
-                    ValueKind::Object,
-                    None,
-                ),
-                FunctionExecutionKind::AsyncGenerator => (
-                    HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
-                    ValueKind::Object,
-                    Some(HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET),
-                ),
-            };
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            function_prototype_offset,
-            prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            function_prototype_tag.tag() as u64,
-            function,
-        );
-        if let Some(offset) = instance_prototype_offset {
-            self.load_i64_to_local_from_offset(intrinsics_local, offset, prototype_local, function);
-            self.load_i64_to_local_from_offset(
-                object_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                instance_prototype_local,
+        let schema = self.runtime_schema();
+        let context = schema
+            .reserve_gc_local::<crate::gc_types::FunctionContext, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<FunctionObject>()
+                    .field(crate::gc_types::FunctionObjectSchema::CONTEXT)
+                    .read(callable, schema, function)
+                    .reference(),
                 function,
             );
-            self.store_i64_local_at_offset(
-                instance_prototype_local,
-                HEAP_PROTOTYPE_OFFSET,
-                prototype_local,
+        let realm = schema
+            .reserve_gc_local::<RealmRecord, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<crate::gc_types::FunctionContext>()
+                    .field(crate::gc_types::FunctionContextSchema::REALM)
+                    .read(&context, schema, function)
+                    .reference(),
                 function,
             );
-        }
-        self.release_temp_local(instance_prototype_local);
-        self.release_temp_local(prototype_local);
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
-    }
-
-    pub(crate) fn emit_function_global_this_payload(
-        &mut self,
-        function_object_local: u32,
-        function: &mut Function,
-    ) {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_GLOBAL_THIS_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        self.release_temp_local(realm_local);
+        let stored = schema
+            .reserve_gc_local::<StoredValue, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<RealmRecord>()
+                    .field(RealmRecordSchema::GLOBAL_THIS)
+                    .read(&realm, schema, function)
+                    .reference()
+                    .require_non_null(function),
+                function,
+            );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, result, schema, function);
+        stored.clear(function);
+        realm.clear(function);
+        context.clear(function);
     }
 
     pub(crate) fn emit_initialize_main_global_lexicals(
@@ -345,269 +258,330 @@ impl FunctionBuilder<'_> {
         if !self.is_main() {
             return Ok(());
         }
-        let bindings = self
+        self.emit_validate_main_global_lexical_declarations(function)?;
+        let plan = self
             .script_global_bindings
             .expect("main global binding plan");
-        let lexicals = bindings.lexical_bindings().clone();
-        let environment_local = self.reserve_temp_local();
-        let entries_local = self.reserve_temp_local();
-        let cell_local = self.reserve_temp_local();
-        self.emit_source_global_environment_to_local(environment_local, function);
-        self.emit_heap_alloc_const(lexicals.len() as u64 * GLOBAL_LEXICAL_ENTRY_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(entries_local));
-        self.store_i64_local_at_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET,
-            entries_local,
+        let schema = self.runtime_schema();
+        let global = self.emit_source_global_environment_to_local(function);
+        let cells = self.resolve_env_handle_local(0, function);
+        self.emit_append_global_lexical_cells(
+            plan,
+            self.owned_env_bindings,
+            &global,
+            &cells,
             function,
-        );
-        self.store_i64_const_at_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_COUNT_OFFSET,
-            lexicals.len() as u64,
-            function,
-        );
-        for (index, (name, mode)) in lexicals.iter().enumerate() {
-            let offset = index as u64 * GLOBAL_LEXICAL_ENTRY_SIZE;
-            let slot = self
-                .owned_env_slot(name)
-                .expect("global lexical must own a cell");
-            self.store_i64_const_at_offset(
-                entries_local,
-                offset + GLOBAL_LEXICAL_KEY_OFFSET,
-                self.strings.payload(name) as u64,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(self.current_env_local));
-            function.instruction(&Instruction::I64Const(Self::env_slot_offset(slot, 0) as i64));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(cell_local));
-            self.store_i64_local_at_offset(
-                entries_local,
-                offset + GLOBAL_LEXICAL_CELL_OFFSET,
-                cell_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                entries_local,
-                offset + GLOBAL_LEXICAL_MUTABLE_OFFSET,
-                match mode {
-                    lila_ir::GlobalLexicalBindingModeIr::Mutable => 1,
-                    lila_ir::GlobalLexicalBindingModeIr::Immutable => 0,
-                },
-                function,
-            );
+        )?;
+        cells.clear(function);
+        global.clear(function);
+        Ok(())
+    }
+
+    /// Publish names that retain the already allocated static cells. Growing
+    /// this table never replaces a lexical cell held by an escaping closure.
+    pub(super) fn emit_append_global_lexical_cells<N: GcFieldNullability>(
+        &mut self,
+        plan: &lila_ir::GlobalBindingPlan,
+        bindings: &[OwnedEnvBindingIr],
+        global: &GcLocal<Environment, N>,
+        cells: &GcLocal<Environment, Nullable>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if plan.lexical_bindings().is_empty() {
+            return Ok(());
         }
-        self.release_temp_local(cell_local);
-        self.release_temp_local(entries_local);
-        self.release_temp_local(environment_local);
+        let schema = self.runtime_schema();
+        let old_entries = schema
+            .reserve_gc_local::<NamedBindingTable, Nullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<Environment>()
+                    .field(EnvironmentSchema::NAMED_BINDINGS)
+                    .read(global, schema, function)
+                    .reference(),
+                function,
+            );
+        let old_count = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        old_count.store(function);
+        old_entries.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .array_type::<NamedBindingTable>()
+            .length(&old_entries, schema, function);
+        old_count.store(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let new_count = schema.reserve_i32_local(function);
+        old_count.load(function);
+        function.instruction(&Instruction::I32Const(
+            i32::try_from(plan.lexical_bindings().len())
+                .expect("planned global name table fits Wasm array indices"),
+        ));
+        function.instruction(&Instruction::I32Add);
+        new_count.store(function);
+        let entries = schema
+            .reserve_gc_local::<NamedBindingTable, NonNullable>(function)
+            .initialize(
+                schema.array_type::<NamedBindingTable>().filled(
+                    GcOperand::null(schema),
+                    new_count,
+                    function,
+                ),
+                function,
+            );
+        let cursor = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        cursor.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        cursor.load(function);
+        old_count.load(function);
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::BrIf(1));
+        let entry = schema
+            .reserve_gc_local::<NamedBinding, Nullable>(function)
+            .initialize(
+                schema
+                    .array_type::<NamedBindingTable>()
+                    .read(&old_entries, cursor, schema, function)
+                    .reference(),
+                function,
+            );
+        schema.array_type::<NamedBindingTable>().write(
+            &entries,
+            cursor,
+            GcOperand::reference(&entry, schema),
+            schema,
+            function,
+        );
+        entry.clear(function);
+        cursor.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Add);
+        cursor.store(function);
+        function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        for name in plan.lexical_bindings().keys() {
+            let slot = bindings
+                .iter()
+                .find(|binding| &binding.name == name)
+                .unwrap_or_else(|| panic!("global lexical `{name}` must own its analyzed cell"))
+                .slot;
+            let key = schema
+                .reserve_gc_local::<StringValue, NonNullable>(function)
+                .initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+            let cell = self.emit_environment_cell_local(cells, slot, function);
+            let entry = schema
+                .reserve_gc_local::<NamedBinding, NonNullable>(function)
+                .initialize(
+                    schema.struct_type::<NamedBinding>().construct(
+                        (
+                            GcOperand::reference(&key, schema),
+                            GcOperand::reference(&cell, schema),
+                            GcOperand::boolean(false),
+                            GcOperand::boolean(true),
+                            GcOperand::boolean(true),
+                        ),
+                        function,
+                    ),
+                    function,
+                );
+            schema.array_type::<NamedBindingTable>().write(
+                &entries,
+                cursor,
+                GcOperand::nullable_reference(&entry, schema),
+                schema,
+                function,
+            );
+            entry.clear(function);
+            cell.clear(function);
+            key.clear(function);
+            cursor.load(function);
+            function.instruction(&Instruction::I32Const(1));
+            function.instruction(&Instruction::I32Add);
+            cursor.store(function);
+        }
+        schema
+            .struct_type::<Environment>()
+            .field(EnvironmentSchema::NAMED_BINDINGS)
+            .write(
+                global,
+                GcOperand::nullable_reference(&entries, schema),
+                schema,
+                function,
+            );
+        schema.release_i32_local(cursor, function);
+        entries.clear(function);
+        schema.release_i32_local(new_count, function);
+        schema.release_i32_local(old_count, function);
+        old_entries.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_global_lexical_entry_to_local(
         &mut self,
-        key_local: u32,
-        entry_local: u32,
+        key: &GcLocal<StringValue>,
+        entry: &GcLocal<NamedBinding, Nullable>,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(entry_local));
+        let schema = self.runtime_schema();
+        entry.set_null(schema, function);
         if !self.has_source_execution_environment() {
             return;
         }
-        let environment_local = self.reserve_temp_local();
-        let cursor_local = self.reserve_temp_local();
-        let remaining_local = self.reserve_temp_local();
-        let entry_key_local = self.reserve_temp_local();
-        self.emit_source_global_environment_to_local(environment_local, function);
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_ENTRIES_OFFSET,
-            cursor_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            environment_local,
-            GLOBAL_ENV_LEXICAL_COUNT_OFFSET,
-            remaining_local,
-            function,
-        );
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            cursor_local,
-            GLOBAL_LEXICAL_KEY_OFFSET,
-            entry_key_local,
-            function,
-        );
-        self.emit_string_payload_equality_i32(key_local, entry_key_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::LocalSet(entry_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(cursor_local));
-        function.instruction(&Instruction::I64Const(GLOBAL_LEXICAL_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(cursor_local));
-        function.instruction(&Instruction::LocalGet(remaining_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remaining_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(entry_key_local);
-        self.release_temp_local(remaining_local);
-        self.release_temp_local(cursor_local);
-        self.release_temp_local(environment_local);
+        let environment = self.emit_source_global_environment_to_local(function);
+        self.emit_find_own_named_binding(&environment, key, entry, function);
+        environment.clear(function);
     }
 
     pub(crate) fn emit_global_lexical_read(
         &mut self,
-        entry_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        entry: &GcLocal<NamedBinding, Nullable>,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let cell_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            GLOBAL_LEXICAL_CELL_OFFSET,
-            cell_local,
+        let schema = self.runtime_schema();
+        let cell = schema
+            .reserve_gc_local::<BindingCell, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<NamedBinding>()
+                    .field(NamedBindingSchema::CELL)
+                    .read(entry, schema, function)
+                    .reference(),
+                function,
+            );
+        let initialized = self.emit_read_environment_cell(&cell, value, function);
+        initialized.load(function);
+        schema.release_i32_local(initialized, function);
+        cell.clear(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_global_binding_error(
+            GlobalBindingFailure::BeforeInitialization,
+            value,
             function,
-        );
-        self.emit_read_environment_cell(cell_local, payload_local, tag_local, function);
-        self.emit_check_environment_cell_initialized(payload_local, tag_local, function)?;
-        self.release_temp_local(cell_local);
+        )?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
     pub(crate) fn emit_check_environment_cell_initialized(
         &mut self,
-        payload_local: u32,
-        tag_local: u32,
+        cell: &GcLocal<BindingCell>,
+        error: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ENV_SLOT_UNINITIALIZED_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        let schema = self.runtime_schema();
+        schema
+            .struct_type::<BindingCell>()
+            .field(BindingCellSchema::INITIALIZED)
+            .read(cell, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_global_binding_error(
             GlobalBindingFailure::BeforeInitialization,
-            payload_local,
-            tag_local,
+            error,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
     }
 
-    /// SetMutableBinding checks this binding's initialization before mutability.
-    /// An initialized import must not read an uninitialized exporter during a write.
+    /// SetMutableBinding checks the own importing cell before immutability;
+    /// it never observes an uninitialized exporter while rejecting an import write.
     pub(crate) fn emit_check_named_binding_initialized(
         &mut self,
-        entry_local: u32,
-        error_payload_local: u32,
-        error_tag_local: u32,
+        entry: &GcLocal<NamedBinding, Nullable>,
+        error: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            GLOBAL_LEXICAL_CELL_OFFSET,
-            error_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            error_tag_local,
-            ENV_SLOT_TAG_OFFSET,
-            error_tag_local,
-            function,
-        );
-        self.emit_check_environment_cell_initialized(error_payload_local, error_tag_local, function)
+        let schema = self.runtime_schema();
+        let cell = schema
+            .reserve_gc_local::<BindingCell, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<NamedBinding>()
+                    .field(NamedBindingSchema::CELL)
+                    .read(entry, schema, function)
+                    .reference(),
+                function,
+            );
+        self.emit_check_environment_cell_initialized(&cell, error, function)?;
+        cell.clear(function);
+        Ok(())
     }
 
     pub(crate) fn emit_global_lexical_write(
         &mut self,
-        entry_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        entry: &GcLocal<NamedBinding, Nullable>,
+        value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let cell_local = self.reserve_temp_local();
-        let previous_payload_local = self.reserve_temp_local();
-        let previous_tag_local = self.reserve_temp_local();
-        self.emit_check_named_binding_initialized(
-            entry_local,
-            previous_payload_local,
-            previous_tag_local,
-            function,
-        )?;
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            GLOBAL_LEXICAL_MUTABLE_OFFSET,
-            cell_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(cell_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_global_binding_error(
-            GlobalBindingFailure::Immutable,
-            previous_payload_local,
-            previous_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            previous_payload_local,
-            previous_tag_local,
-            function,
-        )?;
+        let schema = self.runtime_schema();
+        let cell = schema
+            .reserve_gc_local::<BindingCell, NonNullable>(function)
+            .initialize(
+                schema
+                    .struct_type::<NamedBinding>()
+                    .field(NamedBindingSchema::CELL)
+                    .read(entry, schema, function)
+                    .reference(),
+                function,
+            );
+        self.emit_check_environment_cell_initialized(&cell, value, function)?;
+        schema
+            .struct_type::<BindingCell>()
+            .field(BindingCellSchema::MUTABLE)
+            .read(&cell, schema, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_global_binding_error(GlobalBindingFailure::Immutable, value, function)?;
+        self.emit_propagate_current_throw_if_needed(function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            GLOBAL_LEXICAL_CELL_OFFSET,
-            cell_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            cell_local,
-            ENV_SLOT_PAYLOAD_OFFSET,
-            payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(cell_local, ENV_SLOT_TAG_OFFSET, tag_local, function);
-        self.release_temp_local(previous_tag_local);
-        self.release_temp_local(previous_payload_local);
-        self.release_temp_local(cell_local);
+        self.emit_write_environment_cell(&cell, value, function);
+        cell.clear(function);
         Ok(())
     }
 
     pub(crate) fn emit_throw_global_binding_error(
         &mut self,
         failure: GlobalBindingFailure,
-        payload_local: u32,
-        tag_local: u32,
+        error: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let (name, message) = match failure {
             GlobalBindingFailure::BeforeInitialization => (
-                REFERENCE_ERROR_NAME,
-                "lexical binding accessed before initialization",
+                NativeErrorKind::ReferenceError,
+                RuntimeErrorMessage::LEXICAL_BINDING_ACCESSED_BEFORE_INITIALIZATION,
             ),
-            GlobalBindingFailure::Immutable => (TYPE_ERROR_NAME, "assignment to constant binding"),
-            GlobalBindingFailure::Unresolvable => (REFERENCE_ERROR_NAME, "unbound identifier"),
-            GlobalBindingFailure::UnresolvableAssignment => {
-                (REFERENCE_ERROR_NAME, "assignment to unresolvable reference")
-            }
-            GlobalBindingFailure::NonConfigurableDelete => {
-                (TYPE_ERROR_NAME, "Cannot delete property")
-            }
+            GlobalBindingFailure::Immutable => (
+                NativeErrorKind::TypeError,
+                RuntimeErrorMessage::ASSIGNMENT_TO_CONSTANT_BINDING,
+            ),
+            GlobalBindingFailure::Unresolvable => (
+                NativeErrorKind::ReferenceError,
+                RuntimeErrorMessage::UNBOUND_IDENTIFIER,
+            ),
+            GlobalBindingFailure::UnresolvableAssignment => (
+                NativeErrorKind::ReferenceError,
+                RuntimeErrorMessage::ASSIGNMENT_TO_UNRESOLVABLE_REFERENCE,
+            ),
         };
-        self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)
+        self.emit_environment_native_error(name, message, error, function)
     }
 }

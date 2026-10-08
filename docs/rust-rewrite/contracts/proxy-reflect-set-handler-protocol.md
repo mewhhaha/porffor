@@ -90,7 +90,9 @@ is claimed.
 
 ## Explicit nonclaims
 
-This change does not migrate assignment or internal Set acquisition, generic
-Proxy `[[Get]]`, recursive Proxy target descriptor invariants, module namespace
-Set behavior, or the complete Proxy Set/Test262 tree. It retires no
-materializer and changes no published conformance count.
+This handler-acquisition checkpoint did not migrate assignment or internal
+Set acquisition, generic Proxy Get or module namespace Set behavior. The later
+[completed target source](proxy-target-descriptor-completion.md) now addresses
+the shared recursive target descriptor invariants with the existing set-path
+Realm authority; compilation and execution are pending. The complete Proxy
+Set/Test262 tree remains open, and no published conformance count changes.

@@ -54,7 +54,6 @@ fn module_link_error_has_one_private_owner_and_narrow_public_facade() {
     assert_eq!(LIB_SOURCE.matches("ModuleLinkErrorIr").count(), 1);
     assert!(OWNER_SOURCE.contains("use super::module_key::ModuleKey;"));
     assert!(!OWNER_SOURCE.contains("super::graph::ModuleKey"));
-    assert!(OWNER_SOURCE.contains("[`crate::ModuleEvaluationModeIr`]"));
     assert!(!OWNER_SOURCE.contains("allow(unused_imports)"));
 }
 
@@ -69,12 +68,12 @@ fn module_link_error_preserves_the_closed_eight_variant_domain() {
         code_without_whitespace(variants),
         "UnresolvedModule{referrer:ModuleUnitId,request:ModuleRequestKeyIr,},\
          MissingExport{referrer:ModuleUnitId,request:ModuleRequestIr,import_name:ExportName,},\
+         SourceUnavailable{referrer:ModuleUnitId,request:ModuleRequestIr,},\
          AmbiguousExport{module:ModuleUnitId,export_name:ExportName,},\
          DuplicateExport{module:ModuleUnitId,export_name:ExportName,},\
          InconsistentLoad{key:ModuleKey,},\
          InconsistentResolution{referrer:ModuleUnitId,request:ModuleRequestKeyIr,},\
-         TooManyUnits{count:usize,},\
-         UnsupportedPhase{module:ModuleUnitId,phase:ImportPhaseIr,reason:String,},}"
+         TooManyUnits{count:usize,},}"
     );
 }
 
@@ -115,13 +114,20 @@ fn module_link_error_keeps_exhaustive_code_message_and_diagnostic_projections() 
 #[test]
 fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
     assert_eq!(OWNER_SOURCE.matches("ModuleLinkErrorIr").count(), 2);
-    assert_eq!(GRAPH_SOURCE.matches("ModuleLinkErrorIr").count(), 9);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleLinkErrorIr").count(), 6);
+    assert_eq!(GRAPH_SOURCE.matches("ModuleLinkErrorIr").count(), 11);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleLinkErrorIr").count(), 12);
+    assert_eq!(
+        GRAPH_TESTS_SOURCE
+            .matches("ModuleLinkErrorIr::SourceUnavailable")
+            .count(),
+        6,
+        "source-phase graph fixtures retain their actual link rejection"
+    );
     assert_eq!(
         GRAPH_CLASSIFICATION_SOURCE
             .matches("ModuleLinkErrorIr")
             .count(),
-        3
+        0
     );
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleLinkErrorIr").count(), 4);
     assert_eq!(EARLY_SOURCE.matches("ModuleLinkErrorIr").count(), 2);
@@ -134,7 +140,7 @@ fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
     );
     assert_eq!(RECORD_SOURCE.matches("module_early_errors(").count(), 1);
     assert_eq!(LOWERING_SOURCE.matches("ModuleLinkErrorIr").count(), 0);
-    assert_eq!(ADMISSION_SOURCE.matches("ModuleLinkErrorIr").count(), 1);
+    assert_eq!(ADMISSION_SOURCE.matches("ModuleLinkErrorIr").count(), 2);
     assert_eq!(
         GRAPH_RESOLUTION_SOURCE
             .matches("pub fn resolve_export(")

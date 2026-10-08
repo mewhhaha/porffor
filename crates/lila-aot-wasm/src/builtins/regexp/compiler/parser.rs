@@ -4,29 +4,36 @@ use lila_ir::{
     REGEXP_CHARACTER_ESCAPES, REGEXP_DIGIT_RANGES, REGEXP_HEX_DIGIT_RANGES,
     REGEXP_LEGACY_THREE_DIGIT_OCTAL_LAST, REGEXP_OPCODE_ASSERT_END, REGEXP_OPCODE_ASSERT_START,
     REGEXP_OPCODE_DOT, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_WHITESPACE_RANGES, REGEXP_WORD_RANGES,
+    REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_WHITESPACE_RANGES,
+    REGEXP_WORD_RANGES,
 };
 
 mod atoms;
+mod completion;
+mod properties;
+pub(super) use completion::CompletedRegExpPattern;
 mod bitmap;
 mod classes;
 mod escapes;
+mod finite;
 mod groups;
 mod modifiers;
+mod names;
 mod primitives;
 mod quantifiers;
+mod unicode_sets;
 use modifiers::ModifierLocals;
 use primitives::*;
 
 struct ParserLocals {
-    group: u32,
-    sequence: u32,
-    term: u32,
-    address: u32,
-    unit: u32,
-    total_capture_count: u32,
-    has_named_capture: u32,
+    group: I64Local,
+    sequence: I64Local,
+    term: I64Local,
+    address: I64Local,
+    unit: I64Local,
+    total_capture_count: I64Local,
+    has_named_capture: I64Local,
     modifiers: ModifierLocals,
 }
 
@@ -34,22 +41,30 @@ impl FunctionBuilder<'_> {
     pub(super) fn emit_regexp_runtime_parse(
         &mut self,
         compiler: &CompilerLocals,
+        character_mode: &CompilerCharacterMode,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<CompletedRegExpPattern, EmitError> {
         let parser = ParserLocals {
-            group: self.reserve_temp_local(),
-            sequence: self.reserve_temp_local(),
-            term: self.reserve_temp_local(),
-            address: self.reserve_temp_local(),
-            unit: self.reserve_temp_local(),
-            total_capture_count: self.reserve_temp_local(),
-            has_named_capture: self.reserve_temp_local(),
+            group: self.runtime_schema().reserve_i64_local(function),
+            sequence: self.runtime_schema().reserve_i64_local(function),
+            term: self.runtime_schema().reserve_i64_local(function),
+            address: self.runtime_schema().reserve_i64_local(function),
+            unit: self.runtime_schema().reserve_i64_local(function),
+            total_capture_count: self.runtime_schema().reserve_i64_local(function),
+            has_named_capture: self.runtime_schema().reserve_i64_local(function),
             modifiers: ModifierLocals {
-                ignore_case: self.reserve_temp_local(),
-                multiline: self.reserve_temp_local(),
-                dot_all: self.reserve_temp_local(),
+                ignore_case: self.runtime_schema().reserve_i64_local(function),
+                multiline: self.runtime_schema().reserve_i64_local(function),
+                dot_all: self.runtime_schema().reserve_i64_local(function),
             },
         };
+        for local in [
+            compiler.name_count,
+            compiler.name_byte_length,
+            compiler.unique_name_count,
+        ] {
+            set(function, local, 0);
+        }
         self.emit_regexp_parser_capture_census(compiler, &parser, function);
         set(function, compiler.cursor, 0);
         set(function, parser.sequence, 0);
@@ -61,10 +76,10 @@ impl FunctionBuilder<'_> {
             parser.address,
             function,
         );
-        function.instruction(&Instruction::LocalGet(compiler.flags));
+        compiler.flags.load(function);
         function.instruction(&Instruction::I64Const(FLAG_IGNORE_CASE as i64));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(parser.modifiers.ignore_case));
+        parser.modifiers.ignore_case.store(function);
         for local in [parser.modifiers.multiline, parser.modifiers.dot_all] {
             set(
                 function,
@@ -83,8 +98,8 @@ impl FunctionBuilder<'_> {
         for (word, local) in parser.modifiers.words() {
             load(function, parser.address, word as u64, local);
         }
-        function.instruction(&Instruction::LocalGet(compiler.cursor));
-        function.instruction(&Instruction::LocalGet(compiler.unit_count));
+        compiler.cursor.load(function);
+        compiler.unit_count.load(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
         eq(function, parser.group, 1);
@@ -103,7 +118,7 @@ impl FunctionBuilder<'_> {
         eq(function, parser.unit, b'|' as u64);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_parser_finish_sequence(compiler, &parser, function);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         self.emit_regexp_parser_new_sequence(compiler, &parser, function);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
@@ -117,7 +132,7 @@ impl FunctionBuilder<'_> {
             function,
         );
         function.instruction(&Instruction::End);
-        self.emit_increment_local(compiler.cursor, 1, function);
+        self.emit_regexp_scratch_increment(compiler.cursor, 1, function);
         self.emit_regexp_parser_finish_group(compiler, &parser, function);
         copy(function, parser.term, parser.group);
         self.emit_regexp_node_address(compiler, parser.term, parser.address, function);
@@ -134,7 +149,7 @@ impl FunctionBuilder<'_> {
             NodeWord::Parent as u64,
             parser.group,
         );
-        self.emit_regexp_parser_quantifier(compiler, parser.term, function);
+        self.emit_regexp_parser_quantifier(compiler, character_mode, parser.term, function);
         self.emit_regexp_parser_finish_term(compiler, &parser, function);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
@@ -152,8 +167,8 @@ impl FunctionBuilder<'_> {
             function,
         );
         self.emit_regexp_parser_append(compiler, parser.sequence, parser.term, function);
-        self.emit_regexp_parser_atom(compiler, &parser, function);
-        self.emit_regexp_parser_quantifier(compiler, parser.term, function);
+        self.emit_regexp_parser_atom(compiler, character_mode, &parser, function);
+        self.emit_regexp_parser_quantifier(compiler, character_mode, parser.term, function);
         self.emit_regexp_parser_finish_term(compiler, &parser, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
@@ -170,8 +185,9 @@ impl FunctionBuilder<'_> {
             parser.sequence,
             parser.group,
         ] {
-            self.release_temp_local(local);
+            self.runtime_schema().release_i64_local(local, function);
         }
-        Ok(())
+        let captures = self.emit_regexp_complete_capture_inventory(compiler, function);
+        Ok(CompletedRegExpPattern::new(captures))
     }
 }

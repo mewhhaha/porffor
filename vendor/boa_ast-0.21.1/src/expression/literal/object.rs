@@ -1,18 +1,19 @@
 //! Object Expression.
 
 use crate::{
-    LinearPosition, LinearSpan, LinearSpanIgnoreEq, Span, Spanned, block_to_string,
+    block_to_string,
     expression::{
-        Expression, Identifier, RESERVED_IDENTIFIERS_STRICT,
         operator::assign::{AssignOp, AssignTarget},
+        Expression, Identifier, RESERVED_IDENTIFIERS_STRICT,
     },
     function::{FormalParameterList, FunctionBody},
     join_nodes,
-    operations::{ContainsSymbol, contains},
+    operations::{contains, ContainsSymbol},
     pattern::{ObjectPattern, ObjectPatternElement},
     property::{MethodDefinitionKind, PropertyName},
     scope::FunctionScopes,
     visitor::{VisitWith, Visitor, VisitorMut},
+    LinearPosition, LinearSpan, LinearSpanIgnoreEq, Span, Spanned,
 };
 use boa_interner::{Interner, Sym, ToIndentedString, ToInternedString};
 use core::{fmt::Write as _, ops::ControlFlow};
@@ -109,18 +110,18 @@ impl ObjectLiteral {
                             default_init: None,
                         });
                     }
-                    (PropertyName::Literal(name), Expression::ObjectLiteral(object)) => {
+                    (name, Expression::ObjectLiteral(object)) => {
                         let pattern = object.to_pattern(strict)?.into();
                         bindings.push(ObjectPatternElement::Pattern {
-                            name: PropertyName::Literal(*name),
+                            name: name.clone(),
                             pattern,
                             default_init: None,
                         });
                     }
-                    (PropertyName::Literal(name), Expression::ArrayLiteral(array)) => {
+                    (name, Expression::ArrayLiteral(array)) => {
                         let pattern = array.to_pattern(strict)?.into();
                         bindings.push(ObjectPatternElement::Pattern {
-                            name: PropertyName::Literal(*name),
+                            name: name.clone(),
                             pattern,
                             default_init: None,
                         });
@@ -131,27 +132,25 @@ impl ObjectLiteral {
                         }
                         match assign.lhs() {
                             AssignTarget::Identifier(ident) => {
-                                if let Some(name) = name.literal() {
-                                    if name.sym() == ident.sym() {
-                                        if strict && name == Sym::EVAL {
+                                if let Some(literal) = name.literal() {
+                                    if literal.sym() == ident.sym() {
+                                        if strict && literal == Sym::EVAL {
                                             return None;
                                         }
                                         if strict
-                                            && RESERVED_IDENTIFIERS_STRICT.contains(&name.sym())
+                                            && RESERVED_IDENTIFIERS_STRICT.contains(&literal.sym())
                                         {
                                             return None;
                                         }
                                     }
-                                    let mut init = assign.rhs().clone();
-                                    init.set_anonymous_function_definition_name(ident);
-                                    bindings.push(ObjectPatternElement::SingleName {
-                                        ident: *ident,
-                                        name: PropertyName::Literal(name),
-                                        default_init: Some(init),
-                                    });
-                                } else {
-                                    return None;
                                 }
+                                let mut init = assign.rhs().clone();
+                                init.set_anonymous_function_definition_name(ident);
+                                bindings.push(ObjectPatternElement::SingleName {
+                                    ident: *ident,
+                                    name: name.clone(),
+                                    default_init: Some(init),
+                                });
                             }
                             AssignTarget::Pattern(pattern) => {
                                 bindings.push(ObjectPatternElement::Pattern {

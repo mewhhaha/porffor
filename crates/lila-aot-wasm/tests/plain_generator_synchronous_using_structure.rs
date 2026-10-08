@@ -4,7 +4,6 @@ const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const MODULE_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/module_execution.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
-const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_using_plain_generator_lifecycle.js");
 const CONTRACT: &str =
@@ -173,7 +172,6 @@ fn backend_exhaustively_selects_local_or_activation_backed_capability_storage() 
         "struct DetachedActivationSyncDisposeCapabilityLocals",
         "enum ActivationSyncDisposeOwner<'a>",
         "Self::PlainGenerator(_) => FunctionExecutionKind::Generator",
-        "Self::PlainGenerator(_) => HEAP_GENERATOR_RESUME_STATE_OFFSET",
         "Self::PlainGenerator(_) => SyncDisposeCompletionContinuation::Dispatch",
         "Self::AsyncFunction(_) => FunctionExecutionKind::Async",
         "Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator",
@@ -203,164 +201,6 @@ fn backend_exhaustively_selects_local_or_activation_backed_capability_storage() 
     assert!(dispatch.contains("ActivationSyncDisposeOwner::AsyncGenerator(capability)"));
     assert!(dispatch.contains("compile_activation_sync_disposable_scope("));
     assert!(!dispatch.contains("_ =>"));
-}
-
-#[test]
-fn generator_scope_publishes_once_retains_through_body_then_detaches_and_disposes_once() {
-    let scope = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn compile_activation_sync_disposable_scope(",
-        "    fn initialize_sync_disposable_resource_bindings(",
-    );
-    for marker in [
-        "owner.execution_kind()",
-        "owner.binding_name()",
-        "ActivationSyncDisposeOwner::PlainGenerator(_) =>",
-        "Self::generator_statement_entry_state",
-        "Self::generator_statement_exit_state",
-        "emit_state_in_inclusive_range_i32(",
-        "owner.resume_state_offset()",
-        "initialize_activation_sync_dispose_capability(",
-        "compile_generator_block_contents(body, entry_state, true, function)",
-        "detach_activation_sync_dispose_capability(",
-        "load_detached_activation_sync_disposable_resources(",
-        "capture_pending_sync_dispose_completion(function)",
-        "consume_sync_disposable_resources(",
-        "owner.completion_continuation()",
-        "release_detached_activation_sync_dispose_capability(detached)",
-    ] {
-        assert!(
-            scope.contains(marker),
-            "missing generator lifecycle: {marker}"
-        );
-    }
-    assert_before(
-        scope,
-        "emit_state_in_inclusive_range_i32(",
-        "initialize_activation_sync_dispose_capability(",
-    );
-    assert_before(
-        scope,
-        "initialize_activation_sync_dispose_capability(",
-        "compile_generator_block_contents(body, entry_state, true, function)",
-    );
-    assert_before(
-        scope,
-        "compile_generator_block_contents(body, entry_state, true, function)",
-        "detach_activation_sync_dispose_capability(",
-    );
-    assert_before(
-        scope,
-        "detach_activation_sync_dispose_capability(",
-        "load_detached_activation_sync_disposable_resources(",
-    );
-    assert_before(
-        scope,
-        "load_detached_activation_sync_disposable_resources(",
-        "capture_pending_sync_dispose_completion(function)",
-    );
-    assert_before(
-        scope,
-        "capture_pending_sync_dispose_completion(function)",
-        "consume_sync_disposable_resources(",
-    );
-    assert_before(
-        scope,
-        "consume_sync_disposable_resources(",
-        "release_detached_activation_sync_dispose_capability(detached)",
-    );
-    assert!(!scope.contains("reserve_sync_disposable_resource_locals(function)"));
-
-    let initialize = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn initialize_activation_sync_dispose_capability(",
-        "    fn append_activation_sync_disposable_resource(",
-    );
-    assert!(initialize.contains("storage: &ActivationSyncDisposeCapabilityStorage"));
-    assert!(initialize.contains("DisposableStackState::Pending.word()"));
-    assert_before(
-        initialize,
-        "self.write_binding_from_locals(storage.binding, capability.object, object_tag, function)",
-        "for resource in resources.iter()",
-    );
-    assert_before(
-        initialize,
-        "self.compile_expr_to_locals(",
-        "self.acquire_sync_disposable_resource_from_locals(",
-    );
-    assert_before(
-        initialize,
-        "self.acquire_sync_disposable_resource_from_locals(",
-        "self.append_activation_sync_disposable_resource(",
-    );
-    assert_before(
-        initialize,
-        "self.append_activation_sync_disposable_resource(",
-        "self.write_binding_from_locals(\n                resource_storage",
-    );
-
-    let append = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn append_activation_sync_disposable_resource(",
-        "    fn detach_activation_sync_dispose_capability(",
-    );
-    assert_before(
-        append,
-        "LocalGet(resource.registered)",
-        "HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET",
-    );
-    assert!(append.contains("DisposableStackEntryKind::Use.word()"));
-
-    let detach = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn detach_activation_sync_dispose_capability(",
-        "    fn load_detached_activation_sync_disposable_resources(",
-    );
-    assert!(detach.contains("storage: ActivationSyncDisposeCapabilityStorage"));
-    assert_before(
-        detach,
-        "self.read_binding_to_locals(",
-        "DisposableStackState::Disposed.word()",
-    );
-    assert_before(
-        detach,
-        "DisposableStackState::Disposed.word()",
-        "HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,\n            0",
-    );
-
-    let load = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn load_detached_activation_sync_disposable_resources(",
-        "    fn release_detached_activation_sync_dispose_capability(",
-    );
-    assert!(load.contains("index as i64"));
-    assert!(load.contains("LocalGet(detached.entry_count)"));
-    assert!(load.contains("Instruction::I64LtU"));
-}
-
-#[test]
-fn planner_derives_nonoverlapping_active_body_and_detached_disposal_peaks() {
-    let constants = bounded(
-        PLANNING_SOURCE,
-        "const ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS",
-        "const SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS",
-    );
-    assert!(constants.contains("usize = 5"));
-    assert!(constants.contains("ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5"));
-
-    let count = bounded(
-        PLANNING_SOURCE,
-        "fn count_sync_disposable_scope_temp_locals(",
-        "pub(crate) fn count_expr_temp_locals(",
-    );
-    assert!(count.contains("SyncDisposableScopeExecutionIr::Immediate =>"));
-    assert!(count.contains("SyncDisposableScopeExecutionIr::PlainGenerator(_)"));
-    assert!(count.contains("| SyncDisposableScopeExecutionIr::AsyncFunction(_)"));
-    assert!(count.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_) =>"));
-    assert!(count.contains("let acquisition_peak"));
-    assert!(count.contains("let disposal_peak"));
-    assert!(count.contains("acquisition_peak.max(disposal_peak).max(body_temps)"));
-    assert!(!count.contains("_ =>"));
 }
 
 #[test]

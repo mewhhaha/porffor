@@ -150,7 +150,7 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         LINK_SOURCE
             .matches("use super::evaluation_mode::ModuleMaterializationModeIr;")
             .count(),
-        1
+        0
     );
     assert_eq!(
         NAMESPACE_SOURCE
@@ -162,13 +162,13 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         NAMESPACE_DEFINITION_SOURCE
             .matches("use super::evaluation_mode::ModuleMaterializationModeIr;")
             .count(),
-        1
+        0
     );
     assert_eq!(
         DEFAULT_EXPORT_DEFINITION_SOURCE
             .matches("use super::evaluation_mode::ModuleMaterializationModeIr;")
             .count(),
-        1
+        0
     );
     for source in [
         GRAPH_SOURCE,
@@ -192,7 +192,7 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
     );
     assert_eq!(
         LINK_SOURCE.matches("ModuleMaterializationModeIr").count(),
-        7
+        0
     );
     assert_eq!(
         NAMESPACE_SOURCE
@@ -204,13 +204,13 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         NAMESPACE_DEFINITION_SOURCE
             .matches("ModuleMaterializationModeIr")
             .count(),
-        2
+        0
     );
     assert_eq!(
         DEFAULT_EXPORT_DEFINITION_SOURCE
             .matches("ModuleMaterializationModeIr")
             .count(),
-        4
+        0
     );
     assert!(!DYNAMIC_SOURCE.contains("ModuleMaterializationModeIr"));
     assert_eq!(GRAPH_SOURCE.matches("ModuleEvaluationModeIr").count(), 5);
@@ -228,7 +228,7 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         CLASSIFICATION_SOURCE
             .matches("ModuleEvaluationModeIr")
             .count(),
-        6
+        5
     );
     assert_eq!(DYNAMIC_SOURCE.matches("ModuleEvaluationModeIr").count(), 2);
 }

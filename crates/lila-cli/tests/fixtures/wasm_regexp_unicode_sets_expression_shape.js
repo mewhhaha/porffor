@@ -140,8 +140,9 @@ check(escapedOperand.test("&"), false, "escaped ampersand intersection rejects a
 var escapedIntersection = new RegExp("[\\&&&\\&]", "v");
 check(escapedIntersection.test("&"), true, "escaped ampersands remain operands");
 
-// Legal class strings remain an explicit matcher capability gap, but their
-// construction must not be relabelled as a SyntaxError or rejected outright.
+// These legal class strings have finite literal sources and compile into
+// cached programs. They must construct successfully; they do not establish
+// support for uncached runtime class-string grammar.
 var legalUnsupportedPatterns = [
   "[\\q{a|b}]",
   "[\\q{|a||b|}]",

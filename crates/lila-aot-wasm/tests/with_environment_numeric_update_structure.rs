@@ -1,5 +1,33 @@
+use lila_front::{parse, ParseOptions};
+use lila_ir::{
+    lower, EnvironmentIdentifierOperationIr, EnvironmentIdentifierResolutionStart, ExprIr,
+    NumericUpdateOp, StatementIr, TypedExpr, UpdateReturnMode,
+};
+
+fn lower_control(source: &str) -> lila_ir::ProgramIr {
+    let parsed = parse(source, ParseOptions::script()).expect("Reference control parses");
+    let program = lower(&parsed);
+    assert!(
+        program.is_wasm_supported(),
+        "{source}: {:?}",
+        program.diagnostics
+    );
+    program
+}
+
+fn with_selection(statements: &[StatementIr]) -> Option<&TypedExpr> {
+    statements.iter().find_map(|statement| match statement {
+        StatementIr::Expression(expression)
+            if matches!(&expression.expr, ExprIr::Conditional { .. }) =>
+        {
+            Some(expression)
+        }
+        StatementIr::Block(block) => with_selection(&block.statements),
+        StatementIr::LexicalBlock(statements) => with_selection(statements),
+        _ => None,
+    })
+}
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_with_environment_numeric_update.js");
 const CONTRACT: &str = include_str!(
@@ -137,10 +165,12 @@ fn one_nonempty_noncopy_plan_owns_the_complete_numeric_update() {
     let plan_type = bounded(
         REFERENCE_SOURCE,
         "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]",
-        "/// One identifier Reference selected by the Global Environment Record's",
+        "\n}\n",
     );
     assert!(!plan_type.contains("Clone"));
     assert!(!plan_type.contains("Copy"));
+    assert!(!REFERENCE_SOURCE.contains("impl Clone for WithEnvironmentReferencePlan"));
+    assert!(!REFERENCE_SOURCE.contains("impl Copy for WithEnvironmentReferencePlan"));
     let plan_consumer = bounded(
         REFERENCE_SOURCE,
         "impl WithEnvironmentReferencePlan {",
@@ -261,122 +291,76 @@ fn selected_branch_orders_get_numeric_delta_put_and_result() {
 }
 
 #[test]
-fn lowering_spends_the_plan_for_all_four_closed_update_forms() {
-    let reachability = bounded(
-        LOWERING_SOURCE,
-        "enum IdentifierUpdateReachability {",
-        "impl LocatedIdentifierReference {",
-    );
-    assert!(reachability.contains("Definite"));
-    assert!(reachability.contains("WithEnvironmentFallback"));
-    assert!(!reachability.contains("_ =>"));
-
-    let update = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_update(&mut self, op: UpdateOp, target: &UpdateTarget) -> TypedExpr {",
-        "    fn lower_unary(&mut self, op: UnaryOp, target: &Expression) -> TypedExpr {",
-    );
-
-    for mapping in [
-        "UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix)",
-        "UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix)",
-        "UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix)",
-        "UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix)",
+fn with_updates_keep_object_selection_and_the_located_fallback_for_all_four_modes() {
+    for (source, expected_operation, expected_return) in [
+        (
+            "value++",
+            NumericUpdateOp::Increment,
+            UpdateReturnMode::Postfix,
+        ),
+        (
+            "++value",
+            NumericUpdateOp::Increment,
+            UpdateReturnMode::Prefix,
+        ),
+        (
+            "value--",
+            NumericUpdateOp::Decrement,
+            UpdateReturnMode::Postfix,
+        ),
+        (
+            "--value",
+            NumericUpdateOp::Decrement,
+            UpdateReturnMode::Prefix,
+        ),
     ] {
-        assert!(
-            update.contains(mapping),
-            "missing closed update mapping: {mapping}"
-        );
+        for (parameters, global_fallback) in [("scope", true), ("scope, value", false)] {
+            let program = lower_control(&format!(
+                "function mutate({parameters}) {{ with (scope) {{ {source}; }} }}"
+            ));
+            let function = program
+                .script
+                .as_ref()
+                .expect("script IR")
+                .functions
+                .iter()
+                .find(|function| function.name == "mutate")
+                .expect("With owner");
+            let ExprIr::Conditional {
+                then_expr,
+                else_expr,
+                ..
+            } = &with_selection(&function.body.statements)
+                .expect("With HasBinding remains the outer selection")
+                .expr
+            else {
+                unreachable!()
+            };
+            assert!(
+                matches!(&then_expr.expr, ExprIr::MaterializeBinding { .. }),
+                "selected object keeps its Get/Put lifecycle"
+            );
+            if global_fallback {
+                let ExprIr::EnvironmentIdentifier(reference) = &else_expr.expr else {
+                    panic!("global fallback must retain the Global Record: {else_expr:?}");
+                };
+                assert_eq!(reference.name, "value");
+                assert_eq!(
+                    reference.resolution_start(),
+                    EnvironmentIdentifierResolutionStart::GlobalEnvironment
+                );
+                assert!(
+                    matches!(&reference.operation, EnvironmentIdentifierOperationIr::Update { operation, return_mode }
+                    if *operation == expected_operation && *return_mode == expected_return)
+                );
+            } else {
+                assert!(
+                    matches!(&else_expr.expr, ExprIr::UpdateIdentifier { name, op, return_mode, value_kind: lila_ir::NumericUpdateValueKind::Dynamic }
+                    if name == "value" && *op == expected_operation && *return_mode == expected_return)
+                );
+            }
+        }
     }
-    assert!(update.contains(".with_environment_chain"));
-    assert!(update.contains(".select_preceding("));
-    assert!(update.contains("self.with_environment_reference_plan("));
-    assert!(update.contains("NumericUpdateBindings::allocate("));
-    assert!(update.contains("self.alloc_temp_binding_name(prefix)"));
-    assert!(update.contains("plan.numeric_update("));
-    assert!(update.contains("IdentifierUpdateReachability::WithEnvironmentFallback"));
-    assert!(update.contains("IdentifierUpdateReachability::Definite"));
-    assert!(!update.contains("_ =>"));
-
-    let fallback = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_located_identifier_numeric_update(",
-        "    fn lower_unary(&mut self, op: UnaryOp, target: &Expression) -> TypedExpr {",
-    );
-    assert_eq!(
-        fallback
-            .matches("IdentifierUpdateReachability::WithEnvironmentFallback =>")
-            .count(),
-        8,
-    );
-    assert_eq!(
-        fallback.matches("NumericUpdateValueKind::Dynamic").count(),
-        7,
-    );
-    assert_eq!(
-        fallback.matches("widen_for_possible_replacement()").count(),
-        3,
-    );
-    assert!(!fallback.contains("self.merge_value_infos("));
-    assert!(fallback
-        .contains("if reachability == IdentifierUpdateReachability::WithEnvironmentFallback"));
-    assert!(fallback.contains("if let Some(info) = self.global_properties.get_mut(&name)"));
-    assert!(fallback.contains("info.value_info.widen_for_possible_replacement();"));
-    assert!(fallback.contains("if info.configurable"));
-    assert!(fallback.contains("info.proven_present = false;"));
-    assert_before(
-        fallback,
-        "info.value_info.widen_for_possible_replacement();",
-        "info.proven_present = false;",
-    );
-    assert_eq!(fallback.matches("ExprIr::RuntimeThrow {").count(), 1);
-    assert_eq!(
-        fallback
-            .matches("name: NativeErrorKind::ReferenceError")
-            .count(),
-        1,
-    );
-    assert_eq!(
-        fallback
-            .matches("message: \"unbound identifier in with scope\"")
-            .count(),
-        1,
-    );
-    let proven_global = bounded(
-        fallback,
-        "        } else if self.global_property_is_proven_present(&name) {",
-        "        } else {\n            match reachability {",
-    );
-    assert!(proven_global.contains("(None, NumericUpdateValueKind::Dynamic)"));
-    assert!(!proven_global.contains("RuntimeThrow"));
-
-    let guarded_global = bounded(
-        LOWERING_SOURCE,
-        "        let strictness = self.reference_strictness();\n        if let Some(storage_name) = binding_storage_name {",
-        "    fn lower_unary(&mut self, op: UnaryOp, target: &Expression) -> TypedExpr {",
-    );
-    assert!(guarded_global.contains("ExprIr::GlobalPropertyUpdate"));
-    assert!(guarded_global.contains("IdentifierUpdateReachability::Definite => update"));
-    assert!(guarded_global.contains("IdentifierUpdateReachability::WithEnvironmentFallback => {"));
-    assert!(guarded_global.contains("let present = TypedExpr::spec_has_property("));
-    assert!(guarded_global.contains("ExprIr::Identifier(GLOBAL_THIS_NAME.to_string())"));
-    assert!(guarded_global.contains("ExprIr::RuntimeThrow {"));
-    assert_before(
-        guarded_global,
-        "let present = TypedExpr::spec_has_property(",
-        "ExprIr::Conditional {",
-    );
-    assert_before(
-        guarded_global,
-        "condition: Box::new(present)",
-        "then_expr: Box::new(update)",
-    );
-    assert_before(
-        guarded_global,
-        "then_expr: Box::new(update)",
-        "else_expr: Box::new(missing)",
-    );
-    assert!(!fallback.contains("_ =>"));
 }
 
 #[test]
@@ -430,5 +414,6 @@ fn consumer_and_exact_current_pin_inventory_cover_the_durable_contract() {
     assert!(CONTRACT.contains("unscopables-inc-dec.js"));
     assert!(CONTRACT.contains("Property-reference updates, compound assignment"));
     assert!(CONTRACT.contains("Static post-expression metadata becomes fully Dynamic"));
-    assert!(CONTRACT.contains("loses its static `proven_present` fact"));
+    let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(contract_words.contains("loses its static `proven_present` fact"));
 }

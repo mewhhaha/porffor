@@ -7,6 +7,7 @@ pub enum PreparedScriptKind {
     DirectEval(crate::DirectEvalContextIr),
     RealmScript,
     IndirectEval,
+    ShadowRealmEvaluate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,6 +41,7 @@ pub enum PreparedScriptOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedScriptUnit {
+    pub template_source: Option<crate::TemplateSourceIr>,
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
     pub id: StaticScriptId,
     pub kind: PreparedScriptKind,
@@ -55,7 +57,9 @@ impl PreparedScriptUnit {
     pub const fn has_global_variable_environment(&self) -> bool {
         match &self.kind {
             PreparedScriptKind::RealmScript => true,
-            PreparedScriptKind::IndirectEval => !self.strict,
+            PreparedScriptKind::IndirectEval | PreparedScriptKind::ShadowRealmEvaluate => {
+                !self.strict
+            }
             PreparedScriptKind::DirectEval(_) => false,
         }
     }
@@ -109,7 +113,9 @@ impl ScriptInstantiation {
             Self::FreshEntry
             | Self::ModuleAfterGlobalScript
             | Self::Prepared(PreparedScriptKind::RealmScript) => true,
-            Self::Prepared(PreparedScriptKind::IndirectEval) => !strict,
+            Self::Prepared(
+                PreparedScriptKind::IndirectEval | PreparedScriptKind::ShadowRealmEvaluate,
+            ) => !strict,
             Self::Prepared(PreparedScriptKind::DirectEval(_)) => false,
         }
     }

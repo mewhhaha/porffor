@@ -75,36 +75,13 @@ fn each_named_attribute_method_owns_one_explicit_presence_value() {
 }
 
 #[test]
-fn module_namespace_source_renders_only_the_complete_module_source_tag_descriptor() {
-    // Namespace exports are no longer `Object.defineProperty` accessors: the
-    // namespace cell is a linker-recognized export-reader table and the module
-    // namespace exotic object owns the writable/enumerable/non-configurable
-    // export attributes. The one descriptor this file still renders is the
-    // module source object's `@@toStringTag`, a complete data descriptor whose
-    // attributes are 6.2.6.6 defaults rather than per-call selections.
+fn module_namespace_source_has_no_ordinary_source_object_descriptor() {
+    // Canonical namespace exotic objects own their attributes. Source Text
+    // Modules reject source imports; no ordinary tag descriptor substitutes.
     assert_eq!(
         NAMESPACE_SOURCE.matches("DescriptorSourceText::").count(),
-        1
+        0
     );
-    let to_string_tag = bounded(
-        NAMESPACE_SOURCE,
-        "fn module_source_object_source(module: ModuleUnitId) -> String {",
-        "pub const MODULE_SOURCE_TO_STRING_TAG: &str = \"Module Source\";",
-    );
-    assert!(code_without_whitespace(to_string_tag)
-        .contains("&DescriptorSourceText::data().value(to_string_tag).complete().render(),"));
-    assert!(!NAMESPACE_SOURCE.contains("DescriptorSourceText::accessor()"));
-    for selection in [
-        ".enumerable()",
-        ".non_enumerable()",
-        ".configurable()",
-        ".non_configurable()",
-        ".writable()",
-        ".non_writable()",
-    ] {
-        assert!(!NAMESPACE_SOURCE.contains(selection), "{selection}");
-    }
-
     // The exotic object's attributes stay labelled at their new owner: one
     // export shape and one `@@toStringTag` shape, each spelled by field name.
     let backend = code_without_whitespace(BACKEND_NAMESPACE_SOURCE);

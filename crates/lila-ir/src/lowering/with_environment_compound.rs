@@ -48,10 +48,9 @@ impl<'a> ScriptLowerer<'a> {
 
         if let Some(binding) = binding {
             let storage_name = binding.storage_name.clone();
-            if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
+            if self.is_unshadowed_script_global_binding(&name) {
                 self.widen_binding_for_possible_replacement(&name);
-                return self
-                    .lower_global_object_environment_eager_compound_assignment(name, op, rhs);
+                return self.lower_global_identifier_eager_compound_assignment(name, op, rhs);
             }
 
             let lhs = TypedExpr::from_info(
@@ -73,32 +72,55 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
 
-        self.lower_global_object_environment_eager_compound_assignment(name, op, rhs)
+        self.lower_global_identifier_eager_compound_assignment(name, op, rhs)
     }
 
-    pub(super) fn lower_global_object_environment_eager_compound_assignment(
+    pub(super) fn lower_global_identifier_eager_compound_assignment(
         &mut self,
         name: String,
         op: EagerCompoundAssignmentOp,
         rhs: TypedExpr,
     ) -> TypedExpr {
-        self.record_caller_flow_invalidation();
-        if self.is_unshadowed_script_global_binding(&name) {
-            self.widen_binding_for_possible_replacement(&name);
-        }
-        if let Some(info) = self.global_properties.get_mut(&name) {
-            info.value_info.widen_for_possible_replacement();
-            if info.configurable {
-                info.proven_present = false;
+        // The operator may call ToPrimitive/ToNumeric after the RHS. Do
+        // not publish object-property facts: this Global Record can delegate
+        // to a lexical installed by Get, the RHS, or coercion.
+        self.observe_all_planned_source_as_unknown_property_hooks();
+        self.invalidate_unknown_user_code_effects();
+        let operation = op.environment_operation();
+        let numeric =
+            KindSet::from_kind(ValueKind::Number).union(KindSet::from_kind(ValueKind::BigInt));
+        let possible_kinds = match operation {
+            EnvironmentCompoundOperationIr::Add => {
+                numeric.union(KindSet::from_kind(ValueKind::String))
             }
-        }
-        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
-            self.alloc_temp_binding_name(prefix)
-        });
-        let applied = op.apply(bindings.old_value(), rhs);
-        let strictness = self.reference_strictness();
-        GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)
-            .compound_assignment(bindings.seal(applied))
+            EnvironmentCompoundOperationIr::Arithmetic(_) => numeric,
+            EnvironmentCompoundOperationIr::Bitwise(BitwiseBinaryOp::UShr) => {
+                KindSet::from_kind(ValueKind::Number)
+            }
+            EnvironmentCompoundOperationIr::Bitwise(
+                BitwiseBinaryOp::And
+                | BitwiseBinaryOp::Or
+                | BitwiseBinaryOp::Xor
+                | BitwiseBinaryOp::Shl
+                | BitwiseBinaryOp::Shr,
+            ) => numeric,
+        };
+        TypedExpr::from_info(
+            ValueInfo {
+                kind: possible_kinds.as_value_kind(),
+                possible_kinds,
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            },
+            ExprIr::EnvironmentIdentifier(Box::new(EnvironmentIdentifierIr::global(
+                name,
+                self.reference_strictness(),
+                EnvironmentIdentifierOperationIr::EagerCompound {
+                    operation,
+                    rhs: Box::new(rhs),
+                },
+            ))),
+        )
     }
 }
 

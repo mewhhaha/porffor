@@ -55,6 +55,12 @@ use super::{BuiltInBuilder, BuiltInConstructor, IntrinsicObject};
 #[boa_gc(empty_trace)]
 #[non_exhaustive]
 pub enum ErrorKind {
+    /// An engine limit, retained when a native failure becomes an opaque value.
+    /// JavaScript Error constructors cannot create this brand.
+    RuntimeLimit,
+    /// The `SuppressedError` object type. Keep its immutable native brand
+    /// distinct even though the legacy native-error conversion is lossy.
+    Suppressed,
     /// The `AggregateError` object type.
     ///
     /// More information:
@@ -142,6 +148,12 @@ pub struct Error {
 }
 
 impl Error {
+    /// Read the engine's native Error brand without converting the thrown value
+    /// or evaluating its message/cause/constructor properties.
+    pub const fn kind(&self) -> ErrorKind {
+        self.tag
+    }
+
     /// Create a new [`Error`].
     #[inline]
     #[must_use]

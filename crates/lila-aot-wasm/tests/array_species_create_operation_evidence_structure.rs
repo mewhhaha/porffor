@@ -5,10 +5,15 @@ use lila_ir::{
 };
 
 const CALLBACK_ITERATION_SOURCE: &str = include_str!("../src/builtins/array/callback_iteration.rs");
+const FLAT_SOURCE: &str = include_str!("../src/builtins/array/flat.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const BACKEND_JOIN_SOURCE: &str = include_str!("../src/backend_operation_evidence.rs");
 const BACKEND_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const OPERATIONS_SOURCE: &str = include_str!("../../lila-ir/src/operations.rs");
+const TYPED_ARRAY_SPECIES_SOURCE: &str =
+    include_str!("../src/objects/typed_array_species_create.rs");
+const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+
 const SPECIES_READ: &str = "property_key_symbol_payload(\"Symbol.species\")";
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -112,7 +117,7 @@ fn backend_operation_join_is_exhaustive_and_names_the_real_emitter() {
 }
 
 #[test]
-fn array_species_create_emitter_has_map_filter_flat_map_slice_and_splice_callers() {
+fn array_species_create_emitter_has_all_seven_array_callers() {
     assert_eq!(
         ARRAY_SOURCE
             .matches("pub(crate) fn emit_array_species_create(")
@@ -121,7 +126,14 @@ fn array_species_create_emitter_has_map_filter_flat_map_slice_and_splice_callers
     );
     assert_eq!(
         ARRAY_SOURCE.matches("emit_array_species_create(").count(),
-        4
+        5
+    );
+
+    assert_eq!(
+        FLAT_SOURCE
+            .matches("self.emit_array_species_create(")
+            .count(),
+        1
     );
 
     assert_eq!(
@@ -153,34 +165,32 @@ fn array_species_create_emitter_has_map_filter_flat_map_slice_and_splice_callers
     let splice = bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn compile_array_prototype_splice_builtin(",
-        "    pub(crate) fn emit_array_splice_from_array_method_call(",
+        "    pub(crate) fn compile_array_prototype_includes_builtin(",
     );
     assert_eq!(slice.matches("self.emit_array_species_create(").count(), 1);
     assert_eq!(splice.matches("self.emit_array_species_create(").count(), 1);
 }
 
 #[test]
-fn symbol_species_reads_remain_a_reviewed_six_site_census() {
-    assert_eq!(ARRAY_SOURCE.matches(SPECIES_READ).count(), 6);
+fn symbol_species_reads_have_one_array_owner_and_one_typed_array_owner() {
+    assert_eq!(ARRAY_SOURCE.matches(SPECIES_READ).count(), 1);
+    assert_eq!(TYPED_ARRAY_SPECIES_SOURCE.matches(SPECIES_READ).count(), 1);
 
-    let live_array_copies = [
-        (
-            "    pub(crate) fn compile_array_prototype_flat_builtin(",
-            "    pub(crate) fn emit_flat_append_depth_one_value(",
-        ),
-        (
-            "    pub(crate) fn compile_array_prototype_concat_builtin(",
-            "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
-        ),
-    ];
-    assert_eq!(live_array_copies.len(), 2);
-    for (start, end) in live_array_copies {
-        assert_eq!(
-            bounded(ARRAY_SOURCE, start, end)
-                .matches(SPECIES_READ)
-                .count(),
-            1
-        );
+    assert_eq!(FLAT_SOURCE.matches(SPECIES_READ).count(), 0);
+    assert_eq!(
+        FLAT_SOURCE
+            .matches("self.emit_array_species_create(")
+            .count(),
+        1
+    );
+    let migrated_array_callers = [(
+        "    pub(crate) fn compile_array_prototype_concat_builtin(",
+        "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
+    )];
+    for (start, end) in migrated_array_callers {
+        let caller = bounded(ARRAY_SOURCE, start, end);
+        assert_eq!(caller.matches(SPECIES_READ).count(), 0);
+        assert_eq!(caller.matches("self.emit_array_species_create(").count(), 1);
     }
 
     let typed_array_copies = [
@@ -199,13 +209,27 @@ fn symbol_species_reads_remain_a_reviewed_six_site_census() {
     ];
     assert_eq!(typed_array_copies.len(), 3);
     for (start, end) in typed_array_copies {
+        let caller = bounded(ARRAY_SOURCE, start, end);
+        assert_eq!(caller.matches(SPECIES_READ).count(), 0);
         assert_eq!(
-            bounded(ARRAY_SOURCE, start, end)
-                .matches(SPECIES_READ)
+            caller
+                .matches("self.emit_typed_array_species_create_with_length(")
                 .count(),
             1
         );
     }
+    let subarray = bounded(
+        STANDARD_SOURCE,
+        "StandardBuiltinId::TypedArrayPrototypeSubarray => {",
+        "StandardBuiltinId::DateNow => {",
+    );
+    assert_eq!(subarray.matches(SPECIES_READ).count(), 0);
+    assert_eq!(
+        subarray
+            .matches("self.emit_typed_array_subarray_species_create(")
+            .count(),
+        1
+    );
 
     let array_quantifiers = [
         (

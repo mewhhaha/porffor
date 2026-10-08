@@ -1,0 +1,2340 @@
+{
+  "algorithm": "locale-calendars-cldr47-v1",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "cldr_release": "47.0.0",
+  "primary_manifest_sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5",
+  "primary_source_sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4",
+  "regions": [
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "001"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "002"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "003"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "005"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "009"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "011"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "013"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "014"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "015"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "017"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "018"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "019"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "021"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "029"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "030"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "034"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "035"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "039"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "053"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "054"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "057"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "061"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "142"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "143"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "145"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "150"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "151"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "154"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "155"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "202"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "419"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AC"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AD"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "AE"
+    },
+    {
+      "calendars": [
+        "persian",
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "AF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AI"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "AL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AQ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "AX"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "AZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BB"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "BD"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BG"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "BH"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BJ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BQ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BV"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BY"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "BZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CC"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CD"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CH"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "region": "CN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CP"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CQ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CV"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CW"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "region": "CX"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CY"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "CZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "DE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "DG"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "DJ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "DK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "DM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "DO"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "DZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "EA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "EC"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "EE"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "coptic",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "EG"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "EH"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "ER"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ES"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "ethiopic"
+      ],
+      "region": "ET"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "EU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "EZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "FI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "FJ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "FK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "FM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "FO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "FR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GB"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GD"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GH"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GP"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GQ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "GY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "region": "HK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "HM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "HN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "HR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "HT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "HU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "IC"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "ID"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "IE"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "hebrew",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "IL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "IM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "indian"
+      ],
+      "region": "IN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "IO"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "IQ"
+    },
+    {
+      "calendars": [
+        "persian",
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "IR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "IS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "IT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "JE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "JM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "JO"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "japanese"
+      ],
+      "region": "JP"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KH"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KI"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "KM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KP"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "dangi"
+      ],
+      "region": "KR"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "KW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KY"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "KZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LA"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "LB"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LC"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "LV"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "LY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "MA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MC"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MD"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ME"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MH"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ML"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MN"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "region": "MO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MP"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MQ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "MR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MU"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "MV"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MX"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "MY"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "MZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NC"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "NE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NP"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "NZ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "OM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PH"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "PK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PR"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "PS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "PY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "QA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "QO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "RE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "RO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "RS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "RU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "RW"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-rgsa"
+      ],
+      "region": "SA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SB"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SC"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "SD"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SE"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "region": "SG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SH"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SJ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SL"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SO"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SS"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ST"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SV"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SX"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "SY"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "SZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TC"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "TD"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TG"
+    },
+    {
+      "calendars": [
+        "buddhist",
+        "gregory"
+      ],
+      "region": "TH"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "TJ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TK"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TL"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "TM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "TN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TO"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "TR"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TV"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "roc",
+        "chinese"
+      ],
+      "region": "TW"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "TZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "UA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "UG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "UM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "UN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "US"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "UY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "UZ"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VC"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VG"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VI"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VN"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "VU"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "WF"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "WS"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "XK"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "region": "YE"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "YT"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ZA"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ZM"
+    },
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "region": "ZW"
+    }
+  ],
+  "schema": 1,
+  "selectors": [
+    {
+      "calendars": [
+        "gregory"
+      ],
+      "selector": "001"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "AE"
+    },
+    {
+      "calendars": [
+        "persian",
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "AF"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "AL"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "AZ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "BD"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "BH"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "selector": "CN"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "selector": "CX"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "DJ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "DZ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "coptic",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "EG"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "EH"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "ER"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "ethiopic"
+      ],
+      "selector": "ET"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "selector": "HK"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "ID"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "hebrew",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "IL"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "indian"
+      ],
+      "selector": "IN"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "IQ"
+    },
+    {
+      "calendars": [
+        "persian",
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "IR"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "JO"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "japanese"
+      ],
+      "selector": "JP"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "KM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "dangi"
+      ],
+      "selector": "KR"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "KW"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "LB"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "LY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "MA"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "selector": "MO"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "MR"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "MV"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "MY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "NE"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "OM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "PK"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "PS"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "QA"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-umalqura",
+        "islamic",
+        "islamic-rgsa"
+      ],
+      "selector": "SA"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "SD"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "chinese"
+      ],
+      "selector": "SG"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "SY"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "TD"
+    },
+    {
+      "calendars": [
+        "buddhist",
+        "gregory"
+      ],
+      "selector": "TH"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "TJ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "TM"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "TN"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "TR"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "roc",
+        "chinese"
+      ],
+      "selector": "TW"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "UZ"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "XK"
+    },
+    {
+      "calendars": [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla"
+      ],
+      "selector": "YE"
+    }
+  ]
+}

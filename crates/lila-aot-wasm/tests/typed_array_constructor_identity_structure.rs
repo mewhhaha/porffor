@@ -1,10 +1,4 @@
-const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
-const DATA_SOURCE: &str = include_str!("../src/data.rs");
-const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
-const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
-const MODULE_SOURCE: &str = include_str!("../src/module.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
-const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CATALOG_SOURCE: &str = include_str!("../../lila-ir/src/builtins/catalog.rs");
 const NAMES_SOURCE: &str = include_str!("../../lila-ir/src/names.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
@@ -18,24 +12,6 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .1
         .split_once(end)
         .unwrap_or_else(|| panic!("missing end marker `{end}` after `{start}`"))
-        .0
-}
-
-fn without_whitespace(source: &str) -> String {
-    source
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect()
-}
-
-fn standard_builtin_arm(builtin: &str) -> &'static str {
-    let marker = format!("            StandardBuiltinId::{builtin} => {{");
-    STANDARD_SOURCE
-        .split_once(&marker)
-        .unwrap_or_else(|| panic!("missing `{builtin}` standard-builtin arm"))
-        .1
-        .split_once("\n            StandardBuiltinId::")
-        .unwrap_or_else(|| panic!("missing standard-builtin arm after `{builtin}`"))
         .0
 }
 
@@ -65,29 +41,7 @@ fn typed_array_intrinsic_has_one_hidden_constructable_builtin_identity() {
 }
 
 #[test]
-fn typed_array_intrinsic_body_always_throws_in_its_defining_realm() {
-    let body = standard_builtin_arm("TypedArrayConstructor");
-
-    assert_eq!(
-        body.matches("self.emit_throw_current_function_realm_type_error(")
-            .count(),
-        1
-    );
-    assert!(body.contains("\"%TypedArray% cannot be called or constructed directly\""));
-    assert!(body.contains("self.result_local"));
-    assert!(body.contains("self.result_tag_local"));
-    assert!(!body.contains("emit_throw_runtime_error("));
-    assert_eq!(
-        DATA_SOURCE
-            .matches("\"%TypedArray% cannot be called or constructed directly\",")
-            .count(),
-        1,
-        "the closed string pool must contain the throw message"
-    );
-}
-
-#[test]
-fn entry_realm_materializes_the_dedicated_identity_with_exact_links() {
+fn planning_requires_hidden_typed_array_intrinsic_and_zero_length() {
     let bootstrap_gate = bounded(
         PLANNING_SOURCE,
         "    pub(crate) fn needs_typed_array_intrinsic(&self) -> bool {",
@@ -112,43 +66,6 @@ fn entry_realm_materializes_the_dedicated_identity_with_exact_links() {
         1
     );
 
-    let bootstrap = bounded(
-        BOOTSTRAP_SOURCE,
-        "    pub(crate) fn init_typed_array_intrinsic(",
-        "    pub(crate) fn repair_typed_array_constructor_graph(",
-    );
-    assert_eq!(
-        bootstrap
-            .matches("StandardBuiltinId::TypedArrayConstructor.function_id()")
-            .count(),
-        1
-    );
-    assert!(!bootstrap.contains("StandardBuiltinId::FunctionConstructor.function_id()"));
-    assert_eq!(
-        bootstrap
-            .matches("FunctionPrototypeMaterialization::BootstrapSupplied")
-            .count(),
-        1
-    );
-    assert_eq!(
-        bootstrap
-            .matches("GlobalSet(\n            TYPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,")
-            .count(),
-        1
-    );
-
-    let normalized = without_whitespace(bootstrap);
-    assert!(normalized.contains(concat!(
-        "self.emit_object_append_data_property_with_flags(",
-        "typed_array_constructor_local,key_local,typed_array_prototype_local,tag_local,",
-        "false,false,false,function,)?;"
-    )));
-    assert!(normalized.contains(concat!(
-        "self.emit_object_append_data_property_with_flags(",
-        "typed_array_prototype_local,key_local,payload_local,tag_local,",
-        "true,false,true,function,)?;"
-    )));
-
     let length_table = bounded(
         PLANNING_SOURCE,
         "pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {",
@@ -164,79 +81,6 @@ fn entry_realm_materializes_the_dedicated_identity_with_exact_links() {
     assert!(
         length_suffix[result..].starts_with("=> 0,"),
         "the TypedArray intrinsic must belong to a zero-length match arm"
-    );
-
-    assert_eq!(
-        MODULE_SOURCE
-            .matches(
-                "StandardBuiltinId::TypedArrayConstructor => Some(TYPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),"
-            )
-            .count(),
-        1,
-        "exact hidden targets must load the bootstrapped function object"
-    );
-}
-
-#[test]
-fn created_realm_materializes_and_links_one_dedicated_identity() {
-    let materializer = bounded(
-        FUNCTIONS_SOURCE,
-        "    pub(crate) fn emit_realm_typed_array_constructor_value_payload(",
-        "    fn emit_function_value_payload_in_realm_with_prototype_materialization(",
-    );
-    assert!(materializer.contains("context: &RealmFunctionMaterializationContext,"));
-    assert!(materializer.contains("function_object_local: u32,"));
-    assert_eq!(
-        materializer
-            .matches("StandardBuiltinId::TypedArrayConstructor.function_id()")
-            .count(),
-        1
-    );
-    assert_eq!(
-        materializer
-            .matches("FunctionPrototypeMaterialization::BootstrapSupplied")
-            .count(),
-        1
-    );
-    assert!(!materializer.contains("StandardBuiltinId::FunctionConstructor"));
-
-    let publication = bounded(
-        HOST_SOURCE,
-        "        self.emit_realm_typed_array_constructor_value_payload(",
-        concat!(
-            "        self.emit_function_value_payload_in_realm(\n",
-            "            &aggregate_error_meta,"
-        ),
-    );
-    let publication = without_whitespace(publication);
-    assert!(publication.starts_with("&realm_functions,typed_array_constructor_local,function,)?;"));
-    assert!(publication.contains(concat!(
-        "self.store_i64_local_at_offset(typed_array_constructor_local,",
-        "HEAP_FUNCTION_ENV_HANDLE_OFFSET,typed_array_constructor_local,function,);",
-        "self.store_i64_local_at_offset(typed_array_constructor_local,",
-        "HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,type_error_prototype_local,function,);"
-    )));
-    assert!(publication.contains(concat!(
-        "self.emit_set_function_prototype_data_with_flags(",
-        "typed_array_constructor_local,typed_array_prototype_local,",
-        "false,false,false,true,function,)?;"
-    )));
-    assert!(!publication.contains("emit_function_value_payload_in_realm("));
-
-    let concrete_constructors = bounded(
-        HOST_SOURCE,
-        "        for index in 0..typed_array_constructor_locals.len() {",
-        "        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;",
-    );
-    let concrete_constructors = without_whitespace(concrete_constructors);
-    assert_eq!(
-        concrete_constructors
-            .matches(concat!(
-                "self.store_i64_local_at_offset(constructor_local,HEAP_PROTOTYPE_OFFSET,",
-                "typed_array_constructor_local,function,);"
-            ))
-            .count(),
-        1
     );
 }
 

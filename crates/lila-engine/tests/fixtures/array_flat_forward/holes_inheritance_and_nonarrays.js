@@ -1,0 +1,16 @@
+var child = [1, , 3];
+var childPrototype = Object.create(Array.prototype);
+Object.defineProperty(childPrototype, '1', { get: function () { print('child-inherited'); return 2; } });
+Object.setPrototypeOf(child, childPrototype);
+var object = { 0: 9, length: 1, [Symbol.isConcatSpreadable]: true };
+var typed = new Uint8Array([10]);
+typed[Symbol.isConcatSpreadable] = true;
+var array = [4];
+array[Symbol.isConcatSpreadable] = false;
+var source = [, object, typed, array];
+var sourcePrototype = Object.create(Array.prototype);
+Object.defineProperty(sourcePrototype, '0', { get: function () { print('root-inherited'); return child; } });
+Object.setPrototypeOf(source, sourcePrototype);
+Array.prototype[Symbol.iterator] = function () { print('unexpected-iteration'); throw {}; };
+var result = source.flat(Infinity);
+print(result.length + ':' + result[0] + ':' + result[1] + ':' + result[2] + ':' + (result[3] === object) + ':' + (result[4] === typed) + ':' + result[5]);

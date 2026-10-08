@@ -332,3 +332,14 @@ Object Environment Records. Compound/logical/update/destructuring/delete
 operations retain their separately recorded boundaries. Cargo, Wasm and pinned
 Test262 focused gates are green at the integration checkpoint; the broader
 call/with subtree and pinned matrix remain unclaimed.
+
+The awaited logical-assignment value route now consumes a prelocated declarative
+Reference or an ordinary property's completed Get capture. It retains the original
+receiver, boxed target and converted String/Symbol key through the selected RHS
+suspension, then consumes the same Reference in PutValue. The skipped arm returns
+the saved GetValue without evaluating the RHS or writing. Runtime/with/global and
+unresolvable identifier selection, suspended LHS operands, private/super targets,
+generators and loop contexts remain outside this owner. Existing synchronous and
+other linear compound routes are unchanged. See
+[awaited logical-assignment ownership](logical-assignment-await-reference-ownership.md)
+for the exact source domain, consumers and pending executable acceptance.

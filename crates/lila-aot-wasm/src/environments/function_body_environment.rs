@@ -1,46 +1,36 @@
 use super::*;
 
 impl FunctionBuilder<'_> {
-    pub(super) fn emit_initialize_function_body_bindings(
+    pub(super) fn emit_initialize_function_body_bindings<N: GcFieldNullability>(
         &mut self,
         environment: &LexicalEnvironmentIr,
-        parent_env_local: u32,
+        record: &GcLocal<Environment, N>,
+        parent: &GcLocal<Environment, Nullable>,
         function: &mut Function,
     ) {
         match &environment.initialization {
             lila_ir::LexicalEnvironmentInitializationIr::Uninitialized => {}
             lila_ir::LexicalEnvironmentInitializationIr::FunctionBody { bindings } => {
+                let schema = self.runtime_schema();
+                let value = schema.reserve_value_local(function);
                 for binding in bindings {
-                    for (offset, undefined) in [
-                        (ENV_SLOT_TAG_OFFSET, ValueKind::Undefined.tag() as u64),
-                        (ENV_SLOT_PAYLOAD_OFFSET, 0),
-                    ] {
-                        match &binding.value {
-                            lila_ir::FunctionBodyBindingValueIr::Undefined => {
-                                self.store_i64_const_at_offset(
-                                    self.current_env_local,
-                                    Self::env_slot_offset(binding.slot, offset),
-                                    undefined,
-                                    function,
-                                );
-                            }
-                            lila_ir::FunctionBodyBindingValueIr::Parameter { slot } => {
-                                self.load_i64_to_local_from_offset(
-                                    parent_env_local,
-                                    Self::env_slot_offset(*slot, offset),
-                                    self.scratch_local,
-                                    function,
-                                );
-                                self.store_i64_local_at_offset(
-                                    self.current_env_local,
-                                    Self::env_slot_offset(binding.slot, offset),
-                                    self.scratch_local,
-                                    function,
-                                );
-                            }
+                    match &binding.value {
+                        lila_ir::FunctionBodyBindingValueIr::Undefined => {
+                            value.set_undefined(function)
+                        }
+                        lila_ir::FunctionBodyBindingValueIr::Parameter { slot } => {
+                            let source = self.emit_environment_cell_local(parent, *slot, function);
+                            let initialized =
+                                self.emit_read_environment_cell(&source, &value, function);
+                            schema.release_i32_local(initialized, function);
+                            source.clear(function);
                         }
                     }
+                    let target = self.emit_environment_cell_local(record, binding.slot, function);
+                    self.emit_initialize_environment_cell(&target, &value, function);
+                    target.clear(function);
                 }
+                value.clear(function);
             }
         }
     }
@@ -66,19 +56,20 @@ impl FunctionBuilder<'_> {
             return Ok(());
         };
         environment.initialization = lila_ir::LexicalEnvironmentInitializationIr::Uninitialized;
-        let parameter_environment = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(parameter_environment));
+        let schema = self.runtime_schema();
+        let parameter = self.resolve_env_handle_local(0, function);
         self.emit_allocate_lexical_environment_record(&environment, function)?;
-        self.store_i64_local_at_offset(
-            parameter_environment,
-            ENV_FUNCTION_BODY_OFFSET,
-            self.current_env_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(parameter_environment));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        self.release_temp_local(parameter_environment);
+        schema
+            .struct_type::<Environment>()
+            .field(EnvironmentSchema::FUNCTION_BODY)
+            .write(
+                &parameter,
+                GcOperand::reference(self.current_environment(), schema),
+                schema,
+                function,
+            );
+        self.replace_current_environment(parameter.load(schema, function), function);
+        parameter.clear(function);
         Ok(())
     }
 
@@ -86,7 +77,6 @@ impl FunctionBuilder<'_> {
         &mut self,
         environment: &LexicalEnvironmentIr,
         entry_state: u32,
-        resume_state_offset: u64,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if matches!(
@@ -95,9 +85,10 @@ impl FunctionBuilder<'_> {
         ) {
             if self.current_function_meta().is_some_and(|meta| {
                 matches!(
-                    meta.protocol.execution_kind(),
+                    meta.protocol().execution_kind(),
                     FunctionExecutionKind::Async | FunctionExecutionKind::Generator
-                )
+                ) || (meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+                    && self.checked_async_generator_environment_owner.is_some())
             }) {
                 return self.emit_enter_resumable_lexical_environment(
                     environment,
@@ -107,56 +98,59 @@ impl FunctionBuilder<'_> {
             }
             return self.emit_enter_lexical_environment(environment, function);
         }
-        let parameter_environment = self.reserve_temp_local();
-        let body_environment = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(parameter_environment));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            parameter_environment,
-            ENV_FUNCTION_BODY_OFFSET,
-            body_environment,
+        let schema = self.runtime_schema();
+        let parameter = self.resolve_env_handle_local(0, function);
+        let body = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize_null(schema, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        body.replace(
+            schema
+                .struct_type::<Environment>()
+                .field(EnvironmentSchema::FUNCTION_BODY)
+                .read(&parameter, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(body_environment));
-        function.instruction(&Instruction::I64Eqz);
+        body.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            parameter_environment,
-            ENV_PARENT_OFFSET,
-            parameter_environment,
+        parameter.replace(
+            schema
+                .struct_type::<Environment>()
+                .field(EnvironmentSchema::PARENT)
+                .read(&parameter, schema, function)
+                .reference(),
             function,
         );
-        function.instruction(&Instruction::LocalGet(parameter_environment));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        parameter.load(schema, function);
+        function.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(0));
+        self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(body_environment));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
-        let activation = self
-            .new_target_payload_local()
-            .expect("resumable body uses an activation");
-        self.load_i64_to_local_from_offset(
-            activation,
-            resume_state_offset,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.scratch_local));
-        function.instruction(&Instruction::I64Const(entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_initialize_function_body_bindings(environment, parameter_environment, function);
+        self.replace_current_environment(body.load(schema, function), function);
+        self.body_entry_locals()
+            .expect("resumable body owns an entry")
+            .resume_point()
+            .expect("resumable body owns a resume point")
+            .load(function);
+        function.instruction(&Instruction::I32Const(entry_state as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_initialize_function_body_bindings(environment, &body, &parameter, function);
+        self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.begin_existing_lexical_environment_scope(environment);
-        self.release_temp_local(body_environment);
-        self.release_temp_local(parameter_environment);
+        body.clear(function);
+        parameter.clear(function);
         Ok(())
     }
 }

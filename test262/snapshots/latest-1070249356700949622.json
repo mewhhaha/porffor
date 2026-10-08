@@ -30,12 +30,12 @@
     {
       "test_id": "strict-script:built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
       "path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
-      "duration_ms": 25476
+      "duration_ms": 3711
     },
     {
       "test_id": "sloppy-script:built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
       "path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
-      "duration_ms": 23865
+      "duration_ms": 3699
     }
   ],
   "timeout_test_ids": [],

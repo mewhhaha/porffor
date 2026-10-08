@@ -14,15 +14,16 @@ pub enum ModuleEvaluationModeIr {
     /// `import defer`: the body is emitted as a thunk that the module's
     /// namespace object calls on the first read of any export.
     Deferred,
-    /// `import source`: the module is loaded, parsed and linked, but its body
-    /// is never emitted. Only a module source object is handed out.
+    /// Source phase loads and parses this record without opening its static
+    /// dependencies or emitting a body. Source Text Modules then reject source
+    /// binding/job requests because no source representation exists.
     NotEvaluated,
 }
 
 /// How a linked unit participates in runtime source generation.
 ///
 /// `NotEvaluated` deliberately has no inhabitant here: a source-phase-only
-/// unit stays in the loaded and linked graph, but no runtime collector may
+/// unit stays in the loaded graph, but no runtime collector may
 /// receive it. Keeping this type private prevents callers from manufacturing a
 /// namespace or dispatcher for a unit whose body is absent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

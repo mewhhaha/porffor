@@ -1,5 +1,40 @@
 # Realm-record heap-slot identity authority
 
+Current dry source — 2026-10-05: the raw-offset source-mirror target below
+is retired from the atomic semantic GC draft. It checked passive layout
+spelling, offsets and source occurrence counts. The current GC authoring uses
+typed registry fields and complete semantic value owners; these earlier
+mirrors cannot verify that representation or its behavior. Historical source
+descriptions, commands and results below retain their original scope.
+
+The full GC source cutover, remaining Temporal and AsyncDisposableStack
+authoring, compiler checks and runtime verification remain pending. See the
+[current value/heap architecture](../value-heap-gc.md). Weak reachability retains
+its explicit [unavailable facility boundary](weak-unavailable-runtime-boundary.md).
+No verification or conformance result is inferred from this retirement.
+
+## Current atomic GC source — 2026-10-05
+
+The semantic Realm record is the actual typed GC `RealmRecord` declared by
+`gc_types/layouts.rs`, with schema-owned typed accessors. Its intrinsic table,
+global environment, module registry and other retained ownership edges are
+collector references. NativeHost's created Realm uses that same record and
+completed bootstrap. The historical eight-byte manual-heap offset/pointer
+inventory below is not the current field or tracing authority.
+
+No compatibility record or manual object model is introduced. Final retirement
+of raw heap offset/helper consumers and composed guard reconciliation remain
+part of the source pass. See [NativeHost GC values](native-host-gc-values.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 ## Closed layout identities
 
 The passive Realm record contains exactly eight capability-free

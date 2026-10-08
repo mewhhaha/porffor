@@ -5,18 +5,49 @@ use crate::{CanonicalLocaleId, TimeZoneId, TimeZoneSelection};
 
 use super::{DateTimeProvider, NamedTimeZones};
 
+mod buddhist;
 mod locale_selection;
 mod parts;
+mod range_endpoint_patterns;
 mod ranges;
+mod tols;
 mod validation;
 
+fn calendar_record<'a>(profile: &'a serde_json::Value, canonical: &str) -> &'a serde_json::Value {
+    let index = profile["locales"][0]["calendar_refs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row[0] == canonical)
+        .unwrap()[1]
+        .as_u64()
+        .unwrap() as usize;
+    &profile["calendar_pool"][index]
+}
+
+fn calendar_record_mut<'a>(
+    profile: &'a mut serde_json::Value,
+    canonical: &str,
+) -> &'a mut serde_json::Value {
+    let index = profile["locales"][0]["calendar_refs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row[0] == canonical)
+        .unwrap()[1]
+        .as_u64()
+        .unwrap() as usize;
+    &mut profile["calendar_pool"][index]
+}
+
 fn provider() -> &'static DateTimeProvider {
-    static PROVIDER: OnceLock<DateTimeProvider> = OnceLock::new();
-    PROVIDER.get_or_init(|| DateTimeProvider::from_pinned_data().expect("checked CLDR profile"))
+    static IMAGE: OnceLock<crate::DateTimeDataImage> = OnceLock::new();
+    IMAGE
+        .get_or_init(|| crate::embedded_date_time_data_image().expect("admitted DateTime image"))
+        .provider_ref()
 }
 fn zones() -> &'static NamedTimeZones {
-    static ZONES: OnceLock<NamedTimeZones> = OnceLock::new();
-    ZONES.get_or_init(|| NamedTimeZones::from_pinned_data().expect("checked IANA snapshot"))
+    &provider().named_time_zones
 }
 fn locale_request(locales: &[&str]) -> DateTimeLocaleRequest {
     DateTimeLocaleRequest {
@@ -86,7 +117,7 @@ fn instant(seconds: i64, nanosecond: u32) -> DateTimeInput {
 fn format(request: DateTimePlanRequest, input: DateTimeInput) -> DateTimeParts {
     let plan = provider().select_plan(request).unwrap().plan;
     provider()
-        .format_parts(DateTimeFormatRequest { plan, input }, zones())
+        .format_parts(DateTimeFormatRequest { plan, input })
         .unwrap()
 }
 fn range(
@@ -96,7 +127,7 @@ fn range(
 ) -> DateTimeRangeParts {
     let plan = provider().select_plan(request).unwrap().plan;
     provider()
-        .format_range_parts(DateTimeRangeRequest { plan, start, end }, zones())
+        .format_range_parts(DateTimeRangeRequest { plan, start, end })
         .unwrap()
 }
 fn values(parts: &DateTimeParts) -> Vec<(&str, &str)> {

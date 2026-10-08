@@ -1,7 +1,6 @@
-use std::fs;
-use std::path::Path;
-
 const ENGINE_SOURCE: &str = include_str!("../src/lib.rs");
+const GC_SOURCE: &str = include_str!("../src/wasm_gc_completion.rs");
+const GC_SCHEMA_SOURCE: &str = include_str!("../../lila-aot-wasm/src/gc_types/host.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/wasm-top-level-completion-kind.md");
 const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
@@ -183,24 +182,6 @@ fn exact_identifier_count(source: &str, identifier: &str) -> usize {
         .count()
 }
 
-fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
-    fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .map(|path| {
-            if path.is_dir() {
-                return count_identifier_in_rust_sources(&path, identifier);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return 0;
-            }
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            exact_identifier_count(&rust_code(&source), identifier)
-        })
-        .sum()
-}
-
 #[test]
 fn top_level_completion_kind_is_the_exact_private_no_capability_domain() {
     let lexical_probe = rust_code(
@@ -222,7 +203,7 @@ fn top_level_completion_kind_is_the_exact_private_no_capability_domain() {
     let declaration = bounded(
         ENGINE_SOURCE,
         "enum WasmTopLevelCompletionKind {",
-        "enum WasmtimeExportedMemory {",
+        "fn wasm_memory_span(",
     );
     assert_eq!(compact(&rust_code(declaration)), "Normal,Throw,}");
     assert_eq!(
@@ -231,61 +212,87 @@ fn top_level_completion_kind_is_the_exact_private_no_capability_domain() {
             .count(),
         1
     );
-
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "WasmTopLevelCompletionKind"),
-        9
-    );
     for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
         assert!(
             !ENGINE_SOURCE.contains(&format!("impl {capability} for WasmTopLevelCompletionKind"))
         );
     }
+    let production = compact(&rust_code(GC_SOURCE.split("#[cfg(test)]").next().unwrap()));
+    assert!(production.contains(concat!(
+        "pub(super)structGcObservedCompletion{tag:WasmRuntimeValueTag,",
+        "kind:WasmTopLevelCompletionKind,value:ObservedJsValue,}"
+    )));
+    assert_eq!(
+        production.matches("Ok(GcObservedCompletion{tag:").count(),
+        1,
+        "only checked observation constructs the completed owner"
+    );
+    assert!(!production.contains("implCloneforGcObservedCompletion"));
+    assert!(!production.contains("implCopyforGcObservedCompletion"));
 }
 
 #[test]
-fn raw_completion_kind_is_parsed_once_before_three_exhaustive_consumers() {
+fn rooted_main_tuple_is_checked_once_before_three_exhaustive_consumers() {
+    let schema = compact(&rust_code(bounded(
+        GC_SCHEMA_SOURCE,
+        "pub fn check_gc_main_completion(",
+        "/// Native imports",
+    )));
+    assert!(schema.contains("iftarget!=0"));
+    for branch in [
+        "crate::COMPLETION_KIND_NORMAL=>Ok(lila_ir::CompletionKindIr::Normal)",
+        "crate::COMPLETION_KIND_THROW=>Ok(lila_ir::CompletionKindIr::Throw)",
+    ] {
+        assert!(schema.contains(branch));
+    }
+    let observation = compact(&rust_code(bounded(
+        GC_SOURCE,
+        "pub(super) fn observe(",
+        "fn field(",
+    )));
+    assert_eq!(
+        observation
+            .matches("check_gc_main_completion(kind,target)")
+            .count(),
+        1
+    );
+    assert_eq!(
+        observation
+            .matches("GcHostValue::check(tag,scalar,reference.is_some())")
+            .count(),
+        1
+    );
+    assert!(!observation.contains("_=>"));
+    assert!(observation.contains("CompletionKindIr::Normal=>WasmTopLevelCompletionKind::Normal"));
+    assert!(observation.contains("CompletionKindIr::Throw=>WasmTopLevelCompletionKind::Throw"));
+    let gc = compact(&rust_code(GC_SOURCE));
+    assert!(gc.contains("pub(super)typeGcMainCompletion=(i32,i64,Option<Rooted<EqRef>>,i32,i32);"));
+
     let execution = compact(&rust_code(bounded(
         ENGINE_SOURCE,
         "fn execute_with_wasm_bytes_inner_with_agents(",
         "enum WasmTopLevelCompletionKind {",
     )));
-    assert_eq!(
-        execution
-            .matches("matchi64::from(completion_kind){")
-            .count(),
-        1
-    );
-    assert_eq!(
-        execution
-            .matches("kindifkind==CompletionKindIr::Normal.abi_code()=>{")
-            .count(),
-        1
-    );
-    assert_eq!(
-        execution
-            .matches(
-                "kindifkind==CompletionKindIr::Throw.abi_code()=>{WasmTopLevelCompletionKind::Throw}"
-            )
-            .count(),
-        1
-    );
+    let lookup = execution
+        .find("get_typed_func::<(),GcMainCompletion>")
+        .unwrap();
+    let roots = execution
+        .find("wasmtime::RootScope::new(&mutstore)")
+        .unwrap();
+    let call = execution.find("main.call(&mutroots,())").unwrap();
+    let check = execution
+        .find("wasm_gc_completion::observe(&mutroots,completion)?.into_parts()")
+        .unwrap();
+    assert!(lookup < roots && roots < call && call < check);
+    assert_eq!(execution.matches("wasm_gc_completion::observe(").count(), 1);
     assert_eq!(execution.matches("match&completion_kind{").count(), 2);
     assert_eq!(execution.matches("matchcompletion_kind{").count(), 1);
-    assert_eq!(
-        execution
-            .matches("WasmTopLevelCompletionKind::Normal")
-            .count(),
-        4
-    );
-    assert_eq!(
-        execution
-            .matches("WasmTopLevelCompletionKind::Throw")
-            .count(),
-        4
-    );
-    for forbidden in ["is_throw", "=>true", "=>false", "matches!(completion_kind"] {
+    for forbidden in [
+        "WASM_EXPORT_RESULT_TAG",
+        "WASM_EXPORT_COMPLETION_KIND",
+        "is_throw",
+        "matches!(completion_kind",
+    ] {
         assert!(!execution.contains(forbidden), "found `{forbidden}`");
     }
 }
@@ -316,31 +323,23 @@ fn each_completion_consumer_owns_its_normal_and_throw_consequence() {
             "missing `{consequence}`"
         );
     }
-
     let structured = execution
         .split_once("WasmExecutionMode::Structured=>{")
-        .expect("structured execution arm")
+        .unwrap()
         .1;
     assert_eq!(structured.matches("matchcompletion_kind{").count(), 1);
     assert!(!structured.contains("_=>"));
-    assert_eq!(
-        structured
-            .matches("WasmTopLevelCompletionKind::Normal=>ObservedCompletion::Normal(value)")
-            .count(),
-        1
-    );
-    assert_eq!(
-        structured
-            .matches("WasmTopLevelCompletionKind::Throw=>ObservedCompletion::Throw(value)")
-            .count(),
-        1
-    );
-
+    for consequence in [
+        "WasmTopLevelCompletionKind::Normal=>ObservedCompletion::Normal(value)",
+        "WasmTopLevelCompletionKind::Throw=>ObservedCompletion::Throw(value)",
+    ] {
+        assert_eq!(structured.matches(consequence).count(), 1);
+    }
     for evidence in [CONTRACT, TASK] {
-        let evidence = compact(evidence);
         assert!(evidence.contains("WasmTopLevelCompletionKind"));
-        assert!(evidence.contains("threeexhaustiveconsumers"));
-        assert!(evidence.contains("changesnocompletionABI"));
-        assert!(evidence.contains("runtimebehavior"));
+        assert!(evidence.contains("three exhaustive consumers"));
+        assert!(evidence.contains("RootScope"));
+        assert!(evidence.contains("five-result Main"));
+        assert!(evidence.contains("unverified"));
     }
 }

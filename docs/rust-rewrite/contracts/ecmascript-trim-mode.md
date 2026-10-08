@@ -1,5 +1,30 @@
 # ECMAScript trim mode
 
+## Current atomic GC source — 2026-10-05
+
+The private `EcmaTrimMode::{Start, End, Both}` remains the sole trim policy in
+`operations/string_trim.rs`, with three named wrappers for its private core.
+The actual String scans now read GC UTF-16 units and consume the shared
+`emit_ecmascript_whitespace_i32` authority in `operations.rs`. The same complete
+25-code-unit ECMAScript domain supplies leading whitespace for NativeHost's
+parseInt and parseFloat. The old private UTF-8 byte table and inferred static
+String dispatch below have retired.
+
+The maintained `ecmascript_trim_mode_structure` guard protects the private
+closed policy, named wrappers and complete shared whitespace domain. Exact
+instruction/count/hash and duplicate installer mirrors are removed. Existing
+String/BigInt semantic sources remain; the current NativeHost UTF-16 parser
+cohort is authored and unrun. See [NativeHost GC values](native-host-gc-values.md).
+
+All source, types and controls for the atomic batch remain uncompiled and
+unexecuted. Final representation/helper/guard composition also remains pending.
+Earlier verification commands and results below retain their original source
+scope; they are historical records, not instructions to run during the full-task
+dry-source pass. Later verification follows the [batch workflow](../batch-workflow.md)
+with a confirmed aggregate 4096 MiB cap, swap zero and serial execution.
+
+## Historical predecessor record
+
 Status: normative for the Wasm-AOT ECMAScript string-trimming seam. The
 implementation and bounded structural guard are independently reviewed and
 focused-verified under the shared eight-core cap, 2026-08-23.

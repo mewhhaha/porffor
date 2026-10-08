@@ -1,5 +1,627 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Closure audit and verification — 2026-10-08
+
+The full task plan remains open. The current runtime explicitly rejects real
+weak reachability/ephemeron operations (T05/T21). Temporal's Apia rounding
+behavior still has an [open specification issue](https://github.com/tc39/proposal-temporal/issues/3310)
+and an [unmerged draft proposal](https://github.com/tc39/proposal-temporal/pull/3318),
+rechecked on 2026-10-08. T26 requires a fresh complete zero-failure aggregate and
+canonical publication; neither a source audit nor these focused checks closes
+that gate. Historical Test262 counts are unchanged.
+
+The integrated batch retains main inside its module package, exposes globals
+only through a borrowed sealed view, and extracts literal roots, RegExp
+publication and function metadata into cohesive children. Existing parent
+budgets remain unchanged. The public emitter result `WasmArtifact` is nameable
+without exposing package constructors. Normalization avoids allocation for
+identity scalars, and case folding enumerates the pinned mappings directly.
+Exhaustive reference comparisons preserve every table value and its order.
+Local recovery snapshots are preserved and excluded from Git staging; tracked
+and product identity checks remain strict.
+
+Fresh verification uses the unchanged 4096-MiB aggregate RAM, zero-swap,
+one-CPU launcher and one-entry/64-MiB retained-module cache:
+
+- `task-closure-final-20261008`: the final all-feature/all-target workspace
+  check passes in 65.07 seconds; final formatting passes. The preceding
+  `task-closure-types2-20261008` check also passed.
+- `task-closure-unicode-parity-20261008`: both exhaustive inventory controls pass.
+- `task-closure-ir-20261008`: all 2,161 unit/integration checks and five doctests
+  pass; one existing documentation example is ignored (225 watched seconds).
+- `task-closure-focused-20261008`, `task-closure-artifacts3-20261008` and
+  `task-closure-structure2-20261008`: all 24 focused GC, linked-runtime,
+  artifact and ownership controls pass after restoring the canonical owners
+  and stale source markers. Artifact checks validate both linked modules,
+  exact canonical import/export types and actual pooled-helper byte independence.
+- All seven native backreference-folding controls pass. The final Unicode run
+  passes all three strict/sloppy cohorts in 55.87 seconds. Its Realm fixture
+  now installs the ordinary `$262` wrapper used by neighboring Engine tests;
+  original assertions remain. The same setup correction passes the URI and
+  legacy-RegExp Realm cohorts in the final checkpoint (two additional functions).
+- `task-closure-audits-20261008`: module budgets, identity, host ABI, task plan,
+  legacy retirement, three identity regression tests, formatting and whitespace
+  pass. Canonical shortcut reports are regenerated and verified: 26 classified
+  observations, including zero semantic shortcuts.
+
+Final index review preserves byte-exact pinned CLDR 47 input files, including
+their upstream whitespace. The repository-owned changes pass the whitespace
+check with that pinned input directory excluded.
+
+The original CrossRealm seed 1270 still exceeds its unchanged 5,000-ms deadline
+in the rebuilt final worker (`task-closure-final-20261008`), during emission after
+1.83 ms parsing and 129.95 ms lowering. SpecExec completes all eight actions; transformed CrossRealm
+and Temporal remain unrun. The native disk cache had been exercised by the
+preceding tests, but the raw runtime module is regenerated in every new worker.
+The retained request and reports are under
+`target/verification-tmp/lila-generated-campaign-302393-1791478300025590477-0`.
+Profiling the preceding source measured 6.452 seconds of cold emission and a
+41.2-MB runtime, including Unicode, zone certification and Chinese/Dangi catalog
+construction. The Unicode repair preserves semantics but does not close this
+performance failure. The final checkpoint is therefore red despite the passing
+native, type and formatting steps. Canonical `published-status-wasm-aot.json`
+and `.txt` are absent. No task status or published conformance count is promoted.
+
+## Focused iteration checkpoint — 2026-10-08
+
+The fresh `fast-iteration-types-20261008` checkpoint passes
+`cargo xc --keep-going --locked --offline --all-features`. The shortcut source
+inventory and generated accounting are refreshed from their canonical inputs;
+both checks and the task-plan validator pass. Accounting remains 26 classified
+observations, including zero semantic shortcuts.
+
+The newer retained `target/watched/native-q1.jsonl` records 46 completed native
+functions: 45 passes and one ShadowRealm embedded-import failure. This includes
+passes for all four earlier global/class failures and the global-read and Switch
+cohorts. That journal used concurrent two-CPU lanes; it does not establish the
+one-CPU/4096-MiB verification contract. Its passes retain their original source
+scope and are not a fresh combined-suite result.
+
+`fast-iteration-shadow-realm-20261008` now passes the sole failed function,
+`embedded_realm_requests_keep_aliases_distinct_from_script_edges_and_wait_for_tla_cycles`,
+in 102.47 seconds. The existing fixture correction detaches imported wrapped
+functions before calling them, so an Array receiver does not cross the Realm
+boundary. One test passes, none fail or are ignored; nine are filtered out.
+The fresh type and native checkpoints confirm the kernel 4096-MiB/no-swap,
+one-CPU limit and one-entry/64-MiB retained-module cache.
+
+`fast-iteration-campaign-20261008` rebuilds the selected differential worker and
+replays the original CrossRealm seed 1270 at its unchanged 5,000-ms deadline
+under those same limits. It still times out during Wasm emission, after 2.22 ms
+parsing and 148.87 ms lowering. Worker stderr is now 118 bytes, with no missing
+Collator metadata flood. SpecExec completes all eight actions; transformed
+CrossRealm and Temporal remain unrun. The test is red, with semantic equivalence
+unestablished. Exact requests and reports remain under
+`target/verification-tmp/lila-generated-campaign-4136252-1791474858413422907-0`.
+
+Next, profile the remaining emission cost using this retained request, then
+rerun the same bounded campaign after a focused repair. The native queue's
+original failed fixture is resolved, but performance acceptance, full pinned
+conformance, canonical publication and task-wide acceptance remain open.
+
+## Implementation and verification — 2026-10-08
+
+The current source batch joins live prototype/property facts, ordinary global
+Reference ordering, removal of source-name and operand-discarding shortcuts,
+implicit module await from `await using`, RegExp character domains, Temporal
+partial-date formatting, Intl sign placement and selected locale ownership.
+ShadowRealm now has native construction, finite evaluation, wrapped callables
+and per-Realm module imports. Optional forwarding and finite computed keys feed
+the existing source-candidate owner while actual Get/Call execution stays live.
+Function-cache hits now update the recency used for bounded pruning.
+
+`tasks-dry-closure-foundation2` passes the all-feature/all-target workspace check
+in 67.45 seconds, all 2,135 IR tests across 144 targets, 16 cache checks and both
+prepared-source catalog checks. No test failed or was ignored. The complete
+checkpoint took 390 seconds under one CPU, 4096 MiB aggregate RAM and zero swap;
+retained native modules remain capped at one entry and 64 MiB. Module ownership
+checks pass within the existing parent budgets. The generated shortcut inventory
+passes with 26 classified observations: 23 harness adaptations, three diagnostic
+entries and zero semantic shortcuts. Pinned conformance counts are unchanged.
+
+`tasks-shadow-native2` passed four native gate functions in 1,050 seconds:
+construction/subclass branding, finite-evaluation lifetimes, wrapped callable
+identity/execution and isolated module caches. The first three cover strict and
+sloppy modes. `tasks-dry-closure-native1` then passed the optional-alias cohort in
+both modes in 364.18 seconds. It was deliberately stopped during its second
+case after 466 seconds (exit 143); seven cases were incomplete or unstarted.
+
+`tasks-realm-bootstrap1` passes in 210 seconds: source guards, the all-feature/
+all-target workspace check (60.36 seconds; Cargo: 59.02) and all 16 focused AOT
+controls (six helper unit tests, ten integration tests), with none failed or
+ignored. The validated optional artifact has main at 534,595 bytes, the shared
+initializer at 662,558 and ShadowRealm at 24,632. Every body stays below 1 MiB,
+and both bootstrap callers use the same helper. The earlier IR/cache/catalog
+and native passes retain their preceding-source scope.
+
+`tasks-dry-closure-native2` received an unexpected SIGTERM after 188 seconds
+(exit 143), during the first function's strict-mode compilation. Sloppy namespace
+execution passed, but no test function completed. Service accounting recorded a
+3.8 GiB peak and no OOM termination entry.
+
+`tasks-dry-closure-native3` ended on 2026-10-08 with 30 native functions
+passing, four failing and 19 incomplete or unstarted. It received SIGTERM after
+5,153 seconds under one CPU, 4096 MiB and zero swap. Service accounting reported
+4 GiB peak without an OOM termination entry; the termination cause is unconfirmed.
+The durable result journal preserves every completed outcome. The failures are
+public-global binding shadowing, strict global-var assignment after RHS deletion,
+and both class-initializer grammar controls exposing duplicate function IDs.
+
+The joined source repair separates source `globalThis` from proven global-object
+identity and retains Global Environment References through reads, deletion,
+plain/logical/eager assignment and numeric updates. Class-owning functions keep
+canonical bodies when specialization cannot remap their complete identity graph;
+Wasm planning rejects duplicate function IDs. Source review also adds related
+getter, Proxy and late-lexical controls to two existing native cohorts. Obsolete
+raw-global mutation IR paths are removed. Arithmetic compound assignment now
+consumes its initialization witness before lowering the RHS, preserving TDZ
+ordering while initialized const writes still follow operand coercion.
+
+`tasks-global-class-repair2` passed the workspace check and all 48 planning
+controls before an unexplained SIGTERM at 477 seconds interrupted full IR.
+The joined TDZ/assertion successor, `tasks-global-class-repair3`, finishes in
+525 seconds. Its all-feature/all-target workspace check passes in 80.68 seconds;
+all 19 affected AOT controls and the CLI inspection control pass, including both
+original class artifacts. Full IR completes all 144 targets: 2,141 controls pass,
+six fail and none are ignored. `tasks-function-conversion-repair1` resolves all
+six stale receiver, effect and dynamic-source assertions: its four exact unit
+controls and all five number-constructor controls pass. The workspace check
+passes in 81.52 seconds; the whole checkpoint finishes in 120 seconds.
+
+The Function-family repair converts arguments whose count is absent from the
+prepared table before reporting the typed source boundary. Its expanded native
+cohort passes for all four constructor kinds, including ordered conversions,
+original exceptions and exactly-once effects. `tasks-dry-closure-native4` then
+received SIGTERM after 460 seconds during the public-global fixture's strict
+native compilation; sloppy execution completed, but that function has no result.
+The durable journal retains one completed pass and 44 unfinished functions.
+Successful unchanged controls retain their preceding-source scope.
+
+`tasks-original-campaign-trace1` reproduces the original five-second failure
+without changing its seed or deadline. CrossRealm seed 1270 times out during
+Wasm emission, after 5.39 ms parsing and 219.02 ms lowering, before native
+compilation or JavaScript execution. SpecExec completes all eight actions;
+the transformed case and Temporal seed remain unrun. Retained worker stderr
+identifies repeated absent Collator metadata probes. This is performance failure
+evidence, not a semantic equivalence result.
+
+The reviewed Collator precheck now rejects impossible locale/type pairs using
+that provider's exact metadata inventory and ICU fallback chain. Complete
+profile admission and projection recording remain unchanged. Both source
+identities are refreshed; all ten focused Collator image/projection controls pass.
+
+The latest source join removes the obsolete rejection of suspending Switch in
+an ordinary generator that captures an enclosing With environment. Existing
+captured cells, CaseBlock records and retained assignment References own the
+composition; the native Switch cohort now covers it in sloppy mode. String-pool
+slots also retain checked insertion indices, so later literals cannot renumber
+already collected builtin strings, and literal lookup uses direct map access.
+The all-feature/all-target workspace check passes in 110.81 seconds, along with
+seven IR, ten Collator and three string-pool unit controls. The first process
+ended with SIGTERM during artifact checks. Its successor runs only those four
+unfinished checks: all pass, including identical shared coercion-helper bytes
+across changed source literals. No control fails or is ignored in the completed
+24-test scope. Native execution and measured cache-speed gains remain pending.
+
+`tasks-dry-closure-native5` completes the expanded captured-With scenario's
+sloppy execution: emission takes 16.30 seconds, native compilation 333.11 seconds
+and JavaScript execution 183.77 ms. Its 1,638,171-byte main body selects the
+existing size-optimized compiler; strict main is also oversized at 1,201,087.
+The run is deliberately stopped after 511 seconds during strict compilation to
+finish a shared global-read owner. No native test function completes. Scoped
+and persistent-ancestor logs record no OOM event; the 4096 MiB cap is retained.
+The 45-function native queue remains open.
+
+The joined successor outlines complete global ResolveBinding/GetBindingValue
+through four typed helpers for strict/sloppy reads and typeof. The caller passes
+its selected Global Environment and actual execution Realm; the existing
+Reference, delegate refresh, TDZ and whole-exception operations remain the
+semantic owner. Retained mutation References stay in their original caller.
+All 14 affected Intl identity generators and final checks pass without changing
+payload bytes. The enlarged original Switch artifact now checks real helper
+calls and the unchanged 1 MiB body limit; the existing global-read native cohort
+adds foreign-Realm and TDZ controls. Joined verification remains pending.
+
+Known acceptance gaps remain. Genuine weak reachability needs a runtime facility;
+arbitrary unavailable dynamic source and Temporal's unresolved collapsed-rounding
+policy remain explicit limitations. The original five-second campaign failure,
+sustained performance evidence, remaining native cohorts, full pinned conformance
+and independent-host acceptance remain open. Historical evidence below keeps its
+original scope; this checkpoint does not close task acceptance.
+
+See the [property-fact contract](../docs/rust-rewrite/contracts/primitive-property-read-effects.md),
+[source-identity contract](../docs/rust-rewrite/contracts/compiler-source-identity.md) and
+[ShadowRealm contract](../docs/rust-rewrite/contracts/shadowrealm-implementation-sequence.md).
+
+## Earlier verified checkpoints — 2026-10-07
+
+The complete Temporal conversion batch passed `cargo xc --keep-going --locked
+--offline --all-features` across the workspace and all test targets, plus all
+28 focused AOT controls on 2026-10-07. Every body in that scheduling fixture is below 1 MiB.
+The scheduling fixture has 15,279,867 code bytes; Duration.round is 888,220,
+bootstrap is 863,565 and the async run is 208,269. Both conversions transport the
+actual callable FunctionContext and caller Environment.
+
+Native compilation and instantiation completed under 4096 MiB; compilation took
+82.57 seconds. Independent host signatures now have separate canonical type
+groups with a compile-time ordering assertion. Main's defining-Realm repair
+passes the workspace type check and its native prototype/captured-cell control.
+The original lifecycle fixture now executes without the null trap, but its
+missing output exposed premature async completion on Await. The written shared
+return repair covers ordinary Await, module handoff, async disposal and awaited
+iterator steps/closing. The joined repair gives known Symbols a distinct IR
+variant and restores explicit progress transport between Atomics waiting and
+Promise jobs. `tasks-symbol-progress1` passes the full type check, all 20 Symbol
+IR controls and three native controls: ordinary Await, awaited iterator closing
+and the original mixed array lifecycle in strict and sloppy modes. Its two
+failures have a joined repair: `tasks-constructor-progress1` passes the workspace
+type check and all three affected native controls. All fifteen Symbol identities
+agree across constant, dynamic and created-Realm reads; waiter reactions can
+notify another waiter; all twelve typed-array constructors keep the actual
+storage kind separate from newTarget prototype selection. Planning and emission
+consume one compiled builtin list. No controls were ignored. The full IR and
+first native record/campaign acceptance batch completed under the same resource cap.
+The completed source batch includes genuine
+JSON module records, bounded URI/prelude/filesystem robustness, generated
+cross-Realm/Temporal cases, and retained original resource-finalizer ownership.
+The completed source join adds post-job rooted completion snapshots and the
+explicit v7 differential protocol. One checked traversal owns canonical graph
+identities and finite budgets; both backend adapters read actual retained data
+without executing JavaScript hooks. Unsupported exotics and budget exhaustion
+remain red. The whole-workspace, all-feature, all-target type check passes.
+The first focused pass completed 103 tests successfully and failed seven, with
+none ignored. Six source assertions and an oracle source-import attribute/error
+issue have a joined repair that passes the type check and all 22 affected controls.
+Whole native, broad and pinned acceptance
+remain pending.
+
+T25 passes five IR-admission controls, 19 robustness library controls, two
+worker/CLI native-input replay controls, two compiler-inspection controls,
+three Engine RSS sampler controls and all 24 CLI performance controls. Native
+runtime-profile checks and sustained campaigns remain pending. The latest
+complete IR run passes all 2,096 unit/integration controls across 141 targets with
+none failed or ignored. Five compile-fail documentation controls pass; one
+pre-existing illustrative snippet is ignored. The native cohort finishes with
+five passing and five failing test functions, none ignored. URI execution,
+worker/CLI prelude and filesystem checks, created-Realm graph anchors and
+explicit graph rejection pass. A joined source repair covers private loop-cell
+lookup, duplicate inferred function names and the Module fixture URL. The
+worker's earlier cold-compilation timeout remains performance evidence, and the
+campaign failure at its five-second budget remains open. Deadlines are unchanged.
+`tasks-loop-name1`
+passes the workspace type check and four of seven native controls: the original
+post-job graph, both inferred-name controls and generator phase ordering. Three
+failures have a written source repair for initializer/selector binding lifetimes
+and private module resume, which had repeated instantiation and left JSON defaults
+undefined. The joined admission repair retains checked loop/CaseBlock targets
+through catch/finalizer regions. The workspace type check passes in 51.22
+seconds, along with 18 focused controls and all four original mixed-loop Wasm
+artifacts. `tasks-scope-native5` finishes with six native test functions passing,
+two failing and none ignored. Both ordinary-generator, both module-resume and
+both rooted worker controls pass. Mixed phase fixtures pass both modes; the
+completion fixture fails at the first awaited iterator value after a checked
+loop. `tasks-iterator-intrinsics3` verifies the joined input-alias, head-scope and
+installed-constructor repairs: the workspace check passes in 37.60 seconds, and
+eight native test functions pass with two failed and none ignored. Both original
+failures are resolved. All four mixed-loop fixtures, the JSON fixture, all three
+ForOf family controls in both modes, Annex B ForIn and both module intrinsic/error
+controls pass. The remaining ForIn failures are a labelled async admission gap
+and an ordinary-generator head TDZ assertion. The joined repair admits checked
+iterator labels and counts every physical named-function self record in capture
+analysis. The workspace check passes in 53.98 seconds. `tasks-for-in-capture2`
+passes the full IR suite, both labelled Wasm admission controls and all five
+affected native tests. The original ForIn controls pass both modes, along with
+named-function assignment and direct-eval self-binding controls. Converter
+literals now share the actual helper gate. `tasks-temporal-literals1` passes the
+workspace check in 45.97 seconds, the PlainDate-only artifact control and all
+five remaining Realm controls in both modes. Fresh test processes and a 64 MiB
+retained-module cache pass the publication case that previously hit the 4 GiB
+cap. `tasks-remaining-isolated1` completes 50 native test functions with 39 passing,
+11 failing, none ignored and no OOM. All selected Intl, array storage, RegExp and
+CLI manifest controls pass. The joined source repair retains prepared Script
+kind, includes shared-converter host imports and corrects the oracle URL,
+resource fixture grammar and lazy-capacity assertion. All nine corrected
+resource parsing/lowering checks pass. Calendar diagnostics identify omitted
+lunisolar arithmetic domains and accessor bags copied before observation. The
+source repairs use exhaustive arithmetic dispatch and original accessor bags.
+Native verification remains open. Original execution deadlines remain.
+The joined repair passes the all-feature/all-target workspace check in 49.14
+seconds and the converter artifact regression. Its native collection completed
+17 functions: 12 pass and five fail; five remain unfinished after an intentional
+stop for repairs. Follow-up diagnostics identify incorrect leap-month `since`
+assertions and calendar-unit Duration addition in the fixtures. Those corrections
+and the resource binding-alias repair are written. Their successor passes the
+full workspace check in 63 seconds and completes all ten functions: eight pass
+and two fail, with none ignored. Calendar fixtures, ordinary/async resource
+scopes, switch resource lifetime, indirect eval and fresh Script cells pass both
+modes; nested direct-eval context also passes. The two remaining repairs move a
+resource lifetime observation inside its finalizer and admit known Symbols to
+Realm Script's existing ToString error path. Unknown executable source remains
+an AOT capability gap. The follow-up passes the workspace check, all 2,097 IR
+tests across 141 targets, five compile-fail documentation tests and the resource
+completion fixture. One pre-existing illustrative documentation snippet remains
+ignored. Non-String eval identity passes both modes. The final Realm fixture
+captures its Symbol before calls that can invalidate mutable global facts and
+passes both modes in 246.96 seconds. All three affected IR admission controls
+pass. The collected resource/calendar/Script repair batch is verified; full
+pinned conformance and remaining campaign, performance and host acceptance stay open.
+Earlier Intl/oracle
+results keep their original scope. Every payload
+retains one CPU, 4096 MiB aggregate RAM and zero swap. Current source, native,
+broad and pinned acceptance remain open; generated conformance counts are unchanged.
+
+Ordinary-generator and plain async array/With/ForIn owners have independent
+source reviews. Mixed async generators now have reviewed complete classic-loop,
+If, value, With, Switch and ForIn source owners. The successor now joins mixed
+literals, optional/private/Super operands, suspended assignments and per-key
+initialization, catch patterns and lawful sloppy head initializers. Ordinary
+generators and plain async functions share the same consuming Reference algorithms.
+The successor extends complete classic loops to Async and complete ForOf/ForAwait/
+ForIn to the three resumable protocols. Common resource capabilities cover lexical
+lists, iterator heads, classic heads and nested blocks in switch clauses. Direct
+clause-level resource declarations remain early errors. Suspended lexical async
+SuperCall retains the original derived new.target/constructor before arguments.
+Private source certificates retain exact
+Await/Yield kinds, phase ranges and captured Block/Try ancestry. The original
+Reference, environment, iterator, completion and request machinery remains
+shared. Checked Object Environment and two-cell CaseBlock storage proofs gate
+all actual With and complete generator Switch carriers. Selector terminal values
+are consumed before their generated operand bindings leave scope.
+Meaningful controls are written and typechecked; execution remains pending.
+
+Custom Intl source has eight independently reviewed locale filters: List,
+RelativeTime, DisplayNames, Duration, coupled NumberFormat/PluralRules,
+DateTimeFormat, Collator and Segmenter. Wasm build/run accepts
+`--intl-profile custom:ID` with `--intl-list-locales`,
+`--intl-relative-time-locales`, `--intl-displaynames-locales`,
+`--intl-duration-locales`, `--intl-number-locales`, `--intl-datetime-locales`,
+`--intl-collator-locales` and `--intl-segmenter-locales`. Original global
+authorities and actual fallback dependencies stay available. Segmenter retains
+all eight global Unicode/LSTM/dictionary rows for arbitrary input scripts while
+filtering actual locale-tailored overrides. SDK, cache, workers and CLI
+consume the selected owners; this successor has no runtime acceptance.
+
+The source batch adds complete mixed array patterns and synchronous/awaited
+iterator phases. One actual resource capability now spans each lexical list,
+per-key iterator initialization/body, classic For or Switch CaseBlock. Exact
+source registrations and original finalizers are consumed by opaque carriers;
+the shared native iterator, environment and disposal algorithms remain physical
+owners. Meaningful ordering, TDZ, cancellation and damaged-carrier controls are
+written and unrun.
+
+The complete pinned Conformance image profile, strict Custom locale/currency
+manifests, currency/calendar/numbering/named-zone projections and admitted data
+export/import are authored. Checked service selection now physically omits frames
+outside the real dependency closure and separately gates public operations.
+Manifest v6, cache v18, sparse export and Wasm consumers share that authority.
+RegExp has the linked choice arena, recursive required runs, completed optional
+child snapshots and discharged capture-assertion admission. Independent
+repetition uses a proved input bound and preserves the exact optional gap;
+pure empty syntax is simplified in the original literal/runtime producers.
+Real multi-seed arithmetic/object/module campaigns now include attributed
+dynamic imports and top-level Await through `module-graph-v2`.
+`control-flow-v1` adds checked branches, finite loops, finalizers, captured cells
+and all four function protocols through the real completion/print observer.
+Negative-source campaigns retain actual frontend phases; stateful builtin and
+metamorphic campaigns retain both original source variants and real observations.
+Bounded robustness runs and crash/timeout reduction retain exact native inputs
+and actual worker stages. Original Test262 failures/newly passing cases now have
+a separate checked seed/replay bridge preserving modes, harnesses and ownership.
+Compiler and runtime profiling retain the same twenty-source corpus; runtime
+reports actual phase timings and GC capacity snapshots, with unavailable
+allocation, collection, live-size, pause and peak counters stated explicitly.
+Conformance performance reports consume original admitted snapshots plus actual
+node invocation timers; data reports measure existing admitted Intl bundle frames
+with Unicode/tzdb provenance. Historical timing gaps remain unavailable.
+Explicit performance budget checks consume original repeated compiler/runtime
+evidence and retain every selected metric's decision; calibrated thresholds and
+actual measurements remain pending.
+Reproducible cross-host evidence and pinned conformance remain open. Every payload uses one CPU, 4096 MiB aggregate RAM, zero swap and serial
+workers. The initial type/source checkpoint and IR failure collection are
+complete; a coherent repair batch is under way. Generated suite counts and
+earlier result scopes are unchanged.
+
+## Earlier Switch/object/RelativeTime source pass — 2026-10-06
+
+Ordinary generators now have authored Switch regions, complete yielding Throw
+operands and object-pattern key/target/default/rest suspension owners. The same
+pattern lowering retains original lexical and scoped For cells. A parser-scope
+proof separates inferred class display labels from explicit inner class bindings,
+preserving outer reads, closures and TDZ. Actual frontend cover conversion and
+native destructuring consumers are joined. These changes have independent source
+reviews and meaningful strict/sloppy GC and completion controls; they are unrun.
+
+One checked Custom Intl profile now composes independently filtered ListFormat
+and RelativeTimeFormat data. List filtering retains Duration dependencies;
+RelativeTime filtering retains the actual Number owner. SDK, cache, workers and
+CLI share that selection. Wasm build/run accept `--intl-profile custom:ID` with
+`--intl-list-locales fr,ja`, `--intl-relative-time-locales fr,pl`, or both flags.
+The source includes native frame admission, formatting, cache and CLI controls.
+Other component filters and complete Conformance producers remain open.
+
+Array-owned suspensions, broader ForIn/With and suspended iterator/resource/mixed
+async owners remain source work. Compilation, native execution, measured size
+and pinned conformance follow the complete source pass. Every verification
+payload is capped at one CPU, 4096 MiB aggregate RAM, zero swap and serial workers.
+Generated counts remain unchanged; historical results retain their earlier scope.
+See the [batch workflow](../docs/rust-rewrite/batch-workflow.md).
+
+## Earlier exact/optional/List source pass — 2026-10-06
+
+The uncompiled successor adds exact decimal RegExp bounds and source-sized native
+counters, complete optional-chain suspension regions and terminal property Delete,
+eager assignment patterns/scoped For heads, and a physically filtered ListFormat
+profile shared with DurationFormat. Independent source reviews cover these owners;
+the corrected capture-only replay proof remains separate from general huge nullable
+acceleration. Existing controls are retained, with obsolete numeric-domain assertions
+updated to the admitted exact-bound behavior.
+
+Compilation, native execution, artifact-size measurement and pinned conformance
+remain deferred while the remaining source batches are written. Historical checks
+below retain their exact earlier scope. Every verification payload uses one CPU,
+4096 MiB aggregate RAM, zero swap and serial workers. Generated counts are unchanged.
+See the [batch workflow](../docs/rust-rewrite/batch-workflow.md).
+
+## Current atomic source pass — 2026-10-05
+
+The invariant-first implementation now has source chunks for the whole-value GC
+compiler path, native entry families, sparse Array authority and disposal
+continuations. The complete Temporal provider/calendar/epoch and method
+composition is written and sealed. Final heap/provider and passive metadata
+retirement, retained compiler controls and source-guard composition have
+finished independent source review. The combined source checkpoint includes
+types, meaningful finite semantic controls and current contracts.
+
+Before focused verification, the complete source batch and preceding integration
+repairs passed the whole-workspace, all-feature, all-target Rust type check on 2026-10-05 under the
+confirmed 4 GiB aggregate cap, zero swap, grouped OOM and one CPU. Authored Rust
+test targets typecheck. The cheap checkpoint through MAIN132 is complete: 22 resource/process
+controls and all 13 commands pass, including the affected formatting, module
+assertions and 56-entry shortcut inventory checks. Emitted Wasm validation,
+runtime and conformance remain unverified for this batch. Older results below
+retain their recorded scope. All unmet acceptance criteria remain open,
+including the explicit weak/ephemeron facility
+gap and the release gate. Complete coherent source batches precede verification
+with the confirmed 4 GiB aggregate kernel cap and serial workers described in the
+[batch workflow](../docs/rust-rewrite/batch-workflow.md).
+
+The first default-product focused compiler/GC checkpoint attempted 86 test
+functions: 60 passed, 21 failed and five have no completed results because the
+sparse Array target aborted with a stack overflow. No tests were ignored.
+The shared emitter, planning and Realm failures are being repaired as one source
+batch before affected regressions resume. Broad suites and pinned conformance
+remain unverified; these focused results do not close task acceptance.
+
+The first repair batch through MAIN134 passes the whole-workspace,
+all-feature, all-target type checkpoint and all four affected source checks.
+The affected 28-test attempt then aborted its dense-storage target with a
+compiler stack overflow. It was cancelled after source inspection proved the
+remaining ObjectDelete/ProxyDelete emitter cycle: zero test results completed,
+all 28 remain incomplete, and no tests are counted as skipped or passing.
+The owned runner and descendants were cleaned up. The confirmed 4 GiB cap,
+zero swap and one worker remained enforced. A complete source successor covers
+the typed Delete helper, supervised Test262 compilation deadline, selected
+object differential probes and Realm-owned RegExp legacy state before another
+verification attempt. This successor has no inherited type/runtime/conformance
+pass; task acceptance and canonical publication remain open.
+
+
+The 58-path successor through MAIN135 passed the all-feature, all-target
+workspace type check (attempt31) and all four affected source checks. Its complete
+focused compiler/GC cohort contained 88 test functions: 45 passed, three failed
+emitted-Wasm validation, 40 remained incomplete and none were ignored. The dense
+test completed without the earlier native stack overflow; it and two reached
+module controls rejected a missing i64 operand. Verification was cancelled with
+exit 143 before repeating the shared invalid emission, and owned processes were
+retired. Source inspection found four single-constant, double-store initializations
+in Temporal and RegExp literals. The complete source successor repairs them and
+adds whole-corpus differential reporting, a fresh-run conformance closure gate
+and measured performance reports. Its code, controls, CLI routes and contracts
+are written; its type check passed and current runtime acceptance remains pending.
+Broader generation/reduction tooling, runtime verification, current pinned
+conformance, idle-machine timing and task acceptance remain open. Generated
+full-suite counts are unchanged. Every verification payload retains the confirmed
+4096 MiB aggregate cap, zero swap and one CPU; scratch uses disk-backed
+`target/verification-tmp` because shared `/tmp` is nearly full.
+
+MAIN136 passed the all-feature, all-target workspace type check (attempt32)
+and all four repository checks. Its focused compiler/GC attempt completed
+45 passing controls and two failures, with 41 incomplete and none ignored.
+The dense control reached a later Wasm validation error: two TypedArray
+constructor alignment branches consumed an i64 remainder as an i32 condition.
+The owned runner was cancelled with exit 143 and its reached processes were
+confirmed retired. The next source repair normalizes both nonzero conditions
+and strengthens the existing construction cohort before verification resumes.
+Current runtime acceptance and broad/pinned verification remain open.
+
+The MAIN137 alignment source repair passed all four repository checks and
+compiled in the focused default-product run. That 92-control run stopped after
+45 passes and one emitted-Wasm validation failure; 46 controls remained
+incomplete and none were ignored. Validation reached a later RegExp finite-atom
+branch that loaded a checked I64 Boolean word as an I32 condition. MAIN138 stores
+that checked predicate in I32Local and requires explicit zero-extension for
+numeric width arithmetic. It also connects property-definition and assignment
+facades to their existing typed runtime helpers; their compilers retain private
+physical bodies. This removes repeated source emission while preserving whole
+completion, receiver, strictness and caller-environment ownership. The complete
+code, semantic controls and contracts passed the all-feature, all-target type
+check (attempt33) and all four repository checks. The 102-control focused run
+stopped after 45 passes and one code-growth failure, leaving 56 incomplete and
+none ignored. The dense-literal module now passes Wasm validation; its producer
+added 259,840 bytes for 896 elements, exceeding the 229,376-byte bound. No later
+target ran after this failure. MAIN139 replaces per-element numeric-key and
+generic property-definition dispatch with complete standard descriptors
+published directly into the existing Array indexed storage. Its fresh-literal
+owner preserves holes, active-Realm prototypes and expression/abrupt order.
+This source repair awaits focused verification; broad/pinned acceptance remains
+open and published full-suite counts are unchanged.
+
+The next T23 source batch carries real immutable ICU Locale, ListFormat and
+Collator component images. Their operation consumers load admitted data; the
+artifact carries matching payloads and the Engine checks them before cached or
+fresh native execution. Source review also moved the 605 existing IR controls
+out of the public facade without changing their names or source literals, and
+replaced the retired no-collector CLI assertion with live closure/catch roots.
+MAIN142 passed the whole-workspace, all-feature, all-target Rust type checkpoint
+(attempt36, 96.545 seconds) under the confirmed memory/CPU limits after the exact
+exporter build dependency and T02 iterator-family owner repairs. This establishes
+the shared image SDK foundation, without runtime or conformance proof. The next
+complete source batch adds the real native Number/Plural profile image and the
+seven-marker ICU Segmenter image, followed by actual native DisplayNames,
+RelativeTimeFormat and DurationFormat template images. Duration retains the
+selected Number and List owners; RelativeTime retains selected Number/Plural
+ownership, and DisplayNames retains selected Locale canonicalization data.
+Artifact admission now covers twelve component images. The final source lanes
+add the complete IANA2026a transition/country authority, DateTime profiles and
+four actual calendar payloads, CLDR timezone names and four native Locale
+information tables. Locale retains its actual keyword-alias payload, and
+Collator retains its own complete locale inventory. DateTime plans bind the
+selected DateTime, Locale and IANA content identities. The provider rejects
+foreign dependent owners even when their content digests match.
+
+All current operation consumers now use retained selected image data. The
+finite pinned Minimal and named Custom provider therefore declares Embedded
+placement. Unused normal baked-data dependencies are removed; build exporters
+and independent development oracles remain explicit. This complete successor
+is source-only: compilation, native execution, artifact controls and reproducible
+byte verification remain pending. Conformance and general filtered custom
+images remain open; current Custom names group exact pinned components and
+produce their selected Custom identity through artifact admission. Named-zone
+settings retain their complete provider-identity check. The library now carries
+`CompileOptions.intl_profile` through preparation, compiled units, cache identity
+and agent workers. The CLI accepts `--intl-profile minimal|custom:ID` for Wasm
+builds and Script/Module execution. One admitted bundle supplies both emitted
+frames and compiled catalogues; supported-values-only programs carry its full
+bound image group. Explicit unsupported choices reject before source execution.
+These consumer controls are authored, with compilation and runtime acceptance
+still pending. See the [selection contract](../docs/rust-rewrite/contracts/intl-compilation-profile.md).
+Published full-suite counts are unchanged.
+
+The ordinary generator source now retains complete yielding selectors and
+conditional/logical arms, eager operator operands and template substitution
+order. Compound assignments retain GetValue before the RHS; plain assignments
+capture a WriteOnly Reference and defer PutValue errors until after the RHS.
+The existing iterator linear assignment route is preserved. Source private
+GetValue applies getter effects before later property/call evaluation.
+
+Eager binding patterns consume complete suspended initializers through the
+existing single-Get and binding-iterator owners. Staged object literals allocate
+once and define each actual property with the same ordinary/native semantic
+body: computed key conversion precedes the value, prepared class naming
+precedes class initialization, and methods keep the retained object as HomeObject.
+Returned and discarded literals use that same owner. Independent source reviews
+and authored GC/abrupt-order controls are complete for these scopes; compilation
+and execution remain pending. Eager assignment-pattern and scoped classic For
+head joins now have independent source peers. Suspensions inside patterns, broader iterator/control,
+mixed async-generator and resource continuations remain explicit compiler work.
+See the [pattern initializer contract](../docs/rust-rewrite/contracts/generator-pattern-initializers.md)
+and [statement consumer contract](../docs/rust-rewrite/contracts/generator-statement-consumers.md).
+
+Recent staging directories and local receipts under `target` disappeared during
+the interrupted turn. The integrated source and three watched logs survive.
+The source successor is retained in the working tree with small recovery
+notes outside `target`; missing receipts are not recreated as new proof.
+
 This directory is the 30-task epic-level implementation backlog and
 current-status record for the Rust rewrite. It is designed so multiple contributors can work
 concurrently without turning the remaining large IR and Wasm backend modules
@@ -24,22 +646,61 @@ never a silent fallback, never part of an emitted artifact, and never a source
 of published conformance numbers. Wherever a task mentions running spec-exec,
 that run is oracle triage; the Wasm-AOT run is the requirement.
 
-## Current status snapshot — 2026-08-31
+## Current implementation pass — 2026-10-03
+
+The user requested invariant-first dry implementation across the remaining
+tasks before testing individual pieces. Reviewed production changes, types,
+regression sources and documentation are being integrated together. Source
+inspection and formatting continue; compilation, runtime tests and conformance
+sweeps wait for the implementation checkpoint described in the
+[batch workflow](../docs/rust-rewrite/batch-workflow.md).
+
+The current source batches include complete finite computed RegExp sets,
+same-chain optional Call awaits and bounded generator Property/Call chains.
+The actual weak builtin boundary now consumes the selected runtime's unavailable
+facility, with strong-retaining weak producers retired and capability failures
+kept distinct from JavaScript exceptions. These are dry implementations with
+authored controls; they carry no inherited compile, runtime or task acceptance.
+
+The previous broad run was interrupted and retains its authentic partial
+results. Those results do not verify the combined workspace. All unmet task
+acceptance criteria stay open, including semantic GC, weak reachability and the
+release gate; published conformance numbers remain unchanged.
+
+## Current status snapshot — 2026-09-29
 
 | State | Tasks | Repository evidence |
 |---|---|---|
 | Complete | T00, T27-T29 | Repository contracts are enforced, the interpreter is quarantined from the product, the legacy JavaScript product is retired, and the Lila identity cutover is verified |
 | In progress | T01-T12, T14-T25 | Substantial implementation exists; T23's deterministic Intl architecture is live, but each task retains unmet acceptance criteria described in its current-state section |
-| Policy, typed accounting and no-source eval implemented; textual static subsets open | T13 | Generic runtime dynamic source stays explicit Wasm-AOT unsupported; no-argument and proven non-String `%eval%` execute without crossing that boundary, while String-capable eval, all Function-family constructors and realm `evalScript` retain closed compiler diagnostics and sound textual subsets remain open |
-| Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
+| Finite prepared sources implemented; unmatched runtime source remains open | T13 | Prepared direct/indirect eval, realm Scripts and all four Function-family bodies compile through the real compiler; runtime conversions and exact source matching remain observable, while unprepared source stays explicit typed Wasm-AOT debt |
+| Blocked final gate | T26 | The retained historical Wasm-AOT aggregate is not green; a fresh complete compiler aggregate and canonical publication remain outstanding |
+
+The retained version-7 baseline
+`current-pin-wasm-aot-20260907-c5115bf03-2x1-12g` records `87,641/102,043`
+passes and `14,402` failures, with a checked-in
+[generated failure backlog](../test262/backlog/aa55200d1310384c5cf69ea95b2a2ecba457007b/wasm-aot.json)
+and a nested status artifact refreshed on `2026-09-14`. These are historical
+compiler results under the current suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`; focused repairs do not determine
+new full-suite totals. T01 still owns the fresh compiler aggregate, backlog
+regeneration and canonical publication.
 
 Current shortcut counts and semantic-only removal ownership are derived in
 [the generated accounting report](../test262/backlog/current-shortcut-status.md).
 Run the source-level audit and generator checks before using that report.
-Audit green means no selector drift, not zero shortcuts or full conformance.
+The current generated report has zero semantic shortcuts among 56 classified
+observations. Audit green establishes no selector drift; full conformance
+still requires complete execution evidence.
 Each observation retains a closed classification, reason and concrete
 owner/removal task. Do not close a semantic task from focused green leaves
 while its full-tree and materialization-removal criteria remain unmet.
+
+## Historical focused retirement checkpoints
+
+The checkpoints below retain their original counts and dates. Intermediate
+shortcut inventories and capability gaps describe those checkpoints; the
+current summary and generated accounting report above govern present status.
 
 The final twelve T18 semantic observations are gone, leaving T18 with zero
 shortcut ownership. Its five physical String cases retain their exact vendored
@@ -173,6 +834,49 @@ full applicable helper provenance; six raw cohorts pass `36/36` including
 eight adjacent prototype controls. T24 therefore owns five remaining
 observations, all explicit dynamic-source substitutions rather than ordinary
 Error semantics.
+
+On 2026-09-28 the remaining per-path rewrite layer was deleted in full: 94
+stale path rewrites across the iterator-helper, Array and TypedArray selector
+tables plus 4 `$262`-dependent realm rewrites, with their dispatcher arms,
+source guards and fingerprint tests, and then the now-empty
+`rewrite_wasm_aot_self_contained` dispatcher itself with 59 rewrite-only
+fingerprint tests. Two compiler fixes enabled the deletion: the
+`every`/`some`/`find`/`reduce` iterator-close sites now use the shared
+GetMethod close helper instead of a hand-rolled `return` read, so
+non-callable callbacks close the iterator before the `TypeError`; and
+builtin-sourced global entries degrade when the script observably writes that
+global, so clobbered intrinsics inside closures throw `TypeError` instead of
+using stale bindings. All 98 affected iterator-helper paths pass exact
+`lila test262 run` replay, all 73 Array filter/flatMap paths pass, and the
+final two T24 rewrites (`undefined/S15.1.1.3_A1.js`,
+`Boolean/proto-from-ctor-realm.js`) pass `2/2`, all under suite pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b` with every non-success bucket at
+zero. The token-aware inventory now assigns 0 observations to T15 and T24,
+and the exact ledger holds 69 entries: 29 legitimate adaptations, 34
+diagnostic observations and 6 semantic shortcuts owned by T13 (2,
+resizable-helper static-subclass substitution) and T17 (4, typed-array
+literal/split-helper selection). Both audits verify green.
+
+On 2026-09-28 the T13 resizable-helper substitution was deleted as well.
+The helper's finite `new Function` candidates are covered by prepared
+Function sources, so all 188 consumers materialize exact helper bytes with
+outcomes identical to the substituted baseline (185 pass `2/2`, same 3
+staging `Unsupported`). The ledger now holds 64 entries with 4 semantic
+shortcuts, all T17 typed-array literal/split-helper selection. Both audits
+verify green.
+
+On 2026-09-28 the T17 typed-array literal/split-helper plan was deleted in
+full: the 319-case contract table, the nine-method selector, the split
+dispatcher, the intrinsic fragment and the compareArray omission, with two
+plan-only invariant tests and the plan branches of every cohort test
+collapsed to full-helper expectations. Exact `lila test262 run` replay of
+all nine method directories is unchanged versus the plan baseline, and the
+same session fixed the only failures those directories had: a backend bug
+where `new TypedArray(array)` ran a spurious `ToNumber` over Array
+arguments, joining the source on every construction and OOM-trapping past
+the 1GiB cap (`copyWithin` goes `122/6-crash` to `128/0`). The ledger now
+holds 56 entries with 0 semantic shortcuts: 23 legitimate adaptations and
+33 diagnostic observations. Both audits verify green.
 
 Twenty Iterator-helper metadata branches are now gone across `every`, `some`,
 `find`, `reduce`, `map`, `filter`, `flatMap` and `take`. The pinned-source
@@ -633,14 +1337,15 @@ the remaining apply and construct rewrites stay open.
 Snapshot comparison now rejects a missing requested name instead of silently
 substituting another complete run and reporting an empty diff. Explicit
 self-comparison, complete-evidence validation and status/backlog discovery remain
-intact. The retained `snapshot_comparison_identity` integration target covers the
-boundary with product-front-end compile-negative fixtures, not real-suite
-conformance evidence. See [T01](01-baseline-and-generated-backlog.md) and the
+intact. The retained `snapshot_comparison_identity` library test family covers
+the boundary with the same product-front-end compile-negative fixtures and an
+explicit private test worker role. CI inventories and executes all ten
+controls; this remains distinct from real-suite conformance evidence. See [T01](01-baseline-and-generated-backlog.md) and the
 [comparison contract](../docs/rust-rewrite/test262-snapshot-comparison.md).
 
-Next: finish the guarded current-pin Wasm-AOT matrix with fixed compiler inputs,
-publish only its verified canonical artifacts, then generate and curate the
-failure backlog. Compare explicitly named compatible runs; mandatory compiler
+Next: finish a fresh guarded current-pin Wasm-AOT matrix with fixed compiler
+inputs, publish only its verified canonical artifacts, then regenerate and
+curate the historical failure backlog. Compare explicitly named compatible runs; mandatory compiler
 provenance is still a separate schema migration. No aggregate status or T26
 closure is claimed by this repair.
 

@@ -1,0 +1,757 @@
+{
+  "files": [
+    {
+      "bytes": 3208,
+      "path": "Cargo.toml",
+      "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+    },
+    {
+      "bytes": 80091,
+      "path": "crates/lila-aot-wasm/src/emit.rs",
+      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+    },
+    {
+      "bytes": 80996,
+      "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
+      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+    },
+    {
+      "bytes": 33617,
+      "path": "crates/lila-engine/src/intl_data_images.rs",
+      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+    },
+    {
+      "bytes": 2584,
+      "path": "crates/lila-engine/src/intl_relative_time_host.rs",
+      "sha256": "48b5431f150c630845c7afebdff9de208a1ac5ee917ac00331601cae6f41dcc9"
+    },
+    {
+      "bytes": 16823,
+      "path": "crates/lila-engine/src/wasm_gc_intl_host.rs",
+      "sha256": "706e7e9284afc7c2833925bf516866eb1509ffb7b772b14d3255d0b9680e3af1"
+    },
+    {
+      "bytes": 3178,
+      "path": "crates/lila-intl/Cargo.toml",
+      "sha256": "4cc6bff8dccc9a9b084ff0185fc8e7471af017c3e946e4fbd309e2efb5e2d7aa"
+    },
+    {
+      "bytes": 2580,
+      "path": "crates/lila-intl/build.rs",
+      "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
+    },
+    {
+      "bytes": 2033,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/LICENSE",
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    },
+    {
+      "bytes": 730729,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/ar.xml",
+      "sha256": "94b2fea65038e61fa34b9b3efd728ab55e12c77644e61d283e63464ff57e13b7"
+    },
+    {
+      "bytes": 612277,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/de.xml",
+      "sha256": "3e14f53fd40a00527f7cbaf5b3228e35985fac0e3f93a4eecc03b6716ceb6a68"
+    },
+    {
+      "bytes": 478608,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/en.xml",
+      "sha256": "416fb34c500e969a9e3e9bd1e363f8af5938df3cdda72aa7e636fa7e72123aae"
+    },
+    {
+      "bytes": 615203,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/fr.xml",
+      "sha256": "ebc67e303a56940609c892ededb3697e3b291466cf9622dd2c389ad48872e98f"
+    },
+    {
+      "bytes": 582873,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/hi.xml",
+      "sha256": "5fa900f98f3f4ca70f73af23925783f73c62856d84892be9f364e05f4f10b261"
+    },
+    {
+      "bytes": 443958,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/it.xml",
+      "sha256": "51834d1632b59a345c5beef712f5dddbe4e62530bf8abfc62ed42be4f3a43653"
+    },
+    {
+      "bytes": 526626,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/ja.xml",
+      "sha256": "24bc2347a4fc2d1d331f122f5f4c4f05ce435513f4f5280b16a428aad8753fdc"
+    },
+    {
+      "bytes": 515597,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/ko.xml",
+      "sha256": "41d80dfb7ee5a6c8227940db5f672eb5712765a3aa28ffed7bbe641a82bbeeda"
+    },
+    {
+      "bytes": 290595,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/root.xml",
+      "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17"
+    },
+    {
+      "bytes": 626269,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/common/main/zh.xml",
+      "sha256": "b1ef8bcadcf19fa8914d9ba812a7bcec124c72fecbf4acea02e4c8bd2fe51866"
+    },
+    {
+      "bytes": 4665,
+      "path": "crates/lila-intl/data/calendar-eras-cldr-48/manifest.json",
+      "sha256": "d551300d46e7a64558d60bb2732b702902aa68ae60ee62284d0a67b314c25932"
+    },
+    {
+      "bytes": 2953,
+      "path": "crates/lila-intl/data/cldr-47-bcp47/manifest.json",
+      "sha256": "71a427fdc899544cb7ff29bc84c0c0f1fb5c29cbd80a35336ace332004235ff7"
+    },
+    {
+      "bytes": 2033,
+      "path": "crates/lila-intl/data/datetime-cldr-47/LICENSE",
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    },
+    {
+      "bytes": 3281,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/bcp47/calendar.xml",
+      "sha256": "8a1800fcb7fddf6f106a7cf0dd1b434a5e4847297cfeabbc5d0e19b3d3034bed"
+    },
+    {
+      "bytes": 8305,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/bcp47/number.xml",
+      "sha256": "5f8cfa798bc9efbdabcf78f6a4377304856e3514e06c1ffccaa135801754abd3"
+    },
+    {
+      "bytes": 132170,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/dtd/ldml.dtd",
+      "sha256": "ea3248b3620a5bcef2cee72de6da5e394517a5cd6a70218d6e4f6775facd6f5c"
+    },
+    {
+      "bytes": 691533,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/ar.xml",
+      "sha256": "f25c71f2ddb2664d5569220b1b4803893b9ddc0e3da4d54b71e90fa16b2432eb"
+    },
+    {
+      "bytes": 977,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/ar_EG.xml",
+      "sha256": "5b80cfe93e16c89b23dcd046ec76d9e39781386e6dfdfa7bb2d8f6dbc87955a7"
+    },
+    {
+      "bytes": 592674,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/de.xml",
+      "sha256": "7530b4c93f36102965b09685aea50b82934707a2bd025b7fc61ae0acb8a7114c"
+    },
+    {
+      "bytes": 435987,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/en.xml",
+      "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
+    },
+    {
+      "bytes": 459,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/en_US.xml",
+      "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
+    },
+    {
+      "bytes": 602136,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/fr.xml",
+      "sha256": "dd1034b6e8c2fde6eb66d00462651beb26fad1fd09eccbea6b250fd7130ae3e3"
+    },
+    {
+      "bytes": 565329,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/hi.xml",
+      "sha256": "e5bdf2a148b5e80555f6e73241a47a5f3c039518063faebde7046bb0db011e21"
+    },
+    {
+      "bytes": 428903,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/it.xml",
+      "sha256": "c5ec8e2e304e7b16f58e7012afe40ce2acc28c0c340d494ba2388ee86008667d"
+    },
+    {
+      "bytes": 512646,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/ja.xml",
+      "sha256": "a19cd8bea5cc68b132ace70dd99b65935edf8114367a835f7717b3a3dbd81118"
+    },
+    {
+      "bytes": 498327,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/ko.xml",
+      "sha256": "f7b9615d694e1821e4ad2bad8986cf3d57fe5f0f491662adb67b9833a43b036d"
+    },
+    {
+      "bytes": 268212,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/root.xml",
+      "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
+    },
+    {
+      "bytes": 610450,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/zh.xml",
+      "sha256": "97fea2cfdb7bfe59a4e0ce712ca2e6ccba67ef211957296f60365c9f84b24d52"
+    },
+    {
+      "bytes": 458,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/zh_Hans.xml",
+      "sha256": "138d8d3b9b646ab10d30628911ce79426ed86d308b13e988fc69f57bc16c91e2"
+    },
+    {
+      "bytes": 483,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/main/zh_Hans_CN.xml",
+      "sha256": "0a531ee82fcc7e4bfcb4dd2307d9f49ed5221491d178aa71c0d08037df042d0a"
+    },
+    {
+      "bytes": 5140,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/rbnf/ja.xml",
+      "sha256": "309af27ba239cb732c00babd6ccaca9361a08129d26becb63d882657b4947c8c"
+    },
+    {
+      "bytes": 17750,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/rbnf/zh.xml",
+      "sha256": "8d08bfc77f6ae22bfc67426af72c48b31fba0130e079d560df54801d8bd94367"
+    },
+    {
+      "bytes": 82166,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/dayPeriods.xml",
+      "sha256": "d986ad97ca0d2daef26f3e048d9907322f71540b60cdfb3f2f824de30ac11974"
+    },
+    {
+      "bytes": 914808,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/likelySubtags.xml",
+      "sha256": "505b3d3ddfae6eac57e0a82414b6571cb74fcfc18eb9a267a38ac0e9fab8bdb2"
+    },
+    {
+      "bytes": 11682,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/numberingSystems.xml",
+      "sha256": "c2177412b58cb809cc9f86ce2da80b395e5b7288a541b390e0dc5e6c9193f029"
+    },
+    {
+      "bytes": 408368,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/supplementalData.xml",
+      "sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4"
+    },
+    {
+      "bytes": 179742,
+      "path": "crates/lila-intl/data/datetime-cldr-47/common/supplemental/supplementalMetadata.xml",
+      "sha256": "74b9f3f942d7f28b302c18a9eebc21971ef83ebb02ea6b3565fb472a09a9be58"
+    },
+    {
+      "bytes": 194096,
+      "path": "crates/lila-intl/data/datetime-cldr-47/docs/ldml/tr35-dates.md",
+      "sha256": "0f4a9d5a7c19d95d545c0fd2f24410d75fc1d0987bcd28a8620947e0a72e28ec"
+    },
+    {
+      "bytes": 352127,
+      "path": "crates/lila-intl/data/datetime-cldr-47/docs/ldml/tr35.md",
+      "sha256": "79e0cfa61d50c5de3b1ad87a8c5b9bf334492118087dcf84f600ba011787575a"
+    },
+    {
+      "bytes": 4610,
+      "path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
+      "sha256": "d9ef53250bb02002a2c3520a5f4aab029bbbdc12da909c782af0f0f81c9a80d5"
+    },
+    {
+      "bytes": 1223,
+      "path": "crates/lila-intl/data/datetime-cldr-47/selector.json",
+      "sha256": "bf6b6390769997731252f5209cd2e4b4ed60fcbcded07f78816c7180145db6de"
+    },
+    {
+      "bytes": 552,
+      "path": "crates/lila-intl/data/number-cldr-47/payload-manifest.json",
+      "sha256": "eecc4c6f868a7307ca89fd7fb38d17c3c80d00e7f84ac5cb3c7185157ab45928"
+    },
+    {
+      "bytes": 6091829,
+      "path": "crates/lila-intl/data/number-cldr-47/profiles.bin",
+      "sha256": "d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254"
+    },
+    {
+      "bytes": 412691,
+      "path": "crates/lila-intl/data/number-cldr-47/source-manifest.json",
+      "sha256": "582f922168284a76255554a4b74c6200f0e954853ef2eaf49bceb393a2d48b49"
+    },
+    {
+      "bytes": 9576417,
+      "path": "crates/lila-intl/data/number-cldr-47/sources.tar.gz",
+      "sha256": "f85496f1e76ca0a12a0d7603c5f3243a94e2506926176f6ec7fe178327ffcebf"
+    },
+    {
+      "bytes": 8381,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/bcp47/number.xml",
+      "sha256": "0c10e9578f2191527475d0f57105d56c399b2f44425ceebadf474e50157abbb6"
+    },
+    {
+      "bytes": 290595,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/main/root.xml",
+      "sha256": "c16e0df1d410c8f481fcb9c4dd195709e08ec9f8a6519d2d9905078e32990f17"
+    },
+    {
+      "bytes": 11834,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/cldr/common/supplemental/numberingSystems.xml",
+      "sha256": "c5b9b208c6fe7bd3ce4e1c6cbb8f3337480aca620c9cf703ef3b6c74d4258c16"
+    },
+    {
+      "bytes": 960,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/source-manifest.json",
+      "sha256": "c0b70b5f5ffc5940c8f47e97ec99bd9c5596e1b81613901bffaa9a80323dc62f"
+    },
+    {
+      "bytes": 2198209,
+      "path": "crates/lila-intl/data/numbering-tols-cldr-48/ucd/UnicodeData.txt",
+      "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c"
+    },
+    {
+      "bytes": 758091,
+      "path": "crates/lila-intl/data/relative-time-cldr-47/common/main/pl.xml",
+      "sha256": "57dfcb94f55aea5878d0f0d9198beb781d0d8dc681a6b0ece04d8cf1c2799cdc"
+    },
+    {
+      "bytes": 459,
+      "path": "crates/lila-intl/data/relative-time-cldr-47/common/main/pl_PL.xml",
+      "sha256": "a0eb2483f1e1b65f054072808eed0ce0c9f25577e21aa8161faa79168c4c93cc"
+    },
+    {
+      "bytes": 1892529,
+      "path": "crates/lila-intl/data/relative-time-cldr-47/report.json",
+      "sha256": "f45a3b5d9e932db1fda1de6326726441795910466f8eb4b012bf68622e15a51e"
+    },
+    {
+      "bytes": 1530,
+      "path": "crates/lila-intl/data/relative-time-cldr-47/source-capture.json",
+      "sha256": "fb556b27efa85f6e169a105ef52b45685bd9b1a961b82a17f8a44a7a8e402edd"
+    },
+    {
+      "bytes": 11402,
+      "path": "crates/lila-intl/data/relative-time-cldr-47/source-inputs.json",
+      "sha256": "6e2a9c7ab759d89cabc50847a5f6bd23e5b5c511e77be8db56d407e4f8bba565"
+    },
+    {
+      "bytes": 8388,
+      "path": "crates/lila-intl/src/identifiers.rs",
+      "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
+    },
+    {
+      "bytes": 10333,
+      "path": "crates/lila-intl/src/image.rs",
+      "sha256": "c58494de86ba71a24116778e7b9599f452d89aad2b20ef0eb201851acaff24cd"
+    },
+    {
+      "bytes": 1366,
+      "path": "crates/lila-intl/src/image_build/keyword.rs",
+      "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
+    },
+    {
+      "bytes": 1473,
+      "path": "crates/lila-intl/src/image_build/locale.rs",
+      "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
+    },
+    {
+      "bytes": 41350,
+      "path": "crates/lila-intl/src/lib.rs",
+      "sha256": "5e265f9b481114eb12424d47ecda8c157eb08faf5801c23739678cd9c1f6c433"
+    },
+    {
+      "bytes": 6504,
+      "path": "crates/lila-intl/src/locale_image.rs",
+      "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
+    },
+    {
+      "bytes": 13922,
+      "path": "crates/lila-intl/src/number_format/configuration.rs",
+      "sha256": "6767e6bd194b7e3543ebeeeccf733fd31e67700f14e4d1c5ee3292711178758f"
+    },
+    {
+      "bytes": 1473,
+      "path": "crates/lila-intl/src/number_format/mod.rs",
+      "sha256": "a6e6381f9d103098a4efc906aad864b9169a8612387dae27592a3c31ef1c5d3c"
+    },
+    {
+      "bytes": 2358,
+      "path": "crates/lila-intl/src/number_format/numeric/digits.rs",
+      "sha256": "2faa87f60e41177ede509533570a2a8c201b3127bb993b2966d054c5a6067303"
+    },
+    {
+      "bytes": 5228,
+      "path": "crates/lila-intl/src/number_format/numeric/mod.rs",
+      "sha256": "82374bb5ffe4e67434ec94d61dc42f6ca052af0f605fff297d1add14183e95f8"
+    },
+    {
+      "bytes": 7559,
+      "path": "crates/lila-intl/src/number_format/numeric/notation.rs",
+      "sha256": "141232279f2d675845175a079efdddbfcfa5dd697a979941479b81d79e54ced9"
+    },
+    {
+      "bytes": 15121,
+      "path": "crates/lila-intl/src/number_format/numeric/parse.rs",
+      "sha256": "e78e13d0db3b057ea51e613f6a17e18f6d3bc91dfd2e226ee57e28d645b3a2da"
+    },
+    {
+      "bytes": 1298,
+      "path": "crates/lila-intl/src/number_format/numeric/parse/thresholds.rs",
+      "sha256": "9c9975b414b0d83044a18ebd896d6d95e5af67eb43116dd449d86e6af1a194e4"
+    },
+    {
+      "bytes": 8600,
+      "path": "crates/lila-intl/src/number_format/numeric/plural.rs",
+      "sha256": "9a2c09d2f8962c103a9e45e95f99101bf7ca6c89623384edb07335f2f19bb27d"
+    },
+    {
+      "bytes": 2507,
+      "path": "crates/lila-intl/src/number_format/numeric/resource.rs",
+      "sha256": "cf253f03853072b37972f7f4b21383f3fb95b0d409e6b3bbfdee7731b215f877"
+    },
+    {
+      "bytes": 12716,
+      "path": "crates/lila-intl/src/number_format/numeric/round.rs",
+      "sha256": "c10b47ee9d85e31fa963d3ababcf1d58a34db2214b4f8daf6aacb21ebdea489f"
+    },
+    {
+      "bytes": 10689,
+      "path": "crates/lila-intl/src/number_format/options.rs",
+      "sha256": "437cbf8d466ad052235af19fe6d99f8990ba1ae51dc79bc63b407decd5ba93ad"
+    },
+    {
+      "bytes": 3604,
+      "path": "crates/lila-intl/src/number_format/partition/buffer.rs",
+      "sha256": "773a01cb40071d0225d732dbc9573d5c5535b211899cac7e8c6798e701081508"
+    },
+    {
+      "bytes": 4861,
+      "path": "crates/lila-intl/src/number_format/partition/mod.rs",
+      "sha256": "0ec530b646335a7f641d2cf4ec4e417781758f695a1decf6824cb4be0e885a39"
+    },
+    {
+      "bytes": 14017,
+      "path": "crates/lila-intl/src/number_format/partition/range.rs",
+      "sha256": "b55ad9d18bc8e96d7c222d99a49f03f44f8238edb7619d95972ffe17da3e60a9"
+    },
+    {
+      "bytes": 28611,
+      "path": "crates/lila-intl/src/number_format/partition/render.rs",
+      "sha256": "17a5ed1c78845935074fec38cce397e2988e2bfb628bd437b387007e8986a4f8"
+    },
+    {
+      "bytes": 4804,
+      "path": "crates/lila-intl/src/number_format/partition_resource.rs",
+      "sha256": "036771251db99497dca4559b8fdc1cf0dc01bbe61c5995a77d1b991574994b38"
+    },
+    {
+      "bytes": 3459,
+      "path": "crates/lila-intl/src/number_format/parts.rs",
+      "sha256": "4dd7429971a85ea379cd15f33fdd1b5190a8526e5a2e7a3f1481f4d78da17e69"
+    },
+    {
+      "bytes": 1888,
+      "path": "crates/lila-intl/src/number_format/plural_rules.rs",
+      "sha256": "a5535170f45997be6739b41f565ef7ab47b2ce938ddb1f9b3859a67a36e54759"
+    },
+    {
+      "bytes": 5016,
+      "path": "crates/lila-intl/src/number_format/profiles/domains.rs",
+      "sha256": "4c14e36615acc6cbac0b341d74277fbea1b7d48ba484341dee619e4eee41424a"
+    },
+    {
+      "bytes": 417,
+      "path": "crates/lila-intl/src/number_format/profiles/fingerprint.rs",
+      "sha256": "b21c63bb85b92393474de4185d79ffb03e78e6a89b3ec79e50b24c7c4e40b6e8"
+    },
+    {
+      "bytes": 17304,
+      "path": "crates/lila-intl/src/number_format/profiles/mod.rs",
+      "sha256": "dc6e9cce3cd0dea2cbbc484dbd916b44c8f41e9c0d9e7f5dbdf1f44bfce506c3"
+    },
+    {
+      "bytes": 5205,
+      "path": "crates/lila-intl/src/number_format/profiles/projection.rs",
+      "sha256": "58cc1123fb2098e653ee2fb76d5c8584703b0b5dc194ee2764fdc6d5c4ec5feb"
+    },
+    {
+      "bytes": 10982,
+      "path": "crates/lila-intl/src/number_format/profiles/projection/closure.rs",
+      "sha256": "b0e0384277d2f7d5fbe42b459b3d1318dda25e0e5ca4a2e8c160a27d28c49be2"
+    },
+    {
+      "bytes": 14608,
+      "path": "crates/lila-intl/src/number_format/profiles/projection/encode.rs",
+      "sha256": "8100a9470e70a6cae01bc51a4c937790841edc16d176df45d02001ad88e97f20"
+    },
+    {
+      "bytes": 17637,
+      "path": "crates/lila-intl/src/number_format/profiles/read.rs",
+      "sha256": "5129b1a5437e6f81ca6d94ce9e80c632cec5708b8dab48ca4e4aade999b8ff9c"
+    },
+    {
+      "bytes": 24763,
+      "path": "crates/lila-intl/src/number_format/profiles/validate.rs",
+      "sha256": "bdb0106f56b5b5575220e41ae9a73c317ce4704b4af4acffabf6115195d62fdb"
+    },
+    {
+      "bytes": 15496,
+      "path": "crates/lila-intl/src/number_image.rs",
+      "sha256": "1104730a9f1c553007019cc9a2414637a05d7c5040e0d9842a41a0e271709270"
+    },
+    {
+      "bytes": 18446,
+      "path": "crates/lila-intl/src/number_image/projection.rs",
+      "sha256": "1c08cac7cc2ff86251bd7e8b9dbe63ea0bdcf64f3ebe1f334db2c111fc8e9537"
+    },
+    {
+      "bytes": 3283,
+      "path": "crates/lila-intl/src/number_operation.rs",
+      "sha256": "b16996e0604492812297453b98c9bb61eba0ef2283dbe94af5008be6a845ffb9"
+    },
+    {
+      "bytes": 2393,
+      "path": "crates/lila-intl/src/number_protocol.rs",
+      "sha256": "d1b639456ee28338b959c9e176178dfbc1f097deddbb05c0d6b8a203df0dd695"
+    },
+    {
+      "bytes": 7551,
+      "path": "crates/lila-intl/src/number_protocol/configuration.rs",
+      "sha256": "233d7b859f2cb95f82ad13a7f9054f366fe61e882822b5c3f6e0a9b11cdd5592"
+    },
+    {
+      "bytes": 5517,
+      "path": "crates/lila-intl/src/number_protocol/domains.rs",
+      "sha256": "5585455a62273a6ae8d626a477bd0b101a3a2fb67e326e92323ba505c2577034"
+    },
+    {
+      "bytes": 7867,
+      "path": "crates/lila-intl/src/number_protocol/messages.rs",
+      "sha256": "6fd7d1f8fa898b429831bfb8761585f76f3a23e99b3e39c869fb7157824472fd"
+    },
+    {
+      "bytes": 10218,
+      "path": "crates/lila-intl/src/number_protocol/primitives.rs",
+      "sha256": "460e3525e74891438c1351798610a6be57fca65278ab7709767f53890a798e95"
+    },
+    {
+      "bytes": 6435,
+      "path": "crates/lila-intl/src/number_protocol/rounding.rs",
+      "sha256": "928f82efb94091454dc67fd9aa458587415721cdf71edb3b9729d20eca1decac"
+    },
+    {
+      "bytes": 11163,
+      "path": "crates/lila-intl/src/plural_protocol.rs",
+      "sha256": "9e428e802174aa900a077ac0f7083f8c405a35a570075c3fa54b51e4ffa81704"
+    },
+    {
+      "bytes": 13775,
+      "path": "crates/lila-intl/src/plural_rules/mod.rs",
+      "sha256": "5ecff1147a80207c41b46b01b552bb66094ccbb4a6106af87fbc26f126fbbd7d"
+    },
+    {
+      "bytes": 3409,
+      "path": "crates/lila-intl/src/plural_rules/rules.rs",
+      "sha256": "af92e0445620f2a8bd7534811cd9e25314ba05890e29c802b5c1b22ab367afe6"
+    },
+    {
+      "bytes": 49955,
+      "path": "crates/lila-intl/src/protocol.rs",
+      "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
+    },
+    {
+      "bytes": 80443,
+      "path": "crates/lila-intl/src/provider.rs",
+      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+    },
+    {
+      "bytes": 2251,
+      "path": "crates/lila-intl/src/provider/conformance.rs",
+      "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
+    },
+    {
+      "bytes": 17530,
+      "path": "crates/lila-intl/src/provider/keyword_aliases.rs",
+      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+    },
+    {
+      "bytes": 4101,
+      "path": "crates/lila-intl/src/provider/keyword_aliases/generated.rs",
+      "sha256": "8a135345c0cd483a387009bdefee9e52c0316f32729f388d80b5cf5261bbf13b"
+    },
+    {
+      "bytes": 21618,
+      "path": "crates/lila-intl/src/provider/language_domain.rs",
+      "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
+    },
+    {
+      "bytes": 3539,
+      "path": "crates/lila-intl/src/relative_time_format.rs",
+      "sha256": "8c456d181c9799fb82c128354a4072040e68418a6b8e574f1ad64935c652c8ed"
+    },
+    {
+      "bytes": 7300,
+      "path": "crates/lila-intl/src/relative_time_format/configuration.rs",
+      "sha256": "3dfbbb8e0d43578386e9ed24b3380ec6dc09aa7b1165698b13612a8a6d27f2f8"
+    },
+    {
+      "bytes": 2767,
+      "path": "crates/lila-intl/src/relative_time_format/domains.rs",
+      "sha256": "a88810f233bb45490d5177de0eab41771d6d4955ca929c8b3ade592a1ed6f3b4"
+    },
+    {
+      "bytes": 259890,
+      "path": "crates/lila-intl/src/relative_time_format/generated/profile.json",
+      "sha256": "cf19084cea53a4ae2714e1062bf15b014f6460e24f53c6df50f2944f7690419d"
+    },
+    {
+      "bytes": 5646,
+      "path": "crates/lila-intl/src/relative_time_format/partition.rs",
+      "sha256": "60560fad75c9acc01cb379b3c2323e2d44a875ee899a45d8a11cacf73cb0d2f9"
+    },
+    {
+      "bytes": 10312,
+      "path": "crates/lila-intl/src/relative_time_format/profiles.rs",
+      "sha256": "e2dd860181ea3f1985986fd90024ff2c2572ad444b79d70a9571a45c2db14048"
+    },
+    {
+      "bytes": 718,
+      "path": "crates/lila-intl/src/relative_time_format/raw.rs",
+      "sha256": "6ab8d711706ed2de73f6d8fcfdf639e0db9dad25ad44259b61c320e3a039e07d"
+    },
+    {
+      "bytes": 6602,
+      "path": "crates/lila-intl/src/relative_time_image.rs",
+      "sha256": "4f80970c2215a4a9d904cb6ba56f6042572acb264c642c5ab29fce58614285de"
+    },
+    {
+      "bytes": 12357,
+      "path": "crates/lila-intl/src/relative_time_image/projection.rs",
+      "sha256": "c8c3af38ea49b3a5b28ec10e8e0e70e0c546044dee3157541a43ccf47b1417fa"
+    },
+    {
+      "bytes": 15546,
+      "path": "crates/lila-intl/src/relative_time_protocol.rs",
+      "sha256": "e1eec181f6be4d8c1189956235b8f3d7e9428eb78c7670cbe8fa7393b198746d"
+    },
+    {
+      "bytes": 3802,
+      "path": "crates/lila-intl/src/relative_time_protocol/wire.rs",
+      "sha256": "283d5b4a6eee84d4cda0800269b88d87154a7a985d4d2f4966a98bc64efac67d"
+    },
+    {
+      "bytes": 54634,
+      "path": "crates/lila-intl/src/selection.rs",
+      "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+    },
+    {
+      "bytes": 21454,
+      "path": "crates/lila-intl/src/selection/export.rs",
+      "sha256": "1ff9becaa320301f1ae1f1dcc85d468b4546d1aa86f33c31db9f35418408d97e"
+    },
+    {
+      "bytes": 35819,
+      "path": "crates/lila-intl/src/selection/manifest.rs",
+      "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
+    },
+    {
+      "bytes": 7999,
+      "path": "crates/lila-intl/src/service_selection.rs",
+      "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
+    },
+    {
+      "bytes": 20568,
+      "path": "crates/lila-intl/src/supported_values.rs",
+      "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
+    },
+    {
+      "bytes": 9748,
+      "path": "scripts/generate-intl-display-relative-identity.py",
+      "sha256": "c4a952cce74db55bfee3ccf9198bce9c94b167894da175672e0ebdad910c51df"
+    },
+    {
+      "bytes": 10517,
+      "path": "scripts/generate-intl-relative-time-profile.py",
+      "sha256": "ef2cffb995d4d02b7cb799a38653600ac781ccb11cff08ee8559432befecd2ad"
+    },
+    {
+      "bytes": 3932,
+      "path": "scripts/intl_calendar_eras.py",
+      "sha256": "336084a24f6a55bb580583516326f56d07590e0dfe9729b72df56fd9fd1b2f0b"
+    },
+    {
+      "bytes": 14260,
+      "path": "scripts/intl_cldr_profile.py",
+      "sha256": "502cf9ce1a0b98e11aa1670ab41dfd4d3cb6054b468ab618b7a8fc75c09956e2"
+    },
+    {
+      "bytes": 3323,
+      "path": "scripts/intl_ldml_schema.py",
+      "sha256": "d5c046d9060a741cd8d86fab179c56ad489e922007da238255e71c2c9ec12b3a"
+    },
+    {
+      "bytes": 5622,
+      "path": "scripts/intl_positional_numbering.py",
+      "sha256": "295624436d4935cc11015bae2643427caf09f38d08bf4fdc1886a0a95a40bf15"
+    },
+    {
+      "bytes": 4017,
+      "path": "scripts/intl_relative_time_sources.py",
+      "sha256": "0be649cd3f79c342ea95896cd779068ac9557d8643db62f7662cbb02d4e80410"
+    }
+  ],
+  "host_call_abi": 17,
+  "packages": [
+    {
+      "checksum": "6ae5921528335e91da1b6c695dbf1ec37df5ac13faa3f91e5640be93aa2fbefd",
+      "name": "icu_locale",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "93cca704c2d63cf8a91f5c2c5f88e027940dede132319b85a52939db9758f7e5",
+      "name": "icu_locale_core",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.1"
+    },
+    {
+      "checksum": "4fdef0c124749d06a743c69e938350816554eb63ac979166590e2b4ee4252765",
+      "name": "icu_locale_data",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "03c80da27b5f4187909049ee2d72f276f0d9f99a42c306bd0131ecfe04d8e5af",
+      "name": "icu_provider",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "85c260e90e962088d46a1605687f78d3293cc3a34ba66b08ff7361084bc7895e",
+      "name": "icu_provider_adapters",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "cf5dd612b781cc4aa75b270f3c9f36fd42139a54b24fae7f077163ee6c322f85",
+      "name": "icu_provider_blob",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "dd29631678d6fb0903b69223673e122c32e9ae559d0960a38d574695ebc0ea15",
+      "name": "ryu-js",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.2"
+    },
+    {
+      "checksum": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
+      "name": "serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.228"
+    },
+    {
+      "checksum": "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86",
+      "name": "serde_json",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.149"
+    },
+    {
+      "checksum": "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283",
+      "name": "sha2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.10.9"
+    }
+  ],
+  "provider_data_sha256": "bc70341d2bb01fb78a7f981b873b7eacddaaccf5548778d5ffce619240acb006",
+  "schema_version": 1,
+  "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
+  "service": "RelativeTimeFormat",
+  "wire_version": 1
+}

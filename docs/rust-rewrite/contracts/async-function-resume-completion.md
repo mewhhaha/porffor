@@ -108,3 +108,42 @@ kinds, async-generator execution/body state, or module/finalization jobs. It
 does not make the Promise-job queue realm- or agent-owned, change unhandled
 rejection reporting, establish complete suspended-body support, or close the
 T14 Test262 gate.
+
+## GC suspension return boundary — 2026-10-07
+
+The GC body-entry ABI also distinguishes suspension from final falloff. A plain
+async body returns a Normal completion with its committed, nonzero resume point
+in the target word when it suspends. Normal with target zero means final
+falloff. Resetting that target after registering an Await reaction prematurely
+fulfilled the result Promise and marked the original activation completed;
+queued resume jobs then correctly refused to reenter it.
+
+`emit_return_async_suspension` consumes the actual typed body activation and
+reads its committed `AsyncActivation.RESUME_POINT` into the returned completion.
+Ordinary Await, module instantiation handoff, async resource disposal and both
+iterator implementations' awaited next/close paths use this one return boundary.
+The existing validated IR owns the nonzero suspension states. Async generators
+keep their separate `BODY_STATUS` and execution-state protocol; a synchronous
+generator is an explicit compiler error at this boundary. Registered reactions,
+original lexical environments, pending abrupt completions and Promise settlement
+remain owned by their existing implementations.
+
+The original native mixed Array lifecycle fixture exposed the defect after the
+main global-environment repair. Its execution returned normally with no expected
+output. One diagnostic showed even `await 0` skipping its continuation while
+the outer async Promise fulfilled. The shared source repair is written. The
+`tasks-async-suspension2` checkpoint passes the whole-workspace type check,
+immediate async return and async finalizer controls. Three controls remain red:
+ordinary Await selects a main Atomics checkpoint with a missing branch condition,
+iterator close fails method acquisition, and the unchanged mixed Array lifecycle
+now throws instead of returning with empty output. The checkpoint completes all
+five controls in 465 seconds with two passes, three failures and none ignored,
+under one CPU and 4096 MiB. These failures have separate source owners and do not
+establish complete suspension acceptance.
+
+`tasks-symbol-progress1` then passes the current whole-workspace type check,
+ordinary Await lexical-state/rejection control, awaited iterator closing and
+the unchanged mixed Array lifecycle in both strict and sloppy modes. The joined
+Atomics stack-result and actual Symbol identity repairs clear those three
+failures. The separate waiter-progress and new Symbol-catalog controls remain
+open at that checkpoint; no broad or pinned conformance claim follows.

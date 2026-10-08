@@ -1,5 +1,14 @@
 # Atomics integer-operation authority
 
+Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+
+The private exhaustive AtomicsIntegerOperation domain selects the nine actual integer kernels and their coercion count, write admission and error rows. Fourteen fixed native methods remain the only Standard dispatcher entries. No raw policy or canonical property relookup is exposed. Each Number result is decoded at its real signed/unsigned width; BigInt is an immutable GC value, and Store preserves its converted return value.
+
+Four paired strict/sloppy finite Engine cohorts in `aot_gc_binary_data_entries.rs` cover native buffers, DataView, TypedArray construction/statics/species and Atomics/Realm lifecycle. Existing CLI semantic fixtures remain; obsolete raw-spelling guards are retired rather than replaced with mirrors. The historical implementation and receipts below do not certify this batch.
+
+## Historical record before the atomic GC rewrite
+
+
 Status: implemented as a source-equivalent Wasm-AOT invariant boundary.
 
 ## Closed operation

@@ -1,104 +1,99 @@
-//! The captured for-await head has one environment per iteration, not per
-//! invocation of its resumable body. These consuming carriers keep reattachment
-//! and cleanup paired without adding another activation layout or binding cell.
+//! A captured for-await head retains one actual environment per iteration.
 use super::*;
 use lila_ir::LexicalEnvironmentIr;
 
 #[must_use = "a saved iteration environment must be reattached before its body"]
 pub(super) struct SavedForAwaitIterationEnvironment {
-    environment_local: u32,
-    state_local: u32,
+    environment: GcLocal<Environment, Nullable>,
+    point: I32Local,
     value_resume_state: u32,
-    activation_local: u32,
-    environment_offset: u64,
 }
-
 #[must_use = "an active iteration environment must reach its single cleanup"]
 pub(super) struct ActiveForAwaitIterationEnvironment {
     cleanup: ControlTarget,
-    activation_local: u32,
-    environment_offset: u64,
 }
 
 impl FunctionBuilder<'_> {
     pub(super) fn detach_suspended_for_await_iteration_environment(
         &mut self,
-        state_local: u32,
-        plan: &AsyncForOfIteratorPlanIr,
-        activation_local: u32,
-        layout: &ForAwaitActivationLayout,
+        point: I32Local,
+        plan: ForAwaitIteratorPlan<'_>,
         function: &mut Function,
     ) -> SavedForAwaitIterationEnvironment {
-        let environment_local = self.reserve_temp_local();
-        // Entry and await-next/close resumes already carry the parent. Only a
-        // body resume carries a child, published before the preceding yield.
+        let schema = self.runtime_schema();
+        let environment = schema
+            .reserve_gc_local::<Environment, Nullable>(function)
+            .initialize_null(schema, function);
         Self::emit_state_in_inclusive_range_i32(
-            state_local,
-            plan.value_resume_state + 1,
-            plan.close_resume_state - 1,
+            point,
+            plan.value_resume_state() + 1,
+            plan.close_resume_state() - 1,
             function,
         );
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(environment_local));
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            ENV_PARENT_OFFSET,
-            self.current_env_local,
+        environment.replace(self.current_environment().load(schema, function), function);
+        let parent = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<Environment>()
+                .field(EnvironmentSchema::PARENT)
+                .read(self.current_environment(), schema, function)
+                .reference(),
             function,
         );
+        self.replace_current_environment(parent.load(schema, function), function);
+        parent.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        // The activation continues rooting the child while iterator bookkeeping
-        // uses the parent's layout. No user-body instruction runs detached.
         SavedForAwaitIterationEnvironment {
-            environment_local,
-            state_local,
-            value_resume_state: plan.value_resume_state,
-            activation_local,
-            environment_offset: layout.environment_offset(),
+            environment,
+            point,
+            value_resume_state: plan.value_resume_state(),
         }
     }
-
     pub(super) fn enter_suspended_for_await_iteration_environment(
         &mut self,
         saved: SavedForAwaitIterationEnvironment,
         environment: &LexicalEnvironmentIr,
         function: &mut Function,
     ) -> Result<ActiveForAwaitIterationEnvironment, EmitError> {
-        function.instruction(&Instruction::LocalGet(saved.state_local));
-        function.instruction(&Instruction::I64Const(i64::from(saved.value_resume_state)));
-        function.instruction(&Instruction::I64Eq);
+        let schema = self.runtime_schema();
+        saved.point.load(function);
+        function.instruction(&Instruction::I32Const(saved.value_resume_state as i32));
+        function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        // Allocate only for a fresh value. A body resume must keep the exact
-        // record addressed by closures created before suspension.
         self.emit_allocate_lexical_environment_record(environment, function)?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(saved.environment_local));
-        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.replace_current_environment(saved.environment.load(schema, function), function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        // Both runtime arms now have the same layout. Attach the compiler's
-        // binding view once, independently of allocation or reattachment.
         self.begin_existing_lexical_environment_scope(environment);
-        self.release_temp_local(saved.environment_local);
-        self.store_i64_local_at_offset(
-            saved.activation_local,
-            saved.environment_offset,
-            self.current_env_local,
-            function,
-        );
-        // The child depth is intentional: an abrupt branch must not unwind the
-        // child on its way to the cleanup that owns that same leave.
+        saved.environment.clear(function);
+        if self.current_function_meta().is_some_and(|meta| {
+            meta.protocol().execution_kind() == FunctionExecutionKind::AsyncGenerator
+        }) && self
+            .async_generator_resume_environment_plan
+            .as_ref()
+            .is_some_and(|plan| !plan.enclosing_scope_resume_states().is_empty())
+        {
+            saved.point.load(function);
+            function.instruction(&Instruction::I32Const(saved.value_resume_state as i32));
+            function.instruction(&Instruction::I32Eq);
+            self.emit_checked_async_generator_enclosing_saved_resume(function)?;
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::I32Or);
+            self.open_frame(ControlFrameKind::If, function);
+            // Fresh entry publishes its new record. A checked body resume must
+            // keep the deepest saved child until that child is reconstructed.
+            self.emit_save_resumable_environment(function)?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        } else {
+            self.emit_save_resumable_environment(function)?;
+        }
         let cleanup = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(cleanup);
-        Ok(ActiveForAwaitIterationEnvironment {
-            cleanup,
-            activation_local: saved.activation_local,
-            environment_offset: saved.environment_offset,
-        })
+        Ok(ActiveForAwaitIterationEnvironment { cleanup })
     }
-
     pub(super) fn leave_suspended_for_await_iteration_environment(
         &mut self,
         active: ActiveForAwaitIterationEnvironment,
@@ -107,16 +102,8 @@ impl FunctionBuilder<'_> {
         assert_eq!(self.finally_stack.pop(), Some(active.cleanup));
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        // Yield/await returned directly with the child still rooted. Normal and
-        // abrupt exits converge here, leave once, and publish the parent before
-        // IteratorClose (which can itself suspend) or another next() request.
         self.emit_leave_lexical_environment(function);
-        self.store_i64_local_at_offset(
-            active.activation_local,
-            active.environment_offset,
-            self.current_env_local,
-            function,
-        );
+        self.emit_save_resumable_environment(function)?;
         self.emit_dispatch_current_completion(function)
     }
 }

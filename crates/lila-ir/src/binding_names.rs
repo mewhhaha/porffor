@@ -225,10 +225,10 @@ impl SourceName {
     ///
     /// It is not a spellability check. Whether a name can be written as an
     /// `IdentifierReference` in generated Script text is a property of the
-    /// emitter, not of the domain — a `\u`-escaped or astral-plane identifier
-    /// is a perfectly good `[[LocalName]]` that the current emitter cannot
-    /// spell — so that question stays with
-    /// `modules::namespace::is_binding_identifier` (contract ledger R1).
+    /// emitter, not of the domain. The interner has already decoded Unicode
+    /// escapes, and generated text can spell astral and combining characters.
+    /// `modules::namespace::is_binding_identifier` shares the lexer's character
+    /// authority; it does not add another name domain (contract ledger R1).
     #[must_use]
     pub fn new(name: impl Into<String>) -> Option<Self> {
         let name = name.into();
@@ -421,8 +421,6 @@ unit_cell_roles! {
     DeferCaughtError => "defer$caught$error";
     /// Separate declaration scope inside the evaluator's exception boundary.
     DeferExecute => "defer$execute";
-    /// `import source` module source object.
-    ModuleSource => "source";
     /// `import.meta` object (13.3.12, 16.2.1.9).
     ImportMeta => "meta";
 }

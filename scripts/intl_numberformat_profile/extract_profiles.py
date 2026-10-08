@@ -11,7 +11,7 @@ import sys
 
 from cldr_resolver import CldrResolver, path_text
 from pattern_grammar import number_pattern, message_pattern, strip_number, UNIT, MedialPlaceholder
-from unicode_sets import properties as unicode_properties, parse as parse_unicode_set
+from unicode_sets import properties as unicode_properties, parse as parse_unicode_set, normalize as normalize_ranges
 from plural_grammar import CATEGORIES, parse_rule, check_samples, category, sample_operands
 
 STAGE = Path(__file__).resolve().parents[1]
@@ -40,12 +40,14 @@ class Extractor:
         self.resolver = CldrResolver(stage)
         self.pools = {name: Pool() for name in [
             "strings", "patterns", "signed_patterns", "choices", "symbols", "compact_sets",
-            "numbering_profiles", "currency_sets", "unit_sets", "plural_rules", "plural_ranges", "profiles", "unicode_sets",
+            "numbering_profiles", "currency_sets", "unit_sets", "plural_rules", "ordinal_rules", "plural_ranges", "profiles", "unicode_sets",
         ]}
         self.medial_denominators = []
         self.string("")
         self.pattern([])
         self.unicode_properties = unicode_properties(Path(stage) / "reference/ucd")
+        self.unicode_properties["Nd"] = normalize_ranges([
+            *self.unicode_properties["Nd"], *self.resolver.numbering_supplement.decimal_ranges()])
         self.property_sets = {name: self.add("unicode_sets", ranges) for name, ranges in self.unicode_properties.items()}
         r = self.resolver
         systems = r.xml("common/supplemental/numberingSystems.xml")
@@ -60,7 +62,7 @@ class Extractor:
                 raise ValueError(f"invalid digit alphabet: {node.attrib}")
             self.systems.append({"name": node.get("id"), "digits": digits})
         self.systems.sort(key=lambda row: row["name"])
-        if len(self.systems) != 77:
+        if len(self.systems) != 78:
             raise ValueError("review changed numeric digit inventory")
         self.system_indexes = {row["name"]: i for i, row in enumerate(self.systems)}
         option_source = (NUMERIC / "options.rs").read_text()
@@ -99,21 +101,23 @@ class Extractor:
                     raise ValueError(f"ambiguous compound unit mapping: {joined}")
                 if matches:
                     self.unit_pairs.append((i, j, matches[0]))
-        self.plural_by_locale = {}
-        self.plural_samples = []
-        for group in r.xml("common/supplemental/plurals.xml").findall(".//pluralRules"):
-            source_rules = [(n.get("count"), n.text) for n in group.findall("pluralRule")]
-            rules = [(name, parse_rule(text)) for name, text in source_rules]
-            if any(name not in CATEGORIES for name, _ in rules):
-                raise ValueError("unknown cardinal category")
-            samples = check_samples(rules, source_rules)
-            index = self.add("plural_rules", rules)
-            for locale in group.get("locales").split():
-                if locale in self.plural_by_locale:
-                    raise ValueError(f"duplicate plural locale: {locale}")
-                self.plural_by_locale[locale] = index
-            self.plural_samples.append({"rule": index, "locales": group.get("locales").split(), "samples": samples})
-        self.root_plural = self.add("plural_rules", [])
+        def extract_rules(filename, pool):
+            by_locale, samples = {}, []
+            for group in r.xml(f"common/supplemental/{filename}").findall(".//pluralRules"):
+                source_rules = [(n.get("count"), n.text) for n in group.findall("pluralRule")]
+                rules = [(name, parse_rule(text)) for name, text in source_rules]
+                if any(name not in CATEGORIES for name, _ in rules):
+                    raise ValueError("unknown plural category")
+                checked_samples = check_samples(rules, source_rules)
+                index = self.add(pool, rules)
+                for locale in group.get("locales").split():
+                    if locale in by_locale:
+                        raise ValueError(f"duplicate {pool} locale: {locale}")
+                    by_locale[locale] = index
+                samples.append({"rule": index, "locales": group.get("locales").split(), "samples": checked_samples})
+            return by_locale, samples, self.add(pool, [])
+        self.plural_by_locale, self.plural_samples, self.root_plural = extract_rules("plurals.xml", "plural_rules")
+        self.ordinal_by_locale, self.ordinal_samples, self.root_ordinal = extract_rules("ordinals.xml", "ordinal_rules")
         self.range_by_locale = {}
         self.root_range = self.add("plural_ranges", [end for _ in CATEGORIES for end in CATEGORIES])
         for group in r.xml("common/supplemental/pluralRanges.xml").findall(".//pluralRanges"):
@@ -391,7 +395,7 @@ class Extractor:
         ranges = self.component_locale(locale, self.range_by_locale, self.root_range)
         return self.add("profiles", {
             "default_numbering": self.system_indexes[default], "numbering": numbering,
-            "plural_rules": plural, "plural_ranges": ranges,
+            "plural_rules": plural, "ordinal_rules": self.component_locale(locale, self.ordinal_by_locale, self.root_ordinal), "plural_ranges": ranges,
             "currencies": self.currency_labels(locale),
             "units": [self.units_for_width(locale, width) for width in ("short", "narrow", "long")],
         })
@@ -451,17 +455,19 @@ def main():
         if position % 25 == 0 or position + 1 == len(candidates):
             print(f"profiles {position + 1}/{len(candidates)}: {locale}", file=sys.stderr, flush=True)
     canonical = {
-        "schema": 1, "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+        "schema": 2, "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
         "complete": complete, "default_locale": "en-US", "locales": locales,
         "numbering_systems": extractor.systems, "sanctioned_units": extractor.units,
+        "numbering_supplement": resolver.numbering_supplement.identity,
         "unicode_properties": extractor.property_sets,
         "currency_fractions": {"default": extractor.default_fraction, "overrides": extractor.fractions},
         "source_diagnostics": diagnostics, "tables": {name: pool.rows for name, pool in extractor.pools.items()},
     }
     products = {
         "profiles.json.gz": gzip.compress((stable(canonical) + "\n").encode(), mtime=0),
-        "profile-provenance.json.gz": gzip.compress((stable({"source_leaves": provenance_leaves.rows, "selection_sets": provenance_sets.rows, "locales": provenance_locales}) + "\n").encode(), mtime=0),
+        "profile-provenance.json.gz": gzip.compress((stable({"source_leaves": provenance_leaves.rows, "selection_sets": provenance_sets.rows, "locales": provenance_locales, "numbering_supplement": resolver.numbering_supplement.identity}) + "\n").encode(), mtime=0),
         "medial-denominator-policy.json": (json.dumps(extractor.medial_denominators, ensure_ascii=False, indent=2) + "\n").encode(),
+        "ordinal-samples.json": (json.dumps(extractor.ordinal_samples, ensure_ascii=False, indent=2) + "\n").encode(),
         "plural-samples.json": (json.dumps(extractor.plural_samples, ensure_ascii=False, indent=2) + "\n").encode(),
     }
     summary = {"complete": complete, "canonical_locales": len(locales), "raw_candidates": len(candidates),
@@ -469,6 +475,7 @@ def main():
                "precomposed_pairs": len(extractor.unit_pairs), "currency_codes": len(extractor.currency_codes),
                "table_rows": {name: len(pool.rows) for name, pool in extractor.pools.items()},
                "source_diagnostics": diagnostics,
+               "numbering_supplement": resolver.numbering_supplement.identity,
                "products": [{"path": name, "sha256": hashlib.sha256(product_content(name, content)).hexdigest(),
                              "bytes": len(product_content(name, content))} for name, content in products.items()]}
     products["coverage.json"] = (json.dumps(summary, indent=2) + "\n").encode()

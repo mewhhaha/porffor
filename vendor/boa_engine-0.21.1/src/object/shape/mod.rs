@@ -203,6 +203,13 @@ impl Shape {
         }
     }
 
+    pub(crate) fn property_count(&self) -> usize {
+        match &self.inner {
+            Inner::Shared(shape) => shape.property_count() as usize,
+            Inner::Unique(shape) => shape.property_count(),
+        }
+    }
+
     /// Return location in memory of the [`Shape`].
     #[inline]
     #[must_use]

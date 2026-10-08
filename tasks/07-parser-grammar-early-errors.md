@@ -1,5 +1,57 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
+## Current field-initializer source correction — 2026-10-07 dry source
+
+The current class parser still passed its enclosing `Yield`/`Await` parameters
+into all four public/private field and auto-accessor initializer arms. Those
+actual producer sites now parse initializers in their own ordinary function
+context. Script initializers can read an outer binding named `await`; a field
+cannot suspend its enclosing async function or generator. Computed names keep
+the enclosing parameters, nested callable bodies establish their own grammar,
+and Module-goal identifier restrictions remain intact.
+
+The printed ECMA grammar still forwards these parameters; this is the known
+[TC39 spec-text issue #3333](https://github.com/tc39/ecma262/issues/3333), not a
+new condition invented for the early-error classifier. The correction follows
+the pinned `staging/sm/fields/await-identifier-script.js` and
+`await-identifier-module-3.js` behavior. New front controls cover all four
+initializer owners, Script/Module and computed-name/nested-callable boundaries;
+paired native controls cover delayed binding reads, static/instance timing,
+computed-key suspension and nested async/generator functions. Narrow formatting
+and diff checks ran; compilation and execution remain deferred with the batch.
+
+## Current candidate verification
+
+The dedicated class-method HasDirectSuper producer, closed front projection
+and exhaustive IR diagnostic join pass their same-Source controls. All 16 owned
+negative files pass 32 modes, and the two SuperProperty positive boundaries
+pass four modes. Earlier async/generator and computed-name producers retain
+their separate owners. The Front library inventory control passes with the corrected 66/20/2
+identifier census and unchanged 61+1 classifier calls. The original T07
+packet overstated `early_error_code.rs` as 68; its frozen producer already
+contained 66 references. The parent diagnostic with 167 passes and one
+failure is retained, and all 168 current Front library tests pass in this
+same-Source focused run.
+Production parser bytes are unchanged by that test correction. T07 and
+its full pinned parser census remain open.
+
+The candidate continuation revalidates 84 focused stages with 1,856 selected Rust test invocations on the exact same Source. Compilation,
+one separate both-engine startup invocation and the default-features CLI
+build belong to the original focused run. The continuation freezes that
+CLI unchanged and executes all 151 selected pinned modes from 82 files.
+The original pin-identity validation failure remains recorded.
+
+This is candidate verification. MAIN installation and a fresh complete
+MAIN broad checkpoint remain required. The earlier session 30300 is
+INCOMPLETE without an owned terminal; its exit and cause remain unknown.
+Full pinned Test262 conformance and task acceptance remain open. The
+published status span is unchanged. The authentic continuation terminal is `bb22495c5187c67c269adeffd0e8efd91c3cbe97be18a79fb86c263945bc2798`; its Root-owned exit is `b399f9e5c16d0847ff4854a885e40c1b0b55f5428791d0186919db6dc64d0b1a`. The revalidated same-Source prefix is `7d0ce67ed3ce18e2646639461ba9eeb7f5d4e0793275b0937cf687ec96bf5bc9`; its original enclosing Root1 is `12a3deab22796d658bebdce50eaf263cf2a1443b1f03f0269dcdba951f9c77c1`.
+
+The preparation and dated verification statements below retain their
+original scope and failures. This checkpoint supersedes only the
+unexecuted state of the named selected controls described above.
+
+
 **Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, ordinary FunctionExpression/FunctionDeclaration, AsyncFunctionExpression, GeneratorExpression, GeneratorDeclaration, AsyncGeneratorExpression, AsyncFunctionDeclaration and AsyncGeneratorDeclaration `Contains super`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented; class field-initializer `SuperCall` and seven expression/declaration `Contains super` classifications are focused-verified, the eighth AsyncGeneratorDeclaration classification awaits focused verification, and broader grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
@@ -42,6 +94,39 @@ feature fields. Constructors own the four variants, and `diagnostic.kind()`,
 project the single carrier. A coded rejection can no longer be relabeled as a
 compiler gap after construction, and adding a diagnostic state fails to compile
 until every semantic projection handles it.
+
+### Source-only proposal: class method `HasDirectSuper`
+
+The isolated proposal assigns the existing class-method parameters/body
+`Contains SuperCall` producer `ClassMethodHasDirectSuper`, with a dedicated
+typed parser error carrier and exhaustive front/IR projections. Its five focused
+front controls and exact owned pinned inventory are UNEXECUTED. Computed names,
+object methods and earlier async/generator method producers retain their
+separate identities. No aggregate or product status is refreshed. The bounded
+contract is
+`docs/rust-rewrite/contracts/class-method-direct-super-early-errors.md`.
+
+### Source-only correction: classifier identifier inventory
+
+The immutable Locale-UTF8 Source `5cc2` diagnostic recorded `167/168` Front
+library tests, with only
+`known_script_and_class_super_producers_stay_structurally_reviewed` failing at
+its classifier identifier inventory. The original T07 source inverse changed
+`early_error_code.rs`'s expectation from 66 to 68 although its frozen before and
+after files both contain 66 classifier identifiers and 61 product classifier
+calls. The Front `lib.rs` increase from 19 to 20 identifiers is real; no
+classifier references were removed by the typed `HasDirectSuper` repair.
+
+This isolated successor corrects only that expectation from 68 to 66, retaining
+the exact workspace owner counts `early_error_code.rs:66`, `lib.rs:20` and
+`modules/early.rs:2`. The one classifier definition, 61 self-proof calls plus
+one product parse-boundary call, sole re-export, retained dependency test helper
+and absence of classifier glob imports remain guarded. The dedicated typed
+class-method producer, exhaustive projections, exact predicate and source
+position, and all five DirectSuper controls are unchanged. Those five controls
+passed in the recorded parent diagnostic; that is parent evidence only. The
+corrected test has not been compiled or executed, and no successor, aggregate
+conformance or MAIN pass is claimed.
 
 ### Focused-verified 2026-08-23: Script top-level `super`
 
@@ -1107,3 +1192,20 @@ cargo test -p lila-engine --quiet
 ```
 
 During development run focused `language/expressions`, `language/statements`, `language/declarations`, `language/module-code` and negative-phase shards rather than the full language tree on every edit.
+
+## Dry implementation: shared Unicode identifier character authority
+
+The lexer now exposes its existing decoded-code-point `IdentifierStart` and
+`IdentifierPart` predicates through `lila-front`. Lexing raw and private names, checking
+Unicode escapes, and spelling module namespace/export/source aliases consume
+that same authority. ICU `ID_Start`/`ID_Continue`, the existing Unicode 17
+supplements, and ECMAScript dollar-sign/underscore/join-control handling are
+unchanged. No XID substitution, normalization, second table or parser fallback
+is introduced. Reserved words and contextual binding restrictions remain parser
+checks; the existing `SourceName`/`MergedName` domains are preserved.
+
+Regression sources cover raw and escaped Mn/Mc/Pc characters, ID-vs-XID starts,
+Unicode 17 start/continuation additions, invalid alphabetic/numeric approximations,
+and Script/Module reserved-word boundaries. They are authored but uncompiled and
+unexecuted in the implementation-first batch. T07 and its full pinned acceptance
+remain open. See [the binding-name follow-up](../docs/rust-rewrite/contracts/module-binding-name-domains.md#13-shared-unicode-identifier-spelling-authority).
